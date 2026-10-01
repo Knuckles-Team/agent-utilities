@@ -1,6 +1,6 @@
-# RF-001 — Freeze authoritative AU release evidence
+# AU-FREEZE-001 — Freeze authoritative AU release evidence
 
-**Owner:** agent-utilities for its own release input and evidence gate. **Status:** SPECIFIED; acceptance NOT_AUDITED. Epistemic-graph must independently pin and attest its own source, artifacts, schema and runtime evidence. A shared program view can aggregate signed receipts but does not replace either repository's authority.
+**Owner:** agent-utilities for its own release input and evidence gate. **Status:** SPECIFIED; acceptance NOT_AUDITED. See [requirements.md](requirements.md) for the definition of every requirement ID and [status.json](status.json) for its delivery state and evidence. Epistemic-graph must independently pin and attest its own source, artifacts, schema and runtime evidence. A shared program view can aggregate signed receipts but does not replace either repository's authority.
 
 ## User outcome
 

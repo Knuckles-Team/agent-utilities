@@ -39,6 +39,7 @@ FORBIDDEN = (
     re.compile(r"\bgitlab\b", re.IGNORECASE),
     re.compile(r"\bhomelab\b", re.IGNORECASE),
     re.compile(r"(?:file://|/(?:home|Users|tmp|workspace)/)", re.IGNORECASE),
+    re.compile(r"\b(?:EH-\d{1,3}|RF-\d{3})\b"),
 )
 LINK = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 LOCAL_HOST = re.compile(
@@ -158,7 +159,44 @@ def _status_errors(root: Path, path: Path) -> list[str]:
         _status_field_errors(path, data)
         + _evidence_errors(path, entries)
         + _receipt_errors(path, data, entries)
+        + _requirement_errors(root, path, data)
     )
+
+
+def _requirement_entry_errors(path: Path, owner: str, entry: dict) -> list[str]:
+    label = f"{path}: {entry.get('id')}"
+    evidence = entry.get("evidence")
+    errors = []
+    if _evidence_errors(path, evidence):
+        errors.append(f"{label}: malformed evidence")
+    state = entry.get("delivery_state")
+    if state not in DELIVERY_STATES or not entry.get("title"):
+        errors.append(f"{label}: requires a title and a valid delivery_state")
+    if state in ("LANDED", "CLOSED") and not _merged_head(evidence, owner):
+        errors.append(f"{label}: LANDED/CLOSED requires merged-head evidence")
+    return errors
+
+
+def _requirement_errors(root: Path, path: Path, data: dict) -> list[str]:
+    """Each requirement ID has one defined entry with its own state and evidence."""
+    entries = data.get("requirements")
+    if entries is None:
+        return []
+    if not isinstance(entries, list) or any(
+        not isinstance(entry, dict) for entry in entries
+    ):
+        return [f"{path}: requirements must be an array of objects"]
+    errors = []
+    if [entry.get("id") for entry in entries] != data.get("requirement_ids"):
+        errors.append(f"{path}: requirements must match requirement_ids in order")
+    register = root / path.parent / "requirements.md"
+    defined = register.read_text(encoding="utf-8") if register.is_file() else ""
+    owner = data.get("owner_repo", "")
+    for entry in entries:
+        if f"`{entry.get('id')}`" not in defined:
+            errors.append(f"{path}: {entry.get('id')} lacks a definition")
+        errors.extend(_requirement_entry_errors(path, owner, entry))
+    return errors
 
 
 def _status_field_errors(path: Path, data: dict) -> list[str]:

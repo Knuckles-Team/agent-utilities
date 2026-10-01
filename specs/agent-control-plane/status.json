@@ -1,30 +1,189 @@
 {
   "schema_version": 1,
-  "spec_id": "agent-control-plane",
+  "spec_id": "AU-CONTROL-001",
   "owner_repo": "agent-utilities",
   "requirement_ids": [
-    "RF-029",
-    "EH-035",
-    "EH-036",
-    "EH-037",
-    "EH-038",
-    "EH-039",
-    "EH-048",
-    "EH-206",
-    "EH-453",
-    "EH-454",
-    "EH-455",
-    "EH-456",
-    "EH-457",
-    "EH-458",
-    "EH-459",
-    "EH-460",
-    "EH-461",
-    "EH-462",
-    "EH-463",
-    "EH-464"
+    "AU-CONTROL-R001",
+    "AU-CONTROL-R002",
+    "AU-CONTROL-R003",
+    "AU-CONTROL-R004",
+    "AU-CONTROL-R005",
+    "AU-CONTROL-R006",
+    "AU-CONTROL-R007",
+    "AU-CONTROL-R008",
+    "AU-CONTROL-R009",
+    "AU-CONTROL-R010",
+    "AU-CONTROL-R011",
+    "AU-CONTROL-R012",
+    "AU-CONTROL-R013",
+    "AU-CONTROL-R014",
+    "AU-CONTROL-R015",
+    "AU-CONTROL-R016",
+    "AU-CONTROL-R017",
+    "AU-CONTROL-R018",
+    "AU-CONTROL-R019",
+    "AU-CONTROL-R020",
+    "AU-CONTROL-R021",
+    "AU-CONTROL-R022",
+    "AU-CONTROL-R023"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": []
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "AU-CONTROL-R001",
+      "title": "Layered agent execution stack from task mapping to harness run",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "4578b71b208152d479fe4c1ec44191494e88d862",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/4578b71b208152d479fe4c1ec44191494e88d862",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-CONTROL-R002",
+      "title": "Component routing through one committed graph-engine decision",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R003",
+      "title": "Agent graph composition via epistemic-graph assembly, not an LLM",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R004",
+      "title": "Abstention escalations re-enter as labelled claims, not proofs",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R005",
+      "title": "Advisory pre-tool risk scoring",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R006",
+      "title": "Cost-aware routing informed by usage accounting",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R007",
+      "title": "Swarm topology selection routed through Decide",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "7383c254b05ac90fb6e84c600559dfa79072b9d6",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/7383c254b05ac90fb6e84c600559dfa79072b9d6",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-CONTROL-R008",
+      "title": "Free-text task mapping accepted only as a labelled claim",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R009",
+      "title": "Swarm topology ontology and schema publication",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R010",
+      "title": "Reference swarm topology templates",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R011",
+      "title": "Consume the generated topology contract via a pinned dependency",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R012",
+      "title": "Agent-graph templates validated against topology shape at publish",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R013",
+      "title": "Topology options filtered by admissibility derivation",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R014",
+      "title": "No local topology solver, defer to the validated graph-engine model",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R015",
+      "title": "Topology consumer asks the graph engine, not a local success store",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R016",
+      "title": "Topology decisions respect capacity headroom at request priority",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R017",
+      "title": "Single re-decision on capacity denial for topology admission",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R018",
+      "title": "Subagent allowance negotiated into the run specification",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R019",
+      "title": "Swarm continuation restricted to narrow-only decisions",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R020",
+      "title": "Learned topology routing term with a benchmark gold set",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R021",
+      "title": "Harness and sandbox access via direct typed ports, not a registrar",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R022",
+      "title": "Model selection routed through the committed decision, not ad hoc",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R023",
+      "title": "Catalog entries attributed to their originating server",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    }
+  ]
 }

@@ -3,11 +3,31 @@
   "spec_id": "AU-DEV-001",
   "owner_repo": "agent-utilities",
   "requirement_ids": [
-    "EH-518",
-    "EH-630",
-    "EH-654"
+    "AU-DEV-R001",
+    "AU-DEV-R002",
+    "AU-DEV-R003"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": []
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "AU-DEV-R001",
+      "title": "A development skill documents AU's contribution workflow",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-DEV-R002",
+      "title": "Deployment and genesis tooling move to graph-os",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-DEV-R003",
+      "title": "Skill inventory refresh stays deterministic after moves",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    }
+  ]
 }

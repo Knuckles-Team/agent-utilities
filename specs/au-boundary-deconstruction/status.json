@@ -3,48 +3,466 @@
   "spec_id": "AU-BOUNDARY-001",
   "owner_repo": "agent-utilities",
   "requirement_ids": [
-    "EH-476",
-    "EH-477",
-    "EH-478",
-    "EH-479",
-    "EH-480",
-    "EH-481",
-    "EH-482",
-    "EH-483",
-    "EH-484",
-    "EH-485",
-    "EH-486",
-    "EH-487",
-    "EH-488",
-    "EH-489",
-    "EH-490",
-    "EH-491",
-    "EH-492",
-    "EH-493",
-    "EH-494",
-    "EH-495",
-    "EH-496",
-    "EH-497",
-    "EH-498",
-    "EH-499",
-    "EH-500",
-    "EH-501",
-    "EH-502",
-    "EH-503",
-    "EH-504",
-    "EH-505",
-    "EH-506",
-    "EH-507",
-    "EH-508",
-    "EH-509",
-    "EH-510",
-    "EH-511",
-    "EH-512",
-    "EH-514",
-    "EH-515",
-    "EH-516"
+    "AU-BOUNDARY-R001",
+    "AU-BOUNDARY-R002",
+    "AU-BOUNDARY-R003",
+    "AU-BOUNDARY-R004",
+    "AU-BOUNDARY-R005",
+    "AU-BOUNDARY-R006",
+    "AU-BOUNDARY-R007",
+    "AU-BOUNDARY-R008",
+    "AU-BOUNDARY-R009",
+    "AU-BOUNDARY-R010",
+    "AU-BOUNDARY-R011",
+    "AU-BOUNDARY-R012",
+    "AU-BOUNDARY-R013",
+    "AU-BOUNDARY-R014",
+    "AU-BOUNDARY-R015",
+    "AU-BOUNDARY-R016",
+    "AU-BOUNDARY-R017",
+    "AU-BOUNDARY-R018",
+    "AU-BOUNDARY-R019",
+    "AU-BOUNDARY-R020",
+    "AU-BOUNDARY-R021",
+    "AU-BOUNDARY-R022",
+    "AU-BOUNDARY-R023",
+    "AU-BOUNDARY-R024",
+    "AU-BOUNDARY-R025",
+    "AU-BOUNDARY-R026",
+    "AU-BOUNDARY-R027",
+    "AU-BOUNDARY-R028",
+    "AU-BOUNDARY-R029",
+    "AU-BOUNDARY-R030",
+    "AU-BOUNDARY-R031",
+    "AU-BOUNDARY-R032",
+    "AU-BOUNDARY-R033",
+    "AU-BOUNDARY-R034",
+    "AU-BOUNDARY-R035",
+    "AU-BOUNDARY-R036",
+    "AU-BOUNDARY-R037",
+    "AU-BOUNDARY-R038",
+    "AU-BOUNDARY-R039",
+    "AU-BOUNDARY-R040",
+    "AU-BOUNDARY-R041",
+    "AU-BOUNDARY-R042",
+    "AU-BOUNDARY-R043",
+    "AU-BOUNDARY-R044",
+    "AU-BOUNDARY-R045",
+    "AU-BOUNDARY-R046",
+    "AU-BOUNDARY-R047",
+    "AU-BOUNDARY-R048"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": []
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "AU-BOUNDARY-R001",
+      "title": "Retire AU's duplicated gateway module",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "0a5c4db6a11cd7174011de101e1829f3ec65fe0a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/0a5c4db6a11cd7174011de101e1829f3ec65fe0a",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R002",
+      "title": "Retire AU's deployment and skill-certification tooling",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R003",
+      "title": "Retire AU's legacy MCP host and action manifest",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "2299e7854315b238bea1f84531f4cdd5c89013db",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2299e7854315b238bea1f84531f4cdd5c89013db",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R004",
+      "title": "Retire AU's multiplexer family duplicated in graph-os",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R005",
+      "title": "Migrate connector packages A-E onto the SDK",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R006",
+      "title": "Migrate connector packages F-J onto the SDK",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R007",
+      "title": "Migrate connector packages K-O onto the SDK",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R008",
+      "title": "Migrate connector packages P-S onto the SDK",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R009",
+      "title": "Migrate connector packages T-Z onto the SDK",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R010",
+      "title": "Delete AU's SDK-duplicated connector toolkit",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R011",
+      "title": "Delete AU's source lifecycle and certification code",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R012",
+      "title": "Delete the second EG projection and leftover shims",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "4fc47afa901b9a1804e3acf1ef4fca19339183ca",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/4fc47afa901b9a1804e3acf1ef4fca19339183ca",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R013",
+      "title": "Restrict graph-os to AU's public API only",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R014",
+      "title": "Move graph-os boundary modules out of AU",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R015",
+      "title": "Move the agent HTTP and A2A/ACP host out of AU",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R016",
+      "title": "Split AU's monolithic configuration module",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R017",
+      "title": "Split messaging behavior and authority across AU, graph-os, and EG",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "22729e6dbd2dbe4a79efd45148567c49127e3d67",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/22729e6dbd2dbe4a79efd45148567c49127e3d67",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R018",
+      "title": "Replace the AU graph engine facade with the EG client",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R019",
+      "title": "Replace AU's graph-compute and state facades with the EG client",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R020",
+      "title": "Move durable work, queues, and state to EG",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "1165123f0697eb4160cb143ffdd39e96a73221f8",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/1165123f0697eb4160cb143ffdd39e96a73221f8",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R021",
+      "title": "Move graph tenancy, topology, and admission to EG",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "6cfdf6bad653c05fe59cbe3e6b3e987be6d76af1",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/6cfdf6bad653c05fe59cbe3e6b3e987be6d76af1",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R022",
+      "title": "Retire AU's reasoning and graph-analytics duplicates",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "34606a6d3302aa4567fc6b2fd49e7e7099816741",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/34606a6d3302aa4567fc6b2fd49e7e7099816741",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R023",
+      "title": "Split ingestion commit and derivation into EG",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "e3abde51266542ddfc61868a633b24d634ed68c4",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/e3abde51266542ddfc61868a633b24d634ed68c4",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R024",
+      "title": "Move enterprise source synchronization to the SDK",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R025",
+      "title": "Move document, conversation, and feed sources to the SDK",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R026",
+      "title": "Move vendor enrichment extractors and write-back to the SDK",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R027",
+      "title": "Move deterministic enrichment and derivation to EG",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R028",
+      "title": "Move remaining graph standardization and security modules to EG",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R029",
+      "title": "Move the ontology object model to EG",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R030",
+      "title": "Move hand-written ontology emitters behind EG pack compilation",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R031",
+      "title": "Replace AU's graph-schema DTOs with EG-generated types",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R032",
+      "title": "Delete AU's legacy SPARQL backend and setup path",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "029ea71efc6a31e41aca68e989613b251a054554",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/029ea71efc6a31e41aca68e989613b251a054554",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R033",
+      "title": "Move external graph and database federation to EG",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R034",
+      "title": "Move retrieval engines to EG",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R035",
+      "title": "Re-home the schema-drift package before it lands",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R036",
+      "title": "Move the usage fact store to EG",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R037",
+      "title": "Move development-governance tooling to repository-manager",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "e0f4b90707786b54cabef74ee3c802ae23e12cde",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/e0f4b90707786b54cabef74ee3c802ae23e12cde",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R038",
+      "title": "Add a cross-owner component registry and path guard",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R039",
+      "title": "Move front ends off AU internals",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R040",
+      "title": "Move agent memory and the learning engine to EG",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R041",
+      "title": "Finance modules that produced fabricated data are removed",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R042",
+      "title": "Every package directory has one recorded disposition",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043",
+      "title": "Retained agent surface is declared and import-bounded",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R044",
+      "title": "Fleet, scaling and deployment modules leave orchestration",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R045",
+      "title": "Unplaced knowledge-graph packages receive file-level owners",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R046",
+      "title": "Partly covered packages list every file with its owner",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R047",
+      "title": "Engine-facing adapters and caches are thin clients or removed",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R048",
+      "title": "Domain models, shapes, assets and skill content are placed",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    }
+  ]
 }

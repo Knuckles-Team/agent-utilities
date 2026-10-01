@@ -1,7 +1,7 @@
 # Agent context, retrieval feedback and finance roles
 
 **ID:** AU-CONTEXT-001 · **Owner:** agent-utilities · **Delivery:** SPECIFIED; no acceptance claim.
-**Items:** EH-394, EH-397–EH-399, EH-419, EH-423, EH-513, EH-704. EH-400 supplies EG invalidation events; AU cache consumption is specified in [AU-SEC-01](../agent-security-policy/spec.md). Other EG, SDK and graph-os owners implement their own storage, transport and UI obligations.
+**Items:** AU-CONTEXT-R001, AU-CONTEXT-R002–AU-CONTEXT-R004, AU-CONTEXT-R005, AU-CONTEXT-R006, AU-CONTEXT-R007, AU-CONTEXT-R008. See [requirements.md](requirements.md) for the definition of every requirement ID and [status.json](status.json) for its delivery state and evidence. EG-FEDERATED-QUERY-R018 supplies EG invalidation events; AU cache consumption is specified in [AU-SEC-01](../agent-security-policy/spec.md). Other EG, SDK and graph-os owners implement their own storage, transport and UI obligations.
 
 ## User outcomes
 

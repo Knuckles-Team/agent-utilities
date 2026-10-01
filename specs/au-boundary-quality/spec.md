@@ -1,6 +1,6 @@
 # Reproducible AU boundary and quality gates — AU-QUAL-01
 
-**Owner:** agent-utilities. **Delivery:** partial; **acceptance:** pending. Work item IDs: EH-176, EH-380, EH-385, EH-386, EH-391. This is a buildable contract for making the Python control plane green from a fresh clone and in a cloud contribution session.
+**Owner:** agent-utilities. **Delivery:** partial; **acceptance:** pending. Work item IDs: AU-QUAL-R001, AU-QUAL-R002, AU-QUAL-R003, AU-QUAL-R004, AU-QUAL-R005. See [requirements.md](requirements.md) for the definition of every requirement ID (including AU-QUAL-R006 and AU-QUAL-R007) and [status.json](status.json) for its delivery state and evidence. This is a buildable contract for making the Python control plane green from a fresh clone and in a cloud contribution session.
 
 ## Actors and outcome
 
@@ -18,16 +18,18 @@ An external contributor can run a focused test and a deterministic PR gate witho
 
 | ID | Requirement | Source | Acceptance evidence |
 |---|---|---|---|
-| QUAL-01 | Provide declared, reproducible Python/tool install and disposable service fixtures for every required PR test. | EH-380, EH-386 | fresh clone CI matrix |
-| QUAL-02 | Fix `tiny` profile RBAC error propagation and bootstrap isolation coverage at real gateway entry points. | EH-380 | positive/negative served tests |
-| QUAL-03 | Use composed engine `GraphSchema` for connector validation; remove AU shape authority. | EH-385 | contract and schema drift tests |
-| QUAL-04 | Repair placement mining, trace miner, claim flywheel, ingestion, observability, widget and assimilation benchmark failures with causal tests rather than skips. | EH-386 | exact test list and run |
-| QUAL-05 | Include `tests/` in mypy and resolve its errors in small owned batches without new ignores, casts to `Any`, or exclusions. | EH-391 | mypy output and config diff |
-| QUAL-06 | Give liveness deferrals a visible owner and review date; expired entries fail a deterministic hosted/scheduled check with a useful message. | EH-176, EH-380 | time frozen unit tests + CI run |
-| QUAL-07 | Keep PR gates hermetic and proportional: provisionable fixtures, source/contract quality, privacy and duplication. Require live stack proof only for release or a spec that explicitly needs it. | EH-386 | CI workflow + fresh fork run |
+| QUAL-01 | Provide declared, reproducible Python/tool install and disposable service fixtures for every required PR test. | AU-QUAL-R002, AU-QUAL-R004 | fresh clone CI matrix |
+| QUAL-02 | Fix `tiny` profile RBAC error propagation and bootstrap isolation coverage at real gateway entry points. | AU-QUAL-R002 | positive/negative served tests |
+| QUAL-03 | Use composed engine `GraphSchema` for connector validation; remove AU shape authority. | AU-QUAL-R003 | contract and schema drift tests |
+| QUAL-04 | Repair placement mining, trace miner, claim flywheel, ingestion, observability, widget and assimilation benchmark failures with causal tests rather than skips. | AU-QUAL-R004 | exact test list and run |
+| QUAL-05 | Include `tests/` in mypy and resolve its errors in small owned batches without new ignores, casts to `Any`, or exclusions. | AU-QUAL-R005 | mypy output and config diff |
+| QUAL-06 | Give liveness deferrals a visible owner and review date; expired entries fail a deterministic hosted/scheduled check with a useful message. | AU-QUAL-R001, AU-QUAL-R002 | time frozen unit tests + CI run |
+| QUAL-07 | Keep PR gates hermetic and proportional: provisionable fixtures, source/contract quality, privacy and duplication. Require live stack proof only for release or a spec that explicitly needs it. | AU-QUAL-R004 | CI workflow + fresh fork run |
 
 An unrelated documentation deployment or ambient environment check cannot be a merge blocker. Removing such a blocker does not waive a test that detects behavior, authorization, privacy or source duplication. Required tests must identify the prerequisite they provision and clean it up afterward.
 
 ## Edge cases and limits
 
 An absent optional test tool reports its setup problem clearly; it does not claim success. A service fixture binds only loopback and random ports, isolates tenants, and leaves no credentials. Expired liveness entries remain visible even when no code changes. Mypy activation must not suppress preexisting source errors. Benchmark randomness must be seeded at its owning engine/client seam, not by relaxing expected results. A GitHub Pages build may fail its own publishing job, but cannot silently rewrite functional test status.
+
+Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.

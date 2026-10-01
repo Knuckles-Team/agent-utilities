@@ -1,7 +1,7 @@
 # AU semantic client and generated contract
 
 **ID:** AU-SEMANTIC-001 · **Owner:** agent-utilities · **Delivery:** SPECIFIED, acceptance NOT AUDITED.
-**Items:** EH-367, EH-389 (AU follow-up), EH-431, EH-470–EH-474, EH-493–EH-510. Graph-owned portions of these items are dependencies; this spec states the AU cut and verification in full.
+**Items:** AU-SEMANTIC-R001, AU-SEMANTIC-R002 (AU follow-up), AU-SEMANTIC-R003, AU-SEMANTIC-R004–AU-SEMANTIC-R008, AU-SEMANTIC-R009–AU-SEMANTIC-R026. See [requirements.md](requirements.md) for the definition of every requirement ID, including AU-SEMANTIC-R027 and AU-SEMANTIC-R028, and [status.json](status.json) for delivery state and evidence. Graph-owned portions of these items are dependencies; this spec states the AU cut and verification in full.
 
 ## Outcome
 

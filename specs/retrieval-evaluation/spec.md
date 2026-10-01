@@ -1,6 +1,6 @@
-# EH-652 — Reproducible structure-aware retrieval evaluation
+# AU-RETRIEVAL-001 — Reproducible structure-aware retrieval evaluation
 
-**Owner:** agent-utilities for evaluation, answer citations and adoption decision. **Status:** SPECIFIED; acceptance NOT_AUDITED. EG owns production graph, hybrid/vector search and visibility enforcement. This spec does not authorize a second AU retrieval engine.
+**Owner:** agent-utilities for evaluation, answer citations and adoption decision. **Status:** SPECIFIED; acceptance NOT_AUDITED. See [requirements.md](requirements.md) for the definition of every requirement ID and [status.json](status.json) for its delivery state and evidence. EG owns production graph, hybrid/vector search and visibility enforcement. This spec does not authorize a second AU retrieval engine.
 
 ## User outcome
 

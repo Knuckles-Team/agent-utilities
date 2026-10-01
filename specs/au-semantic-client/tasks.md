@@ -2,12 +2,15 @@
 
 **States:** TODO, IN PROGRESS, IMPLEMENTED at merged head, VERIFIED at that head, ACCEPTED after release review. All rows begin TODO pending exact-head audit.
 
-| Work | IDs | State | Exit proof |
-|---|---|---|---|
-| Publish source identities and delete AU ontology/shapes | EH-367, EH-431, EH-470–473 | TODO | semantic parity, forbidden-import census, served validation |
-| Replace graph/session, DTO and durable work facades | EH-493–496, EH-506 | TODO | generated method and caller parity |
-| Remove compute, ingestion and source lifecycle duplicates | EH-497–505, EH-507–508, EH-510 | TODO | destination method plus no AU authority |
-| Move retrieval and memory state | EH-509, EH-516 | TODO | tenant-safe served read and restart proof |
-| Route reasoning topology through Decide | EH-474 | TODO | abstention and no local EMA store |
+- [ ] Make `OntologyLifecycle.set_active()` fail closed instead of a local fallback, verify domain-pack class/property references against EG's served schema-class list, and publish or delete every AU SHACL shape file (`knowledge_graph/shapes/`, `ontology/shapes/governance.shapes.ttl`) so no local shape survives outside a published EG pack; turn the ontology lifecycle/integrity/pack-loader/extraction-schema modules into generated-client calls, remove the `rdflib` dependency in favor of typed EG payloads, and drop `pyshacl` from AU tests in favor of EG-served `shacl_validate_ad_hoc`. Closes AU-SEMANTIC-R001, AU-SEMANTIC-R002, AU-SEMANTIC-R003, AU-SEMANTIC-R004, AU-SEMANTIC-R005, AU-SEMANTIC-R006, AU-SEMANTIC-R007.
+- [ ] Route reasoning-topology selection through a served, calibrated decision policy with explicit abstention and delete the local exponential-moving-average outcome store. Closes AU-SEMANTIC-R008.
+- [ ] Delete the local engine facade and orchestration modules, replace the graph-compute/session facades, the durable-job/queue/state modules, and the tenancy/shard-topology/admission modules with calls into the generated EG client (one typed composition under `api/`), and replace the hand-maintained graph-schema DTOs with EG-generated types. Closes AU-SEMANTIC-R009, AU-SEMANTIC-R010, AU-SEMANTIC-R011, AU-SEMANTIC-R012, AU-SEMANTIC-R022.
+- [ ] Delete AU's local reasoning and graph-analytics duplicates only after each has documented, per-method parity evidence against its EG-native replacement. Closes AU-SEMANTIC-R013.
+- [ ] Move ingestion commit/derivation to EG's `SourceIngest`, re-host enterprise source sync as an SDK runner over `SourceIngest`, move document/session/feed ingestion and vendor-enrichment extraction/writeback to the SDK and EG's `WriteBack`, move the remaining deterministic-derivation, standardization/infra/governance, and ontology object-model modules to EG, and move AU's hand-written RDF/OWL/SHACL emitters behind EG pack compilation. Closes AU-SEMANTIC-R014, AU-SEMANTIC-R015, AU-SEMANTIC-R016, AU-SEMANTIC-R017, AU-SEMANTIC-R018, AU-SEMANTIC-R019, AU-SEMANTIC-R020, AU-SEMANTIC-R021.
+- [ ] Delete the legacy SPARQL backend and setup modules, and move the remaining external graph/database backends into EG as federation and mirror targets. Closes AU-SEMANTIC-R023, AU-SEMANTIC-R024.
+- [ ] Move the retrieval and neural-search engines to EG, keeping only context compilation and the capability index in AU. Closes AU-SEMANTIC-R025.
+- [ ] Re-home the unlanded schema-drift package so its drift gate runs inside the SDK connector-sync runner between drain and apply, with SHACL rendering, the contract store and activation moving to EG. Closes AU-SEMANTIC-R026.
+- [ ] Require every capability-gap determination to search EG's own public surface (method catalog, generated contract, documentation) under EG's own naming before concluding a capability is missing, and make the configured embedding dimension validate against the deployed model's actual output size across the PostgreSQL/AGE/Neo4j backends and schema/ontology modules that size vector columns from it. Closes AU-SEMANTIC-R027, AU-SEMANTIC-R028.
+- [ ] Run the generated-client conformance suite, positive/negative served tests, the old-caller closure census, and CCCC, jscpd, Dupehound, KISS, Ruff/mypy and full quality gates; record exact merged-head evidence in `evidence.md` before any requirement is marked accepted.
 
-The task owner records a separate verdict per EH ID even when multiple IDs share a PR.
+The task owner records a separate verdict per ID even when multiple IDs share a PR.
