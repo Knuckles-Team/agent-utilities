@@ -83,6 +83,7 @@ from .brain_context import (
     set_actor,
     use_actor,
 )
+from .scope_registry import SESSION_SCOPES
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.core.session import GraphSession
@@ -104,22 +105,14 @@ UNAUTHENTICATED_PATHS: frozenset[str] = HEALTH_PATHS
 SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
 
 # The only graph authorization scopes a served identity may project into a
-# GraphSession. They come from validated JWT capabilities (``ActorContext.roles``),
-# never from request JSON/headers. Only the explicit ``kg:admin`` capability —
-# supplied directly or through the configured identity mapping — grants graph
-# administration; a generic application role named ``admin`` is not equivalent.
-# ``graph:admin`` is an exact, non-hierarchical EG capability scope
-# (``CreateGraph``/``DeleteGraph``/``ClearGraph``): it lets a graph-lifecycle
-# authority provision graphs without the blanket ``kg:admin`` that EG's
-# ``allows_method`` treats as "every action" (CONCEPT:X1).
-# ``rbac:approve-elevation`` (AU-SEC-R006) is the other independent
-# capability: EG accepts an elevation approval only from a direct identity
-# holding that EXACT scope, so it must reach the session as-is. It is never
-# implied by the hierarchy (``kg:admin`` does not expand to it) and is
-# granted to people through an approvers group, never to a service.
-_GRAPH_AUTH_SCOPES: frozenset[str] = frozenset(
-    {"kg:read", "kg:write", "kg:admin", "graph:admin", "rbac:approve-elevation"}
-)
+# GraphSession: exactly the scopes epistemic-graph registers (AU-SEC-R008),
+# GENERATED from EG's scope registry into ``scope_registry.py`` -- never a
+# hand-maintained list. They come from validated JWT capabilities
+# (``ActorContext.roles``), never from request JSON/headers; EG re-checks
+# every one against the verified token and enforces each scope's class. Only
+# the explicit ``kg:admin`` capability grants graph administration; a generic
+# application role named ``admin`` is not equivalent.
+_GRAPH_AUTH_SCOPES: frozenset[str] = SESSION_SCOPES
 
 _MAX_AUTHORITY_TEXT_LENGTH = 512
 _MAX_AUTHORITY_GROUPS = 128
