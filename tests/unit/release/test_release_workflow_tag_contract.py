@@ -59,7 +59,9 @@ def test_pypi_publish_is_tag_only_and_uses_the_protected_environment() -> None:
     )
 
     source = _run_text(publish)
-    assert "uv publish --check-url https://pypi.org/simple" in source
+    assert "publish_validated_wheel.py" in source
+    assert "--check-url" not in source
+    assert "--skip-existing" not in source
 
 
 def test_release_identity_checks_bind_tag_version_and_commit() -> None:
@@ -86,18 +88,57 @@ def test_release_identity_checks_bind_tag_version_and_commit() -> None:
         assert required in source
 
 
-def test_pypi_verification_requires_the_exact_published_release() -> None:
-    source = _job_text(_job("publish-pypi"))
+def test_publication_uses_pinned_central_contract_after_identity_check() -> None:
+    steps = _job("publish-pypi")["steps"]
+    contract = next(
+        step
+        for step in steps
+        if step.get("name") == "Checkout centralized publication contract"
+    )
+    assert contract["with"] == {
+        "repository": "Knuckles-Team/pipelines",
+        "ref": "4f80a968dbf09b1f4d35bbff11b77f9e2fcd3ef6",
+        "path": ".pipeline-contract",
+        "persist-credentials": False,
+    }
+    publish = next(
+        step for step in steps if "publish_validated_wheel.py" in step.get("run", "")
+    )
+    identity = next(
+        step
+        for step in steps
+        if step.get("name")
+        == "Require exact release tag, source version, and wheel version"
+    )
+    assert steps.index(identity) < steps.index(contract) < steps.index(publish)
+    assert publish["env"]["SOURCE_COMMIT"] == "${{ github.sha }}"
+    assert publish["env"]["PIPELINES_CONTRACT_COMMIT"] == contract["with"]["ref"]
+    assert publish["env"]["EXPECTED_TAG"] == "${{ github.ref_name }}"
+    assert '"${EXPECTED_TAG#v}"' in publish["run"]
+    assert '"$RUNNER_TEMP/au-publication.json"' in publish["run"]
+    assert "python -I " in publish["run"]
+    assert "urllib.request" not in _run_text(_job("publish-pypi"))
+    assert "version not in releases" not in _run_text(_job("publish-pypi"))
 
-    for required in (
-        "EXPECTED_TAG: ${{ github.ref_name }}",
-        'expected_version="${EXPECTED_TAG#v}"',
-        "https://pypi.org/pypi/agent-utilities/{version}/json",
-        'info.get("name") != "agent-utilities"',
-        'info.get("version") != version',
-        "if version not in releases:",
-        'item.get("filename") == expected_wheel',
-        "for attempt in $(seq 1 12); do",
-        "PyPI exact release verified: agent-utilities=={version}",
-    ):
-        assert required in source
+
+def test_publication_preserves_runtime_and_artifact_proof() -> None:
+    runtime = _job("numeric-runtime-gate")
+    assert runtime["needs"] == "build"
+    assert runtime["strategy"]["matrix"]["os"] == ["ubuntu-latest", "windows-latest"]
+    assert runtime["strategy"]["fail-fast"] is False
+    assert "str(next(Path('dist').glob('agent_utilities-*.whl')))" in _run_text(runtime)
+    smokes = [
+        step
+        for step in runtime["steps"]
+        if step.get("working-directory") == "${{ runner.temp }}"
+    ]
+    assert len(smokes) == 2
+    assert "check_numeric_runtime.py" in smokes[0]["run"]
+    assert "persistence_privacy" in smokes[1]["run"]
+    build = _job("build")
+    assert build["needs"] == ["gates", "clone-scanners"]
+    assert "release_wheel_reproducibility=passed" in _run_text(build)
+    assert "check_wheel_privacy.py" in _run_text(build)
+    assert _job("docker-publish-approval")["environment"] == "docker-publish"
+    assert _job("docker-publish-approval")["needs"] == "publish-pypi"
+    assert _job("publish-docker")["needs"] == "docker-publish-approval"

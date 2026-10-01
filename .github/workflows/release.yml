@@ -558,84 +558,29 @@ jobs:
           fi
           echo "release identity verified: tag=$TAG_NAME version=$tag_version commit=$HEAD_SHA wheel=$(basename "$wheel_path")"
 
+      - name: Checkout centralized publication contract
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: Knuckles-Team/pipelines
+          ref: 4f80a968dbf09b1f4d35bbff11b77f9e2fcd3ef6
+          path: .pipeline-contract
+          persist-credentials: false
+
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           version: '0.11.7'
-      - name: Publish the exact wheel validated on Linux and Windows
+      - name: Publish and verify exact validated wheel bytes
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-        run: uv publish --check-url https://pypi.org/simple dist/agent_utilities-*.whl
-
-      - name: Verify exact version and wheel on PyPI
-        env:
           EXPECTED_TAG: ${{ github.ref_name }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          PIPELINES_CONTRACT_COMMIT: 4f80a968dbf09b1f4d35bbff11b77f9e2fcd3ef6
         shell: bash
         run: |
           set -euo pipefail
-          expected_version="${EXPECTED_TAG#v}"
-          mapfile -t wheels < <(
-            find dist -maxdepth 1 -type f -name 'agent_utilities-*.whl' -print | sort
-          )
-          if (( ${#wheels[@]} != 1 )); then
-            echo "::error::PyPI verification: expected exactly one wheel, found ${#wheels[@]}"
-            exit 1
-          fi
-          expected_wheel_name="$(basename "${wheels[0]}")"
-          for attempt in $(seq 1 12); do
-            if EXPECTED_WHEEL_NAME="$expected_wheel_name" python3 - "$expected_version" <<'PY'
-          import json
-          import os
-          import sys
-          import urllib.error
-          import urllib.request
-
-          version = sys.argv[1]
-          expected_wheel = os.environ["EXPECTED_WHEEL_NAME"]
-          url = f"https://pypi.org/pypi/agent-utilities/{version}/json"
-          try:
-              with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310
-                  payload = json.load(response)
-          except (
-              urllib.error.HTTPError,
-              urllib.error.URLError,
-              TimeoutError,
-              json.JSONDecodeError,
-          ) as exc:
-              print(f"PyPI exact-version check not ready: {exc}", file=sys.stderr)
-              raise SystemExit(1) from exc
-
-          info = payload.get("info") or {}
-          if info.get("name") != "agent-utilities" or info.get("version") != version:
-              print(
-                  "PyPI returned a mismatched project/version: "
-                  f"name={info.get('name')!r} version={info.get('version')!r}",
-                  file=sys.stderr,
-              )
-              raise SystemExit(1)
-          releases = payload.get("releases") or {}
-          if version not in releases:
-              print(f"PyPI has no exact release key for {version}", file=sys.stderr)
-              raise SystemExit(1)
-          if not any(
-              item.get("filename") == expected_wheel
-              for item in (payload.get("urls") or [])
-          ):
-              print(
-                  f"PyPI {version} has no published wheel named {expected_wheel}",
-                  file=sys.stderr,
-              )
-              raise SystemExit(1)
-          print(f"PyPI exact release verified: agent-utilities=={version}")
-          PY
-            then
-              exit 0
-            fi
-            if (( attempt < 12 )); then
-              sleep 10
-            fi
-          done
-          echo "::error::PyPI exact-version verification failed after publication for agent-utilities==$expected_version"
-          exit 1
+          python -I scripts/release/publish_validated_wheel.py \
+            --version "${EXPECTED_TAG#v}" \
+            --manifest "$RUNNER_TEMP/au-publication.json"
 
   # BUG-072: the docker publish needs its OWN approval gate, not an inherited one.
   #
