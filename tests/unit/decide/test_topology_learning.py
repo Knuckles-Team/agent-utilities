@@ -1,22 +1,15 @@
-"""The statistical rung's AU side -- features, independent slate crediting
-and the synthetic full-label gold set."""
+"""The statistical rung's AU side -- features and independent slate crediting."""
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
-from typing import Any
 
 from agent_utilities.decide.consumers.topology_learning import (
     TopologyOutcome,
     credit_topology_outcome,
-    gold_dataset,
-    gold_items,
     plan_features,
 )
 from agent_utilities.decide.schemas import feature_schema_body
-from agent_utilities.decide.topology import REFERENCE_TEMPLATES
 from tests.unit.decide.fakes import FakeTransport
 
 PLAN = {
@@ -24,11 +17,6 @@ PLAN = {
     "lease": {"per_cell": [{"amount": 5}]},
     "makespan_ms": 700,
 }
-
-
-def _digest(value: Any) -> str:
-    data = json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode()
-    return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
 def test_features_match_the_published_schema_keys() -> None:
@@ -55,19 +43,3 @@ def test_an_independent_evaluation_is_credited_and_censoring_drops_the_label() -
     assert first["op"] == "evaluate" and first["evaluation"]["success"] is True
     assert first["evaluation"]["selected_agent"] == "agent-lead"
     assert second["evaluation"]["success"] is None
-
-
-def test_the_gold_set_lists_acceptable_topologies_by_construction() -> None:
-    items = {item.item_id: item for item in gold_items()}
-    survey = items["gold:independent-6"]
-    assert set(survey.acceptable) == {"swarm:fan-out-join", "swarm:supervisor-workers"}
-    assert len(survey.candidates) == len(REFERENCE_TEMPLATES)
-    assert items["gold:independent-check"].acceptable == ("swarm:critique-loop",)
-    dataset, digest = gold_dataset(list(items.values()), digest_of=_digest)
-    assert dataset["synthetic"] is True
-    names = dataset["feature_names"]
-    for row in dataset["items"]:
-        assert len(row["features"]) == len(row["candidate_ids"]) * len(names)
-        assert row["label"]["source"] == "synthetic_construction"
-        assert set(row["label"]["acceptable"]) <= set(row["candidate_ids"])
-    assert digest == _digest(dataset)

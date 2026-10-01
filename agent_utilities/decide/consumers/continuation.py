@@ -59,6 +59,8 @@ def _verifier_pass(rule: Mapping[str, Any], p: RoundProgress) -> bool:
 
 
 def _never(rule: Mapping[str, Any], p: RoundProgress) -> bool:
+    """Budget/deadline exhaustion is checked in :func:`stop_reason` directly,
+    never by the rule's own tag."""
     return False
 
 
@@ -72,20 +74,18 @@ _RULE_MET: dict[str, Callable[[Mapping[str, Any], RoundProgress], bool]] = {
 }
 
 
-def _exhausted(p: RoundProgress) -> str | None:
-    """Budget or deadline exhaustion stops whatever the rule says."""
-    if p.token_ceiling is not None and (p.tokens_spent or 0) >= p.token_ceiling:
-        return "budget"
-    if p.deadline_ms is not None and p.elapsed_ms >= p.deadline_ms:
-        return "deadline"
-    return None
-
-
 def stop_reason(rule: Mapping[str, Any], progress: RoundProgress) -> str | None:
-    """Why the committed stop rule ends the run now, or ``None``."""
-    exhausted = _exhausted(progress)
-    if exhausted is not None:
-        return exhausted
+    """Why the committed stop rule ends the run now, or ``None``.
+
+    Budget or deadline exhaustion stops whatever the rule says.
+    """
+    if (
+        progress.token_ceiling is not None
+        and (progress.tokens_spent or 0) >= progress.token_ceiling
+    ):
+        return "budget"
+    if progress.deadline_ms is not None and progress.elapsed_ms >= progress.deadline_ms:
+        return "deadline"
     tag = str(rule.get("rule") or "")
     met = _RULE_MET.get(tag)
     if met is None:
@@ -138,6 +138,7 @@ async def continue_or_stop(
     parent_record: str,
     stop: Mapping[str, Any],
     progress: RoundProgress,
+    *,
     width: int,
 ) -> Continuation:
     """After a round: stop when the rule or a budget says so, else ask EG
@@ -184,7 +185,10 @@ async def after_wave(
     )
     width = max(len(wave) for wave in waves[wave_index + 1 :])
     step = await continue_or_stop(
-        str(plan.get("record_id") or ""), plan.get("stop") or {}, progress, width
+        str(plan.get("record_id") or ""),
+        plan.get("stop") or {},
+        progress,
+        width=width,
     )
     if step.action == "narrow":
         for wave in waves[wave_index + 1 :]:

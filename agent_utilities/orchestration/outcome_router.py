@@ -83,7 +83,7 @@ class OutcomeRouter:
             score = (_PRIOR_BIAS if c == prior else 0.0) + rewards[c]
             if score > best_score:
                 best, best_score = c, score
-        return route_choice(self._ns, task_class, prior, rewards, best)
+        return route_choice(self._ns, task_class, prior, rewards=rewards, heuristic=best)
 
     def record(self, task_class: str, choice: str, reward: float) -> None:
         """Feed a run outcome back into the shared reward-EMA (best-effort, never raises)."""

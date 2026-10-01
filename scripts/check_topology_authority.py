@@ -67,12 +67,11 @@ def _cypher_topology_writes(tree: ast.AST, path: str) -> Iterator[Violation]:
             yield Violation(path, node.lineno, "cypher-topology-write", text[:60])
 
 
-def _is_selection_module(path: str) -> bool:
-    return path in SELECTION_MODULES or path.startswith(SELECTION_PACKAGES)
-
-
 def _success_rate_reads(tree: ast.AST, path: str) -> Iterator[Violation]:
-    if not _is_selection_module(path):
+    is_selection_module = path in SELECTION_MODULES or path.startswith(
+        SELECTION_PACKAGES
+    )
+    if not is_selection_module:
         return
     for node in ast.walk(tree):
         named = (isinstance(node, ast.Attribute) and node.attr == "success_rate") or (

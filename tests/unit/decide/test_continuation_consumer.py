@@ -92,7 +92,7 @@ def test_a_met_rule_stops_and_releases_without_asking(
     eg: FakeTransport, released: list[str]
 ) -> None:
     step = asyncio.run(
-        continue_or_stop(RECORD, {"rule": "max_rounds", "n": 1}, RoundProgress(1), 3)
+        continue_or_stop(RECORD, {"rule": "max_rounds", "n": 1}, RoundProgress(1), width=3)
     )
     assert (step.action, step.reason) == ("stop", "max_rounds")
     assert released == [RECORD]
@@ -104,7 +104,7 @@ def test_eg_may_narrow_and_the_question_cites_the_parent_plan(
 ) -> None:
     eg.answer = acted("narrow")
     step = asyncio.run(
-        continue_or_stop(RECORD, {"rule": "max_rounds", "n": 4}, RoundProgress(1), 3)
+        continue_or_stop(RECORD, {"rule": "max_rounds", "n": 4}, RoundProgress(1), width=3)
     )
     assert step.action == "narrow"
     assert released == [], "narrowing keeps the per-cell leases until the stop"
@@ -114,7 +114,7 @@ def test_eg_may_narrow_and_the_question_cites_the_parent_plan(
 
 def test_without_a_runner_the_run_continues(released: list[str]) -> None:
     step = asyncio.run(
-        continue_or_stop(RECORD, {"rule": "max_rounds", "n": 4}, RoundProgress(1), 2)
+        continue_or_stop(RECORD, {"rule": "max_rounds", "n": 4}, RoundProgress(1), width=2)
     )
     assert step.action == "continue" and released == []
 

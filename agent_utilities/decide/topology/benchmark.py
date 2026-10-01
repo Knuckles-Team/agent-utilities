@@ -81,25 +81,6 @@ def _answer(topology: str, width: int, subtasks: int) -> Answer:
     return Answer(topology, width, width * turns * _TURN_TOKENS, turns * _TURN_MS)
 
 
-def single_agent(task: Task, budget: int) -> Answer:
-    return _answer("Single", 1, task.subtasks)
-
-
-def hermes_like(task: Task, budget: int) -> Answer:
-    """``_DEFAULT_MAX_CONCURRENT_CHILDREN=3``, ``MAX_DEPTH=1``."""
-    return _answer("SupervisorWorkers", min(3, budget), task.subtasks)
-
-
-def goose_like(task: Task, budget: int) -> Answer:
-    """ "Parallelize freely" up to ``GOOSE_MAX_BACKGROUND_TASKS=5``."""
-    return _answer("FanOutJoin", min(5, budget), task.subtasks)
-
-
-def fixed_council(task: Task, budget: int) -> Answer:
-    """A 3-member council for every query."""
-    return _answer("Council", min(3, budget), task.subtasks)
-
-
 def au_family_tree(task: Task, budget: int) -> Answer:
     """AU's former cost-ordered family tree, projected onto classes."""
     if task.shape == "IndependentSubtasks":
@@ -110,10 +91,20 @@ def au_family_tree(task: Task, budget: int) -> Answer:
 
 
 BASELINES: dict[str, Planner] = {
-    "single": single_agent,
-    "hermes-3x1": hermes_like,
-    "goose-5": goose_like,
-    "council-3": fixed_council,
+    # A single agent for every query.
+    "single": lambda task, budget: _answer("Single", 1, task.subtasks),
+    # ``_DEFAULT_MAX_CONCURRENT_CHILDREN=3``, ``MAX_DEPTH=1``.
+    "hermes-3x1": lambda task, budget: _answer(
+        "SupervisorWorkers", min(3, budget), task.subtasks
+    ),
+    # "Parallelize freely" up to ``GOOSE_MAX_BACKGROUND_TASKS=5``.
+    "goose-5": lambda task, budget: _answer(
+        "FanOutJoin", min(5, budget), task.subtasks
+    ),
+    # A 3-member council for every query.
+    "council-3": lambda task, budget: _answer(
+        "Council", min(3, budget), task.subtasks
+    ),
     "au-tree": au_family_tree,
 }
 
@@ -150,6 +141,7 @@ class Row:
 def run_policy(
     name: str,
     planner: Planner,
+    *,
     tasks: Sequence[Task] = TASKS,
     budget: int = EQUAL_BUDGET,
 ) -> Row:

@@ -211,6 +211,7 @@ async def publish_reference_templates(
     graphs: Any,
     context_for: ContextFor,
     slot_agent: Mapping[str, str],
+    *,
     specs: Sequence[TemplateSpec] = REFERENCE_TEMPLATES,
 ) -> list[Any]:
     """Publish every reference template through ``AgentGraph.publish`` (L3).

@@ -28,6 +28,7 @@ def route_choice(
     namespace: str,
     task_class: str,
     prior: str,
+    *,
     rewards: Mapping[str, float],
     heuristic: str,
 ) -> str:
