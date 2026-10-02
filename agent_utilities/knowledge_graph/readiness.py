@@ -497,9 +497,7 @@ def _check_ontology_activation(engine: Any, tenant: str) -> ReadinessCheckDict:
         # fail closed exactly like every other branch of this function
         # (never silently "ready") instead of raising ImportError out of a
         # readiness snapshot.
-        return _check(
-            "unavailable", reason="ontology_activation_status_source_removed"
-        )
+        return _check("unavailable", reason="ontology_activation_status_source_removed")
 
     graph_name = tenant_graph_name(tenant or "", base="ontology")
     status = get_activation_status(graph_name)
