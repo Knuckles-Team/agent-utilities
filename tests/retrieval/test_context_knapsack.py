@@ -1,4 +1,4 @@
-"""AU-CONTEXT-R004: context sizing as a certified multi-resolution knapsack."""
+"""Context sizing as a certified multi-resolution knapsack."""
 
 from __future__ import annotations
 

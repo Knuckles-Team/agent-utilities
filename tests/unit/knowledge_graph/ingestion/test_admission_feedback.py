@@ -1,4 +1,4 @@
-"""AU-CONTEXT-R003: retrieval usage yields reviewed admission PROPOSALS, never changes."""
+"""Retrieval usage yields reviewed admission PROPOSALS, never changes."""
 
 from __future__ import annotations
 

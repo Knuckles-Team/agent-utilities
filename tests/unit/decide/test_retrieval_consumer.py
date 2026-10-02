@@ -1,4 +1,4 @@
-"""The retrieval plan template is a decision; the requested mode is the fallback (AU-CONTEXT-R001)."""
+"""The retrieval plan template is a decision; the requested mode is the fallback."""
 
 from __future__ import annotations
 
