@@ -44,6 +44,23 @@ def _live_condensed_tool_families() -> set[str]:
     every tool family name it registers, restoring global registries after.
     """
     from agent_utilities.mcp import kg_server
+    from agent_utilities.mcp.tools.engine_tools import ENGINE_DOMAINS
+
+    if not ENGINE_DOMAINS:
+        # Same precondition `build_manifest()` itself enforces (see
+        # scripts/gen_graphos_manifest.py): every `engine_<domain>` tool is
+        # silently absent from a live build without the epistemic-graph
+        # client surface, so comparing this environment's live registration
+        # against the (engine-ful) checked-in manifest would always report
+        # every `engine_<domain>` family as a false phantom/missing entry,
+        # not a real drift. Raise the identical message so
+        # tests/conftest.py's `_is_engine_unreachable_error` recognizes it
+        # and skips cleanly, exactly as it already does for
+        # test_generated_manifest_matches_live_source_deterministically.
+        raise RuntimeError(
+            "ENGINE_DOMAINS is empty: the epistemic-graph client surface is "
+            "unavailable, so authoritative manifest generation cannot proceed"
+        )
 
     registered_before = dict(kg_server.REGISTERED_TOOLS)
     routes_before = dict(kg_server.ACTION_TOOL_ROUTES)

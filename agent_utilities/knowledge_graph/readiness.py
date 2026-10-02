@@ -485,7 +485,19 @@ def _check_ontology_activation(engine: Any, tenant: str) -> ReadinessCheckDict:
         return _check("unavailable", reason="no_engine_supplied")
 
     from .core.shard_topology import tenant_graph_name
-    from .ontology.activation import get_activation_status
+
+    try:
+        from .ontology.activation import get_activation_status
+    except ImportError:
+        # 43197d7c6 ("refactor: move semantic authority to epistemic graph")
+        # deleted agent_utilities/knowledge_graph/ontology/activation.py
+        # without updating this still-live caller -- a production regression,
+        # not an intentional removal of this check. Until an equivalent
+        # status read exists against the epistemic-graph-owned authority,
+        # fail closed exactly like every other branch of this function
+        # (never silently "ready") instead of raising ImportError out of a
+        # readiness snapshot.
+        return _check("unavailable", reason="ontology_activation_status_source_removed")
 
     graph_name = tenant_graph_name(tenant or "", base="ontology")
     status = get_activation_status(graph_name)

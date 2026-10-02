@@ -36,7 +36,23 @@ import math
 from collections.abc import Sequence
 from typing import Any
 
-from agent_utilities.numeric import xp
+# epistemic-graph[numeric] kernel absent (lean/headless/CI import without the
+# `[numeric]`/`[graphos]` extra). Keep this module -- and everything that
+# merely imports `TemporalSemanticIdEncoder` for type references or
+# registration, including the whole `agent_utilities.mcp.tools` registration
+# surface -- importable without it. The quantization code paths below use
+# `xp` and require the kernel; they raise a clear ``AttributeError`` on this
+# ``None`` sentinel at call time if invoked without it, matching the existing
+# guard on :mod:`agent_utilities.knowledge_graph.retrieval.capability_index`
+# (tests/conftest.py's ``_is_none_numeric_shim_attribute_error`` already
+# recognizes this exact shape and skips cleanly instead of failing). `xp` is
+# declared once with its type before the try so the fallback assignment is a
+# plain, already-typed rebinding rather than a second conflicting definition.
+xp: Any
+try:
+    from agent_utilities.numeric import xp
+except ImportError:
+    xp = None
 
 __all__ = ["TemporalSemanticIdEncoder"]
 
