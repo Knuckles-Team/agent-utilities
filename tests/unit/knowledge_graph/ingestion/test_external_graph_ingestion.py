@@ -918,6 +918,7 @@ def test_external_graph_uses_discovered_native_cdc_and_advances_cursor_once(
     monkeypatch,
 ) -> None:
     captured = []
+    _patch_ingest_capture(monkeypatch, captured)
 
     class _CDCGraph:
         def __init__(self) -> None:
@@ -973,7 +974,6 @@ def test_external_graph_uses_discovered_native_cdc_and_advances_cursor_once(
         "agent_utilities.knowledge_graph.ingestion.external_graph.read_change_cursor",
         lambda _engine, _connector, *, source_instance: "cursor-1",
     )
-    _patch_ingest_capture(monkeypatch, captured)
     request = ExternalGraphIngestionRequest(
         **{**_request().__dict__, "page_size": 2, "max_pages": 2}
     )
