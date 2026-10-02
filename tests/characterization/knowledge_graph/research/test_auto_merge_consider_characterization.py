@@ -16,7 +16,6 @@ must not change during the refactor commit that follows.
 
 from __future__ import annotations
 
-from agent_utilities.knowledge_graph.enrichment.orchestration import TeamSpec
 from agent_utilities.knowledge_graph.research.auto_merge import (
     GovernedAutoMerger,
     MergePolicy,
@@ -26,20 +25,8 @@ from agent_utilities.orchestration.action_policy import (
     ActionRequest,
     PolicyReceipt,
 )
-
-
-def _strong_team() -> TeamSpec:
-    return TeamSpec(
-        name="Resolver Team",
-        goal="Address open KG topics about retrieval quality",
-        lead="Lead",
-        members=["Researcher", "Validator"],
-        description="A complete, well-formed team proposal.",
-    )
-
-
-def _weak_team() -> TeamSpec:
-    return TeamSpec(name="bare", goal="", lead="", members=[])
+from tests.golden_loop_proposal_fixtures import strong_team as _strong_team
+from tests.golden_loop_proposal_fixtures import weak_team as _weak_team
 
 
 class _FakeActionPolicy:

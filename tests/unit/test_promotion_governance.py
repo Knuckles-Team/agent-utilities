@@ -15,7 +15,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_utilities.knowledge_graph.enrichment.orchestration import TeamSpec
 from agent_utilities.knowledge_graph.research.auto_merge import (
     GovernedAutoMerger,
     MergePolicy,
@@ -23,22 +22,10 @@ from agent_utilities.knowledge_graph.research.auto_merge import (
 from agent_utilities.knowledge_graph.research.promotion_governance import (
     PromotionGovernanceValidator,
 )
+from tests.golden_loop_proposal_fixtures import strong_team as _strong_team
+from tests.golden_loop_proposal_fixtures import weak_team as _weak_team
 
 pytestmark = pytest.mark.concept("AU-AHE.harness.promotion-governance-validator")
-
-
-def _strong_team() -> TeamSpec:
-    return TeamSpec(
-        name="Resolver Team",
-        goal="Address open KG topics about retrieval quality",
-        lead="Lead",
-        members=["Researcher", "Validator"],
-        description="A complete, well-formed team proposal.",
-    )
-
-
-def _weak_team() -> TeamSpec:
-    return TeamSpec(name="bare", goal="", lead="", members=[])
 
 
 class _Engine:
