@@ -186,7 +186,9 @@ def _managed_level(
     return level_of(bounds, ThrottlePolicy.model_validate(throttle["policy"]))
 
 
-def _result(plan: ProfilePlan, outcome: EvolutionOutcome, **ids: Any) -> EvolutionResult:
+def _result(
+    plan: ProfilePlan, outcome: EvolutionOutcome, **ids: Any
+) -> EvolutionResult:
     return EvolutionResult(
         cell_id=plan.cell_id,
         outcome=outcome,

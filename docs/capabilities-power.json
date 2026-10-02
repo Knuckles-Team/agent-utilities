@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-22T04:03:06Z",
+  "generated_at": "2026-10-02T04:25:37Z",
   "count": 128,
   "capabilities": [
     {
@@ -115,7 +115,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -231,7 +231,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -369,7 +369,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -543,7 +543,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -701,7 +701,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -896,7 +896,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -1080,7 +1080,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -1374,7 +1374,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -1869,7 +1869,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -2134,7 +2134,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -2168,6 +2168,23 @@
           "eg_method": "GetIdentity",
           "match_confidence": 0.5,
           "matched_tokens": [
+            "identity"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "security:admin",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot",
+          "eg_note": "identity read-back closing the RegisterIdentity blind-upsert gap: None means unregistered/unknown, Some(identity) with empty roles means registered-and-confirmed-empty -- gated security:admin like RegisterIdentity/RbacAdmin so it grants no caller new privilege"
+        },
+        {
+          "action": "get_identity",
+          "eg_method": "GetIdentity",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "get",
             "identity"
           ],
           "mutates": "false",
@@ -2254,7 +2271,7 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 3,
+        "matched_action_count": 4,
         "unmatched_action_count": 0,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
@@ -2293,7 +2310,7 @@
         "engine_consensus: Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust",
         "engine_consensus action=apply_multisig_mutation",
         "engine_consensus action=bootstrap_system_identity",
-        "engine_consensus action=register_identity"
+        "engine_consensus action=get_identity"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -2317,7 +2334,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -2512,7 +2529,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -2791,7 +2808,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -4063,7 +4080,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -4128,6 +4145,60 @@
           "audited": "true",
           "emits_cdc": "true",
           "txn_participation": "Atomic"
+        },
+        {
+          "action": "cluster_hierarchy_clusters",
+          "eg_method": "ClusterHierarchyClusters",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "cluster",
+            "clusters",
+            "hierarchy"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "compute:graph-algo",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot",
+          "eg_note": "VIZ-1: GET clusters(graph, level, parent_cluster_id?) from the cached hierarchy"
+        },
+        {
+          "action": "cluster_hierarchy_expand",
+          "eg_method": "ClusterHierarchyExpand",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "cluster",
+            "expand",
+            "hierarchy"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "compute:graph-algo",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot",
+          "eg_note": "VIZ-1: GET expand(graph, cluster_id) -- a level-1 cluster's member nodes/edges read live off the graph"
+        },
+        {
+          "action": "cluster_hierarchy_refresh",
+          "eg_method": "ClusterHierarchyRefresh",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "cluster",
+            "hierarchy",
+            "refresh"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "compute:graph-algo",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot",
+          "eg_note": "VIZ-1 hierarchical Leiden clustering for million-node graph visualization: (re)computes and durably caches the cluster hierarchy in its own non-authoritative store (server::persistence::cluster_hierarchy_store), never as graph nodes/edges -- see ClusterHierarchyClusters/ClusterHierarchyExpand"
         },
         {
           "action": "community_detect_ephemeral",
@@ -4499,7 +4570,7 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 22,
+        "matched_action_count": 25,
         "unmatched_action_count": 2,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
@@ -4566,7 +4637,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -4728,7 +4799,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -4925,7 +4996,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -5225,7 +5296,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -5668,7 +5739,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -5886,7 +5957,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -6363,7 +6434,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -6524,7 +6595,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -6878,6 +6949,22 @@
           "eg_note": "runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox"
         },
         {
+          "action": "sql_source_batch",
+          "eg_method": "Sql",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "sql"
+          ],
+          "mutates": "~true",
+          "durability": "GraphRedb",
+          "authz_action": "query:sql",
+          "idempotent": "false",
+          "audited": "true",
+          "emits_cdc": "false",
+          "txn_participation": "Atomic",
+          "eg_note": "runtime-conditional; graph DML uses staged graph state while table/catalog writes atomically commit SQL rows plus MutationBatch status/fence/idempotency/outbox"
+        },
+        {
           "action": "stale_materializations",
           "eg_method": "StaleMaterializations",
           "match_confidence": 1.0,
@@ -6989,7 +7076,7 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 23,
+        "matched_action_count": 24,
         "unmatched_action_count": 2,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
@@ -7059,7 +7146,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -7206,7 +7293,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -7505,7 +7592,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -7628,7 +7715,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -7875,7 +7962,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -8224,7 +8311,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -8391,7 +8478,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -8414,7 +8501,22 @@
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
         {
+          "action": "delete_series",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "evict_before",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
           "action": "gap_fill",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "list_series",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
@@ -8491,7 +8593,7 @@
       },
       "side_effects": {
         "matched_action_count": 0,
-        "unmatched_action_count": 6,
+        "unmatched_action_count": 9,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [],
@@ -8519,7 +8621,7 @@
         "engine_timeseries: Low-level epistemic-graph engine surface for the 'timeseries' domain (native",
         "engine_timeseries action=append",
         "engine_timeseries action=asof_join",
-        "engine_timeseries action=gap_fill"
+        "engine_timeseries action=delete_series"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -8542,7 +8644,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -8986,7 +9088,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -9116,7 +9218,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -9236,7 +9338,7 @@
         "source_method_eg": "FindCycle",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -9525,7 +9627,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -9722,7 +9824,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -9954,7 +10056,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -10102,7 +10204,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -10281,7 +10383,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -10484,7 +10586,7 @@
         "source_method_eg": "BrokerAck",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -10813,7 +10915,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -11021,7 +11123,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -11208,7 +11310,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -11457,7 +11559,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -11698,7 +11800,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -11883,7 +11985,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -12053,7 +12155,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -12230,7 +12332,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -12593,7 +12695,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -12788,7 +12890,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -12944,7 +13046,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -13233,7 +13335,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -13497,7 +13599,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -13727,7 +13829,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -13979,7 +14081,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -14230,7 +14332,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -14433,7 +14535,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -14717,7 +14819,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -14944,7 +15046,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -15142,7 +15244,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -15294,7 +15396,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -15469,7 +15571,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -15622,7 +15724,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -15815,7 +15917,7 @@
         "source_method_eg": "Fork",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -15942,7 +16044,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -16096,7 +16198,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -16386,7 +16488,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -16616,7 +16718,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -17067,7 +17169,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -17292,7 +17394,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -17740,7 +17842,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -17887,7 +17989,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -18057,7 +18159,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -18244,7 +18346,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -18606,7 +18708,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -18775,7 +18877,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -18917,7 +19019,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -19142,7 +19244,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -19285,7 +19387,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -19456,7 +19558,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -19781,7 +19883,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -19913,7 +20015,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -20013,7 +20115,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -20208,7 +20310,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -20407,7 +20509,7 @@
         "source_method_eg": "CypherQuery",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -20629,7 +20731,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -21021,7 +21123,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -21146,7 +21248,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -21311,7 +21413,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -21511,7 +21613,7 @@
         "source_method_eg": "SemanticSearch",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -21704,7 +21806,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -21876,7 +21978,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -22086,7 +22188,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -22266,7 +22368,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -22491,7 +22593,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -22691,7 +22793,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -23030,7 +23132,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -23321,7 +23423,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -23754,7 +23856,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -23985,7 +24087,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -24134,7 +24236,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -24250,7 +24352,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -24415,7 +24517,7 @@
         "source_method_eg": "NlQuery",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -24637,7 +24739,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -24759,7 +24861,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -24928,7 +25030,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -25217,7 +25319,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -25573,7 +25675,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -25756,7 +25858,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -25908,7 +26010,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -26127,7 +26229,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -26223,7 +26325,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -26368,7 +26470,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -26495,7 +26597,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -26634,7 +26736,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -26846,7 +26948,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -27019,7 +27121,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -27158,7 +27260,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -27470,7 +27572,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -27704,7 +27806,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -27818,7 +27920,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -27986,7 +28088,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -28097,7 +28199,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -28243,7 +28345,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -28453,7 +28555,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -28553,7 +28655,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -28831,7 +28933,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -28947,7 +29049,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     },
     {
@@ -29063,7 +29165,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-09-22T04:03:06Z"
+        "generated_at": "2026-10-02T04:25:37Z"
       }
     }
   ]

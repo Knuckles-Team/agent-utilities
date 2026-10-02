@@ -31,7 +31,8 @@ DEFAULT_TIMEOUT_S = 30.0
 class SchemaRepairPort(Protocol):
     """Approval leases and schema attachment on one request graph."""
 
-    graph: str
+    @property
+    def graph(self) -> str: ...
 
     def issue_approval(self, request: Mapping[str, Any]) -> Mapping[str, Any]: ...
 
@@ -76,9 +77,7 @@ class EngineSchemaRepairPort:
             str(graph_compute.graph_name),
         )
 
-    def _coordination(
-        self, sender_name: str, params: dict[str, Any], key: str
-    ) -> Any:
+    def _coordination(self, sender_name: str, params: dict[str, Any], key: str) -> Any:
         from epistemic_graph.generated import coordination
 
         sender = getattr(coordination, sender_name)
@@ -94,9 +93,7 @@ class EngineSchemaRepairPort:
 
     def get_lease(self, tenant: str, lease_id: str) -> Mapping[str, Any] | None:
         params = {"tenant": tenant, "lease_id": lease_id}
-        answer = self._coordination(
-            "send_get_control_lease", params, f"get:{lease_id}"
-        )
+        answer = self._coordination("send_get_control_lease", params, f"get:{lease_id}")
         return _as_mapping(answer)
 
     def close_approval(self, tenant: str, lease_id: str, revision: int) -> None:
@@ -114,7 +111,9 @@ class EngineSchemaRepairPort:
     def _schema(self, op: dict[str, Any], key: str) -> Any:
         from epistemic_graph.generated.reasoning import send_graph_schema
 
-        call = send_graph_schema(self.client, {"op": op}, self.graph, idempotency_key=key)
+        call = send_graph_schema(
+            self.client, {"op": op}, self.graph, idempotency_key=key
+        )
         future = asyncio.run_coroutine_threadsafe(call, self.loop)
         return _as_mapping(_payload(future.result(timeout=self.timeout_s)))
 
