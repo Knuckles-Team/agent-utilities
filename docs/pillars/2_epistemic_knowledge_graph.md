@@ -363,17 +363,6 @@ Default governance shapes (`shapes/governance.shapes.ttl`) enforce:
 - Specification must have a `name`
 - Requirement should have a `priority`
 
-### Ontology Publisher
-
-The `OntologyPublisher` (`core/ontology_publisher.py`) enables agent-utilities to serve as both ontology author and distributor:
-
-- **Local export**: Serialize RDF to TTL/XML/N3 with version tags
-- **Stardog push**: Upload via `pystardog` to centralized Stardog instances
-- **Fuseki push**: Upload via REST API to Apache Jena Fuseki (`push_to_jena_fuseki`)
-
-This completes the "Hub-and-Spoke" ontology distribution pattern where agent-utilities maintains the authoritative source and pushes evolved ontologies to enterprise infrastructure.
-
-
 ### Unified Native Ingestion Pipeline
 
 All ingestion now flows through a single front door — the `IngestionEngine`
@@ -600,12 +589,11 @@ subgraphs (`PRECEDES` edges) distill into graph-native skill-**workflows**; a si
 [Knowledge Distillation → Skill-Graphs](../architecture/knowledge_distillation_skill_graphs.md).
 Extends KG-2.7.
 
-### KG-2.52 / AU-KG.ontology.descriptive-process-world-gains — Published TBox + BPMN Process Lift
+### AU-KG.ontology.descriptive-process-world-gains — Composed TBox + BPMN Process Lift
 
-The ontology the platform ships is published, not just held in memory: a
-background daemon tick (`knowledge_graph/core/ontology_publisher.py`) publishes
-the authoritative TBox to the Fuseki SPARQL endpoint, so external reasoners and
-the execution gate (AU-ORCH.execution.ontology-validation-execution-path) validate against the same source of truth.
+EG composes the authoritative TBox from attached GraphSchema ontology packs;
+the execution gate (AU-ORCH.execution.ontology-validation-execution-path)
+validates against that schema.
 Alongside it, the descriptive process world gains step-level shape (AU-KG.ontology.descriptive-process-world-gains):
 the Camunda extractor (`enrichment/extractors/camunda.py`) and `owl_bridge`
 model BPMN processes down to their steps, which is what makes

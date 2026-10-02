@@ -1,19 +1,13 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Source-partitioned named-graph routing for SPARQL triple stores.
+"""Canonical source identifiers and optional named-graph routing.
 
 CONCEPT:AU-KG.query.vendor-agnostic-traversal — Vendor-Agnostic Graph Backend Abstraction.
 
-A SPARQL store can hold many *named graphs*. When KG instance data lands in a
-triplestore (Stardog), partitioning it by the **source system** it came from
-(LeanIX, ServiceNow, …) keeps provenance explicit and lets an operator push,
-query, or clear one source's slice without touching the rest.
-
-This module is the single source of truth for that routing decision. It is used
-by BOTH the live write path (the Stardog backend's Cypher→SPARQL translation) and
-the explicit per-source push serializer, so the two never disagree about which
-named graph a node/edge belongs in.
+Connector ingestion uses one source-id grammar across GitLab and the general
+source-sync path. The optional named-graph helpers preserve the same identifiers
+for callers that need a graph URI.
 
 The source is read from the ``source_system`` property, which
 :meth:`IntelligenceGraphEngine.ingest_external_batch` stamps on every externally
@@ -239,6 +233,25 @@ def _strict_partition_enabled() -> bool:
         return False
 
 
+def _record_default_graph_write(label: str) -> None:
+    """Count one default-graph write under ``label`` and enforce strict mode.
+
+    Split out of :func:`route_graph_uri` (CONCEPT:AU-KG.ingest.default-graph-leak-guard)
+    so the counting/policy concern has one place to read and change independently of
+    the routing decision itself.
+    """
+    with _dg_lock:
+        key = label or "?"
+        _default_graph_writes[key] = _default_graph_writes.get(key, 0) + 1
+    if label and label not in INTERNAL_DEFAULT_LABELS and _strict_partition_enabled():
+        raise ValueError(
+            f"source-partition: node label {label!r} has no source_system and would land "
+            "in the backend's default graph. Stamp a source with "
+            "core.source_partition.make_source_id(...), or add the label to "
+            "INTERNAL_DEFAULT_LABELS if it is intentionally internal."
+        )
+
+
 def route_graph_uri(props: dict[str, Any] | None, label: str = "") -> str | None:
     """Guarded named-graph routing: like :func:`graph_uri_for`, but records + polices the
     default-graph fallback.
@@ -250,20 +263,7 @@ def route_graph_uri(props: dict[str, Any] | None, label: str = "") -> str | None
     """
     g = graph_uri_for(props)
     if g is None:
-        with _dg_lock:
-            key = label or "?"
-            _default_graph_writes[key] = _default_graph_writes.get(key, 0) + 1
-        if (
-            label
-            and label not in INTERNAL_DEFAULT_LABELS
-            and _strict_partition_enabled()
-        ):
-            raise ValueError(
-                f"source-partition: node label {label!r} has no source_system and would land "
-                "in the SPARQL default graph. Stamp a source with "
-                "backends.sparql.source_partition.make_source_id(...), or add the label to "
-                "INTERNAL_DEFAULT_LABELS if it is intentionally internal."
-            )
+        _record_default_graph_write(label)
     return g
 
 
@@ -301,7 +301,7 @@ def source_partition_coverage(backend: Any) -> dict[str, Any]:
     authority and every property-graph mirror): per node label, how many nodes carry a
     ``source_system`` vs not. A NON-internal label with unsourced nodes is a partition
     **leak** — that ingestion type is not landing in a ``urn:source:*`` partition. For the
-    live SPARQL write path, :func:`default_graph_write_report` is the runtime equivalent.
+    live write path, :func:`default_graph_write_report` is the runtime equivalent.
 
     Returns ``{"supported": False}`` when the backend can't be queried, so a doctor degrades
     gracefully rather than failing.
@@ -316,10 +316,23 @@ def source_partition_coverage(backend: Any) -> dict[str, Any]:
         )
     except Exception as exc:  # noqa: BLE001 — coverage is best-effort observability
         return {"supported": False, "reason": str(exc)}
+    by_label, leaks = _aggregate_label_coverage(rows or ())
+    return {
+        "supported": True,
+        "by_label": by_label,
+        "leaks": leaks,
+        "leaking": bool(leaks),
+    }
 
+
+def _aggregate_label_coverage(
+    rows: Any,
+) -> tuple[dict[str, dict[str, int]], dict[str, int]]:
+    """Reduce ``source_partition_coverage``'s raw per-label rows to a coverage map
+    plus the subset that leaks (a non-internal label with unsourced nodes)."""
     by_label: dict[str, dict[str, int]] = {}
     leaks: dict[str, int] = {}
-    for r in rows or []:
+    for r in rows:
         label = str(r.get("label") or "?")
         total = int(r.get("total") or 0)
         sourced = int(r.get("sourced") or 0)
@@ -327,9 +340,4 @@ def source_partition_coverage(backend: Any) -> dict[str, Any]:
         by_label[label] = {"total": total, "sourced": sourced, "unsourced": unsourced}
         if unsourced > 0 and label and label not in INTERNAL_DEFAULT_LABELS:
             leaks[label] = unsourced
-    return {
-        "supported": True,
-        "by_label": by_label,
-        "leaks": leaks,
-        "leaking": bool(leaks),
-    }
+    return by_label, leaks

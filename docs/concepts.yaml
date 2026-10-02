@@ -5170,7 +5170,6 @@ concepts:
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
-  - agent_utilities/knowledge_graph/core/ontology_publisher.py
   doc: the authoritative TBox the platform ships
 - id: AU-KG.ontology.batch-actions-executor
   name: it sets a review annotation on a
@@ -5416,7 +5415,6 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/ontology_loader.py
-  - agent_utilities/knowledge_graph/core/ontology_publisher.py
   doc: Enterprise Ontology Distribution
 - id: AU-KG.ontology.evolution-governed-loop
   name: ontology change as a
@@ -5441,7 +5439,6 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py
   - agent_utilities/knowledge_graph/core/ontology_federation.py
-  - agent_utilities/knowledge_graph/core/ontology_publisher.py
   doc: federation
 - id: AU-KG.ontology.federation-resolution
   name: federation resolution when the file isn
@@ -5904,7 +5901,6 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
-  - agent_utilities/knowledge_graph/core/ontology_publisher.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/ontology_tools.py
   doc: AU-KG.ontology.stardog-catalog-import
@@ -5913,7 +5909,6 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
-  - agent_utilities/knowledge_graph/core/ontology_publisher.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/ontology_tools.py
   doc: stardog-catalog-import — Stardog catalog twins

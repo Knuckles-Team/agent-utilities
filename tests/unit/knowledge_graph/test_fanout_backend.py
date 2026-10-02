@@ -344,19 +344,6 @@ def test_atomic_embedding_node_property_mirror_writes_vector_once(
         fan.close()
 
 
-def test_sparql_process_local_vector_caches_are_declared_graph_only() -> None:
-    """Ephemeral SPARQL caches must not advertise durable vector projection."""
-    from agent_utilities.knowledge_graph.backends.sparql.jena_fuseki_backend import (
-        JenaFusekiBackend,
-    )
-    from agent_utilities.knowledge_graph.backends.sparql.stardog_backend import (
-        StardogSparqlBackend,
-    )
-
-    assert JenaFusekiBackend.supports_native_vector_search is False
-    assert StardogSparqlBackend.supports_native_vector_search is False
-
-
 def test_direct_embedding_replay_skips_graph_only_mirror(tmp_path, monkeypatch):
     """A graph-only capability advances without touching an ephemeral cache."""
 
