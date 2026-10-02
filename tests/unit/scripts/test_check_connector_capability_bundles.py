@@ -40,6 +40,30 @@ assert _GENERATOR_SPEC.loader is not None
 _GENERATOR_SPEC.loader.exec_module(generator)
 
 
+def _real_provider_fleet_is_checked_out() -> bool:
+    """Whether the real sibling ``agents/leanix-agent`` checkout is present.
+
+    Several tests below seed their fixture by copying the CURRENT real
+    ``leanix-agent`` provider bundle (``gate._default_agents_root() /
+    "leanix-agent"``). A CI job that checks out only this repository (and the
+    connector SDK) has no such sibling on disk -- a genuinely absent external
+    resource (AU-STABILIZE cause 6), not a bug in the gate or these tests.
+    """
+
+    try:
+        repo = gate._default_agents_root() / "leanix-agent"
+        gate._module(repo)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+_REQUIRES_REAL_PROVIDER_FLEET = pytest.mark.skipif(
+    not _real_provider_fleet_is_checked_out(),
+    reason="requires the real sibling agents/leanix-agent provider checkout",
+)
+
+
 @dataclass
 class _CopiedBundle:
     agents_root: Path
@@ -226,6 +250,7 @@ def _run_copied_bundle(bundle: _CopiedBundle, monkeypatch, capsys) -> tuple[int,
     return result, capsys.readouterr().out
 
 
+@_REQUIRES_REAL_PROVIDER_FLEET
 def test_current_provider_membership_has_one_owned_manifest_per_provider():
     agents_root = gate._default_agents_root()
     workspace = gate._default_workspace()
@@ -268,6 +293,7 @@ def test_default_workspace_prefers_configured_canonical_over_xdg(
     assert gate._default_workspace() == canonical
 
 
+@_REQUIRES_REAL_PROVIDER_FLEET
 def test_current_leanix_provider_bundle_content_passes(tmp_path, monkeypatch):
     bundle = _copy_current_bundle(tmp_path, monkeypatch)
     _resign_and_pin(bundle)
@@ -281,6 +307,7 @@ def test_current_leanix_provider_bundle_content_passes(tmp_path, monkeypatch):
     assert violations == []
 
 
+@_REQUIRES_REAL_PROVIDER_FLEET
 def test_provider_owned_manifest_outside_workspace_fails_closed(
     tmp_path: Path, monkeypatch, capsys
 ):
@@ -395,6 +422,7 @@ def test_release_privacy_is_independent_of_local_account(
     assert report.changed is False
 
 
+@_REQUIRES_REAL_PROVIDER_FLEET
 def test_gate_privacy_scans_non_core_signed_artifact_end_to_end(
     tmp_path: Path, monkeypatch, capsys
 ):
@@ -423,6 +451,7 @@ def test_gate_privacy_scans_non_core_signed_artifact_end_to_end(
     assert str(tmp_path) not in output
 
 
+@_REQUIRES_REAL_PROVIDER_FLEET
 def test_gate_rejects_signed_symlink_escape_end_to_end(
     tmp_path: Path, monkeypatch, capsys
 ):
