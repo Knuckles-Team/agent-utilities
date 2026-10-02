@@ -4917,6 +4917,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/memory/timeseries/__init__.py
   - agent_utilities/knowledge_graph/memory/timeseries/engine_backend.py
+  - agent_utilities/numeric/__init__.py
   doc: provides a real ephemeral one, so an unreachable
 - id: AU-KG.memory.refresh-per-session-memento
   name: refresh the per-session memento cache in this SAME background
