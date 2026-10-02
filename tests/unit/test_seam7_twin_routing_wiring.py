@@ -364,31 +364,38 @@ async def test_graph_runvcs_twin_capture_kg_hydration_path_also_attaches_policy_
 # ---------------------------------------------------------------------------
 
 
+_KG_NS = "http://knuckles.team/kg#"
+
+
+def _fake_owl_reason(**_kwargs: Any) -> dict[str, Any]:
+    """A faithful OwlReason double: a genuine, consistent, digest-bound
+    composed-GraphSchema classification (same response shape
+    ``tests/unit/knowledge_graph/retrieval/test_capability_projection.py``'s
+    own ``_Graph.owl_reason`` fake returns) encoding the ONE subsumption fact
+    these routing tests need — ``EncryptedTransport`` is a direct subtype of
+    ``TransportCapability``. ``DNSCapability`` is deliberately absent from
+    this hierarchy, so the ineligible-routing test below proves a real
+    "not a subtype" negative, not an unavailable classification.
+    """
+    return {
+        "consistent": True,
+        "schema_digests": ["sha256:seam7-routing-fixture"],
+        "subclasses": [
+            [f"<{_KG_NS}EncryptedTransport>", f"<{_KG_NS}TransportCapability>"]
+        ],
+        "direct_subclasses": [
+            [f"<{_KG_NS}EncryptedTransport>", f"<{_KG_NS}TransportCapability>"]
+        ],
+    }
+
+
 def _make_routing_engine(nodes: dict[str, dict[str, Any]]) -> Any:
     graph = types.SimpleNamespace(
         node_ids=lambda: list(nodes.keys()),
         _get_node_properties=lambda nid: nodes.get(nid, {}),
+        owl_reason=_fake_owl_reason,
     )
     return types.SimpleNamespace(graph=graph)
-
-
-def _skip_if_projection_unavailable(report: dict[str, Any]) -> None:
-    """Skip cleanly when ``explain_routing_eligibility`` hit
-    ``CapabilityProjectionUnavailable`` (the fake routing engine here has no
-    ``graph.owl_reason``, so ontology-subsumption classification is
-    genuinely unavailable without a real epistemic-graph engine -- the same
-    "no real engine here" condition tests/conftest.py's
-    ``_is_engine_unreachable_error`` already recognizes by exception type;
-    this tool wraps every action in ``except Exception: return
-    public_error_json(e)`` before the exception ever reaches pytest, so the
-    skip has to be driven from the response's ``error_class`` instead of
-    that hook).
-    """
-    if report.get("error_class") == "CapabilityProjectionUnavailable":
-        pytest.skip(
-            "epistemic-graph OwlReason is required for capability routing "
-            f"(error_class={report['error_class']!r}): {report.get('error')}"
-        )
 
 
 async def test_ontology_interface_explain_routing_eligibility_reaches_the_real_function(
@@ -418,7 +425,6 @@ async def test_ontology_interface_explain_routing_eligibility_reaches_the_real_f
         policy_tags="cleared",
     )
     report = json.loads(res)
-    _skip_if_projection_unavailable(report)
     assert report["action"] == "explain_routing_eligibility"
     assert report["eligible"] is True
     # The real ontology-subsumption walk (EncryptedTransport ⊑ TransportCapability),
@@ -447,7 +453,6 @@ async def test_ontology_interface_explain_routing_eligibility_reports_why_inelig
         required_capability_type="TransportCapability",
     )
     report = json.loads(res)
-    _skip_if_projection_unavailable(report)
     assert report["eligible"] is False
     assert report["missing_caps"] == ["TransportCapability"]
 

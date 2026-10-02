@@ -1550,27 +1550,9 @@ def _is_missing_engine_domain_tool_error(exc: BaseException) -> bool:
     return any(f"engine_{domain}" in message for domain in engine_tools._DOMAIN_CLASSES)
 
 
-def _is_capability_projection_unavailable_error(exc: BaseException) -> bool:
-    """True if ``exc`` is
-    :class:`agent_utilities.knowledge_graph.retrieval.capability_projection.CapabilityProjectionUnavailable`
-    -- a SIXTH signature of the same "no real engine/kernel here" condition
-    documented on :func:`_is_engine_unreachable_error`, raised when an
-    engine's ``graph.owl_reason`` is absent or its classification is
-    inconsistent, reached through capability-subsumption routing instead of
-    a raw ``ModuleNotFoundError``.
-    """
-    try:
-        from agent_utilities.knowledge_graph.retrieval.capability_projection import (
-            CapabilityProjectionUnavailable,
-        )
-    except Exception:  # noqa: BLE001 — can't classify without it; not this signature
-        return False
-    return isinstance(exc, CapabilityProjectionUnavailable)
-
-
 def _is_engine_unreachable_error(exc: BaseException | None) -> bool:
     """True if ``exc`` (or its cause chain) is the epistemic-graph engine being
-    unavailable in THIS environment -- six distinct signatures:
+    unavailable in THIS environment -- four distinct signatures:
 
     1. Unreachable daemon: the message raised by ``GraphComputeEngine`` / the
        client when no engine daemon answers. Matched by message (the client
@@ -1598,31 +1580,27 @@ def _is_engine_unreachable_error(exc: BaseException | None) -> bool:
        absent-package condition, reached through a
        ``REGISTERED_TOOLS``/``ACTION_TOOL_ROUTES`` lookup instead of a raw
        ``ModuleNotFoundError``.
-    5. Empty engine-surface manifest: ``scripts/gen_graphos_manifest.py``'s
-       ``build_manifest()`` raises a plain ``RuntimeError`` with this exact
-       message when ``engine_tools.ENGINE_DOMAINS`` is empty -- the same
-       absent-package condition, reached while regenerating the checked-in
-       GraphOS action manifest rather than while serving a request. Matched
-       on the precise message the function itself raises (there is no typed
-       exception or ``.name`` to key on here), so a genuine, differently
-       worded ``RuntimeError`` from manifest generation is never masked.
-    6. Unavailable capability-subsumption projection:
-       :class:`agent_utilities.knowledge_graph.retrieval.capability_projection.CapabilityProjectionUnavailable`
-       -- raised when an engine's ``graph.owl_reason`` is not callable, or
-       the composed-GraphSchema classification it returns is absent/
-       inconsistent -- the same "no real engine/OwlReason authority here"
-       condition, reached through capability-subsumption routing
-       (``designate_specialists``'s ``_designation_hierarchy`` seam) instead
-       of a raw ``ModuleNotFoundError``. A typed exception, so this can never
-       mask an unrelated defect the way a message-text match could.
+
+    Two signatures that USED to live here were removed as over-broad: a
+    plain-message match on ``scripts/gen_graphos_manifest.py``'s "ENGINE_DOMAINS
+    is empty" RuntimeError (an independent review found it skipping a manifest
+    test that genuinely FAILS on main -- a real coverage gap, not an
+    engine-absence signal, since a stale/incomplete checked-in manifest is a
+    real defect regardless of whether an engine is installed), and
+    :class:`agent_utilities.knowledge_graph.retrieval.capability_projection.CapabilityProjectionUnavailable`
+    (raised not only when ``graph.owl_reason`` is absent, but also when a
+    REAL engine's OwlReason call raises for any reason, returns an
+    inconsistent classification, omits schema digests, or returns
+    direct/closure subsumption edges that disagree with each other --
+    genuine correctness bugs this hook must never silently skip past).
+    Callers that need a faithful classification should pass or monkeypatch a
+    real ``owl_reason`` double (see
+    ``tests/unit/knowledge_graph/retrieval/test_capability_projection.py``'s
+    ``_Graph`` fixture) rather than relying on this hook to skip cleanly.
     """
     seen: set[int] = set()
     while exc is not None and id(exc) not in seen:
         seen.add(id(exc))
-        if isinstance(exc, RuntimeError) and "ENGINE_DOMAINS is empty" in str(exc):
-            return True
-        if _is_capability_projection_unavailable_error(exc):
-            return True
         if isinstance(exc, (ConnectionError, ConnectionRefusedError)):
             msg = str(exc)
             if (
