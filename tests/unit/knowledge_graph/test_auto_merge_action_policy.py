@@ -2,13 +2,21 @@
 
 The AHE-3.20 → ActionPolicy adoption (previously a noted follow-up): before the
 merger flips a proposal's lifecycle (proposal→active), it decides the reserved
-``merge_promotion`` kind for the proposal's id. Decision mapping:
+``merge_promotion`` kind for the proposal's id, through the unified
+``artifact_promotion.promote()`` gate (b1017d58c), whose ``PromotionOutcome``
+reports the coarser, receipt-backed ``PolicyDisposition`` vocabulary
+(5a4dd9a2f, "freeze receipt-backed policy outcomes") rather than the raw
+``ActionDecision.decision`` string. Decision mapping, as it now surfaces on
+``ev.action_decision["decision"]``:
 
-- ``deny`` → promotion blocked, recorded on the evaluation + audit trail;
-- ``queue_approval`` → the KG-internal lifecycle flip proceeds while the
-  real-world materialization stays approval-gated — the SAME (deduped)
-  ``ActionApproval`` the AHE-3.21 publication step queues/consumes;
-- ``allow`` / ``allow_notify`` → proceed (the policy emits the notification).
+- ``deny`` / ``unavailable`` → promotion blocked, recorded on the evaluation +
+  audit trail (``unavailable`` covers both a policy-consult failure and an
+  ``approve`` disposition whose receipt could not be bound);
+- ``hold`` (``queue_approval``'s raw tier) → the KG-internal lifecycle flip
+  proceeds while the real-world materialization stays approval-gated — the
+  SAME (deduped) ``ActionApproval`` the AHE-3.21 publication step
+  queues/consumes;
+- ``approve`` (``allow``/``allow_notify``'s raw tier) → proceed.
 
 The outer ``KG_GOLDEN_AUTO_MERGE`` gate is unchanged (default False).
 
@@ -34,13 +42,22 @@ from agent_utilities.orchestration.action_policy import (  # noqa: E402
     ActionDecision,
     ActionPolicy,
     ActionRequest,
+    _policy_receipt,
 )
 
 pytestmark = pytest.mark.concept("AHE-3.20")
 
 
 class _FakePolicy:
-    """Recording ActionPolicy double returning a canned decision."""
+    """Recording ActionPolicy double returning a canned decision.
+
+    Binds a receipt the same way ``ActionPolicy.decide``'s real
+    ``_bind_decision_receipt`` does (5a4dd9a2f, "freeze receipt-backed policy
+    outcomes"): the unified ``artifact_promotion.promote()`` gate this double
+    feeds degrades an ``approve`` disposition with no matching receipt to
+    ``unavailable``, so a double that never bound one could never actually
+    reach "approve" no matter what decision string it returned.
+    """
 
     def __init__(self, decision: str, *, reason: str = "r", approval_id=None):
         self._decision = decision
@@ -50,13 +67,16 @@ class _FakePolicy:
 
     def decide(self, request: ActionRequest) -> ActionDecision:
         self.requests.append(request)
-        return ActionDecision(
+        decision = ActionDecision(
             decision=self._decision,
             tier="approval_required",
             request=request,
             reason=self._reason,
             approval_id=self._approval_id,
         )
+        decision.audit_id = f"fake-audit:{len(self.requests)}"
+        decision.receipt = _policy_receipt(decision)
+        return decision
 
 
 def _spec() -> dict:
@@ -115,7 +135,11 @@ class TestDecisionMapping:
         assert ev.merged is True
         assert promoted
         assert ev.action_decision == {
-            "decision": "queue_approval",
+            # "queue_approval" (the raw ActionDecision vocabulary) collapses
+            # to "hold" once it crosses the unified promote() gate's
+            # PolicyDisposition (5a4dd9a2f) — the AHE-3.21 KG-internal-flip
+            # semantics this test proves are unaffected by the rename.
+            "decision": "hold",
             "reason": "tier requires human approval",
             "approval_id": "action_approval:abc",
         }
@@ -127,7 +151,7 @@ class TestDecisionMapping:
         ev = merger.consider(_spec())
         assert ev.merged is True
         assert promoted
-        assert ev.action_decision["decision"] == "allow"
+        assert ev.action_decision["decision"] == "approve"
         (request,) = policy.requests
         assert request.kind == "merge_promotion"
         assert request.target == "proposal:policy-1"
@@ -137,7 +161,10 @@ class TestDecisionMapping:
         policy = _FakePolicy("allow_notify")
         ev = _merger(policy).consider(_spec())
         assert ev.merged is True
-        assert ev.action_decision["decision"] == "allow_notify"
+        # "allow"/"allow_notify" both collapse to "approve" under the
+        # unified gate's PolicyDisposition (5a4dd9a2f) -- the notification
+        # side effect itself is exercised by action_policy's own tests.
+        assert ev.action_decision["decision"] == "approve"
 
     def test_disabled_outer_gate_never_consults(self):
         """KG_GOLDEN_AUTO_MERGE stays the unchanged outer gate (default off)."""
@@ -166,7 +193,11 @@ class TestDecisionMapping:
         ev = _merger(_Boom(), promoted=promoted).consider(_spec())
         assert ev.merged is False
         assert promoted == []
-        assert ev.action_decision["decision"] == "deny"
+        # A policy-consult exception reports "unavailable" under the unified
+        # gate's PolicyDisposition (5a4dd9a2f) -- distinct from an explicit
+        # policy "deny" -- but _gate_by_action_policy blocks on both, so the
+        # fail-closed behavior this test proves is unaffected.
+        assert ev.action_decision["decision"] == "unavailable"
         assert "fail closed" in ev.action_decision["reason"]
 
 
@@ -211,7 +242,10 @@ class TestRealActionPolicy:
         )
         ev = merger.consider(_spec())
         assert ev.merged is True
-        assert ev.action_decision["decision"] == "queue_approval"
+        # The shipped default's "approval_required" tier queues (the raw
+        # ActionDecision vocabulary's "queue_approval"), which the unified
+        # gate's PolicyDisposition (5a4dd9a2f) reports as "hold".
+        assert ev.action_decision["decision"] == "hold"
         assert ev.publication["status"] == "approval_queued"
         approvals = engine.by_type("ActionApproval")
         assert len(approvals) == 1, "merger + publisher must dedup to one approval"
@@ -238,5 +272,5 @@ class TestRealActionPolicy:
         )
         ev = merger.consider(_spec())
         assert ev.merged is True
-        assert ev.action_decision["decision"] == "allow"
+        assert ev.action_decision["decision"] == "approve"
         assert not engine.by_type("ActionApproval")

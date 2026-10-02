@@ -359,12 +359,23 @@ class GovernedAutoMerger:
         if promote:
             decision = self._consult_action_policy(spec)
             if decision is not None:
+                # `_consult_action_policy` returns the unified gate's
+                # `PromotionOutcome` (5a4dd9a2f, "freeze receipt-backed policy
+                # outcomes"), not a raw `ActionDecision` — it carries
+                # `.disposition` (a `PolicyDisposition`: deny/unavailable/
+                # hold/approve), never a `.decision` attribute, so reading
+                # `.decision` here always silently fell back to the literal
+                # default "deny" regardless of the real outcome. Read the
+                # actual field, matching the convention every other
+                # promote()-consuming caller already uses (ops_causal_tools,
+                # skill_evolution, evolve_agent): `disposition.value`.
+                disposition = getattr(decision, "disposition", None)
                 evaluation.action_decision = {
-                    "decision": getattr(decision, "decision", "deny"),
+                    "decision": disposition.value if disposition else "unavailable",
                     "reason": getattr(decision, "reason", ""),
                     "approval_id": getattr(decision, "approval_id", None),
                 }
-                if evaluation.action_decision["decision"] == "deny":
+                if evaluation.action_decision["decision"] in ("deny", "unavailable"):
                     promote = False
                     denied_reason = (
                         "blocked by action policy (merge_promotion): "
@@ -421,6 +432,9 @@ class GovernedAutoMerger:
         """
         target = self._spec_id(spec)
         from agent_utilities.harness.reward_signal import RewardSignal
+        from agent_utilities.knowledge_graph.research.change_publisher import (
+            _proposal_provenance_receipts,
+        )
         from agent_utilities.orchestration.artifact_promotion import (
             PromotionCandidate,
         )
@@ -449,6 +463,16 @@ class GovernedAutoMerger:
                         or ""
                     ),
                 },
+                # 5a4dd9a2f ("refactor: freeze receipt-backed policy outcomes")
+                # made every PromotionCandidate require at least one
+                # provenance receipt but missed this call site, so every
+                # merge_promotion consult failed closed with "promotion
+                # provenance unavailable" regardless of policy/governance.
+                # Reuse change_publisher's own proposal-payload receipt (one
+                # content-addressed id binding this decision to the EXACT
+                # proposal presented), the same convention governed_publish
+                # already uses for the publication leg of this same lifecycle.
+                provenance_receipts=_proposal_provenance_receipts(spec, target),
             ),
             policy=self._action_policy,
         )
