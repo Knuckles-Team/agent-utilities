@@ -527,7 +527,13 @@ def test_ack_denied_by_real_default_policy_never_mutates(monkeypatch):
     default tier (approval_required) — not an allowing decision.
     ``kg_server._get_engine`` is stubbed to ``None`` — ``ActionPolicy(engine=
     None)`` degrades gracefully throughout, exactly like
-    ``incidents.actuate_remediation``'s own no-engine default-held behavior."""
+    ``incidents.actuate_remediation``'s own no-engine default-held behavior.
+    Concretely that lands on ``"unavailable"``, not a bare ``"queue_approval"``:
+    ``ActionPolicy.queue_approval()`` explicitly returns ``None`` when
+    ``self.engine is None`` (it cannot file a durable ``ActionApproval`` node
+    without one), and ``_hold()`` converts a tier that would otherwise queue
+    for approval into the fail-closed ``"unavailable"`` decision whenever no
+    approval id comes back — never a silent allow."""
     from agent_utilities.observability import incidents as inc
 
     monkeypatch.setattr(kg_server, "_get_engine", lambda: None)
@@ -542,11 +548,14 @@ def test_ack_denied_by_real_default_policy_never_mutates(monkeypatch):
         tool(action="ack", incident_id=incident_id, reason="", actor_id="")
     )
     assert out["error"] == "policy_denied"
-    assert out["policy"]["decision"] in ("queue_approval", "deny")
+    assert out["policy"]["decision"] in ("queue_approval", "deny", "unavailable")
     assert mutated == []  # the mutation never ran
 
 
 def test_resolve_denied_by_real_default_policy_never_mutates(monkeypatch):
+    """Mirrors test_ack_denied_by_real_default_policy_never_mutates above --
+    see its docstring for why ``"unavailable"`` is an accepted fail-closed
+    decision here alongside ``"queue_approval"``/``"deny"``."""
     from agent_utilities.observability import incidents as inc
 
     monkeypatch.setattr(kg_server, "_get_engine", lambda: None)
@@ -561,5 +570,5 @@ def test_resolve_denied_by_real_default_policy_never_mutates(monkeypatch):
         tool(action="resolve", incident_id=incident_id, reason="", actor_id="")
     )
     assert out["error"] == "policy_denied"
-    assert out["policy"]["decision"] in ("queue_approval", "deny")
+    assert out["policy"]["decision"] in ("queue_approval", "deny", "unavailable")
     assert mutated == []
