@@ -4,13 +4,13 @@
 test_ingest_registered_graph_characterization.py``, which pins its own
 inline copy of an equivalent scenario verbatim and must not change).
 
-Extracting this out of the unit test's own body means that file's test no
-longer carries a full copy of the stub graph + scenario wiring inline —
-only the call and its own assertions do.
+The stub serves pages from a small table, and the helper only drives the
+ingestion; each caller asserts what it adds beyond the characterized result.
 """
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 from agent_utilities.knowledge_graph.ingestion.external_graph import (
@@ -19,11 +19,46 @@ from agent_utilities.knowledge_graph.ingestion.external_graph import (
 )
 
 
-class CDCGraph:
-    """A two-page CDC stub: page 1 upserts + deletes one node, page 2 upserts
-    another. ``execute_read`` must never be reached while CDC is available."""
+def _upsert(node_id: str, kind: str, version: str, title: str) -> dict[str, Any]:
+    record = {"id": node_id, "kind": kind, "version": version}
+    return {
+        "operation": "upsert",
+        "entity": "node",
+        "record": {**record, "properties": {"title": title}},
+    }
 
-    def __init__(self) -> None:
+
+def _delete(node_id: str) -> dict[str, Any]:
+    return {"operation": "delete", "entity": "node", "id": node_id}
+
+
+# cursor presented -> (events, next cursor, more pages follow)
+_TWO_PAGES: dict[str, tuple[list[dict[str, Any]], str, bool]] = {
+    "cursor-1": (
+        [
+            _upsert("raw-node-a", "Capability", "1", "Synthetic A"),
+            _delete("raw-node-old"),
+        ],
+        "cursor-2",
+        True,
+    ),
+    "cursor-2": (
+        [_upsert("raw-node-b", "Process", "2", "Synthetic B")],
+        "cursor-3",
+        False,
+    ),
+}
+
+
+class PagedChangeGraph:
+    """A change-feed stub that serves a fixed table of pages keyed by the
+    cursor presented, and records every cursor it was asked for. A snapshot
+    read must never be reached while a change feed is available."""
+
+    def __init__(
+        self, pages: dict[str, tuple[list[dict[str, Any]], str, bool]]
+    ) -> None:
+        self._pages = pages
         self.cursors: list[str | None] = []
 
     def execute_read(self, _query: str, _params: dict):
@@ -32,92 +67,35 @@ class CDCGraph:
     def read_change_page(self, *, cursor: str | None, limit: int):
         assert limit == 2
         self.cursors.append(cursor)
-        if cursor == "cursor-1":
-            return {
-                "events": [
-                    {
-                        "operation": "upsert",
-                        "entity": "node",
-                        "record": {
-                            "id": "raw-node-a",
-                            "kind": "Capability",
-                            "version": "1",
-                            "properties": {"title": "Synthetic A"},
-                        },
-                    },
-                    {
-                        "operation": "delete",
-                        "entity": "node",
-                        "id": "raw-node-old",
-                    },
-                ],
-                "next_cursor": "cursor-2",
-                "has_more": True,
-            }
-        return {
-            "events": [
-                {
-                    "operation": "upsert",
-                    "entity": "node",
-                    "record": {
-                        "id": "raw-node-b",
-                        "kind": "Process",
-                        "version": "2",
-                        "properties": {"title": "Synthetic B"},
-                    },
-                }
-            ],
-            "next_cursor": "cursor-3",
-            "has_more": False,
-        }
+        events, next_cursor, has_more = self._pages[str(cursor)]
+        return {"events": events, "next_cursor": next_cursor, "has_more": has_more}
 
 
-def assert_two_page_cdc_scenario(
+def run_two_page_cdc(
     monkeypatch: Any,
     *,
     registry_cls: Any,
     profile: Any,
     patch_capture: Any,
-    base_request: Any,
-) -> list:
-    """Drive ``ingest_registered_graph`` through one two-page CDC cycle and
-    assert the full set of invariants this scenario proves: the cursor
-    advances exactly once, the sync strategy/node/delete counts are right,
-    every envelope carries the correct operation in order, and only the
-    LAST envelope (the trailing snapshot-complete marker) carries a
-    checkpoint.
+    base_request: ExternalGraphIngestionRequest,
+) -> tuple[PagedChangeGraph, dict[str, Any], list]:
+    """Drive ``ingest_registered_graph`` through one two-page change-feed
+    cycle starting from a stored cursor and return the stub graph, the
+    result and the captured envelopes for the caller to assert on.
 
-    ``registry_cls``/``profile``/``patch_capture``/``base_request`` are the
-    calling test module's own doubles (``_Registry``, ``_profile``,
-    ``_patch_ingest_capture``, ``_request()``) — this helper stays agnostic
-    of which test file supplies them. Returns ``captured`` for any
-    additional, caller-specific assertions (e.g. privacy/provenance checks)
-    beyond this shared scenario's own invariants.
+    The end-to-end result of this scenario is pinned by the characterization
+    suite; callers here assert only what they add to it.
     """
     captured: list = []
-    graph = CDCGraph()
+    graph = PagedChangeGraph(_TWO_PAGES)
+    start = next(iter(_TWO_PAGES))
     monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.external_graph.read_change_cursor",
-        lambda _engine, _connector, *, source_instance: "cursor-1",
+        f"{ingest_registered_graph.__module__}.read_change_cursor",
+        lambda *_args, **_kwargs: start,
     )
     patch_capture(monkeypatch, captured)
-    request = ExternalGraphIngestionRequest(
-        **{**base_request.__dict__, "page_size": 2, "max_pages": 2}
-    )
+    paged = dataclasses.replace(base_request, page_size=2, max_pages=len(_TWO_PAGES))
     result = ingest_registered_graph(
-        object(), registry_cls(graph), request, profile=profile()
+        object(), registry_cls(graph), paged, profile=profile()
     )
-
-    assert graph.cursors == ["cursor-1", "cursor-2"]
-    assert result["sync_strategy"] == "cdc"
-    assert result["nodes"] == 2
-    assert result["deletes"] == 1
-    assert [envelope.operation for envelope in captured] == [
-        "upsert",
-        "upsert",
-        "delete",
-        "snapshot_complete",
-    ]
-    assert all(envelope.checkpoint is None for envelope in captured[:-1])
-    assert captured[-1].checkpoint == "cursor-3"
-    return captured
+    return graph, result, captured

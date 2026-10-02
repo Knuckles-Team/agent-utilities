@@ -917,9 +917,9 @@ def test_external_graph_enforces_payload_budget_on_cdc_events(monkeypatch) -> No
 def test_external_graph_uses_discovered_native_cdc_and_advances_cursor_once(
     monkeypatch,
 ) -> None:
-    from _cdc_scenario import assert_two_page_cdc_scenario
+    from _cdc_scenario import run_two_page_cdc
 
-    captured = assert_two_page_cdc_scenario(
+    graph, result, captured = run_two_page_cdc(
         monkeypatch,
         registry_cls=_Registry,
         profile=_profile,
@@ -927,6 +927,10 @@ def test_external_graph_uses_discovered_native_cdc_and_advances_cursor_once(
         base_request=_request(),
     )
 
+    # Advanced exactly once per page, and only the trailing marker commits.
+    assert graph.cursors == ["cursor-1", "cursor-2"]
+    assert result["sync_strategy"] == "cdc"
+    assert [bool(envelope.checkpoint) for envelope in captured] == [False] * 3 + [True]
     assert captured[-1].provenance["fetch_ok"] is False
     serialized = json.dumps([item.as_dict() for item in captured], sort_keys=True)
     assert "raw-node" not in serialized
