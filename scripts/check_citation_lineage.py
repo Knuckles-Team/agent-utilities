@@ -118,26 +118,35 @@ def _check_citation_resolution(*, degrade: bool) -> tuple[bool, str]:
 
 
 def _check_embedding_version_mismatch_refused(*, degrade: bool) -> tuple[bool, str]:
+    from agent_utilities.knowledge_graph.retrieval.capability_index import (
+        CapabilityIndex,
+    )
+    from agent_utilities.knowledge_graph.retrieval.embedding_versioning import (
+        EmbeddingVersionMismatchError,
+    )
+
+    # `CapabilityIndex` itself imports without the kernel (it degrades `xp` to
+    # `None` so merely importing/constructing the module never requires
+    # epistemic-graph[full] -- see that module's own guard); the kernel is
+    # only required once ranking actually runs, inside `add()`'s
+    # `to_builtin()` call. Catch the ImportError there instead of at the
+    # `from ... import CapabilityIndex` line above, so this still degrades to
+    # the same clean, reported SKIP without the kernel instead of an
+    # uncaught crash -- the kernel-absent signal moved to first USE, not
+    # import, by design (CONCEPT:AU-KG.compute.numpy-scipy-drop).
     try:
-        from agent_utilities.knowledge_graph.retrieval.capability_index import (
-            CapabilityIndex,
-        )
-        from agent_utilities.knowledge_graph.retrieval.embedding_versioning import (
-            EmbeddingVersionMismatchError,
+        idx = CapabilityIndex(dim=4, prefer_backend="native")
+        idx.add(
+            "doc-a",
+            [1.0, 0.0, 0.0, 0.0],
+            capabilities=[],
+            embedding_version="openai:text-embed-v1" if not degrade else None,
         )
     except ImportError as exc:
         return True, (
             "SKIPPED (no epistemic-graph[full] kernel — CapabilityIndex ranking "
             f"unavailable): {exc}"
         )
-
-    idx = CapabilityIndex(dim=4, prefer_backend="native")
-    idx.add(
-        "doc-a",
-        [1.0, 0.0, 0.0, 0.0],
-        capabilities=[],
-        embedding_version="openai:text-embed-v1" if not degrade else None,
-    )
     try:
         idx.add(
             "doc-b",
