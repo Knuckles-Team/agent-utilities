@@ -66,18 +66,39 @@ import tempfile
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
-
-from agent_utilities.numeric import (
-    NDArray,
-    UnsupportedNumericOperationError,
-    load_numeric_artifact,
-    save_numeric_artifact,
-    to_builtin,
-    xp,
-)
+from typing import TYPE_CHECKING, Any
 
 from .embedding_versioning import EmbeddingVersionMismatchError
+
+if TYPE_CHECKING:
+    # Type-only: with `from __future__ import annotations` above, annotations
+    # are never evaluated at runtime, so this name needs no runtime import.
+    from agent_utilities.numeric import NDArray
+
+try:
+    from agent_utilities.numeric import xp
+except ImportError:
+    # epistemic-graph[numeric] kernel absent (lean/headless/CI import without
+    # the `[numeric]`/`[graphos]` extra). Keep this module -- and everything
+    # that merely imports `CapabilityIndex` for non-ranking purposes,
+    # including the whole `agent_utilities.mcp.tools` registration surface
+    # via `graph/routing/enrichers/capability_routing.py` -- importable
+    # without a live engine. The ANN/vector code paths below use `xp` and
+    # require the kernel; they raise a clear ``AttributeError`` on this
+    # ``None`` sentinel at call time if invoked without it, rather than
+    # trapping every importer at module load (restores the guard
+    # cc7222cf7f introduced, since dropped by the NumPy-to-native-kernel
+    # migration -- tests/conftest.py's
+    # ``_is_none_numeric_shim_attribute_error`` already recognizes this
+    # exact shape and skips cleanly instead of failing).
+    xp: Any = None  # type: ignore[no-redef]
+
+# The remaining `agent_utilities.numeric` names (`UnsupportedNumericOperationError`,
+# `to_builtin`, `save_numeric_artifact`, `load_numeric_artifact`) are imported
+# lazily at each call site below instead of guarded here: unlike `xp` they are
+# not part of the conftest `np`/`xp`-sentinel auto-skip signature, so a lazy
+# import gives a clearer `ImportError` at the point of use when the kernel is
+# absent, without imposing the import on every caller of this module.
 
 logger = logging.getLogger(__name__)
 
@@ -435,6 +456,8 @@ def _select_backend(prefer_backend: str | None) -> str:
             f"prefer_backend must be 'hnsw', 'native', or None; got {prefer_backend!r}"
         )
     if not _HNSW_AVAILABLE:
+        from agent_utilities.numeric import UnsupportedNumericOperationError
+
         raise UnsupportedNumericOperationError(
             "CapabilityIndex hnsw backend is unavailable; use the native backend"
         )
@@ -712,6 +735,8 @@ class CapabilityIndex:
 
     def _validate_and_normalize_embedding(self, id: str, embedding: Any) -> Any:
         """Validate ``embedding`` against this index's pinned ``dim`` and return it L2-normalized."""
+        from agent_utilities.numeric import to_builtin
+
         raw_embedding = to_builtin(embedding)
         if not isinstance(raw_embedding, (list, tuple)):
             raise TypeError("CapabilityIndex embeddings must be builtin sequences")
@@ -1066,6 +1091,8 @@ class CapabilityIndex:
 
     def _validate_and_normalize_query(self, prompt_embedding: Any) -> Any:
         """Validate the query embedding against this index's ``dim`` and return it L2-normalized."""
+        from agent_utilities.numeric import to_builtin
+
         raw_query = to_builtin(prompt_embedding)
         if not isinstance(raw_query, (list, tuple)):
             raise TypeError(
@@ -1397,6 +1424,8 @@ class CapabilityIndex:
         # payload is persisted.
         ids = list(self._id_to_vec.keys())
         vectors = [self._id_to_vec[i] for i in ids]
+        from agent_utilities.numeric import save_numeric_artifact
+
         save_numeric_artifact(path / "embeddings.json", vectors)
         meta["embeddings_sha256"] = _sha256_file(path / "embeddings.json")
         meta["embeddings_artifact"] = "embeddings.json"
@@ -1513,6 +1542,8 @@ class CapabilityIndex:
             _sha256_file(embeddings_path), meta["embeddings_sha256"]
         ):
             raise ValueError("capability index embedding digest is invalid")
+        from agent_utilities.numeric import load_numeric_artifact
+
         vectors = load_numeric_artifact(embeddings_path)
         if not isinstance(vectors, list) or len(vectors) != len(ids):
             raise ValueError("capability index embedding shape is invalid")

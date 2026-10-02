@@ -40,7 +40,23 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from agent_utilities.core.config import setting
-from agent_utilities.numeric import xp
+
+try:
+    from agent_utilities.numeric import xp
+except ImportError:
+    # epistemic-graph[numeric] kernel absent (lean/headless/CI import without
+    # the `[numeric]`/`[graphos]` extra). Keep this module -- and the whole
+    # `agent_utilities.knowledge_graph.memory` package (imported eagerly by
+    # `agent_utilities.knowledge_graph.retrieval.budget`, reached from the
+    # context compiler, reached from `agent_utilities.mcp.tools`'s
+    # registration surface) -- importable without a live engine. The
+    # consolidation/compression code paths below use `xp` and require the
+    # kernel; they raise a clear ``AttributeError`` on this ``None`` sentinel
+    # at call time if invoked without it, matching the existing guard on
+    # :mod:`agent_utilities.knowledge_graph.retrieval.capability_index`
+    # (tests/conftest.py's ``_is_none_numeric_shim_attribute_error`` already
+    # recognizes this exact shape and skips cleanly instead of failing).
+    xp: Any = None  # type: ignore[no-redef]
 
 logger = logging.getLogger(__name__)
 

@@ -23,8 +23,23 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from agent_utilities.numeric import xp
 from agent_utilities.prompts.canonical import load_canonical_prompt
+
+try:
+    from agent_utilities.numeric import xp
+except ImportError:
+    # epistemic-graph[numeric] kernel absent (lean/headless/CI import without
+    # the `[numeric]`/`[graphos]` extra). Keep this module -- and the whole
+    # `agent_utilities.knowledge_graph.extraction` package (reached from
+    # ontology generation, reached from `agent_utilities.mcp.tools`'s
+    # registration surface) -- importable without a live engine. The ranking
+    # code paths below use `xp` and require the kernel; they raise a clear
+    # ``AttributeError`` on this ``None`` sentinel at call time if invoked
+    # without it, matching the existing guard on
+    # :mod:`agent_utilities.knowledge_graph.retrieval.capability_index`
+    # (tests/conftest.py's ``_is_none_numeric_shim_attribute_error`` already
+    # recognizes this exact shape and skips cleanly instead of failing).
+    xp: Any = None  # type: ignore[no-redef]
 
 if TYPE_CHECKING:
     from .extraction_schema import ExtractionSchema
