@@ -93,7 +93,7 @@ class TestPatternSelection:
         assert decision.timestamp
 
 
-# ── No outcome store (AU-CONTROL-R015) ────────────────────────────────
+# ── No outcome store ────────────────────────────────────────────────────
 
 
 class TestNoOutcomeStore:

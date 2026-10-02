@@ -24,6 +24,11 @@ from agent_utilities.decide.consumers.topology import (
     topology_request,
 )
 from agent_utilities.decide.topology import SWARM_NS
+
+# agent_utilities.graph's package __init__ imports .builder, which pulls in
+# the compiled epistemic_graph.numeric kernel at import time; skip the whole
+# module cleanly when it isn't built, rather than erroring out collection.
+pytest.importorskip("epistemic_graph.numeric")
 from agent_utilities.graph.plan_admission import admission_from_plan
 from agent_utilities.graph.subagent_patterns import (
     SubagentPattern,

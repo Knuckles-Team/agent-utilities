@@ -14,6 +14,11 @@ import hashlib
 
 import pytest
 
+# agent_utilities.api's package __init__ imports agent_control_plane, which
+# reaches the compiled epistemic_graph.numeric kernel transitively (through
+# rlm -> graph -> knowledge_graph.core.engine); skip the whole module cleanly
+# when it isn't built, rather than erroring out collection.
+pytest.importorskip("epistemic_graph.numeric")
 from agent_utilities.api.agent_control_contracts import TaskClassificationClaim
 from agent_utilities.api.task_classification import (
     AMBIGUITY_MARGIN,

@@ -70,6 +70,7 @@ from agent_utilities.knowledge_graph.retrieval.context_compiler import (
 from agent_utilities.knowledge_graph.retrieval.context_compiler_serving import (
     bundle_chat_completion,
 )
+from tests.retrieval.fakes import FakeRetriever
 
 _METRIC_RE = re.compile(
     r"^vllm:(prefix_cache_hits_total|prefix_cache_queries_total)\{[^}]*\}\s+([0-9.eE+]+)",
@@ -82,17 +83,6 @@ def _tls_context() -> ssl.SSLContext:
     cafile = os.environ.get("SSL_CERT_FILE") or os.environ.get("REQUESTS_CA_BUNDLE")
     capath = os.environ.get("SSL_CERT_DIR")
     return ssl.create_default_context(cafile=cafile or None, capath=capath or None)
-
-
-class FakeRetriever:
-    """Fixed candidate pool — same shape the unit tests use, no engine/network needed
-    for the RETRIEVAL half; only the final chat call touches the live vLLM."""
-
-    def __init__(self, nodes: list[dict]) -> None:
-        self._nodes = nodes
-
-    def retrieve_hybrid(self, query, context_window=10, **kwargs):
-        return list(self._nodes)[:context_window]
 
 
 def _make_bundle(compiler: ContextCompiler, query: str, top_k: int):
