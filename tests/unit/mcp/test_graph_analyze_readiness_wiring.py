@@ -85,7 +85,8 @@ def test_readiness_wiring_reports_unavailable_when_engine_degraded(monkeypatch):
 
 def test_readiness_wiring_reports_ready_when_query_genuinely_resolves(monkeypatch):
     """KNOWN-GOOD PROOF via the live entrypoint: a real grounded answer comes
-    back through the actual dispatch path -> and only then -> ready.
+    back through the actual dispatch path -> and only then -> the
+    synthetic-query check this test targets reports ready.
 
     ``runtime_health.collect_health`` (a real bounded socket probe against
     whatever engine this sandbox happens to have running — unrelated to the
@@ -93,6 +94,16 @@ def test_readiness_wiring_reports_ready_when_query_genuinely_resolves(monkeypatc
     so the assertion isolates the seam under test: the served ``readiness``
     action actually reaches ``build_code_context`` through the real engine
     handle this test injects.
+
+    Overall is ``"degraded"``, not ``"ready"``: ``ontology_activation`` is a
+    separate, non-required check (``REQUIRED_CHECKS`` is only ``engine``,
+    ``catalog``, ``synthetic_query``) that fails closed to ``"unavailable"``
+    — in plain words, there is currently no replacement status source backed
+    by the epistemic-graph-owned ontology authority for this leg to read, so
+    it can never report anything but ``"unavailable"`` yet (see
+    ``readiness._check_ontology_activation``'s own comment). ``_rollup``
+    folds any ``"unavailable"`` leg into an overall ``"degraded"`` regardless
+    of whether it is required, by design (never silently "ready").
     """
     engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
     monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
@@ -128,7 +139,8 @@ def test_readiness_wiring_reports_ready_when_query_genuinely_resolves(monkeypatc
     payload = out.claims[0]
     assert payload["checks"]["synthetic_query"]["state"] == "ready"
     assert payload["checks"]["synthetic_query"]["evidence_count"] >= 1
-    assert payload["overall"] == "ready"
+    assert payload["checks"]["ontology_activation"]["state"] == "unavailable"
+    assert payload["overall"] == "degraded"
     assert payload["required_failures"] == []
     # No engine handle, credential, or raw query text ever leaks into the
     # served payload.
