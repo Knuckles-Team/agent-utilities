@@ -682,7 +682,11 @@ test = [
     # (numeric contract, knowledge_graph engine-client tests, etc.) genuinely
     # exercises epistemic-graph and must not silently run engine-absent. Add `feeds`
     # (RSS ingestion tests) and the explicit backend extras the suite exercises.
-    "agent-utilities[agent-runtime,feeds,sandbox,graph,acp,rdf,finance,event-kafka]",
+    # `pyarrow`: tests/unit/data_prep/test_kernel.py, test_connector_contract.py
+    # and test_profiling.py exercise agent_utilities/data_prep/kernel.py (the
+    # bounded Arrow preparation kernel) directly with `import pyarrow as pa`;
+    # the suite must install the same extra the module under test ships behind.
+    "agent-utilities[agent-runtime,feeds,sandbox,graph,acp,rdf,finance,event-kafka,pyarrow]",
     # DEV/TEST-ONLY — a hermetic in-memory comparator, never imported by runtime code.
     # tests/knowledge_graph/test_pack_owl_closure.py, tests/unit/knowledge_graph/
     # test_owl_closure.py and tests/unit/knowledge_graph/test_federation.py build a
