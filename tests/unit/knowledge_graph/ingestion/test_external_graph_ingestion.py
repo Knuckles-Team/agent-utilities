@@ -733,6 +733,17 @@ def _node_only_profile() -> dict:
     return profile
 
 
+def _assert_nonauthoritative_snapshot(result: dict, captured: list) -> None:
+    """Shared assertions for a snapshot made non-authoritative by a missing
+    (node or edge) identity: still partial, the marker still fires, but it
+    records neither live ids nor a successful fetch."""
+    assert result["status"] == "partial"
+    assert result["snapshot_authoritative"] is False
+    assert captured[-1].operation == "snapshot_complete"
+    assert not captured[-1].live_ids
+    assert captured[-1].provenance["fetch_ok"] is False
+
+
 def test_external_graph_missing_identity_makes_snapshot_nonauthoritative(
     monkeypatch,
 ) -> None:
@@ -756,11 +767,7 @@ def test_external_graph_missing_identity_makes_snapshot_nonauthoritative(
         object(), _Registry(_RowsGraph(rows)), _request(), profile=_node_only_profile()
     )
 
-    assert result["status"] == "partial"
-    assert result["snapshot_authoritative"] is False
-    assert captured[-1].operation == "snapshot_complete"
-    assert not captured[-1].live_ids
-    assert captured[-1].provenance["fetch_ok"] is False
+    _assert_nonauthoritative_snapshot(result, captured)
 
 
 def test_external_graph_missing_edge_identity_suppresses_reconciliation(
@@ -781,11 +788,7 @@ def test_external_graph_missing_edge_identity_suppresses_reconciliation(
         object(), _Registry(_MissingEdgeIdentityGraph()), _request(), profile=_profile()
     )
 
-    assert result["status"] == "partial"
-    assert result["snapshot_authoritative"] is False
-    assert captured[-1].operation == "snapshot_complete"
-    assert not captured[-1].live_ids
-    assert captured[-1].provenance["fetch_ok"] is False
+    _assert_nonauthoritative_snapshot(result, captured)
 
 
 @pytest.mark.parametrize(
