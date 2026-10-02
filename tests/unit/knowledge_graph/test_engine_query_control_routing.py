@@ -53,7 +53,14 @@ def _identity_read_policy(monkeypatch):
 
     # D-W2T-2: secured_reads.scope() returns (query, extra_params) now.
     monkeypatch.setattr(secured_reads, "scope", lambda query, _actor: (query, {}))
-    monkeypatch.setattr(secured_reads, "filter_rows", lambda rows, _actor: rows)
+    # b76116143 ("fix(kg): push authorization down instead of raising on
+    # id-less rows") added the keyword-only trust_pushdown parameter every
+    # real caller now passes to filter_rows/row_node_ids.
+    monkeypatch.setattr(
+        secured_reads,
+        "filter_rows",
+        lambda rows, _actor, trust_pushdown=False: rows,
+    )
     monkeypatch.setattr(secured_reads, "visible", lambda rows, _actor: rows)
     monkeypatch.setattr(secured_reads, "audit_read", lambda *_args, **_kwargs: None)
 
