@@ -8,9 +8,14 @@ from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
 
-import pyarrow as pa
 import pytest
 from pydantic import BaseModel, ConfigDict
+
+# pyarrow is an optional base-install dependency (agent_utilities.data_prep.kernel
+# imports it lazily) -- skip cleanly rather than error collection when it is not
+# installed, matching tests/unit/knowledge_graph/core/test_knowledge_stream.py's
+# existing convention for the same optional package.
+pa = pytest.importorskip("pyarrow")
 
 import agent_utilities.knowledge_graph.ingestion.envelope_ingest as envelope_ingest
 from agent_utilities.data_prep import (
