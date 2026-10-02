@@ -28,33 +28,25 @@ from agent_utilities.knowledge_graph.research.claim_flywheel import (
     ClaimLifecycleState,
 )
 from agent_utilities.knowledge_graph.research.loop_controller import LoopController
+from tests.unit.knowledge_graph._shacl_fakes import AlwaysConformsShaclMixin
 
 pytestmark = pytest.mark.concept("AU-KG.evolution.mining-flywheel")
 
 
-class _FlywheelLoopStubEngine:
+class _FlywheelLoopStubEngine(AlwaysConformsShaclMixin):
     """Combines the existing insight/trace-mining stub shape (``governance_rule``
     lookups relax the ActionPolicy tier) with a REAL ``ClaimLifecycleEvent``
     round-trip (unlike the minimal stubs in the sibling test files) so the
     flywheel's cross-cycle retracted-memory is exercised for real, plus
-    ``add_edge`` so LOOP 1's materialization has somewhere to land."""
+    ``add_edge`` so LOOP 1's materialization has somewhere to land.
+    ``AlwaysConformsShaclMixin`` stands in for the committed EG SHACL
+    authority (see that mixin's own docstring)."""
 
     def __init__(self, *, governance_rules: list[dict[str, Any]] | None = None):
         self.nodes: dict[str, dict[str, Any]] = {}
         self.edges: list[tuple[str, str, str, dict[str, Any]]] = []
         self.backend = None
         self._governance_rules = governance_rules or []
-
-    def shacl_validate_committed(self, _document: str) -> Any:
-        """Stand in for the committed EG SHACL authority 43197d7c6 ("refactor:
-        move semantic authority to epistemic graph") moved
-        PromotionGovernanceValidator's governance-shape check onto:
-        _validate_shacl_spec fails closed unconditionally when the engine
-        lacks this method at all. Always reports conformance for these
-        synthetic specs."""
-        from types import SimpleNamespace
-
-        return SimpleNamespace(conforms=True, results=[])
 
     def add_node(
         self, node_id: str, node_type: str, properties: dict[str, Any] | None = None

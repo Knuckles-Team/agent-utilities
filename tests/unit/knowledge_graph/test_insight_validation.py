@@ -17,17 +17,19 @@ from typing import Any
 import pytest
 
 from agent_utilities.knowledge_graph.research.loop_controller import LoopController
+from tests.unit.knowledge_graph._shacl_fakes import AlwaysConformsShaclMixin
 
 pytestmark = pytest.mark.concept("AU-KG.evolution.insight-engine-closed-loop")
 
 
-class _InsightStubEngine:
+class _InsightStubEngine(AlwaysConformsShaclMixin):
     """Minimal engine double: records ``add_node`` calls, canned ``query_cypher``.
 
     ``governance_rule`` rows (scope='action_policy') let a test relax BOTH the
     ``promote_mined_claim`` action-policy kind AND the ``merge_promotion`` kind
     the reused ``GovernedAutoMerger`` separately consults — X3 autonomy only
-    ever promotes when both are exercised.
+    ever promotes when both are exercised. ``AlwaysConformsShaclMixin`` stands
+    in for the committed EG SHACL authority (see that mixin's own docstring).
     """
 
     def __init__(self, *, governance_rules: list[dict[str, Any]] | None = None):
@@ -42,16 +44,6 @@ class _InsightStubEngine:
         # provenance-edge + TruthMaintenance-registration writeback asserted below.
         self.edges: list[tuple[str, str, dict[str, Any]]] = []
         self.registered_materializations: list[str] = []
-
-    def shacl_validate_committed(self, _document: str) -> Any:
-        """Stand in for the committed EG SHACL authority 43197d7c6 ("refactor:
-        move semantic authority to epistemic graph") moved
-        PromotionGovernanceValidator's governance-shape check onto: an engine
-        lacking this method fails that check closed unconditionally. Always
-        reports conformance for these synthetic specs."""
-        from types import SimpleNamespace
-
-        return SimpleNamespace(conforms=True, results=[])
 
     def add_node(
         self, node_id: str, node_type: str, properties: dict[str, Any] | None = None

@@ -25,58 +25,17 @@ The outer ``KG_GOLDEN_AUTO_MERGE`` gate is unchanged (default False).
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from fleet_autonomy_fakes import FakeEngine  # noqa: E402
-
-from agent_utilities.knowledge_graph.research.auto_merge import (  # noqa: E402
+from agent_utilities.knowledge_graph.research.auto_merge import (
     GovernedAutoMerger,
     MergePolicy,
 )
-from agent_utilities.orchestration.action_policy import (  # noqa: E402
-    ActionDecision,
-    ActionPolicy,
-    ActionRequest,
-    _policy_receipt,
-)
+from agent_utilities.orchestration.action_policy import ActionPolicy
+from tests.unit.fleet_autonomy_fakes import FakeEngine
+from tests.unit.fleet_autonomy_fakes import FakePolicy as _FakePolicy
 
 pytestmark = pytest.mark.concept("AHE-3.20")
-
-
-class _FakePolicy:
-    """Recording ActionPolicy double returning a canned decision.
-
-    Binds a receipt the same way ``ActionPolicy.decide``'s real
-    ``_bind_decision_receipt`` does (5a4dd9a2f, "freeze receipt-backed policy
-    outcomes"): the unified ``artifact_promotion.promote()`` gate this double
-    feeds degrades an ``approve`` disposition with no matching receipt to
-    ``unavailable``, so a double that never bound one could never actually
-    reach "approve" no matter what decision string it returned.
-    """
-
-    def __init__(self, decision: str, *, reason: str = "r", approval_id=None):
-        self._decision = decision
-        self._reason = reason
-        self._approval_id = approval_id
-        self.requests: list[ActionRequest] = []
-
-    def decide(self, request: ActionRequest) -> ActionDecision:
-        self.requests.append(request)
-        decision = ActionDecision(
-            decision=self._decision,
-            tier="approval_required",
-            request=request,
-            reason=self._reason,
-            approval_id=self._approval_id,
-        )
-        decision.audit_id = f"fake-audit:{len(self.requests)}"
-        decision.receipt = _policy_receipt(decision)
-        return decision
 
 
 def _spec() -> dict:

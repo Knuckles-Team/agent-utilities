@@ -35,6 +35,7 @@ from agent_utilities.knowledge_graph.core.session import GraphSession, use_sessi
 from agent_utilities.knowledge_graph.orchestration.engine_query import QueryMixin
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
+from tests.unit.knowledge_graph._secured_reads_fakes import bypass_secured_reads
 
 
 @dataclass
@@ -93,19 +94,7 @@ def _bypass_acl_layer(monkeypatch):
     mutation in play; it is proven separately in
     test_engine_query_aggregate_governance's tenant-scoping tests.
     """
-    from agent_utilities.knowledge_graph.core import secured_reads
-
-    monkeypatch.setattr(secured_reads, "scope", lambda query, _actor: (query, {}))
-    # b76116143 ("fix(kg): push authorization down instead of raising on
-    # id-less rows") added the keyword-only trust_pushdown parameter every
-    # real caller now passes to filter_rows.
-    monkeypatch.setattr(
-        secured_reads,
-        "filter_rows",
-        lambda rows, _actor, trust_pushdown=False: rows,
-    )
-    monkeypatch.setattr(secured_reads, "visible", lambda rows, _actor: rows)
-    monkeypatch.setattr(secured_reads, "audit_read", lambda *_args, **_kwargs: None)
+    bypass_secured_reads(monkeypatch)
 
 
 def test_projecting_query_returns_commons_rows():

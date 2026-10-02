@@ -10,19 +10,9 @@ from agent_utilities.knowledge_graph.memory import (
 pytest.importorskip("epistemic_graph.numeric")
 
 from agent_utilities.numeric import xp as np
-
-
-def _elementwise_add(a, b):
-    """``agent_utilities.numeric`` crosses the boundary as bounded builtin
-    lists, never an array-like object with operator overloading (its own
-    module docstring: "deliberately does not provide an array object"), so
-    plain ``+``/``*`` on two of its results is either a TypeError (float
-    multiplier) or silent list concatenation/repetition (int multiplier),
-    never elementwise math. Small local helper for the tests here that build
-    a signal + independent noise sample."""
-    if isinstance(a, list):
-        return [_elementwise_add(x, y) for x, y in zip(a, b, strict=True)]
-    return a + b
+from tests.unit.knowledge_graph._numeric_test_helpers import (
+    elementwise_add as _elementwise_add,
+)
 
 
 @pytest.fixture

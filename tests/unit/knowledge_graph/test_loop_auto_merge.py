@@ -18,6 +18,16 @@ from agent_utilities.knowledge_graph.research.auto_merge import (
 )
 from tests.unit.fleet_autonomy_fakes import FakeEngine
 
+
+def _patch_governed_publish(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
+    """Patch ``change_publisher.governed_publish`` and return its call log."""
+    called: list[bool] = []
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.research.change_publisher.governed_publish",
+        lambda *a, **k: called.append(True) or {"status": "published"},
+    )
+    return called
+
 pytestmark = pytest.mark.concept("AU-AHE.assimilation.research-auto-merge")
 
 
@@ -131,11 +141,7 @@ class TestGovernedMerge:
     def test_bare_claim_skips_governed_publish(self, monkeypatch):
         """D14: a bare Claim (C4's mined-finding artifact) is not git-publishable —
         ``_publish`` must skip ``governed_publish`` cleanly, never call it."""
-        called: list[bool] = []
-        monkeypatch.setattr(
-            "agent_utilities.knowledge_graph.research.change_publisher.governed_publish",
-            lambda *a, **k: called.append(True) or {"status": "published"},
-        )
+        called = _patch_governed_publish(monkeypatch)
         merger = GovernedAutoMerger(
             engine=FakeEngine(),
             policy=MergePolicy(
@@ -163,11 +169,7 @@ class TestGovernedMerge:
 
     def test_non_claim_spec_still_calls_governed_publish(self, monkeypatch):
         """Control: a normal TeamSpec-shaped merge still goes through governed_publish."""
-        called: list[bool] = []
-        monkeypatch.setattr(
-            "agent_utilities.knowledge_graph.research.change_publisher.governed_publish",
-            lambda *a, **k: called.append(True) or {"status": "published"},
-        )
+        called = _patch_governed_publish(monkeypatch)
         merger = GovernedAutoMerger(
             engine=FakeEngine(),
             policy=MergePolicy(enabled=True, require_governance_valid=False),

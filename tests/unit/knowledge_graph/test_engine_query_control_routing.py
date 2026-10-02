@@ -13,6 +13,7 @@ from agent_utilities.knowledge_graph.orchestration.engine_query import (
 )
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
+from tests.unit.knowledge_graph._secured_reads_fakes import bypass_secured_reads
 
 
 @dataclass
@@ -49,20 +50,7 @@ def _session() -> GraphSession:
 
 @pytest.fixture(autouse=True)
 def _identity_read_policy(monkeypatch):
-    from agent_utilities.knowledge_graph.core import secured_reads
-
-    # D-W2T-2: secured_reads.scope() returns (query, extra_params) now.
-    monkeypatch.setattr(secured_reads, "scope", lambda query, _actor: (query, {}))
-    # b76116143 ("fix(kg): push authorization down instead of raising on
-    # id-less rows") added the keyword-only trust_pushdown parameter every
-    # real caller now passes to filter_rows/row_node_ids.
-    monkeypatch.setattr(
-        secured_reads,
-        "filter_rows",
-        lambda rows, _actor, trust_pushdown=False: rows,
-    )
-    monkeypatch.setattr(secured_reads, "visible", lambda rows, _actor: rows)
-    monkeypatch.setattr(secured_reads, "audit_read", lambda *_args, **_kwargs: None)
+    bypass_secured_reads(monkeypatch)
 
 
 @pytest.mark.parametrize(
