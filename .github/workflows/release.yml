@@ -354,7 +354,7 @@ jobs:
   # be folded into `gates` or promoted to release-critical on its own
   # evidence. Until then it is a visible, non-blocking signal only.
   engine-installed-tests:
-    name: engine-installed tests (report only, not required)
+    name: full suite with the engine installed (report only, not required)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -454,8 +454,11 @@ jobs:
       - name: Assert the real engine is importable
         run: python -c "import epistemic_graph, epistemic_graph.numeric"
 
-      - name: Engine-marked test suite
-        run: python3 -m pytest -q -m engine
+      # The whole suite, exactly as `gates` runs it, but with the engine
+      # installed: this is the baseline for changes that make code depend on
+      # the engine client directly, and it runs the engine-marked tests too.
+      - name: Full test suite with the engine installed
+        run: python3 -m pytest -q -n auto --dist loadfile
 
   # ── STAGE 2: build the release wheel. Needs: gates + clone-scanners +
   # engine-release-order. ──────────────────────────────────────────────────
