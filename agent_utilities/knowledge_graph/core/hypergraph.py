@@ -11,28 +11,19 @@ novel edge intersections based purely on their structural positional interaction
 
 import logging
 import math
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     # Type-only: with `from __future__ import annotations` above, annotations
     # are never evaluated at runtime, so this name needs no runtime import.
     from agent_utilities.numeric import NDArray
 
-# epistemic-graph[numeric] kernel absent (lean/headless/CI import without the
-# `[numeric]`/`[graphos]` extra). Keep this module importable without a live
-# engine; the encoding code paths below use `xp` and require the kernel,
-# raising a clear ``AttributeError`` on this ``None`` sentinel at call time if
-# invoked without it, matching the existing guard on
-# :mod:`agent_utilities.knowledge_graph.retrieval.capability_index`
-# (tests/conftest.py's ``_is_none_numeric_shim_attribute_error`` already
-# recognizes this exact shape and skips cleanly instead of failing). `xp` is
-# declared once with its type before the try so the fallback assignment is a
-# plain, already-typed rebinding rather than a second conflicting definition.
-xp: Any
-try:
-    from agent_utilities.numeric import xp
-except ImportError:
-    xp = None
+# agent_utilities.numeric always imports successfully -- it defers the
+# certified epistemic_graph.numeric kernel's absence to first actual use
+# (agent_utilities/numeric/__init__.py's _require_kernel()), which raises
+# a clear ImportError naming the missing kernel instead of failing this
+# module's own import. No try/except/None-fallback needed here anymore.
+from agent_utilities.numeric import xp
 
 logger = logging.getLogger(__name__)
 

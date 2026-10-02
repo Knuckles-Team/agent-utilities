@@ -75,32 +75,17 @@ if TYPE_CHECKING:
     # are never evaluated at runtime, so this name needs no runtime import.
     from agent_utilities.numeric import NDArray
 
-# epistemic-graph[numeric] kernel absent (lean/headless/CI import without the
-# `[numeric]`/`[graphos]` extra). Keep this module -- and everything that
-# merely imports `CapabilityIndex` for non-ranking purposes, including the
-# whole `agent_utilities.mcp.tools` registration surface via
-# `graph/routing/enrichers/capability_routing.py` -- importable without a
-# live engine. The ANN/vector code paths below use `xp` and require the
-# kernel; they raise a clear ``AttributeError`` on this ``None`` sentinel at
-# call time if invoked without it, rather than trapping every importer at
-# module load (restores the guard cc7222cf7f introduced, since dropped by the
-# NumPy-to-native-kernel migration -- tests/conftest.py's
-# ``_is_none_numeric_shim_attribute_error`` already recognizes this exact
-# shape and skips cleanly instead of failing). `xp` is declared once with its
-# type before the try so the fallback assignment is a plain, already-typed
-# rebinding rather than a second conflicting definition.
-xp: Any
-try:
-    from agent_utilities.numeric import xp
-except ImportError:
-    xp = None
+# agent_utilities.numeric always imports successfully -- it defers the
+# certified epistemic_graph.numeric kernel's absence to first actual use
+# (agent_utilities/numeric/__init__.py's _require_kernel()), which raises
+# a clear ImportError naming the missing kernel instead of failing this
+# module's own import. No try/except/None-fallback needed here anymore.
+from agent_utilities.numeric import xp
 
 # The remaining `agent_utilities.numeric` names (`UnsupportedNumericOperationError`,
 # `to_builtin`, `save_numeric_artifact`, `load_numeric_artifact`) are imported
-# lazily at each call site below instead of guarded here: unlike `xp` they are
-# not part of the conftest `np`/`xp`-sentinel auto-skip signature, so a lazy
-# import gives a clearer `ImportError` at the point of use when the kernel is
-# absent, without imposing the import on every caller of this module.
+# lazily at each call site below instead of here, so a caller that never
+# reaches those call sites never pays for the import.
 
 logger = logging.getLogger(__name__)
 
