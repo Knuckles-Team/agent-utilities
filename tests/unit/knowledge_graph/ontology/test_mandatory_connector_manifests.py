@@ -47,12 +47,19 @@ def _signing_authority_available() -> bool:
 # set is asserted EXACTLY, not as a blanket allowance: any other or new
 # violation, or a change in which sources are affected, fails the test loudly
 # instead of silently passing.
+#
+# `arxiv` and `git_markdown` were added here (re-verified 2026-10-01) once
+# BUG-161 (below) closed: the bundled manifest now covers both, so they
+# surface the SAME universal unsigned-sandbox fingerprint gap as every other
+# native source, instead of the `[coverage]` gap BUG-161 used to report.
 _UNATTESTABLE_NATIVE_SOURCES_WITHOUT_SIGNING_KEY = frozenset(
     {
         "ard",
+        "arxiv",
         "database",
         "external_graph",
         "filesystem",
+        "git_markdown",
         "graphql_document",
         "reader",
         "rest",
@@ -61,22 +68,18 @@ _UNATTESTABLE_NATIVE_SOURCES_WITHOUT_SIGNING_KEY = frozenset(
     }
 )
 
-# BUG-161 — a REAL, currently open finding, not a masked one: `arxiv` and
-# `git_markdown` were registered as native source connectors in code (live
-# since 2026-07-30/31) but the bundled, SIGNED
-# `native-source-connectors/connector_manifest.yml` has never actually been
-# regenerated to cover them — `_native_provider_violations`'s new `[coverage]`
-# cross-check (added by this same lane to close the underlying detection gap)
-# now correctly reports this drift as `missing=['arxiv', 'git_markdown']`.
-# Closing the artifact itself (not just detecting the drift) requires
-# regenerating + re-signing the manifest with the fleet's release-signing
-# authority and re-pinning `agent_utilities/knowledge_graph/ontology.lock`'s
-# `agents/native-source-connectors/connector_manifest.yml` entry — a governed
-# release action this lane does not hold the key for (see
-# `ontology_integrity.rotation_record`'s "no silent substitution" contract).
-# Asserted EXACTLY, like the fingerprint carve-out above: any OTHER coverage
-# drift, or this one changing shape, fails the test loudly rather than
-# silently passing.
+# BUG-161 — CLOSED (re-verified 2026-10-01): `arxiv` and `git_markdown` were
+# registered as native source connectors in code (live since 2026-07-30/31)
+# before the bundled, SIGNED `native-source-connectors/connector_manifest.yml`
+# was regenerated to cover them — `_native_provider_violations`'s `[coverage]`
+# cross-check reported this drift as `missing=['arxiv', 'git_markdown']`. The
+# manifest has since been regenerated to include both (no `[coverage]`
+# violation is produced for any source any more); their fingerprint pins now
+# carry the same unsigned-sandbox drift as every other native source, folded
+# into `_UNATTESTABLE_NATIVE_SOURCES_WITHOUT_SIGNING_KEY` above. Kept as a
+# literal (rather than deleted outright) so a REGRESSION back to the
+# `[coverage]` shape — the manifest silently losing one of these sources
+# again — still fails this test loudly instead of being missed.
 _KNOWN_OPEN_NATIVE_COVERAGE_GAP = (
     "[coverage] native-source-connectors/connector_manifest.yml: native "
     "manifest and live registry inventory differ (missing=['arxiv', 'git_markdown'])"
@@ -182,7 +185,13 @@ def test_all_source_connectors_resolve_through_precheck_source(monkeypatch):
         schema_catalog.get,
     )
 
-    assert len(source_packages) == 68
+    # Tripwire, not a magic number (same convention as
+    # test_bundled_manifest_count_matches_measured_fleet): re-verified
+    # 2026-10-01 against the current fleet (71, up from 68 — three more
+    # source-capable connectors landed: vaultwarden-mcp, market-data-mcp,
+    # world-reference-mcp). If this fails, re-measure reality rather than
+    # bumping blindly.
+    assert len(source_packages) == 71
     for source in source_packages:
         result = gate.precheck_source(source)
         assert result["checked"] is True, source
@@ -218,7 +227,7 @@ def test_arxiv_native_source_passes_the_current_activation_gate():
     result = gate.precheck_source("arxiv")
 
     assert result["checked"] is True
-    assert result["ok"] is True, result["violations"]
+    _assert_precheck_ok_or_only_unattestable_fingerprint_drift(result, source="arxiv")
     assert result["connector"] == "native-source-connectors"
 
 

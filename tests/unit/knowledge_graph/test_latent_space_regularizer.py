@@ -10,6 +10,9 @@ from agent_utilities.knowledge_graph.memory import (
 pytest.importorskip("epistemic_graph.numeric")
 
 from agent_utilities.numeric import xp as np
+from tests.unit.knowledge_graph._numeric_test_helpers import (
+    elementwise_add as _elementwise_add,
+)
 
 
 @pytest.fixture
@@ -32,16 +35,18 @@ class TestCollapseDetection:
     def test_collapsed_embeddings(self, regularizer):
         # All rows nearly identical → collapse via normality test
         base = np.ones((100, 20))
-        noise = np.random.randn(100, 20) * 1e-10
-        report = regularizer.detect_collapse(base + noise)
+        noise = np.random.default_rng(42).normal(0.0, 1e-10, (100, 20))
+        report = regularizer.detect_collapse(_elementwise_add(base, noise))
         # SIGReg normality test detects collapse (p < significance)
         assert report.normality_p_value < 0.05 or report.collapsed
 
     def test_partial_collapse(self, regularizer):
         rng = np.random.default_rng(42)
-        # Only 3 dimensions vary, rest constant
-        embeddings = np.ones((100, 20))
-        embeddings[:, :3] = rng.standard_normal((100, 3))
+        # Only 3 dimensions vary, rest constant. xp's results are plain
+        # builtin lists with no fancy-index slice assignment
+        # (embeddings[:, :3] = ...), so build each row directly instead.
+        varying = rng.standard_normal((100, 3))
+        embeddings = [row + [1.0] * 17 for row in varying]
         report = regularizer.detect_collapse(embeddings)
         assert report.effective_dim <= 5
         assert report.collapse_ratio < 0.5
@@ -71,7 +76,8 @@ class TestDiversityMetrics:
 
     def test_collapsed_distribution(self, regularizer):
         # Very low variance → near-zero mean pairwise distance
-        embeddings = np.ones((50, 10)) + np.random.randn(50, 10) * 1e-8
+        noise = np.random.default_rng(42).normal(0.0, 1e-8, (50, 10))
+        embeddings = _elementwise_add(np.ones((50, 10)), noise)
         metrics = regularizer.compute_diversity(embeddings)
         assert metrics.mean_pairwise_distance < 1e-5  # Nearly zero distance
 
@@ -89,7 +95,7 @@ class TestDiversityPreservingConsolidation:
         old = [1.0, 0.0, 0.0, 0.0, 0.0]
         new = [0.0, 1.0, 0.0, 0.0, 0.0]
         fisher = [0.5, 0.5, 0.1, 0.1, 0.1]
-        all_emb = np.random.randn(20, 5)
+        all_emb = np.random.default_rng(42).standard_normal((20, 5))
         result = regularizer.synthesize_ewc(
             old,
             new,
@@ -105,7 +111,7 @@ class TestDiversityPreservingConsolidation:
         old = [1.0, 0.0, 0.0]
         new = [0.0, 1.0, 0.0]
         fisher = [10.0, 0.0, 0.0]  # High Fisher on dim 0 → resist change
-        all_emb = np.random.randn(20, 3)
+        all_emb = np.random.default_rng(42).standard_normal((20, 3))
         result = regularizer.synthesize_ewc(
             old,
             new,

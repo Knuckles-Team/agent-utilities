@@ -33,6 +33,7 @@ import os
 import sys
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -137,7 +138,17 @@ def test_token_only_client_does_not_poll_but_remains_send_capable(monkeypatch):
         return None
 
     monkeypatch.setattr(MessagingService, "get_backend", _fake_get_backend)
-    monkeypatch.setattr(MessagingService, "_gate", lambda *args, **kwargs: None)
+    # `send()` only reads `.allowed` off whatever `_gate` returns (via
+    # `run_action_policy`) before falling through to the backend -- a bare
+    # `None` return is indistinguishable from "policy unavailable"
+    # (send.py's own `if decision is None` branch), which is the opposite of
+    # what this test needs to exercise (a credential-authorized send reaching
+    # the backend). A minimal duck-typed "allowed" decision is enough; it
+    # need not be a real ActionDecision; (`.allowed` there is itself a
+    # computed property over a receipt this fake has no reason to build).
+    monkeypatch.setattr(
+        MessagingService, "_gate", lambda *args, **kwargs: SimpleNamespace(allowed=True)
+    )
     monkeypatch.setattr(MessagingService, "_ingest_outbound", _no_ingest)
 
     session = _verified_session()
@@ -470,7 +481,12 @@ def test_start_co_services_live_path_starts_messaging(monkeypatch):
     )
 
     def _serve_without_renewal(engine, leases, stop_event, serve):
-        serve([item.platform for item in leases], stop_event)
+        # `serve` is `run_forever`'s `(platforms, stop_event,
+        # platform_stop_events)` callback (cc5a28c3e added the third,
+        # per-platform stop-event map argument so one platform's lease loss
+        # can be handled in isolation; this fake never needs per-platform
+        # isolation, so an empty map is enough to satisfy the contract).
+        serve([item.platform for item in leases], stop_event, {})
 
     monkeypatch.setattr(intake_lease, "run_with_intake_leases", _serve_without_renewal)
 

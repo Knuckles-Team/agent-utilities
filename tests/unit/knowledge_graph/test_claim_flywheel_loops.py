@@ -28,16 +28,19 @@ from agent_utilities.knowledge_graph.research.claim_flywheel import (
     ClaimLifecycleState,
 )
 from agent_utilities.knowledge_graph.research.loop_controller import LoopController
+from tests.unit.knowledge_graph._shacl_fakes import AlwaysConformsShaclMixin
 
 pytestmark = pytest.mark.concept("AU-KG.evolution.mining-flywheel")
 
 
-class _FlywheelLoopStubEngine:
+class _FlywheelLoopStubEngine(AlwaysConformsShaclMixin):
     """Combines the existing insight/trace-mining stub shape (``governance_rule``
     lookups relax the ActionPolicy tier) with a REAL ``ClaimLifecycleEvent``
     round-trip (unlike the minimal stubs in the sibling test files) so the
     flywheel's cross-cycle retracted-memory is exercised for real, plus
-    ``add_edge`` so LOOP 1's materialization has somewhere to land."""
+    ``add_edge`` so LOOP 1's materialization has somewhere to land.
+    ``AlwaysConformsShaclMixin`` stands in for the committed EG SHACL
+    authority (see that mixin's own docstring)."""
 
     def __init__(self, *, governance_rules: list[dict[str, Any]] | None = None):
         self.nodes: dict[str, dict[str, Any]] = {}

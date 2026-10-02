@@ -4412,9 +4412,12 @@ def _run_boot_hydration_plan(
     """Run GraphOS boot hydration in its fixed resource-priority order.
 
     1. bounded GraphOS/fleet tool metadata, then runnable skills and MCP declarations;
-    2. prompts/agent templates;
-    3. package ontologies; and
+    2. prompts/agent templates; and
     4. codebases and configured connectors through their durable delta queues.
+
+    (Priority 3, package ontology sync, was removed by 43197d7c6 along with
+    the AU-local ontology/OWL/SHACL authorities it loaded; ontology content
+    is now epistemic-graph's.)
 
     Each step is isolated so a failed optional source cannot prevent later
     priority classes from making progress.
