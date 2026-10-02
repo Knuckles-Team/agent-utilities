@@ -104,35 +104,6 @@ class _Registry:
         return self.engine
 
 
-def _patch_ingest_capture(monkeypatch: pytest.MonkeyPatch, captured: list) -> None:
-    """Patch both envelope-commit entry points ``external_graph`` calls.
-
-    b18f18b5a (BUG-CX-010) moved the entity-envelope batch from a per-entity
-    ``ingest_envelope`` loop onto the native ``ingest_envelopes`` (plural)
-    primitive; only the trailing snapshot/CDC marker still goes through the
-    singular path. Patching singular alone leaves the real ``ingest_envelopes``
-    in place, which fails closed against the bare ``object()`` authority these
-    tests pass, marks the batch incomplete, and (for the snapshot path)
-    suppresses the marker entirely -- never a case these tests mean to cover.
-    """
-
-    def fake_ingest(_engine, envelope):
-        captured.append(envelope)
-        return {"status": "success"}
-
-    def fake_ingest_many(_engine, envelopes):
-        return [fake_ingest(_engine, envelope) for envelope in envelopes]
-
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelope",
-        fake_ingest,
-    )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelopes",
-        fake_ingest_many,
-    )
-
-
 def _profile() -> dict:
     return {
         "identity_hmac_key_ref": (
@@ -256,6 +227,35 @@ def test_external_graph_manifest_gate_fails_before_profile_or_source_read(
 
     assert profile_resolved is False
     assert external.calls == []
+
+
+def _patch_ingest_capture(monkeypatch: pytest.MonkeyPatch, captured: list) -> None:
+    """Patch both envelope-commit entry points ``external_graph`` calls.
+
+    b18f18b5a (BUG-CX-010) moved the entity-envelope batch from a per-entity
+    ``ingest_envelope`` loop onto the native ``ingest_envelopes`` (plural)
+    primitive; only the trailing snapshot/CDC marker still goes through the
+    singular path. Patching singular alone leaves the real ``ingest_envelopes``
+    in place, which fails closed against the bare ``object()`` authority these
+    tests pass, marks the batch incomplete, and (for the snapshot path)
+    suppresses the marker entirely -- never a case these tests mean to cover.
+    """
+
+    def fake_ingest(_engine, envelope):
+        captured.append(envelope)
+        return {"status": "success"}
+
+    def fake_ingest_many(_engine, envelopes):
+        return [fake_ingest(_engine, envelope) for envelope in envelopes]
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelope",
+        fake_ingest,
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.external_graph.ingest_envelopes",
+        fake_ingest_many,
+    )
 
 
 @pytest.mark.concept("AU-KG.ingest.external-graph-federation")
