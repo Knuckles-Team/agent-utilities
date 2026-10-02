@@ -5,10 +5,10 @@ follows to set itself up**, and the path an operator follows to stand up a host.
 **config-complete**: one command generates the current `AgentConfig` surface, and
 doctor validates the deployment.
 
-It composes existing pieces rather than duplicating them — the `setup-config` and
-`setup-databases` commands, the `database-environment-setup` skill, and the
-`agent-utilities-deployment` workflow for the multi-node deployment profile. The guided version is the
-same **`agent-utilities-deployment`** skill.
+It composes existing pieces rather than duplicating them — the `setup-config`
+command and the `agent-utilities-deployment` workflow for the multi-node
+deployment profile. The guided version is the same **`agent-utilities-deployment`**
+skill.
 
 ## Pick a profile
 
@@ -84,11 +84,12 @@ agent-utilities-doctor --only graph_identity auth secrets transport_security
 
 ## 4. Databases (single-node-prod / enterprise)
 
-Run the [databases recipe](../recipes/databases.md) / `database-environment-setup`
-skill: Stardog (prod) or local `/api/sparql` (dev) + a Postgres with AGE + pgvector +
+Run the [databases recipe](../recipes/databases.md): a Postgres with AGE + pgvector +
 pg_search, projection fan-out wiring (`GRAPH_MIRROR_TARGETS`),
-and graph backfill into the AGE mirror. The **tiny** profile skips this entirely —
-the packaged, supervised epistemic-graph engine is the authority, with no mirror.
+and graph backfill into the AGE mirror via `graph_configure(action="reconcile")`.
+The **tiny** profile skips this entirely — the packaged, supervised epistemic-graph
+engine is the authority, with no mirror. External SPARQL triplestore federation
+is owned by the epistemic-graph engine, not this repository.
 
 External Neo4j/openCypher, AGE, LadybugDB/Kuzu, remote epistemic-graph, and
 GraphQL sources instead use the governed

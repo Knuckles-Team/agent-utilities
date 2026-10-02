@@ -10,10 +10,12 @@ triplestore (Stardog), partitioning it by the **source system** it came from
 (LeanIX, ServiceNow, …) keeps provenance explicit and lets an operator push,
 query, or clear one source's slice without touching the rest.
 
-This module is the single source of truth for that routing decision. It is used
-by BOTH the live write path (the Stardog backend's Cypher→SPARQL translation) and
-the explicit per-source push serializer, so the two never disagree about which
-named graph a node/edge belongs in.
+This module is the single source of truth for that routing decision: the
+canonical ``make_source_id``/named-graph naming scheme shared by the ingestion
+engine, the GitLab indexer, and ``core.source_sync`` so a source system is
+named identically everywhere it is seen. The SPARQL triple-store write path
+that originally consumed the full routing surface here was retired; external
+SPARQL federation is now owned by the epistemic-graph engine.
 
 The source is read from the ``source_system`` property, which
 :meth:`IntelligenceGraphEngine.ingest_external_batch` stamps on every externally
@@ -261,7 +263,7 @@ def route_graph_uri(props: dict[str, Any] | None, label: str = "") -> str | None
             raise ValueError(
                 f"source-partition: node label {label!r} has no source_system and would land "
                 "in the SPARQL default graph. Stamp a source with "
-                "backends.sparql.source_partition.make_source_id(...), or add the label to "
+                "core.source_partition.make_source_id(...), or add the label to "
                 "INTERNAL_DEFAULT_LABELS if it is intentionally internal."
             )
     return g

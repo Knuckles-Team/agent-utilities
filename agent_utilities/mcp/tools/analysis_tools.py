@@ -1631,16 +1631,21 @@ async def _analysis_action_epistemic_sync(
     engine, action, query, top_k, node_id, depth, target
 ):
     # action(s): 'epistemic_sync'
-    from agent_utilities.workflows.epistemic_sync import (
-        EpistemicSyncWorkflow,
-    )
+    # The legacy Stardog-backed sync workflow this action drove was retired
+    # along with the rest of the legacy SPARQL backend; external SPARQL
+    # federation is now owned by the epistemic-graph engine. The action name
+    # stays reachable/discoverable and answers with a typed, unambiguous
+    # refusal instead of an import error.
+    from agent_utilities.knowledge_graph.backends import LegacyGraphBackendRemovedError
 
-    workflow = EpistemicSyncWorkflow()
-    await workflow.run_sync_cycle()
     return json.dumps(
         {
-            "status": "sync_cycle_completed",
-            "message": "Epistemic Sync cycle executed successfully. Check logs for details on entities ingested and mutations flushed.",
+            "status": "error",
+            "error": (
+                "epistemic_sync was retired with the legacy Stardog backend; "
+                "use epistemic-graph federation instead"
+            ),
+            "error_type": LegacyGraphBackendRemovedError.__name__,
         }
     )
 
@@ -3761,231 +3766,24 @@ def _configure_action_mirror_status(action, config_key, config_value):
     return json.dumps(inner.reconcile(config_key or None), default=str)
 
 
-def _configure_stardog_export_import(sd_backend, action, opts):
-    # action(s): 'stardog_export_graph', 'stardog_import_graph'
-    if not hasattr(sd_backend, "download_graph") or not hasattr(
-        sd_backend, "upload_graph"
-    ):
-        return json.dumps(
-            {
-                "error": f"{type(sd_backend).__name__} does not "
-                "support Turtle graph export/import"
-            }
-        )
-    graph_uri = opts.get("graph_uri")
-    if action == "stardog_export_graph":
-        return json.dumps(
-            {
-                "status": "ok",
-                "graph_uri": graph_uri,
-                "turtle": sd_backend.download_graph(graph_uri),
-            },
-            default=str,
-        )
-    # stardog_import_graph
-    ttl_content = opts.get("turtle")
-    if not isinstance(ttl_content, str) or not ttl_content.strip():
-        return json.dumps(
-            {"error": "config_value.turtle (a Turtle document) is required"}
-        )
-    sd_backend.upload_graph(ttl_content, graph_uri)
-    return json.dumps({"status": "ok", "graph_uri": graph_uri}, default=str)
-
-
-def _configure_stardog_sync(action, sd_backend, opts):
-    # action(s): 'push_to_stardog', 'pull_from_stardog'
-    authority = kg_server.get_connection_registry().get_engine(None)
-    if action == "push_to_stardog":
-        from agent_utilities.knowledge_graph.integrations.stardog_sync import (  # noqa: E501
-            push_to_stardog,
-        )
-
-        return json.dumps(
-            push_to_stardog(authority, sd_backend, sources=opts.get("sources")),
-            default=str,
-        )
-    # pull_from_stardog
-    from agent_utilities.knowledge_graph.integrations.stardog_sync import (
-        pull_from_stardog,
-    )
+def _configure_action_legacy_backend_removed(action, config_key, config_value):
+    # action(s): 'push_to_stardog', 'pull_from_stardog', 'stardog_sparql',
+    # 'stardog_export_graph', 'stardog_import_graph', 'setup_databases',
+    # 'verify_databases'. These all wired the legacy external SPARQL store
+    # (Stardog/Jena Fuseki) and its database-setup CLI, both retired outright.
+    # The action names stay reachable/discoverable on this surface and answer
+    # with a typed, unambiguous refusal rather than an import error or a
+    # silently vanished action.
+    from agent_utilities.knowledge_graph.backends import LegacyGraphBackendRemovedError
 
     return json.dumps(
-        pull_from_stardog(
-            sd_backend,
-            authority,
-            graph_uri=opts.get("graph_uri"),
-            source=opts.get("source"),
-            limit=int(opts.get("limit", 10_000)),
-        ),
-        default=str,
-    )
-
-
-def _configure_stardog_opts(action, config_value):
-    # extracted from 'push_to_stardog' et al (CX-AU-03: split for CCN).
-    # Returns (opts, error_json_or_None).
-    try:
-        opts = json.loads(config_value) if config_value else {}
-    except Exception:
-        return None, json.dumps({"error": "config_value must contain valid JSON"})
-    if not isinstance(opts, dict):
-        # stardog_sparql also accepts a bare query string in config_value.
-        if action == "stardog_sparql" and isinstance(config_value, str):
-            opts = {"query": config_value}
-        else:
-            return None, json.dumps({"error": "config_value must be a JSON object"})
-    return opts, None
-
-
-def _configure_action_push_to_stardog(action, config_key, config_value):
-    # action(s): 'push_to_stardog', 'pull_from_stardog', 'stardog_sparql', 'stardog_export_graph', 'stardog_import_graph'
-    opts, err = _configure_stardog_opts(action, config_value)
-    if err:
-        return err
-
-    inline_connection_fields = {
-        "database",
-        "endpoint",
-        "password",
-        "username",
-    }
-    if inline_connection_fields.intersection(opts):
-        return json.dumps(
-            {
-                "error": (
-                    "inline Stardog connection material is not accepted; "
-                    "use a registered connection alias backed by secret references"
-                )
-            }
-        )
-
-    def _resolve_stardog_backend():
-        """Resolve Stardog exclusively through a registered alias."""
-        name = config_key or opts.get("connection")
-        if not isinstance(name, str) or not name.strip():
-            raise ValueError("registered Stardog connection is required")
-        eng = kg_server.get_connection_registry().get_engine(name.strip())
-        be = getattr(eng, "backend", eng)
-        return getattr(be, "_authority", be)
-
-    try:
-        sd_backend = _resolve_stardog_backend()
-    except Exception as exc:
-        return json.dumps(
-            {
-                "error": "registered Stardog connection unavailable",
-                "error_type": type(exc).__name__,
-            }
-        )
-
-    if action == "stardog_sparql":
-        query = opts.get("query")
-        if not query:
-            return json.dumps(
-                {"error": "config_value.query (a SPARQL string) required"}
-            )
-        return json.dumps({"results": sd_backend.execute_sparql(query)}, default=str)
-
-    # ── CONCEPT:AU-KG.backend.mirror-target-graph: bulk Turtle
-    # export/import (D-MT-1). SparqlAdapter.upload_graph/download_graph
-    # existed with no production caller before this — a real backup/
-    # restore/migrate-between-instances primitive for a Stardog mirror or
-    # ad-hoc connection, complementary to (not a replacement for) the
-    # per-node/edge push_to_stardog/pull_from_stardog above. Omitting
-    # config_value.graph_uri targets the resolved backend's own dedicated
-    # mirror graph, if any (a per-source graph_uri from D-MT-4 is reached
-    # by naming it explicitly).
-    if action in ("stardog_export_graph", "stardog_import_graph"):
-        return _configure_stardog_export_import(sd_backend, action, opts)
-
-    return _configure_stardog_sync(action, sd_backend, opts)
-
-
-def _configure_db_profile_ref_error(config_key, opts):
-    # extracted from 'setup_databases'/'verify_databases' (CX-AU-03: split
-    # for CCN). Returns (connection_profile_ref, error_json_or_None).
-    connection_profile_ref = opts.get("connection_profile_ref")
-    if connection_profile_ref and not _runtime_reference(connection_profile_ref):
-        return None, json.dumps(
-            {"error": ("connection_profile_ref must be a runtime secret reference")}
-        )
-    if config_key and config_key not in {"dev", "prod"}:
-        return None, json.dumps(
-            {
-                "error": (
-                    "config_key must be a deployment profile alias; "
-                    "database endpoints belong in the secret-backed runtime profile"
-                )
-            }
-        )
-    return connection_profile_ref, None
-
-
-def _configure_db_opts_and_ref(config_key, config_value):
-    # extracted from 'setup_databases'/'verify_databases' (CX-AU-03: split
-    # for CCN). Returns (opts, connection_profile_ref, error_json_or_None).
-    try:
-        opts = json.loads(config_value) if config_value else {}
-    except Exception:
-        return None, None, json.dumps({"error": "config_value must contain valid JSON"})
-    if not isinstance(opts, dict):
-        return (
-            None,
-            None,
-            json.dumps({"error": "config_value must be a JSON object of options"}),
-        )
-    if "dsn" in opts or "://" in (config_key or ""):
-        return (
-            None,
-            None,
-            json.dumps(
-                {
-                    "error": (
-                        "inline database endpoints are not accepted; configure "
-                        "the runtime connection through a secret-backed profile"
-                    )
-                }
+        {
+            "error": (
+                f"'{action}' was retired with the legacy SPARQL backend and "
+                "database-setup path; use epistemic-graph federation instead"
             ),
-        )
-    connection_profile_ref, err = _configure_db_profile_ref_error(config_key, opts)
-    if err:
-        return None, None, err
-    return opts, connection_profile_ref, None
-
-
-def _configure_action_setup_databases(action, config_key, config_value):
-    # action(s): 'setup_databases', 'verify_databases'
-    from agent_utilities.core.config import save_config_item
-    from agent_utilities.knowledge_graph.setup import (
-        setup_environment,
-        verify_postgres,
-    )
-    from agent_utilities.mcp.kg_server import get_connection_registry
-
-    opts, connection_profile_ref, err = _configure_db_opts_and_ref(
-        config_key, config_value
-    )
-    if err:
-        return err
-    if action == "verify_databases":
-        return json.dumps(
-            verify_postgres(connection_profile_ref),
-            default=str,
-        )
-    # setup_databases — config_key is a profile shortcut ('dev'/'prod').
-    profile = opts.get("profile") or config_key or "dev"
-    return json.dumps(
-        setup_environment(
-            profile=profile,
-            connection_registry=get_connection_registry(),
-            config_writer=save_config_item,
-            postgres_mode=opts.get("postgres_mode", "managed_image"),
-            connection_profile_ref=connection_profile_ref,
-            sparql_target=opts.get("sparql_target"),
-            mirror_targets=opts.get("mirror_targets"),
-            do_backfill=opts.get("do_backfill", True),
-        ),
-        default=str,
+            "error_type": LegacyGraphBackendRemovedError.__name__,
+        }
     )
 
 
@@ -4345,13 +4143,13 @@ _CONFIGURE_ACTION_DISPATCH = {
     "propose_connection_mapping": _configure_action_approve_connection_mapping,
     "mirror_status": _configure_action_mirror_status,
     "reconcile": _configure_action_mirror_status,
-    "push_to_stardog": _configure_action_push_to_stardog,
-    "pull_from_stardog": _configure_action_push_to_stardog,
-    "stardog_sparql": _configure_action_push_to_stardog,
-    "stardog_export_graph": _configure_action_push_to_stardog,
-    "stardog_import_graph": _configure_action_push_to_stardog,
-    "setup_databases": _configure_action_setup_databases,
-    "verify_databases": _configure_action_setup_databases,
+    "push_to_stardog": _configure_action_legacy_backend_removed,
+    "pull_from_stardog": _configure_action_legacy_backend_removed,
+    "stardog_sparql": _configure_action_legacy_backend_removed,
+    "stardog_export_graph": _configure_action_legacy_backend_removed,
+    "stardog_import_graph": _configure_action_legacy_backend_removed,
+    "setup_databases": _configure_action_legacy_backend_removed,
+    "verify_databases": _configure_action_legacy_backend_removed,
     "generate_config": _configure_action_generate_config,
     "config_doctor": _configure_action_generate_config,
     "config_reference": _configure_action_generate_config,
@@ -4678,9 +4476,7 @@ def register_analysis_tools(mcp):
                 "doctor (hook-installer self-check; distinct from config_doctor/"
                 "system_doctor). set_role_routing persists a role's model "
                 "registry routing entry (config_value is the JSON RoleSpec "
-                "payload). setup_databases/verify_databases provision or verify "
-                "the Postgres-backed database environment (config_key is a "
-                "profile shortcut, e.g. 'dev'/'prod'). Universal "
+                "payload). Universal "
                 "external-source lifecycle actions are discover_connection_schema, "
                 "propose_connection_mapping, approve_connection_mapping, "
                 "connection_mapping_status, external_graph_doctor, "
@@ -4691,13 +4487,11 @@ def register_analysis_tools(mcp):
                 "GraphQL sources use a read-only runtime adapter; "
                 "their connection, mapping, auth, TLS, and variables documents remain "
                 "separate refs, and every ingest rechecks the approved schema and "
-                "mapping-policy digests. Stardog instance-data actions: "
-                "push_to_stardog, pull_from_stardog, stardog_sparql, and "
-                "stardog_export_graph/stardog_import_graph (bulk Turtle backup/"
-                "restore/migrate of one named graph — config_value.graph_uri "
-                "optional, defaults to the resolved connection's own dedicated "
-                "mirror graph if any; stardog_import_graph requires "
-                "config_value.turtle)."
+                "mapping-policy digests. push_to_stardog, pull_from_stardog, "
+                "stardog_sparql, stardog_export_graph, stardog_import_graph, "
+                "setup_databases, and verify_databases were retired with the "
+                "legacy SPARQL backend and database-setup path; each name "
+                "stays reachable and answers with a typed unavailable error."
             ),
         ),
         config_key: str = Field(
