@@ -9,10 +9,17 @@ a high-score governed proposal auto-merges; a low-score one stays proposal-only.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pytest
 
-from agent_utilities.knowledge_graph.enrichment.orchestration import TeamSpec
-from agent_utilities.knowledge_graph.research.auto_merge import (
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fleet_autonomy_fakes import FakeEngine  # noqa: E402
+
+from agent_utilities.knowledge_graph.enrichment.orchestration import TeamSpec  # noqa: E402
+from agent_utilities.knowledge_graph.research.auto_merge import (  # noqa: E402
     GovernedAutoMerger,
     MergePolicy,
 )
@@ -95,9 +102,18 @@ class TestGovernedMerge:
         assert any("quality" in f for f in ev.failures)
 
     def test_high_score_governed_auto_merges(self):
+        """``engine=FakeEngine()``, not ``None``: the shipped default tier
+        (approval_required) now needs a real durable ``ActionApproval`` write
+        to produce a "hold" (5a4dd9a2f, "freeze receipt-backed policy
+        outcomes" — an un-persistable queue request correctly degrades to
+        "unavailable" instead, which blocks promotion). A bare
+        ``engine=None`` can never durably queue one, so it could never
+        auto-merge under the real default tier either way; this proves the
+        merge lifecycle itself, not the approval-queue mechanics.
+        """
         promoted = []
         merger = GovernedAutoMerger(
-            engine=None,
+            engine=FakeEngine(),
             policy=MergePolicy(enabled=True, require_governance_valid=True),
             governance_validator=lambda spec: True,
             promoter=lambda spec: promoted.append(spec) or True,
@@ -127,7 +143,7 @@ class TestGovernedMerge:
             lambda *a, **k: called.append(True) or {"status": "published"},
         )
         merger = GovernedAutoMerger(
-            engine=None,
+            engine=FakeEngine(),
             policy=MergePolicy(
                 enabled=True, require_governance_valid=False, quality_threshold=0.0
             ),
@@ -159,7 +175,7 @@ class TestGovernedMerge:
             lambda *a, **k: called.append(True) or {"status": "published"},
         )
         merger = GovernedAutoMerger(
-            engine=None,
+            engine=FakeEngine(),
             policy=MergePolicy(enabled=True, require_governance_valid=False),
             promoter=lambda spec: True,
         )
@@ -181,7 +197,7 @@ class TestGovernedMerge:
 
     def test_every_consideration_is_audited(self):
         merger = GovernedAutoMerger(
-            engine=None,
+            engine=FakeEngine(),
             policy=MergePolicy(enabled=True, require_governance_valid=False),
             promoter=lambda spec: True,
         )
@@ -195,16 +211,6 @@ class TestGovernedMerge:
 # ---------------------------------------------------------------------------
 
 
-class _FakeBackend:
-    def __init__(self):
-        self.writes = []
-
-
-class _FakeEngine:
-    def __init__(self):
-        self.backend = _FakeBackend()
-
-
 class TestLoopAutoMergeLivePath:
     """Wire-first: LoopController._synthesize_team consults the merger."""
 
@@ -213,7 +219,11 @@ class TestLoopAutoMergeLivePath:
             LoopController,
         )
 
-        ctrl = LoopController(_FakeEngine(), auto_merge=auto_merge)
+        # FakeEngine (not a bare .backend-only stub): the shipped default
+        # action-policy tier (approval_required) needs a real durable
+        # ActionApproval write to produce a "hold" rather than degrade to
+        # "unavailable" (5a4dd9a2f, "freeze receipt-backed policy outcomes").
+        ctrl = LoopController(FakeEngine(), auto_merge=auto_merge)
 
         # Replace the synthesis primitives at their SOURCE modules (the controller
         # re-imports them at call time) so the cycle yields our team proposal
