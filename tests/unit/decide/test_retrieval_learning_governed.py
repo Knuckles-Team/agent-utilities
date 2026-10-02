@@ -1,4 +1,4 @@
-"""AU-CONTEXT-R002: adapters and embedding generations move only with EG's
+"""Adapters and embedding generations move only with EG's
 receipts; the retrieval path resolves the active generation."""
 
 from __future__ import annotations

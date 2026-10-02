@@ -1,4 +1,4 @@
-"""AU-CONTEXT-R002 through its live caller: the Loop engine's cycle runs the governed
+"""Governed embedding generation through its live caller: the Loop engine's cycle runs the
 embedding-generation swap (``KG_LOOP_EMBEDDING_GENERATION``) with the
 process's real parts -- the published model, the corpus re-embedder over the
 engine graph, the background capacity class -- and activates only with EG's

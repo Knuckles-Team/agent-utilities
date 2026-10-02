@@ -116,7 +116,7 @@ def test_a_sync_transport_without_an_engine_loop_refuses_instead_of_blocking() -
 
 
 def test_a_bound_evaluator_is_named_at_commit() -> None:
-    """AU-CONTEXT-R001: the binding's evaluator rides the commit as an expiring grant."""
+    """A bound evaluator: the binding's evaluator rides the commit as an expiring grant."""
     from agent_utilities.decide import Binding
     from agent_utilities.decide.outcome import commit_op
 
@@ -144,7 +144,7 @@ def test_a_bound_evaluator_is_named_at_commit() -> None:
 
 
 def test_the_retrieval_plan_commit_names_its_policy_evaluator_role() -> None:
-    """AU-CONTEXT-R001 (policy role): the LIVE commit path -- ``DecisionRunner.choose``
+    """The policy role on the LIVE commit path -- ``DecisionRunner.choose``
     on the retrieval-plan point -- names the point's declared evaluator role."""
     from agent_utilities.decide.points import DECIDE_EVALUATOR_ROLE, POINTS
 

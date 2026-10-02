@@ -1,4 +1,4 @@
-"""AU-CONTEXT-R004 on the live path: every model invocation's evidence is compiled by
+"""Context sizing on the live path: every model invocation's evidence is compiled by
 ``compile_model_context``, which sizes it for the INVOKED model -- its
 registry capacity, its exact tokenizer, EG's certified ``Solve`` over the
 installed decision transport."""
@@ -23,7 +23,7 @@ from agent_utilities.knowledge_graph.ontology.permissioning import (
 from agent_utilities.knowledge_graph.retrieval import context_knapsack as ck
 from agent_utilities.models import model_registry
 from agent_utilities.models.model_registry import ModelDefinition, ModelRegistry
-from tests.retrieval.test_context_compiler import (
+from tests.retrieval.fakes import (
     FakeRetriever,
     _FakeMarkingStore,
     _grant_public,

@@ -1,4 +1,4 @@
-"""graph.assemble() before LLM composition; the mapping is a claim (AU-CONTEXT-R001)."""
+"""graph.assemble() before LLM composition; the mapping is a claim."""
 
 from __future__ import annotations
 

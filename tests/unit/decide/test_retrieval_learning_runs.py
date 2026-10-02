@@ -1,4 +1,4 @@
-"""AU-CONTEXT-R001: the live retrieval path attests outcomes and consumes paths.
+"""The live retrieval path attests outcomes and consumes paths.
 
 A retrieval-plan choice EG executed and logged becomes a pending run; what the
 run returned is noted; the answer's citations attest it to EG joined to the

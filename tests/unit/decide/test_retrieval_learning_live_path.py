@@ -1,4 +1,4 @@
-"""AU-CONTEXT-R001 through the LIVE callers.
+"""Retrieval learning through the LIVE callers.
 
 * ``HybridRetriever.plan_and_retrieve`` (reached by ``engine.search_hybrid``
   for ``hyde``/``deep`` searches) keys the proven-path lookup by the
@@ -29,6 +29,11 @@ from agent_utilities.decide.learning.run_scope import (
     run_scoped,
 )
 from agent_utilities.knowledge_graph.enrichment.synthesize import synthesize_agent
+
+# HybridRetriever pulls in the compiled epistemic_graph.numeric kernel at
+# import time (via core.engine); skip the whole module cleanly when it isn't
+# built, rather than erroring out collection.
+pytest.importorskip("epistemic_graph.numeric")
 from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
     HybridRetriever,
 )
