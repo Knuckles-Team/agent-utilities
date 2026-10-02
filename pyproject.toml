@@ -682,7 +682,12 @@ test = [
     # (numeric contract, knowledge_graph engine-client tests, etc.) genuinely
     # exercises epistemic-graph and must not silently run engine-absent. Add `feeds`
     # (RSS ingestion tests) and the explicit backend extras the suite exercises.
-    "agent-utilities[agent-runtime,feeds,sandbox,graph,acp,rdf,finance,event-kafka]",
+    # `trino` — tests/unit/knowledge_graph/backends/test_trino_backend.py exercises
+    # TrinoQueryBackend directly (sqlalchemy/trino/sqlalchemy-trino), and the
+    # no-engine CI test job installs only `--extra test --group guardrails`, so
+    # without naming it here that import is absent and the whole file errors at
+    # collection with `ModuleNotFoundError: No module named 'sqlalchemy'`.
+    "agent-utilities[agent-runtime,feeds,sandbox,graph,acp,rdf,finance,event-kafka,trino]",
     # DEV/TEST-ONLY — a hermetic in-memory comparator, never imported by runtime code.
     # tests/knowledge_graph/test_pack_owl_closure.py, tests/unit/knowledge_graph/
     # test_owl_closure.py and tests/unit/knowledge_graph/test_federation.py build a
