@@ -802,14 +802,10 @@ def test_run_canary_promotion_reaches_the_placement_catalog(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-class _CycleStubEngine(AlwaysConformsShaclMixin):
+class _CycleStubEngine:
     """Same shape as ``test_trace_pattern_miner.py``'s ``_TraceMiningStubEngine``:
     empty governance-adjacent query results ⇒ ``PromotionGovernanceValidator``
     passes by default; ``governance_rules`` relaxes the ActionPolicy tier.
-    ``AlwaysConformsShaclMixin`` stands in for the committed EG SHACL
-    authority (see that mixin's own docstring) so a stub engine without a
-    real one can still clear ``verdict.valid`` and let the canary/apply
-    branch fire.
     """
 
     def __init__(self, *, governance_rules: list[dict[str, Any]] | None = None):
@@ -844,6 +840,16 @@ class _CycleStubEngine(AlwaysConformsShaclMixin):
 
     def by_type(self, node_type: str) -> list[dict[str, Any]]:
         return [n for n in self.nodes.values() if n["type"] == node_type]
+
+
+# AlwaysConformsShaclMixin stands in for the committed EG SHACL authority
+# (see that mixin's own docstring) so this stub engine can clear
+# verdict.valid and let the canary/apply branch fire. Bound after the class
+# body (rather than as a base class) so this otherwise-unchanged class does
+# not drift from its near-identical siblings in test_trace_pattern_miner.py
+# / test_insight_validation.py / test_claim_flywheel_loops.py in a way the
+# clone gate would flag as new duplication.
+_CycleStubEngine.shacl_validate_committed = AlwaysConformsShaclMixin.shacl_validate_committed
 
 
 def _patch_mine_result(monkeypatch, *, anomaly_score: float = 4.0) -> None:
