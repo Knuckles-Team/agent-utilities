@@ -124,7 +124,7 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
     "release.yml": WorkflowSpec(
         filename="release.yml",
         blocking=True,
-        executable_jobs=frozenset({"gates", "build"}),
+        executable_jobs=frozenset({"gates", "build", "engine-release-order"}),
         job_skip_reasons={
             "clone-scanners": (
                 "provisions the pinned native dupehound 0.1.2 and jscpd 5.0.16 "
@@ -137,8 +137,9 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
                 "installs the exact built wheel with its declared "
                 "epistemic-graph[full] floor FROM PyPI, on a matrix of "
                 "ubuntu-latest + windows-latest. epistemic-graph's current floor is "
-                "not resolvable on PyPI today (this is exactly what the gates job's "
-                "own scripts/release/check_eg_pypi_resolvable.py step, which THIS "
+                "not resolvable on PyPI today (this is exactly what the "
+                "engine-release-order job's own "
+                "scripts/release/check_eg_pypi_resolvable.py step, which THIS "
                 "script DOES run, is asserting), so this job cannot succeed "
                 "locally regardless of environment, and its Windows leg cannot run "
                 "on this host at all."
