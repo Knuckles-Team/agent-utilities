@@ -5,7 +5,7 @@ durable graph state: twelve strict JSON Schemas plus generated Python/Rust
 DTOs, shipped from `agent_utilities.protocols.epistemic_operations` alongside
 the engine's own generated client.
 
-AU-BOUNDARY-R012 deleted the catalog, the generator
+Retiring the second projection deleted the catalog, the generator
 (`scripts/check_epistemic_operations_protocol.py`), and every generated DTO
 that had a direct equivalent in the engine's own generated client
 (`epistemic_graph.generated.models`): `RequestContext`, `MutationBatch`,

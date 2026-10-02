@@ -37,9 +37,10 @@ CONCEPT:AU-OS.identity.verified-carrier-contract
    grep confirmed no production code ever constructed or `model_validate`d a
    `RequestContext`. Promoting this schema to "v3" (as an earlier lane plan
    proposed) would have formalized a projection nothing used, while the
-   *actual* wire carrier (below) stayed undocumented. AU-BOUNDARY-R012 deleted
-   the model, its catalog, and the generator entirely rather than wiring it
-   into a live path — see [What this lane did NOT do](#what-this-lane-did-not-do-and-why).
+   *actual* wire carrier (below) stayed undocumented. Retiring the second
+   projection deleted the model, its catalog, and the generator entirely
+   rather than wiring it into a live path — see
+   [What this lane did NOT do](#what-this-lane-did-not-do-and-why).
 
 ## The carrier that is actually live today
 

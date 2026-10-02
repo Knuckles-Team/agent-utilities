@@ -228,8 +228,9 @@ stdout/stderr and a fixed timeout; CLI failures expose only the exception class,
 environment-derived error text. Passing `--verify-signature` invokes the separately
 configured verifier before accepting the component declaration.
 
-The `epistemic-operations-protocol` release component (AU-BOUNDARY-R012) is a frozen
-declaration in the compatibility matrix: its generator
+The `epistemic-operations-protocol` release component (retired, its generated DTOs
+replaced by the engine's own client) is a frozen declaration in the compatibility
+matrix: its generator
 (`scripts/check_epistemic_operations_protocol.py`) and the catalog it produced
 (`agent_utilities/protocols/epistemic_operations/schemas/v1/catalog.json`) were
 retired once every DTO they generated was replaced by a direct import of the
