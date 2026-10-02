@@ -316,10 +316,23 @@ def source_partition_coverage(backend: Any) -> dict[str, Any]:
         )
     except Exception as exc:  # noqa: BLE001 — coverage is best-effort observability
         return {"supported": False, "reason": str(exc)}
+    by_label, leaks = _aggregate_label_coverage(rows or ())
+    return {
+        "supported": True,
+        "by_label": by_label,
+        "leaks": leaks,
+        "leaking": bool(leaks),
+    }
 
+
+def _aggregate_label_coverage(
+    rows: Any,
+) -> tuple[dict[str, dict[str, int]], dict[str, int]]:
+    """Reduce ``source_partition_coverage``'s raw per-label rows to a coverage map
+    plus the subset that leaks (a non-internal label with unsourced nodes)."""
     by_label: dict[str, dict[str, int]] = {}
     leaks: dict[str, int] = {}
-    for r in rows or []:
+    for r in rows:
         label = str(r.get("label") or "?")
         total = int(r.get("total") or 0)
         sourced = int(r.get("sourced") or 0)
@@ -327,9 +340,4 @@ def source_partition_coverage(backend: Any) -> dict[str, Any]:
         by_label[label] = {"total": total, "sourced": sourced, "unsourced": unsourced}
         if unsourced > 0 and label and label not in INTERNAL_DEFAULT_LABELS:
             leaks[label] = unsourced
-    return {
-        "supported": True,
-        "by_label": by_label,
-        "leaks": leaks,
-        "leaking": bool(leaks),
-    }
+    return by_label, leaks
