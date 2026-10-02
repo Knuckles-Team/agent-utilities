@@ -1,18 +1,17 @@
-# Knowledge Graph as a Bidirectional ETL Hub (Stardog data backend, connectors, write-back, lineage)
+# Knowledge Graph as a Bidirectional ETL Hub (connectors, write-back, lineage)
 
-> **CONCEPT:AU-KG.query.vendor-agnostic-traversal** (SPARQL data backend) · **KG-2.9** (unified ingestion contract) ·
+> **KG-2.9** (unified ingestion contract) ·
 > **AU-KG.ontology.one-source** (`graph_etl` unified pipeline) · **AU-KG.ontology.kg-3** (ETL lineage)
 > **Modules:** `knowledge_graph/etl/{pipeline,lineage}.py` ·
-> `knowledge_graph/backends/sparql/stardog_backend.py` ·
-> `knowledge_graph/enrichment/{provenance,registry,materialize,writeback}` ·
-> `knowledge_graph/integrations/stardog_sync.py`
+> `knowledge_graph/enrichment/{provenance,registry,materialize,writeback}`
 > **Related:** [OWL/RDF Layer](owl_rdf_layer.md) · [Graph Backend Architecture](graph_backends_architecture.md) ·
-> [Camunda + ARIS ↔ KG](camunda_aris_kg_integration.md) · Recipe: [Stardog + pg-age](../recipes/databases.md)
+> [Camunda + ARIS ↔ KG](camunda_aris_kg_integration.md) · Recipe: [pg-age databases](../recipes/databases.md)
 
 The agent-utilities Knowledge Graph is the **canonical hub** of a bidirectional ETL
 spine: external systems are **extracted** into the KG, normalized through the OWL/ontology
-layer (the *transform*), and **loaded** out to other systems — a triplestore like Stardog
-(full data), a peer graph store (mirror), or a system-of-record (write-back intelligence).
+layer (the *transform*), and **loaded** out to other systems — a peer graph store (mirror)
+or a system-of-record (write-back intelligence). External SPARQL triplestore federation
+(data backend push/pull) is owned by the epistemic-graph engine rather than this repository.
 "System A → ontological normalization → System B" is the architecture, exposed as one
 `graph_etl` interface. It is built almost entirely on machinery that already existed (the
 self-registering extractors, the OWL bridge, the write-back sink registry, the multi-backend
@@ -33,16 +32,15 @@ flowchart LR
     HUB["Canonical Knowledge Graph<br/>(epistemic-graph engine — the authority)<br/>externalToolId + domain federation keys"]
     subgraph OUT["Load (outbound)"]
         WB["Write-back sinks (18)<br/>run_writeback · dry-run + ProposalQueue"]
-        MIR["Graph-store load<br/>push_to_stardog / copy_graph / fan-out mirror"]
+        MIR["Graph-store load<br/>copy_graph / fan-out mirror"]
     end
     subgraph SINK["Target systems"]
-        SD["Stardog<br/>urn:source:* named graphs"]; N4["Neo4j / FalkorDB / AGE"]; SOR["LeanIX / ServiceNow / Egeria (SoR)"]
+        N4["Neo4j / FalkorDB / AGE"]; SOR["LeanIX / ServiceNow / Egeria (SoR)"]
     end
 
     SRC --> EXT --> PROV --> ONT --> HUB
     HUB --> WB --> SOR
-    HUB --> MIR --> SD
-    MIR --> N4
+    HUB --> MIR --> N4
     LIN["ETL lineage (AU-KG.ontology.kg-3)<br/>PROVENANCE_AGENT runs + WAS_DERIVED_FROM"]
     HUB -.records.-> LIN
 ```
@@ -68,37 +66,7 @@ adapter; it is not a production connector authority.
 - **Representation** — native graph-slice envelopes preserve the **real** node type / edge rel.
   `:DomainEntity` / `:EXTERNAL_LINK` remain
   only as the no-type fallback. (Safe: nothing queries `:DomainEntity`; real types are
-  `rdfs:subClassOf :DomainEntity`, so OWL reasoning is unaffected — and a SPARQL mirror now
-  types every node by its real `rdf:type`.)
-
-## Stardog as a SPARQL data backend (KG-2.7)
-
-Stardog is a first-class data backend, distinct from the OWL *reasoning* backend
-(`backends/owl/stardog_backend.py`) — the two compose: reason over the schema, store/serve the
-data here.
-
-```mermaid
-graph TB
-    subgraph ENGINE["KG engine writes (Cypher)"]
-        UP["_upsert_node / _upsert_edge<br/>ingest_external_batch · copy_graph · fan-out replay"]
-    end
-    subgraph SDB["StardogSparqlBackend (SparqlAdapter)"]
-        TR["execute(): Cypher→SPARQL translation<br/>(finite, owned MERGE shapes)"]
-        NG["named-graph routing<br/>graph_uri_for(props) → urn:source:&lt;sys&gt;"]
-        SP["execute_sparql / upload_graph / download_graph"]
-    end
-    STAR[("Stardog<br/>urn:source:leanix · urn:source:servicenow · …")]
-    UP -->|backend.execute cypher| TR --> NG -->|INSERT DATA| STAR
-    SP <-->|SPARQL query / pull| STAR
-    style SDB fill:#d5e8d4,stroke:#82b366
-```
-
-The engine has **no SPARQL routing** — every write reaches a backend as Cypher. So the data
-backend translates the engine's finite, owned MERGE shapes into SPARQL INSERT/DELETE (the same
-shape-coupling the fan-out backend already uses), routing each node/edge into its
-`urn:source:<system>` named graph by the `source_system` provenance. Registered as a
-`role="mirror"` connection, every KG write replicates live; `push_to_stardog` /
-`pull_from_stardog` give on-demand control.
+  `rdfs:subClassOf :DomainEntity`, so OWL reasoning is unaffected.)
 
 ## `graph_etl` — one pipeline run (AU-KG.ontology.one-source)
 
@@ -119,7 +87,7 @@ sequenceDiagram
         alt sink is a write-back domain
             P->>O: run_writeback(sink, dry_run, **ops)  %% dry-run + ProposalQueue
         else sink is a graph store
-            P->>O: push_to_stardog / copy_graph (resolved sink_backend)
+            P->>O: copy_graph (resolved sink_backend)
         end
         O-->>P: {created|nodes|edges, …}
     end
@@ -129,8 +97,11 @@ sequenceDiagram
 ```
 
 `run_etl` is a thin orchestrator (no transport of its own) over `sync_source`,
-`run_writeback`, `push_to_stardog`/`copy_graph`, and the connection registry. `source` or
-`sink` may be omitted for a one-directional run. Surfaced as the `graph_etl` MCP tool
+`run_writeback`, `copy_graph`, and the connection registry. `source` or
+`sink` may be omitted for a one-directional run. A sink backend that only speaks
+SPARQL answers with a typed, reachable refusal (`LegacyGraphBackendRemovedError`)
+rather than being pushed to — that external data-backend path was retired; use
+epistemic-graph federation instead. Surfaced as the `graph_etl` MCP tool
 (`action=run|list|lineage`) and the `/graph/etl` REST twin (auto-served from
 `ACTION_TOOL_ROUTES`).
 
@@ -146,15 +117,14 @@ Every run records a trail in the KG itself, reusing the existing provenance onto
 node/edge types): a `PROVENANCE_AGENT` run node (`kind="etl_run"`, source/sink/direction/counts)
 plus `WAS_DERIVED_FROM` edges chaining `sink → run → source` through `urn:source:<s>` /
 `urn:sink:<s>` system markers. `graph_etl action=lineage` (or `etl.query_lineage`) answers
-impact-analysis questions — "what flows from ServiceNow to LeanIX?", "where did this Stardog
-graph originate?".
+impact-analysis questions — "what flows from ServiceNow to LeanIX?", "where did this
+graph's data originate?".
 
 ## Surfaces
 
 | Capability | MCP | REST |
 |---|---|---|
 | Run / inspect a pipeline | `graph_etl(action=run\|list\|lineage)` | `POST /graph/etl` |
-| Push/pull/query Stardog directly | `graph_configure(action=push_to_stardog\|pull_from_stardog\|stardog_sparql)` | `POST /graph/configure` |
 | Sync one source inbound | `source_sync` | `POST /source/sync` |
 | Write-back to a system-of-record | `graph_writeback` | `POST /graph/writeback` |
 | Register a mirror / connection | `graph_configure(action=add_connection)` | `POST /graph/configure` |
@@ -164,4 +134,4 @@ graph originate?".
 - [OWL/RDF Layer](owl_rdf_layer.md) — local SPARQL + promotion/reasoning over any backend.
 - [Graph Backend Architecture](graph_backends_architecture.md) — connection registry roles + fan-out mirroring.
 - [Camunda + ARIS ↔ KG](camunda_aris_kg_integration.md) — a worked bidirectional connector.
-- Recipe: [Stardog + pg-age databases](../recipes/databases.md) — operational setup (Step 2b/7).
+- Recipe: [pg-age databases](../recipes/databases.md) — operational setup.

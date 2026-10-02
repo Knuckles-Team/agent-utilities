@@ -47,6 +47,15 @@ from .mirror_target import MirrorTargetRefused, preflight_mirror_target
 
 logger = logging.getLogger(__name__)
 
+
+class LegacyGraphBackendRemovedError(RuntimeError):
+    """Raised by :func:`create_backend` when the caller requests a backend
+    type this repository retired outright (the legacy external SPARQL stores
+    Jena Fuseki and Stardog) instead of returning a backend or silently
+    falling through to the generic "unknown backend type" path. External
+    SPARQL federation is now owned by the epistemic-graph engine."""
+
+
 # Most-recent per-mirror construction outcome (CONCEPT:AU-KG.backend.mirror-health-repair),
 # populated by ``_build_mirror_set`` on every fan-out build (startup and any
 # later rebuild). Read-only observability surface for
@@ -248,9 +257,8 @@ __all__ = [
     "FalkorDBBackend",
     "Neo4jBackend",
     "PostgreSQLBackend",
-    "JenaFusekiBackend",
-    "StardogSparqlBackend",
     "LADYBUG_AVAILABLE",
+    "LegacyGraphBackendRemovedError",
     "create_backend",
     "get_active_backend",
     "set_active_backend",
@@ -285,14 +293,6 @@ def __getattr__(name: str):
         from .postgresql_backend import PostgreSQLBackend
 
         return PostgreSQLBackend
-    if name == "JenaFusekiBackend":
-        from .sparql.jena_fuseki_backend import JenaFusekiBackend
-
-        return JenaFusekiBackend
-    if name == "StardogSparqlBackend":
-        from .sparql.stardog_backend import StardogSparqlBackend
-
-        return StardogSparqlBackend
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -714,25 +714,6 @@ def _create_postgresql_backend(backend_type: str, uri, db_name, kwargs):
     return backend
 
 
-def _create_jena_fuseki_backend(kwargs):
-    from agent_utilities.core.config import config as _cfg
-
-    from .sparql.jena_fuseki_backend import JenaFusekiBackend
-
-    resolved_url = kwargs.get("jena_fuseki_url") or _cfg.kg_fuseki_endpoint
-    resolved_dataset = (
-        kwargs.get("dataset") or setting("GRAPH_FUSEKI_DATASET") or "agent_kg"
-    )
-    resolved_jena_fuseki_user = kwargs.get("username") or setting("GRAPH_FUSEKI_USER")
-    backend = JenaFusekiBackend(
-        jena_fuseki_url=resolved_url,
-        dataset=resolved_dataset,
-        username=resolved_jena_fuseki_user,
-        password_ref=(kwargs.get("password_ref") or _cfg.graph_fuseki_password_ref),
-    )
-    return backend
-
-
 def _create_fanout_backend() -> "GraphBackend":
     # Concurrent N-way projection (CONCEPT:AU-KG.backend.mirror-health-repair):
     # EpistemicGraphBackend is fixed as the read/write-ack authority. External
@@ -759,36 +740,6 @@ def _create_fanout_backend() -> "GraphBackend":
 
         outbox_path = str(kg_db_path().parent / "graph_mirror_outbox.db")
         backend = FanOutBackend(mirrors, outbox_path=outbox_path)
-    return backend
-
-
-def _create_stardog_backend(uri, user, password, db_name, kwargs):
-    # First-class external SPARQL DATA backend (push/pull/query of instance
-    # data), usable standalone, as a fan-out mirror, or ad hoc. Schema
-    # composition and reasoning remain owned by epistemic-graph.
-    from .sparql.stardog_backend import (
-        DEFAULT_DATABASE,
-        STARDOG_LEVELS,
-        StardogSparqlBackend,
-    )
-
-    stardog_database = db_name or kwargs.get("database") or setting("STARDOG_DATABASE")
-    backend = StardogSparqlBackend(
-        endpoint=kwargs.get("endpoint") or uri or setting("STARDOG_ENDPOINT"),
-        database=stardog_database,
-        username=user or kwargs.get("username") or setting("STARDOG_USER"),
-        password=password or kwargs.get("password") or setting("STARDOG_PASSWORD"),
-        # Stardog is the two-level store: a dedicated target defaults to a
-        # named graph inside the configured database, and can name the
-        # database instead with ``{"mode": "dedicated", "level": "database"}``.
-        mirror_target=_resolve_mirror_target(
-            kwargs,
-            backend_type="stardog",
-            named_selector=stardog_database,
-            default_name=DEFAULT_DATABASE,
-            supported_levels=STARDOG_LEVELS,
-        ),
-    )
     return backend
 
 
@@ -990,6 +941,11 @@ def create_backend(
     Returns:
         A configured ``GraphBackend`` instance, or ``None`` if the requested
         backend is not available (e.g., ladybug package not installed).
+
+    Raises:
+        LegacyGraphBackendRemovedError: ``backend_type`` is ``"jena_fuseki"``
+            or ``"stardog"`` — both external SPARQL stores were retired
+            outright; use epistemic-graph federation instead.
     """
     (
         requested_type,
@@ -1044,20 +1000,27 @@ def create_backend(
     elif backend_type in ("postgresql", "age", "pggraph_age"):
         backend = _create_postgresql_backend(backend_type, uri, db_name, kwargs)
 
-    elif backend_type == "jena_fuseki":
-        backend = _create_jena_fuseki_backend(kwargs)
-
     elif backend_type == "fanout":
         backend = _create_fanout_backend()
 
-    elif backend_type == "stardog":
-        backend = _create_stardog_backend(uri, user, password, db_name, kwargs)
+    elif backend_type in ("jena_fuseki", "stardog"):
+        # Both external SPARQL stores were retired outright (CONCEPT reference
+        # not needed): they addressed only already-legacy triplestores out of
+        # scope for the federation epistemic-graph now owns. Distinct from the
+        # generic "unknown backend type" branch below so a caller that still
+        # asks for one of these two by name gets a typed, unambiguous signal
+        # instead of being told it typo'd an unrecognized type.
+        raise LegacyGraphBackendRemovedError(
+            f"the '{backend_type}' graph backend was retired; external SPARQL "
+            "stores are no longer backed directly here — use epistemic-graph "
+            "federation instead"
+        )
 
     else:
         logger.error(
             f"Unknown graph backend type: '{backend_type}'. "
             f"Supported: epistemic_graph, fanout, memory, file, postgresql, age, "
-            f"jena_fuseki, stardog, ladybug, falkordb, neo4j"
+            f"ladybug, falkordb, neo4j"
         )
         return None
     return _finalize_backend(

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_utilities.knowledge_graph.backends.sparql.source_partition import (
+from agent_utilities.knowledge_graph.core.source_partition import (
     SOURCE_GRAPH_PREFIX,
     default_graph_leak_labels,
     graph_uri_for,
@@ -84,7 +84,7 @@ def test_strict_mode_rejects_unsourced_external_node(monkeypatch):
 
 
 def test_coverage_doctor_flags_leaks_across_any_backend():
-    from agent_utilities.knowledge_graph.backends.sparql.source_partition import (
+    from agent_utilities.knowledge_graph.core.source_partition import (
         source_partition_coverage,
     )
 

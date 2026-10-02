@@ -349,13 +349,13 @@
     {
       "id": "AU-BOUNDARY-R032",
       "title": "Delete AU's legacy SPARQL backend and setup path",
-      "delivery_state": "BUILT",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "branch",
           "result": "passed",
-          "commit": "029ea71efc6a31e41aca68e989613b251a054554",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/029ea71efc6a31e41aca68e989613b251a054554",
+          "commit": "3bde01e76585582a83bf6e069e4b4672456a866c",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/3bde01e76585582a83bf6e069e4b4672456a866c",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
       ]

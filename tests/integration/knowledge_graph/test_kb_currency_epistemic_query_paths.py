@@ -363,19 +363,3 @@ def test_query_cypher_include_epistemic_carries_engine_envelope(
                 store.graph._client.tenants.delete(graph_name)
             except Exception:  # noqa: BLE001 - best-effort teardown
                 pass
-
-
-def test_store_execute_include_epistemic_degrades_on_unsupported_backend() -> None:
-    """A backend with no id-seeded epistemic primitive degrades to ``[]`` under
-    ``include_epistemic=True`` — never raises, never silently returns plain
-    ``dict`` rows under a ``True`` request (the documented ABC contract).
-
-    Pure unit assertion, no engine required — exercises the SPARQL-tier
-    backends' short-circuit directly.
-    """
-    from agent_utilities.knowledge_graph.backends.sparql.jena_fuseki_backend import (
-        JenaFusekiBackend,
-    )
-
-    backend = JenaFusekiBackend.__new__(JenaFusekiBackend)
-    assert backend.execute("SELECT * WHERE { ?s ?p ?o }", include_epistemic=True) == []
