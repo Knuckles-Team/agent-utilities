@@ -19,10 +19,10 @@ SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 
 def _numeric_kernel_available() -> bool:
     try:
-        import agent_utilities.numeric  # noqa: F401
+        from agent_utilities.numeric import kernel_available
     except ImportError:
         return False
-    return True
+    return kernel_available()
 
 
 # The designation-eval gate ranks a frozen corpus through the capability index,

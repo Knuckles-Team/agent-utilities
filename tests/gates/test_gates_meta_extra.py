@@ -27,10 +27,10 @@ def _numeric_kernel_available() -> bool:
     subprocess env the test drives.
     """
     try:
-        import agent_utilities.numeric  # noqa: F401
+        from agent_utilities.numeric import kernel_available
     except ImportError:
         return False
-    return True
+    return kernel_available()
 
 
 _needs_numeric_kernel = pytest.mark.skipif(

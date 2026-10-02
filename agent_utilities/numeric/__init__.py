@@ -89,6 +89,18 @@ def _require_kernel() -> Any:
     return _KERNEL
 
 
+def kernel_available() -> bool:
+    """Return whether the certified kernel is actually bound.
+
+    Importing this module always succeeds now (see ``_KERNEL_IMPORT_ERROR``
+    above) -- a caller that used to detect a lean, no-engine profile by
+    catching ``ImportError`` from ``import agent_utilities.numeric`` gets
+    ``True`` unconditionally and must call this instead.
+    """
+
+    return _KERNEL_IMPORT_ERROR is None
+
+
 def _to_builtin_scalar(value: Any, _state: list[int]) -> Any:
     _state[0] += 1
     if _state[0] > _MAX_NUMERIC_ELEMENTS:

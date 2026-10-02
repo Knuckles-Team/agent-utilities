@@ -35,10 +35,10 @@ PACKAGE_JSON_PATH = (
 
 def _numeric_kernel_available() -> bool:
     try:
-        import agent_utilities.numeric  # noqa: F401
+        from agent_utilities.numeric import kernel_available
     except ImportError:
         return False
-    return True
+    return kernel_available()
 
 
 # The CPD gate builds the FULL MCP tool registry (`kg_server`) to prove every
