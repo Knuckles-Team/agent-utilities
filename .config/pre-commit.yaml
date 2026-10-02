@@ -1068,7 +1068,8 @@ repos:
   # updates its local twin. This hook instead PARSES EVERY workflow file
   # under .github/workflows/ at run time (scripts/ci_gate_replica.py) and
   # executes every step of every job it has classified as executable
-  # (release.yml's `gates` + `build`; advisory.yml's `advisory`) verbatim —
+  # (release.yml's `gates` + `build` + `engine-release-order`; advisory.yml's
+  # `advisory`) verbatim —
   # a step added there is run here with NO change to this file. advisory.yml
   # failures are reported loudly but never fail this hook (matching that
   # workflow's own `continue-on-error: true` contract); release.yml
