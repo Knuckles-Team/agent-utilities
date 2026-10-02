@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 
 import pytest
-from _cdc_scenario import assert_two_page_cdc_scenario
 
 from agent_utilities.knowledge_graph.ingestion.external_graph import (
     ExternalGraphIngestionError,
@@ -918,6 +917,8 @@ def test_external_graph_enforces_payload_budget_on_cdc_events(monkeypatch) -> No
 def test_external_graph_uses_discovered_native_cdc_and_advances_cursor_once(
     monkeypatch,
 ) -> None:
+    from _cdc_scenario import assert_two_page_cdc_scenario
+
     captured = assert_two_page_cdc_scenario(
         monkeypatch,
         registry_cls=_Registry,
