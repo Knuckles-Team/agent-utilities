@@ -103,32 +103,6 @@ def _script(root: Path, source: str) -> None:
     (scripts / "check_fixture.py").write_text(source, encoding="utf-8")
 
 
-def _reviewed_tools_are_trusted() -> bool:
-    """Whether this host's ``git``/``rg`` pass the gate's own trust check.
-
-    ``gate.execute_manifest`` resolves a REAL, root-owned, non-world-writable
-    ``rg`` (ripgrep) and ``git`` on ``PATH`` before it runs any guarded
-    subprocess (see ``_prepare_guard``/``_resolve_reviewed_tool``). A host
-    without a trusted ``rg`` cannot exercise that real path at all -- this is
-    a genuinely absent external resource, not a bug in the gate or the tests
-    that depend on it running.
-    """
-
-    try:
-        gate._resolve_reviewed_tool("git")
-        gate._resolve_reviewed_tool("rg")
-    except gate.GateError:
-        return False
-    return True
-
-
-_REVIEWED_TOOLS_TRUSTED = _reviewed_tools_are_trusted()
-_REQUIRES_REVIEWED_TOOLS = pytest.mark.skipif(
-    not _REVIEWED_TOOLS_TRUSTED,
-    reason="requires a root-owned, trusted 'rg' (ripgrep) and 'git' on PATH",
-)
-
-
 def test_checked_in_manifest_is_complete_and_current() -> None:
     manifest = gate.load_manifest(
         Path(__file__).resolve().parents[3]
@@ -263,7 +237,6 @@ def test_repository_roots_are_explicit_and_non_symlinked(tmp_path: Path) -> None
         gate.parse_repository_roots(linked)
 
 
-@_REQUIRES_REVIEWED_TOOLS
 def test_success_evidence_contains_no_paths_or_command_output(tmp_path: Path) -> None:
     roots = _roots(tmp_path)
     _script(
@@ -363,7 +336,6 @@ def test_evidence_is_complete_and_private_before_atomic_publication(
     assert not tuple(parent.glob(".source-freeze-*.tmp"))
 
 
-@_REQUIRES_REVIEWED_TOOLS
 @pytest.mark.parametrize(
     "source",
     [
@@ -401,7 +373,6 @@ def test_isolated_bootstrap_never_executes_unbound_site_startup_code() -> None:
     assert "import site" not in gate._BOOTSTRAP
 
 
-@_REQUIRES_REVIEWED_TOOLS
 def test_process_guard_allows_standard_library_ctypes_handle(tmp_path: Path) -> None:
     roots = _roots(tmp_path)
     _script(roots["agent-utilities"], "import ctypes\nassert ctypes.pythonapi\n")
@@ -456,7 +427,6 @@ def test_command_environment_disables_unreviewed_pydantic_plugins(
     assert environment["PYDANTIC_DISABLE_PLUGINS"] == "__all__"
 
 
-@_REQUIRES_REVIEWED_TOOLS
 def test_process_guard_allows_only_reviewed_rg_read(tmp_path: Path) -> None:
     roots = _roots(tmp_path)
     _script(
@@ -471,7 +441,6 @@ def test_process_guard_allows_only_reviewed_rg_read(tmp_path: Path) -> None:
     assert evidence["commands"][0]["termination"] == "exited"
 
 
-@_REQUIRES_REVIEWED_TOOLS
 def test_output_is_bounded_without_retaining_content(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -502,7 +471,6 @@ def test_release_cli_requires_isolated_interpreter(
     assert gate.main(["--evidence", str(tmp_path / "evidence.json")]) == 1
 
 
-@_REQUIRES_REVIEWED_TOOLS
 def test_post_run_digest_detects_an_external_edit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -523,7 +491,6 @@ def test_post_run_digest_detects_an_external_edit(
         gate.execute_manifest(manifest, roots, tmp_path / "evidence.json")
 
 
-@_REQUIRES_REVIEWED_TOOLS
 def test_commands_are_serial_and_stop_at_first_failure(tmp_path: Path) -> None:
     roots = _roots(tmp_path)
     _script(roots["agent-utilities"], "raise SystemExit(9)\n")
