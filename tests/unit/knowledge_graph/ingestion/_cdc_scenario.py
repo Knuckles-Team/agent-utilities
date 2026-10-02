@@ -13,6 +13,8 @@ from __future__ import annotations
 import dataclasses
 from typing import Any
 
+import pytest
+
 from agent_utilities.knowledge_graph.ingestion.external_graph import (
     ExternalGraphIngestionRequest,
     ingest_registered_graph,
@@ -50,24 +52,25 @@ _TWO_PAGES: dict[str, tuple[list[dict[str, Any]], str, bool]] = {
 }
 
 
+@dataclasses.dataclass
 class PagedChangeGraph:
     """A change-feed stub that serves a fixed table of pages keyed by the
-    cursor presented, and records every cursor it was asked for. A snapshot
-    read must never be reached while a change feed is available."""
+    cursor presented and records every cursor it was asked for."""
 
-    def __init__(
-        self, pages: dict[str, tuple[list[dict[str, Any]], str, bool]]
-    ) -> None:
-        self._pages = pages
-        self.cursors: list[str | None] = []
+    pages: dict[str, tuple[list[dict[str, Any]], str, bool]]
+    page_size: int = 2
+    cursors: list[str | None] = dataclasses.field(default_factory=list)
 
-    def execute_read(self, _query: str, _params: dict):
-        raise AssertionError("snapshot query must not run when CDC is available")
+    def execute_read(self, *_args: Any) -> None:
+        pytest.fail("a snapshot read ran although a change feed is available")
 
-    def read_change_page(self, *, cursor: str | None, limit: int):
-        assert limit == 2
+    def read_change_page(self, *, cursor: str | None, limit: int) -> dict[str, Any]:
+        if limit != self.page_size:
+            pytest.fail(
+                f"asked for {limit} changes per page, expected {self.page_size}"
+            )
         self.cursors.append(cursor)
-        events, next_cursor, has_more = self._pages[str(cursor)]
+        events, next_cursor, has_more = self.pages[str(cursor)]
         return {"events": events, "next_cursor": next_cursor, "has_more": has_more}
 
 
@@ -94,7 +97,9 @@ def run_two_page_cdc(
         lambda *_args, **_kwargs: start,
     )
     patch_capture(monkeypatch, captured)
-    paged = dataclasses.replace(base_request, page_size=2, max_pages=len(_TWO_PAGES))
+    paged = dataclasses.replace(
+        base_request, page_size=graph.page_size, max_pages=len(_TWO_PAGES)
+    )
     result = ingest_registered_graph(
         object(), registry_cls(graph), paged, profile=profile()
     )
