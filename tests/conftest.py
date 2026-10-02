@@ -1552,7 +1552,7 @@ def _is_missing_engine_domain_tool_error(exc: BaseException) -> bool:
 
 def _is_engine_unreachable_error(exc: BaseException | None) -> bool:
     """True if ``exc`` (or its cause chain) is the epistemic-graph engine being
-    unavailable in THIS environment -- three distinct signatures:
+    unavailable in THIS environment -- five distinct signatures:
 
     1. Unreachable daemon: the message raised by ``GraphComputeEngine`` / the
        client when no engine daemon answers. Matched by message (the client
@@ -1580,10 +1580,20 @@ def _is_engine_unreachable_error(exc: BaseException | None) -> bool:
        absent-package condition, reached through a
        ``REGISTERED_TOOLS``/``ACTION_TOOL_ROUTES`` lookup instead of a raw
        ``ModuleNotFoundError``.
+    5. Empty engine-surface manifest: ``scripts/gen_graphos_manifest.py``'s
+       ``build_manifest()`` raises a plain ``RuntimeError`` with this exact
+       message when ``engine_tools.ENGINE_DOMAINS`` is empty -- the same
+       absent-package condition, reached while regenerating the checked-in
+       GraphOS action manifest rather than while serving a request. Matched
+       on the precise message the function itself raises (there is no typed
+       exception or ``.name`` to key on here), so a genuine, differently
+       worded ``RuntimeError`` from manifest generation is never masked.
     """
     seen: set[int] = set()
     while exc is not None and id(exc) not in seen:
         seen.add(id(exc))
+        if isinstance(exc, RuntimeError) and "ENGINE_DOMAINS is empty" in str(exc):
+            return True
         if isinstance(exc, (ConnectionError, ConnectionRefusedError)):
             msg = str(exc)
             if (
