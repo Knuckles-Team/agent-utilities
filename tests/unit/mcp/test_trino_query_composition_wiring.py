@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import pytest
 from starlette.requests import Request
 
 from agent_utilities.mcp import kg_server
@@ -59,13 +58,6 @@ def _registered_tabular_query():
 def test_registered_tabular_query_reaches_composed_service_and_injected_backend(
     monkeypatch,
 ):
-    # sqlalchemy/trino are the optional `trino` extra -- trino_backend.py never
-    # imports them at module load time (see pyproject.toml's `trino` extra
-    # comment), so skip cleanly rather than error when it is not installed
-    # (e.g. CI's lean no-engine gate job), matching the pyarrow-optional
-    # convention used elsewhere (tests/unit/mcp/test_data_prep_tools.py,
-    # tests/unit/knowledge_graph/core/test_knowledge_stream.py).
-    pytest.importorskip("sqlalchemy")
     built = {}
     audiences = []
 
