@@ -22,14 +22,7 @@ from typing import Any
 
 import pytest
 
-from agent_utilities.knowledge_graph.core.company_brain_runtime import (
-    reset_company_brain,
-)
 from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
-from agent_utilities.knowledge_graph.ontology.permissioning import (
-    clear_markings,
-    use_marking_authority,
-)
 from agent_utilities.knowledge_graph.retrieval.context_compiler import (
     DEFAULT_BUNDLE_SYSTEM_PREAMBLE,
     ContextCompiler,
@@ -40,17 +33,7 @@ from agent_utilities.knowledge_graph.retrieval.context_compiler_serving import (
 )
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
-from tests.retrieval.fakes import FakeRetriever, _FakeMarkingStore, _grant_public
-
-
-@pytest.fixture(autouse=True)
-def _clean_state():
-    reset_company_brain()
-    clear_markings()
-    with use_marking_authority(_FakeMarkingStore()):
-        yield
-    reset_company_brain()
-    clear_markings()
+from tests.retrieval.fakes import FakeRetriever, _grant_public
 
 
 def _session() -> GraphSession:
