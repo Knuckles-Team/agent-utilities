@@ -335,6 +335,128 @@ jobs:
       - name: Test suite
         run: python3 -m pytest -q -n auto --dist loadfile
 
+  # ── REPORT ONLY: run the `engine`-marked tests with a REAL epistemic-graph
+  # engine installed. `gates` above deliberately excludes epistemic-graph (it
+  # is not on PyPI yet -- see `engine-release-order`), so every test carrying
+  # pytest.ini's `engine` marker (the real ephemeral epistemic-graph-server
+  # process started by tests/_test_engine.py) skips cleanly there instead of
+  # actually running. That leaves the real engine path untested by CI. The
+  # operator approved (2026-10-02) installing the engine from a frozen build
+  # artifact of the epistemic-graph release workflow until 2.27 publishes to
+  # PyPI.
+  #
+  # Deliberately NOT in any other job's `needs:`, and nothing needs it: this
+  # job reports a real result against a real engine, it does not gate the
+  # release. Once epistemic-graph 2.27 is on PyPI, `engine-release-order`
+  # goes green and `gates` can install the real published wheel directly --
+  # at that point this job's artifact-download/verify steps should be
+  # replaced by a normal `uv sync` of the published package, and the job can
+  # be folded into `gates` or promoted to release-critical on its own
+  # evidence. Until then it is a visible, non-blocking signal only.
+  engine-installed-tests:
+    name: engine-installed tests (report only, not required)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Needed to read Actions artifacts from the separate epistemic-graph
+      # repository below; nothing else in this job touches the GitHub API.
+      actions: read
+    env:
+      # Frozen 2.27 Linux x86_64 wheel, built by epistemic-graph's OWN release
+      # workflow at source commit 7f5179650d87e6f763b129cfeea6dfb4f8b0273b
+      # (Knuckles-Team/epistemic-graph PR #35). That workflow run's overall
+      # conclusion is "cancelled" (its macOS legs were cancelled after this
+      # Linux wheel job had already completed and uploaded -- see the pull
+      # request description for the full per-job evidence), but the artifact
+      # itself is untouched and not expired.
+      #
+      # Artifact expires 2026-12-30T16:03:35Z. Before then, either re-pin all
+      # five values below from a current successful epistemic-graph release
+      # run, or -- preferably -- switch this job to installing the published
+      # PyPI package once epistemic-graph 2.27 ships there.
+      EG_WHEEL_RUN_ID: "36889097785"
+      EG_WHEEL_ARTIFACT_ID: "11196548715"
+      EG_WHEEL_ARTIFACT_NAME: "wheel-linux-x86_64"
+      EG_WHEEL_FILENAME: "epistemic_graph-2.27.0-py3-none-manylinux_2_28_x86_64.whl"
+      EG_WHEEL_SHA256: "b8c805e54c68f57623c8a99f76ad25e2bc0f3d23b9056fc7c0434f8c1c0b36d3"
+    steps:
+      - *release-checkout
+      - *sdk-checkout
+      - *release-python
+      - *release-uv
+
+      - name: Sync test environment (same as gates, no runtime engine yet)
+        run: |
+          uv sync --frozen --extra test --group guardrails \
+            --no-install-package epistemic-graph \
+            --no-install-package langfuse-agent
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      # Two download attempts, same artifact, no retries beyond that: `gh run
+      # download` first (simplest, handles pagination/zip extraction itself),
+      # then the raw REST zip endpoint if that fails -- most likely because
+      # the default GITHUB_TOKEN issued to this workflow has no read access to
+      # a DIFFERENT repository's Actions artifacts even though
+      # epistemic-graph is public. Either way this fails closed: a missing or
+      # inaccessible artifact stops the job with the real HTTP/CLI error, it
+      # never falls back to a different build.
+      - name: Download frozen epistemic-graph Linux wheel artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p eg-wheel
+          echo "Attempting cross-repo artifact download via gh CLI..."
+          if gh run download "$EG_WHEEL_RUN_ID" \
+              -R Knuckles-Team/epistemic-graph \
+              -n "$EG_WHEEL_ARTIFACT_NAME" \
+              --dir eg-wheel 2>gh-download.err; then
+            echo "gh run download succeeded"
+          else
+            echo "::warning::gh run download failed; falling back to the REST artifact zip endpoint"
+            cat gh-download.err >&2
+            rm -rf eg-wheel && mkdir -p eg-wheel
+            http_status="$(curl -sS -w '%{http_code}' -o eg-wheel/artifact.zip \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/Knuckles-Team/epistemic-graph/actions/artifacts/${EG_WHEEL_ARTIFACT_ID}/zip")"
+            if [ "$http_status" != "200" ]; then
+              echo "::error::Both download methods failed for epistemic-graph run $EG_WHEEL_RUN_ID artifact $EG_WHEEL_ARTIFACT_NAME (REST status $http_status). The default GITHUB_TOKEN most likely cannot read Actions artifacts from a different repository; response body follows."
+              cat eg-wheel/artifact.zip || true
+              exit 1
+            fi
+            (cd eg-wheel && unzip -oq artifact.zip && rm -f artifact.zip)
+          fi
+          ls -la eg-wheel
+
+      - name: Verify downloaded wheel sha256
+        run: |
+          set -euo pipefail
+          wheel_path="eg-wheel/${EG_WHEEL_FILENAME}"
+          if [ ! -f "$wheel_path" ]; then
+            echo "::error::expected wheel not found at $wheel_path; downloaded contents:"
+            find eg-wheel -maxdepth 2 -type f
+            exit 1
+          fi
+          actual_sha256="$(sha256sum "$wheel_path" | cut -d' ' -f1)"
+          if [ "$actual_sha256" != "$EG_WHEEL_SHA256" ]; then
+            echo "::error::sha256 mismatch for $wheel_path: expected $EG_WHEEL_SHA256, got $actual_sha256"
+            exit 1
+          fi
+          echo "verified sha256=$actual_sha256 for $wheel_path"
+
+      - name: Install the frozen epistemic-graph[full] wheel
+        run: |
+          set -euo pipefail
+          wheel_path="$(readlink -f "eg-wheel/${EG_WHEEL_FILENAME}")"
+          uv pip install --python "$PWD/.venv/bin/python" "${wheel_path}[full]"
+
+      - name: Assert the real engine is importable
+        run: python -c "import epistemic_graph, epistemic_graph.numeric"
+
+      - name: Engine-marked test suite
+        run: python3 -m pytest -q -m engine
+
   # ── STAGE 2: build the release wheel. Needs: gates + clone-scanners +
   # engine-release-order. ──────────────────────────────────────────────────
   # This is release-critical item #3: wheel build + reproducibility +
