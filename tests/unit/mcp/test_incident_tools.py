@@ -520,7 +520,7 @@ def test_ack_mutation_not_found_reports_error(monkeypatch):
     assert out["policy"]["decision"] == "allow"
 
 
-def test_ack_denied_by_real_default_policy_never_mutates(monkeypatch):
+def _denied_by_real_default_policy_never_mutates(monkeypatch, action: str) -> None:
     """No ``_gate`` stub here: the REAL fail-closed ActionPolicy is consulted.
     ``incident.*`` has no explicit rule in the shipped default policy (mirrors
     ``claim.*`` in ``test_claim_tools.py``), so it falls to the conservative
@@ -545,30 +545,16 @@ def test_ack_denied_by_real_default_policy_never_mutates(monkeypatch):
     engine = _FakeEngine([(incident_id, {"status": "open", "summary": "x"})])
     tool = _register(monkeypatch, engine)
     out = json.loads(
-        tool(action="ack", incident_id=incident_id, reason="", actor_id="")
+        tool(action=action, incident_id=incident_id, reason="", actor_id="")
     )
     assert out["error"] == "policy_denied"
     assert out["policy"]["decision"] in ("queue_approval", "deny", "unavailable")
     assert mutated == []  # the mutation never ran
 
 
-def test_resolve_denied_by_real_default_policy_never_mutates(monkeypatch):
-    """Mirrors test_ack_denied_by_real_default_policy_never_mutates above --
-    see its docstring for why ``"unavailable"`` is an accepted fail-closed
-    decision here alongside ``"queue_approval"``/``"deny"``."""
-    from agent_utilities.observability import incidents as inc
+def test_ack_denied_by_real_default_policy_never_mutates(monkeypatch):
+    _denied_by_real_default_policy_never_mutates(monkeypatch, "ack")
 
-    monkeypatch.setattr(kg_server, "_get_engine", lambda: None)
-    mutated: list = []
-    monkeypatch.setattr(
-        inc, "set_incident_status", lambda *a, **k: mutated.append((a, k))
-    )
-    incident_id = "health:incident:storage-node-a:sig1"
-    engine = _FakeEngine([(incident_id, {"status": "open", "summary": "x"})])
-    tool = _register(monkeypatch, engine)
-    out = json.loads(
-        tool(action="resolve", incident_id=incident_id, reason="", actor_id="")
-    )
-    assert out["error"] == "policy_denied"
-    assert out["policy"]["decision"] in ("queue_approval", "deny", "unavailable")
-    assert mutated == []
+
+def test_resolve_denied_by_real_default_policy_never_mutates(monkeypatch):
+    _denied_by_real_default_policy_never_mutates(monkeypatch, "resolve")
