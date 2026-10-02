@@ -805,8 +805,7 @@ def test_run_canary_promotion_reaches_the_placement_catalog(monkeypatch):
 class _CycleStubEngine:
     """Same shape as ``test_trace_pattern_miner.py``'s ``_TraceMiningStubEngine``:
     empty governance-adjacent query results ⇒ ``PromotionGovernanceValidator``
-    passes by default; ``governance_rules`` relaxes the ActionPolicy tier.
-    """
+    passes by default; ``governance_rules`` relaxes the ActionPolicy tier."""
 
     def __init__(self, *, governance_rules: list[dict[str, Any]] | None = None):
         self.nodes: dict[str, dict[str, Any]] = {}
