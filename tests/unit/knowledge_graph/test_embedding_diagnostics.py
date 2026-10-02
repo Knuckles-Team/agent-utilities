@@ -12,11 +12,24 @@ pytest.importorskip("epistemic_graph.numeric")
 from agent_utilities.numeric import xp as np
 
 
+def _elementwise_add(a, b):
+    """``agent_utilities.numeric`` crosses the boundary as bounded builtin
+    lists, never an array-like object with operator overloading (its own
+    module docstring: "deliberately does not provide an array object"), so
+    plain ``+``/``*`` on two of its results is either a TypeError (float
+    multiplier) or silent list concatenation/repetition (int multiplier),
+    never elementwise math. Small local helper for the handful of tests here
+    that build a signal + independent noise sample."""
+    if isinstance(a, list):
+        return [_elementwise_add(x, y) for x, y in zip(a, b, strict=True)]
+    return a + b
+
+
 class TestCKA:
     """Tests for Centered Kernel Alignment (MINER §3)."""
 
     def test_identical_spaces(self):
-        X = np.random.randn(50, 10)
+        X = np.random.default_rng(42).standard_normal((50, 10))
         result = EmbeddingDiagnostics.compute_cka(X, X)
         assert result.cka_score == pytest.approx(1.0, abs=0.01)
 
@@ -28,8 +41,9 @@ class TestCKA:
         assert result.cka_score < 0.5  # Low similarity for random spaces
 
     def test_sample_mismatch(self):
-        X = np.random.randn(10, 5)
-        Y = np.random.randn(20, 5)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((10, 5))
+        Y = rng.standard_normal((20, 5))
         result = EmbeddingDiagnostics.compute_cka(X, Y)
         assert result.cka_score == 0.0
 
@@ -40,7 +54,7 @@ class TestCKA:
     def test_alignment_ratio(self):
         rng = np.random.default_rng(42)
         X = rng.standard_normal((30, 8))
-        Y = X + rng.standard_normal((30, 8)) * 0.1
+        Y = _elementwise_add(X, rng.normal(0.0, 0.1, (30, 8)))
         result = EmbeddingDiagnostics.compute_cka(X, Y)
         assert result.alignment_ratio > 0.5
         assert not result.needs_transformation
@@ -50,22 +64,24 @@ class TestAdaptiveSparseFusion:
     """Tests for Adaptive Sparse Multi-Layer Fusion (MINER §4.2)."""
 
     def test_single_layer(self):
-        layer = np.random.randn(10, 5)
+        layer = np.random.default_rng(42).standard_normal((10, 5))
         result = EmbeddingDiagnostics.adaptive_sparse_fusion([layer])
         assert len(result.fused_embeddings) == 10
         assert len(result.layer_weights) == 1
         assert result.layer_weights[0] == pytest.approx(1.0)
 
     def test_two_layers_uniform(self):
-        l1 = np.random.randn(10, 5)
-        l2 = np.random.randn(10, 5)
+        rng = np.random.default_rng(42)
+        l1 = rng.standard_normal((10, 5))
+        l2 = rng.standard_normal((10, 5))
         result = EmbeddingDiagnostics.adaptive_sparse_fusion([l1, l2])
         assert len(result.layer_weights) == 2
         assert result.layer_weights[0] == pytest.approx(0.5)
 
     def test_weighted_fusion(self):
-        l1 = np.random.randn(10, 5)
-        l2 = np.random.randn(10, 5)
+        rng = np.random.default_rng(42)
+        l1 = rng.standard_normal((10, 5))
+        l2 = rng.standard_normal((10, 5))
         result = EmbeddingDiagnostics.adaptive_sparse_fusion(
             [l1, l2], performance_scores=[0.8, 0.2]
         )
@@ -73,7 +89,7 @@ class TestAdaptiveSparseFusion:
         assert result.layer_weights[1] == pytest.approx(0.2)
 
     def test_sparsity_applied(self):
-        l1 = np.random.randn(20, 50)
+        l1 = np.random.default_rng(42).standard_normal((20, 50))
         result = EmbeddingDiagnostics.adaptive_sparse_fusion([l1], sparsity_target=0.5)
         assert result.active_dimensions[0] < 50
 
@@ -96,8 +112,8 @@ class TestEmbeddingHealthCheck:
     def test_collapsed_embeddings(self):
         # All embeddings are nearly identical → effective dim after centering is noise-dominated
         base = np.ones((100, 20))
-        noise = np.random.randn(100, 20) * 1e-8
-        embeddings = base + noise
+        noise = np.random.default_rng(42).normal(0.0, 1e-8, (100, 20))
+        embeddings = _elementwise_add(base, noise)
         report = EmbeddingDiagnostics().health_check(embeddings)
         # The collapse_threshold (ratio effective/total < 0.1) may not fire when
         # noise is spread across all dims, but the variance is extremely low
