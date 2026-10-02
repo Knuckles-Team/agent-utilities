@@ -44,9 +44,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
-import os
 import re
-import ssl
 import sys
 import time
 import uuid
@@ -70,6 +68,7 @@ from agent_utilities.knowledge_graph.retrieval.context_compiler import (
 from agent_utilities.knowledge_graph.retrieval.context_compiler_serving import (
     bundle_chat_completion,
 )
+from scripts.validate_mcp_config import _tls_context
 from tests.retrieval.fakes import FakeRetriever
 
 _METRIC_RE = re.compile(
@@ -77,12 +76,6 @@ _METRIC_RE = re.compile(
     re.MULTILINE,
 )
 _MAX_METRICS_BYTES = 2 * 1024 * 1024
-
-
-def _tls_context() -> ssl.SSLContext:
-    cafile = os.environ.get("SSL_CERT_FILE") or os.environ.get("REQUESTS_CA_BUNDLE")
-    capath = os.environ.get("SSL_CERT_DIR")
-    return ssl.create_default_context(cafile=cafile or None, capath=capath or None)
 
 
 def _make_bundle(compiler: ContextCompiler, query: str, top_k: int):
