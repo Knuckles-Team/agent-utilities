@@ -1,4 +1,5 @@
-"""Policy evolution, AU side (AU-HARNESS-R001/AU-HARNESS-R002): capture and the external training path.
+"""Policy evolution, AU side (the harness-evolution spec's capability-gated capture
+and external-training-path requirements): capture and the external training path.
 
 No GPU, no vLLM, no engine: the sampler transport, EG's ``PolicyEvolutionClient``
 and Blob CAS are in-memory fakes that speak the GENERATED EG wire types.
@@ -12,16 +13,25 @@ import struct
 from typing import Any
 
 import pytest
-from epistemic_graph.generated.policy_evolution import (
-    ModelPolicyVersion,
-    OpenWeightPolicyCapability,
-    PolicyCapture,
-    PolicyRecordReceipt,
-    PolicyRecordView,
-    TrainingRun,
-    VersionOriginTrained,
+
+# The compiled epistemic_graph client package must be present for these tests;
+# skip the whole module cleanly when it isn't, rather than erroring out
+# collection (BUG-026 un-blinding: the lean CI `gates` env deliberately
+# excludes epistemic-graph, and an older pinned release may predate this
+# generated contract).
+_policy_evolution_generated = pytest.importorskip(
+    "epistemic_graph.generated.policy_evolution"
 )
-from epistemic_graph.policy_evolution import PolicyEvolutionRefused
+ModelPolicyVersion = _policy_evolution_generated.ModelPolicyVersion
+OpenWeightPolicyCapability = _policy_evolution_generated.OpenWeightPolicyCapability
+PolicyCapture = _policy_evolution_generated.PolicyCapture
+PolicyRecordReceipt = _policy_evolution_generated.PolicyRecordReceipt
+PolicyRecordView = _policy_evolution_generated.PolicyRecordView
+TrainingRun = _policy_evolution_generated.TrainingRun
+VersionOriginTrained = _policy_evolution_generated.VersionOriginTrained
+
+_policy_evolution_client = pytest.importorskip("epistemic_graph.policy_evolution")
+PolicyEvolutionRefused = _policy_evolution_client.PolicyEvolutionRefused
 
 from agent_utilities.harness.policy_evolution import (
     CaptureSpec,
