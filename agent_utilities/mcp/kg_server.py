@@ -4412,9 +4412,12 @@ def _run_boot_hydration_plan(
     """Run GraphOS boot hydration in its fixed resource-priority order.
 
     1. bounded GraphOS/fleet tool metadata, then runnable skills and MCP declarations;
-    2. prompts/agent templates;
-    3. package ontologies; and
-    4. codebases and configured connectors through their durable delta queues.
+    2. prompts/agent templates; and
+    3. codebases and configured connectors through their durable delta queues.
+
+    Package ontologies are no longer a boot-hydration leg here: 43197d7c6
+    ("refactor: move semantic authority to epistemic graph") moved that
+    authority to generated epistemic-graph contracts.
 
     Each step is isolated so a failed optional source cannot prevent later
     priority classes from making progress.
