@@ -72,22 +72,27 @@ class CDCGraph:
         }
 
 
-def run_two_page_cdc_scenario(
+def assert_two_page_cdc_scenario(
     monkeypatch: Any,
     *,
     registry_cls: Any,
     profile: Any,
     patch_capture: Any,
     base_request: Any,
-) -> tuple[CDCGraph, dict, list]:
-    """Drive ``ingest_registered_graph`` through one two-page CDC cycle.
+) -> list:
+    """Drive ``ingest_registered_graph`` through one two-page CDC cycle and
+    assert the full set of invariants this scenario proves: the cursor
+    advances exactly once, the sync strategy/node/delete counts are right,
+    every envelope carries the correct operation in order, and only the
+    LAST envelope (the trailing snapshot-complete marker) carries a
+    checkpoint.
 
     ``registry_cls``/``profile``/``patch_capture``/``base_request`` are the
     calling test module's own doubles (``_Registry``, ``_profile``,
     ``_patch_ingest_capture``, ``_request()``) — this helper stays agnostic
-    of which test file supplies them.
-
-    Returns ``(graph, result, captured)`` for the caller's own assertions.
+    of which test file supplies them. Returns ``captured`` for any
+    additional, caller-specific assertions (e.g. privacy/provenance checks)
+    beyond this shared scenario's own invariants.
     """
     captured: list = []
     graph = CDCGraph()
@@ -102,4 +107,17 @@ def run_two_page_cdc_scenario(
     result = ingest_registered_graph(
         object(), registry_cls(graph), request, profile=profile()
     )
-    return graph, result, captured
+
+    assert graph.cursors == ["cursor-1", "cursor-2"]
+    assert result["sync_strategy"] == "cdc"
+    assert result["nodes"] == 2
+    assert result["deletes"] == 1
+    assert [envelope.operation for envelope in captured] == [
+        "upsert",
+        "upsert",
+        "delete",
+        "snapshot_complete",
+    ]
+    assert all(envelope.checkpoint is None for envelope in captured[:-1])
+    assert captured[-1].checkpoint == "cursor-3"
+    return captured

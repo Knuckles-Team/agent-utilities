@@ -108,6 +108,21 @@ class TestScoring:
 # ---------------------------------------------------------------------------
 
 
+def _consider_strong_team_governed(engine) -> tuple[list, object]:
+    """Consider ``_strong_team()`` with governance required (validator
+    stubbed to always pass), recording promotions. Shared by the
+    tier-relaxed/default-tier pair below, which differ only in whether
+    ``engine`` carries a tier-relaxing ``governance_rule`` override."""
+    promoted: list = []
+    merger = GovernedAutoMerger(
+        engine=engine,
+        policy=MergePolicy(enabled=True, require_governance_valid=True),
+        governance_validator=lambda spec: True,
+        promoter=lambda spec: promoted.append(spec) or True,
+    )
+    return promoted, merger.consider(_strong_team())
+
+
 class TestGovernedMerge:
     def test_disabled_never_promotes_even_if_eligible(self):
         merger = GovernedAutoMerger(
@@ -141,14 +156,7 @@ class TestGovernedMerge:
         so this proves the merge lifecycle itself through a genuinely
         approved decision, not the approval-queue mechanics.
         """
-        promoted = []
-        merger = GovernedAutoMerger(
-            engine=_fake_engine_with_auto_tier(),
-            policy=MergePolicy(enabled=True, require_governance_valid=True),
-            governance_validator=lambda spec: True,
-            promoter=lambda spec: promoted.append(spec) or True,
-        )
-        ev = merger.consider(_strong_team())
+        promoted, ev = _consider_strong_team_governed(_fake_engine_with_auto_tier())
         assert ev.merged is True
         assert len(promoted) == 1
         assert ev.reason == "auto-merged"
@@ -158,14 +166,7 @@ class TestGovernedMerge:
         ``governance_rule`` override, the same otherwise-clean, strong,
         governance-valid proposal does NOT merge -- ``hold`` cannot
         activate a promotion, full stop."""
-        promoted = []
-        merger = GovernedAutoMerger(
-            engine=FakeEngine(),
-            policy=MergePolicy(enabled=True, require_governance_valid=True),
-            governance_validator=lambda spec: True,
-            promoter=lambda spec: promoted.append(spec) or True,
-        )
-        ev = merger.consider(_strong_team())
+        promoted, ev = _consider_strong_team_governed(FakeEngine())
         assert ev.merged is False
         assert promoted == []
         assert ev.action_decision["decision"] == "hold"

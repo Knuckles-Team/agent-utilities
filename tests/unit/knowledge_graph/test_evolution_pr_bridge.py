@@ -56,6 +56,25 @@ class BridgeEngine(FakeEngine):
         return super().query_cypher(query, params)
 
 
+def _bridge_engine_with_auto_tier() -> BridgeEngine:
+    """A ``BridgeEngine`` with a KG-stored ``governance_rule`` override
+    relaxing ``merge_promotion`` to the ``auto`` tier -- the real path a
+    deployment uses to grant a receipt-backed ``approve`` disposition
+    instead of the shipped default's ``hold``."""
+    engine = BridgeEngine()
+    engine.add_node(
+        "rule:promo-auto",
+        "governance_rule",
+        properties={
+            "scope": "action_policy",
+            "kind": "merge_promotion",
+            "target": "*",
+            "tier": "auto",
+        },
+    )
+    return engine
+
+
 def _git(*args: str, cwd: Path) -> str:
     proc = subprocess.run(
         ["git", *args], cwd=str(cwd), capture_output=True, text=True, check=True
@@ -424,17 +443,7 @@ class TestGovernedPublish:
         assert executions[0]["ok"] is True
 
     def test_kg_rule_can_relax_tier_to_auto(self, target_repo, tmp_path):
-        engine = BridgeEngine()
-        engine.add_node(
-            "rule:promo-auto",
-            "governance_rule",
-            properties={
-                "scope": "action_policy",
-                "kind": "merge_promotion",
-                "target": "*",
-                "tier": "auto",
-            },
-        )
+        engine = _bridge_engine_with_auto_tier()
         report = governed_publish(
             engine,
             _code_proposal(),
@@ -508,6 +517,16 @@ class TestMergerBridgeWiring:
             "quality_score": 0.95,
         }
 
+    @staticmethod
+    def _merger(engine, target_repo, tmp_path, *, enabled: bool) -> GovernedAutoMerger:
+        return GovernedAutoMerger(
+            engine,
+            policy=MergePolicy(enabled=enabled),
+            governance_validator=lambda s: True,
+            promoter=lambda s: True,
+            publisher=_publisher(engine, target_repo, tmp_path),
+        )
+
     def test_merged_proposal_publishes_end_to_end(self, target_repo, tmp_path):
         """The shipped DEFAULT ``merge_promotion`` tier (approval_required)
         resolves to ``hold``, which the shared promotion contract
@@ -522,24 +541,8 @@ class TestMergerBridgeWiring:
         resolve to a genuine, receipt-backed ``approve`` -- proving the full
         consider()-to-published bridge activates end to end.
         """
-        engine = BridgeEngine()
-        engine.add_node(
-            "rule:promo-auto",
-            "governance_rule",
-            properties={
-                "scope": "action_policy",
-                "kind": "merge_promotion",
-                "target": "*",
-                "tier": "auto",
-            },
-        )
-        merger = GovernedAutoMerger(
-            engine,
-            policy=MergePolicy(enabled=True),
-            governance_validator=lambda s: True,
-            promoter=lambda s: True,
-            publisher=_publisher(engine, target_repo, tmp_path),
-        )
+        engine = _bridge_engine_with_auto_tier()
+        merger = self._merger(engine, target_repo, tmp_path, enabled=True)
         evaluation = merger.consider(self._spec())
         assert evaluation.merged
         assert evaluation.action_decision["decision"] == "approve"
@@ -555,13 +558,7 @@ class TestMergerBridgeWiring:
         ``test_default_policy_queues_approval`` against the standalone
         ``governed_publish`` entry point)."""
         engine = BridgeEngine()
-        merger = GovernedAutoMerger(
-            engine,
-            policy=MergePolicy(enabled=True),
-            governance_validator=lambda s: True,
-            promoter=lambda s: True,
-            publisher=_publisher(engine, target_repo, tmp_path),
-        )
+        merger = self._merger(engine, target_repo, tmp_path, enabled=True)
         evaluation = merger.consider(self._spec())
         assert evaluation.merged is False
         assert evaluation.publication is None
@@ -570,13 +567,7 @@ class TestMergerBridgeWiring:
 
     def test_disabled_policy_never_publishes(self, target_repo, tmp_path):
         engine = BridgeEngine()
-        merger = GovernedAutoMerger(
-            engine,
-            policy=MergePolicy(enabled=False),
-            governance_validator=lambda s: True,
-            promoter=lambda s: True,
-            publisher=_publisher(engine, target_repo, tmp_path),
-        )
+        merger = self._merger(engine, target_repo, tmp_path, enabled=False)
         evaluation = merger.consider(self._spec())
         assert not evaluation.merged
         assert evaluation.publication is None
@@ -584,17 +575,7 @@ class TestMergerBridgeWiring:
 
     def test_relaxed_tier_publishes_end_to_end(self, target_repo, tmp_path):
         """Seeded proposal → governance pass → branch + gate verdict recorded."""
-        engine = BridgeEngine()
-        engine.add_node(
-            "rule:promo-auto",
-            "governance_rule",
-            properties={
-                "scope": "action_policy",
-                "kind": "merge_promotion",
-                "target": "*",
-                "tier": "auto",
-            },
-        )
+        engine = _bridge_engine_with_auto_tier()
         merger = GovernedAutoMerger(
             engine,
             policy=MergePolicy(enabled=True),

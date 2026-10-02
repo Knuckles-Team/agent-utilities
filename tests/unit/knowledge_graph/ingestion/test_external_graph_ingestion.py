@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from _cdc_scenario import run_two_page_cdc_scenario
+from _cdc_scenario import assert_two_page_cdc_scenario
 
 from agent_utilities.knowledge_graph.ingestion.external_graph import (
     ExternalGraphIngestionError,
@@ -918,7 +918,7 @@ def test_external_graph_enforces_payload_budget_on_cdc_events(monkeypatch) -> No
 def test_external_graph_uses_discovered_native_cdc_and_advances_cursor_once(
     monkeypatch,
 ) -> None:
-    graph, result, captured = run_two_page_cdc_scenario(
+    captured = assert_two_page_cdc_scenario(
         monkeypatch,
         registry_cls=_Registry,
         profile=_profile,
@@ -926,18 +926,6 @@ def test_external_graph_uses_discovered_native_cdc_and_advances_cursor_once(
         base_request=_request(),
     )
 
-    assert graph.cursors == ["cursor-1", "cursor-2"]
-    assert result["sync_strategy"] == "cdc"
-    assert result["nodes"] == 2
-    assert result["deletes"] == 1
-    assert [envelope.operation for envelope in captured] == [
-        "upsert",
-        "upsert",
-        "delete",
-        "snapshot_complete",
-    ]
-    assert all(envelope.checkpoint is None for envelope in captured[:-1])
-    assert captured[-1].checkpoint == "cursor-3"
     assert captured[-1].provenance["fetch_ok"] is False
     serialized = json.dumps([item.as_dict() for item in captured], sort_keys=True)
     assert "raw-node" not in serialized

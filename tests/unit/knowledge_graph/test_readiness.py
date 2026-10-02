@@ -185,6 +185,20 @@ def test_synthetic_query_zero_evidence_is_degraded_not_ready(
 # --------------------------------------------------------------------------- #
 # KNOWN-GOOD PROOF: a real grounded answer -> ready, only when genuinely so
 # --------------------------------------------------------------------------- #
+def _healthy_engine_with_evidence(monkeypatch: pytest.MonkeyPatch):
+    """A healthy health report + zero expected connectors + one real anchor
+    row. Shared setup for test_synthetic_query_ready_when_real_evidence_found
+    and test_ontology_activation_failure_makes_whole_snapshot_not_ready."""
+    monkeypatch.setattr(
+        rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.connector_coverage.enumerate_expected_connectors",
+        lambda: [],
+    )
+    return _FakeEngine(anchor_rows=[_ANCHOR_ROW])
+
+
 def test_synthetic_query_ready_when_real_evidence_found(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -197,14 +211,7 @@ def test_synthetic_query_ready_when_real_evidence_found(
     test still proves its actual target: the synthetic-query canary itself
     reads real grounded evidence as ``"ready"``.
     """
-    monkeypatch.setattr(
-        rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
-    )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.connector_coverage.enumerate_expected_connectors",
-        lambda: [],
-    )
-    engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
+    engine = _healthy_engine_with_evidence(monkeypatch)
 
     snapshot = rd.collect_readiness_snapshot(
         engine,
@@ -497,14 +504,7 @@ def test_ontology_activation_failure_makes_whole_snapshot_not_ready(
 ):
     """End-to-end proof: every OTHER check green, but ontology activation
     never attempted -> overall must NOT read ready."""
-    monkeypatch.setattr(
-        rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
-    )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.connector_coverage.enumerate_expected_connectors",
-        lambda: [],
-    )
-    engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
+    engine = _healthy_engine_with_evidence(monkeypatch)
 
     snapshot = rd.collect_readiness_snapshot(
         engine,
