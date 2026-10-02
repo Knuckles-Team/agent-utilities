@@ -930,7 +930,12 @@ def test_external_graph_uses_discovered_native_cdc_and_advances_cursor_once(
     # Advanced exactly once per page, and only the trailing marker commits.
     assert graph.cursors == ["cursor-1", "cursor-2"]
     assert result["sync_strategy"] == "cdc"
-    assert [envelope.checkpoint for envelope in captured] == [None, None, None, "cursor-3"]
+    assert [envelope.checkpoint for envelope in captured] == [
+        None,
+        None,
+        None,
+        "cursor-3",
+    ]
     assert captured[-1].provenance["fetch_ok"] is False
     serialized = json.dumps([item.as_dict() for item in captured], sort_keys=True)
     assert "raw-node" not in serialized
