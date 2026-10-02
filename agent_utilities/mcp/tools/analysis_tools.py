@@ -815,26 +815,14 @@ async def _analysis_action_context(
         return public_error_text(e)
 
 
-async def _analysis_action_evaluate_alpha(
-    engine, action, query, top_k, node_id, depth, target
-):
-    # action(s): 'evaluate_alpha'
-    from agent_utilities.knowledge_graph.core.quant_tasks import (
-        execute_quant_task,
-    )
-
-    res = execute_quant_task(engine, "run_qlib_backtest", {"target": target or query})
-    return json.dumps(res)
-
-
 async def _analysis_action_evaluate(
     engine, action, query, top_k, node_id, depth, target
 ):
     # action(s): 'evaluate', 'evolve_model', 'forecast', 'causal', 'invariant'
     _NOT_IMPLEMENTED_HINT = {
         "evaluate": (
-            "'evaluate_alpha' (quant backtests), 'evaluate_harness', "
-            "or 'check_constraints' on this same graph_evaluate/graph_analyze surface"
+            "'evaluate_harness' or 'check_constraints' on this same "
+            "graph_evaluate/graph_analyze surface"
         ),
         "evolve_model": (
             "the data-science-mcp model-training/evolution surface "
@@ -1763,39 +1751,6 @@ async def _analysis_action_quant_crypto(
     return json.dumps(result, default=str)
 
 
-async def _analysis_action_quant_exchange(
-    engine, action, query, top_k, node_id, depth, target
-):
-    # action(s): 'quant_exchange'
-    from agent_utilities.domains.finance.exchange_bridge import (
-        ExchangeBridge,
-    )
-
-    if not query:
-        return (
-            "Error: quant_exchange needs a symbol (e.g., BTC/USDT or AAPL) in `query`."
-        )
-    bridge = ExchangeBridge(paper_mode=True)
-    exec_result = bridge.execute(
-        symbol=query,
-        side="buy",
-        qty=float(target.split(":")[1]) if target and ":" in target else 1.0,
-        order_type="market",
-        limit_price=None,
-    )
-    return json.dumps(
-        {
-            "order_id": exec_result.order_id,
-            "status": exec_result.status,
-            "filled_qty": exec_result.filled_qty,
-            "average_price": exec_result.average_price,
-            "fees": exec_result.fees,
-            "exchange": exec_result.exchange,
-        },
-        default=str,
-    )
-
-
 async def _analysis_action_quant_microstructure(
     engine, action, query, top_k, node_id, depth, target
 ):
@@ -1859,44 +1814,6 @@ async def _analysis_action_quant_microstructure(
         return _json.dumps(result, default=str)
     except Exception as e:
         return public_error_text(e)
-
-
-async def _analysis_action_quant_strategy(
-    engine, action, query, top_k, node_id, depth, target
-):
-    # action(s): 'quant_strategy'
-    from agent_utilities.domains.finance.strategy_engine import (
-        StrategyEngine,
-        StrategyMetrics,
-    )
-
-    if not query:
-        return "Error: quant_strategy needs a strategy_id in `query`."
-    if engine is None:
-        return "Error: quant_strategy requires an active knowledge graph engine."
-    se = StrategyEngine(engine)
-    metrics = StrategyMetrics(
-        sharpe=2.5,
-        max_drawdown=-0.10,
-        win_rate=0.55,
-        profit_factor=1.5,
-        total_trades=max(100, top_k),
-    )
-    promotable = se.record_backtest(query, metrics)
-    return json.dumps(
-        {
-            "strategy_id": query,
-            "promotable": promotable,
-            "metrics": {
-                "sharpe": metrics.sharpe,
-                "max_drawdown": metrics.max_drawdown,
-                "win_rate": metrics.win_rate,
-                "profit_factor": metrics.profit_factor,
-                "total_trades": metrics.total_trades,
-            },
-        },
-        default=str,
-    )
 
 
 async def _analysis_action_quant_regime(
@@ -2408,11 +2325,6 @@ async def _analysis_action_code_metrics(
         build_code_metrics,
     )
 
-    # Named distinctly from the `metrics` local used by the unrelated
-    # `quant_strategy` branch above (a `StrategyMetrics` instance) —
-    # this whole dispatch function shares one scope, so reusing the
-    # name there made mypy unify the two branches' incompatible types
-    # onto a single inferred variable type.
     code_metrics_result = await run_blocking_ordered(
         build_code_metrics,
         engine,
@@ -2578,7 +2490,6 @@ _ANALYSIS_ACTION_DISPATCH = {
     "enrichment_coverage": _analysis_action_enrichment_coverage,
     "process_writeback": _analysis_action_process_writeback,
     "context": _analysis_action_context,
-    "evaluate_alpha": _analysis_action_evaluate_alpha,
     "evaluate": _analysis_action_evaluate,
     "evolve_model": _analysis_action_evaluate,
     "forecast": _analysis_action_evaluate,
@@ -2614,9 +2525,7 @@ _ANALYSIS_ACTION_DISPATCH = {
     "quant_banking": _analysis_action_quant_banking,
     "quant_arb": _analysis_action_quant_arb,
     "quant_crypto": _analysis_action_quant_crypto,
-    "quant_exchange": _analysis_action_quant_exchange,
     "quant_microstructure": _analysis_action_quant_microstructure,
-    "quant_strategy": _analysis_action_quant_strategy,
     "quant_regime": _analysis_action_quant_regime,
     "quant_insider": _analysis_action_quant_insider,
     "workforce_plan": _analysis_action_workforce_plan,

@@ -2839,20 +2839,6 @@ async def graph_analyze_context_endpoint(request: Request) -> JSONResponse:
     return await _run_json_endpoint(request, "graph_explain", _context_kwargs)
 
 
-async def graph_analyze_evaluate_alpha_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_evaluate", action="evaluate_alpha", target=body.get("target", "")
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
-
-
 async def graph_analyze_evaluate_endpoint(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -6045,9 +6031,6 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
         ["GET"],
     )
     route("/graph/analyze/context", graph_analyze_context_endpoint, ["POST"])
-    route(
-        "/graph/analyze/evaluate-alpha", graph_analyze_evaluate_alpha_endpoint, ["POST"]
-    )
     route("/graph/analyze/evaluate", graph_analyze_evaluate_endpoint, ["POST"])
     route("/graph/analyze/evolve-model", graph_analyze_evolve_model_endpoint, ["POST"])
     route("/graph/analyze/forecast", graph_analyze_forecast_endpoint, ["POST"])
