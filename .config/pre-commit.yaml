@@ -269,6 +269,18 @@ repos:
     # a stale exception, or a dependency-lock edit can change the verdict even
     # when the modified file is outside agent_utilities/.
     always_run: true
+  - id: check-boundary-owners
+    name: Boundary ownership — reject a wrong-owner module or console script
+    # Passes against today's tree: every module/console script that currently
+    # matches a graph-os or agent-connector-sdk seed in
+    # architecture/component-registry-boundary-seeds.yml is still recorded in
+    # specs/au-boundary-deconstruction/coverage.md as "relocate to <owner>".
+    # As each path is actually cut over in a later change, its coverage.md row
+    # stops saying that, and this hook then rejects the path reappearing.
+    entry: scripts/hook_python.sh scripts/check_boundary_owners.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: check-no-env-sprawl
     name: Config-flag anti-sprawl (no new bare os.environ KG_/GRAPH_ reads)
     entry: scripts/hook_python.sh scripts/check_no_env_sprawl.py
