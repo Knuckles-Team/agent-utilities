@@ -21,7 +21,11 @@ from agent_utilities.knowledge_graph.research.auto_merge import (
     GovernedAutoMerger,
     MergePolicy,
 )
-from agent_utilities.orchestration.action_policy import ActionDecision, ActionRequest
+from agent_utilities.orchestration.action_policy import (
+    ActionDecision,
+    ActionRequest,
+    PolicyReceipt,
+)
 
 
 def _strong_team() -> TeamSpec:
@@ -45,13 +49,27 @@ class _FakeActionPolicy:
         self._approval_id = approval_id
 
     def decide(self, request: ActionRequest) -> ActionDecision:
-        return ActionDecision(
+        decision = ActionDecision(
             decision=self._decision,
             tier="approval_required",
             request=request,
             reason=self._reason,
             approval_id=self._approval_id,
+            audit_id="action_decision:fixture",
         )
+        # artifact_promotion._promotion_outcome downgrades an "approve"
+        # disposition to UNAVAILABLE unless the decision carries a receipt
+        # bound to this exact request (request_digest match) -- mirrors
+        # tests/unit/orchestration/test_artifact_promotion.py's _FakePolicy,
+        # the same fixture shape for a real policy double.
+        decision.receipt = PolicyReceipt(
+            receipt_id=decision.audit_id,
+            request_digest=request.digest(),
+            disposition=decision.disposition,
+            policy_origin="fixture",
+            approval_id=decision.approval_id,
+        )
+        return decision
 
 
 def test_disabled_policy_reason_is_exact() -> None:

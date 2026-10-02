@@ -359,12 +359,21 @@ class GovernedAutoMerger:
         if promote:
             decision = self._consult_action_policy(spec)
             if decision is not None:
+                # ``_consult_action_policy`` returns the unified promotion
+                # gate's ``PromotionOutcome`` (CONCEPT:AU-AHE.harness.unified-promotion-gate),
+                # which has no ``.decision`` attribute -- only ``.disposition``
+                # (a PolicyDisposition: deny/unavailable/hold/approve) and the
+                # ``.approved`` property (eligible AND disposition is APPROVE
+                # AND the receipt is bound to this exact request). Gate on
+                # ``.approved`` the same way the sibling governed_publish path
+                # does (change_publisher.py), not a plain disposition string
+                # compare: only an exact, receipt-backed approval proceeds.
                 evaluation.action_decision = {
-                    "decision": getattr(decision, "decision", "deny"),
+                    "decision": decision.disposition.value,
                     "reason": getattr(decision, "reason", ""),
                     "approval_id": getattr(decision, "approval_id", None),
                 }
-                if evaluation.action_decision["decision"] == "deny":
+                if not decision.approved:
                     promote = False
                     denied_reason = (
                         "blocked by action policy (merge_promotion): "
@@ -421,6 +430,9 @@ class GovernedAutoMerger:
         """
         target = self._spec_id(spec)
         from agent_utilities.harness.reward_signal import RewardSignal
+        from agent_utilities.knowledge_graph.research.change_publisher import (
+            _proposal_provenance_receipts,
+        )
         from agent_utilities.orchestration.artifact_promotion import (
             PromotionCandidate,
         )
@@ -449,6 +461,15 @@ class GovernedAutoMerger:
                         or ""
                     ),
                 },
+                # Bind this decision to the EXACT proposal payload being
+                # promoted, same content-hash convention
+                # change_publisher._proposal_provenance_receipts already
+                # established for the sibling golden-loop publish path — the
+                # unified promotion gate (artifact_promotion.promote) has
+                # required at least one receipt since its generalization and
+                # this call site was never updated, so every auto-merge
+                # promotion degraded to PolicyDisposition.UNAVAILABLE.
+                provenance_receipts=_proposal_provenance_receipts(spec, target),
             ),
             policy=self._action_policy,
         )
