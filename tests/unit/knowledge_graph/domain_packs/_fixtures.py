@@ -149,7 +149,20 @@ def _ontology_extension(pack_name: str) -> ConnectorManifest:
     return ConnectorManifest(
         connector=pack_name,
         resources=[
-            ResourceSpec(name="Runbook", label="Runbook Step", id_prefix="runbook")
+            ResourceSpec(name="Runbook", label="Runbook Step", id_prefix="runbook"),
+            # Declared as this pack's OWN resources, not just referenced via the
+            # schema_mappings crosswalk below: 43197d7c6 ("refactor: move
+            # semantic authority to epistemic graph") deleted the bundled
+            # agent_utilities/knowledge_graph/ontology.ttl that "Document" and
+            # "Person" used to resolve against as canonical classes, so
+            # pack_loader.canonical_ontology_class_names() now has no local
+            # ontology library left to parse and always returns an empty set.
+            # RUNBOOK_MAPPINGS mints Document and Person nodes directly
+            # (frontmatter properties/edges, the link target, edge targets), so
+            # each needs its own ResourceSpec for _check_ontology_classes to
+            # resolve it against the pack's own_classes.
+            ResourceSpec(name="Document", label="Document"),
+            ResourceSpec(name="Person", label="Person"),
         ],
         schema_mappings={
             "Runbook": SchemaMapping(
