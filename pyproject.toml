@@ -691,7 +691,10 @@ test = [
     # exercises each provider builder in agent_utilities/core/model_factory.py
     # end to end (not just its ImportError-closed fallback), so the suite needs
     # the same opt-in provider extras those builders ship behind.
-    "agent-utilities[agent-runtime,feeds,sandbox,graph,acp,rdf,finance,event-kafka,pyarrow,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface]",
+    # `trino`: tests/unit/knowledge_graph/backends/test_trino_backend.py imports
+    # sqlalchemy directly to exercise TrinoQueryBackend; same shape as pyarrow
+    # above -- install the extra the module under test ships behind.
+    "agent-utilities[agent-runtime,feeds,sandbox,graph,acp,rdf,finance,event-kafka,pyarrow,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,trino]",
     # DEV/TEST-ONLY — a hermetic in-memory comparator, never imported by runtime code.
     # tests/knowledge_graph/test_pack_owl_closure.py, tests/unit/knowledge_graph/
     # test_owl_closure.py and tests/unit/knowledge_graph/test_federation.py build a
