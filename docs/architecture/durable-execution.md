@@ -217,8 +217,10 @@ the already-open `engine-sql-graph-program`'s multi-Raft groups landing.
 ### What is still genuinely missing (stated plainly, not narrowed away)
 
 1. **No Python-reachable wire-protocol surface for `eg-statechart` or
-   `eg-mutation-store`'s saga coordinator.** `protocols/epistemic_operations/_generated.py`
-   carries an `AnalyticsJob` DTO but no live query/mutate method for it, and no
+   `eg-mutation-store`'s saga coordinator.** The engine's own generated client
+   (`epistemic_graph.generated.models`, AU's former `protocols/epistemic_operations`
+   projection was deleted by AU-BOUNDARY-R012) carries an `AnalyticsJob` DTO but no
+   live query/mutate method for it, and no
    DTO at all for a statechart instance or a saga (`Method::Statechart{...}`,
    `Method::Saga{...}` do not exist). This is why `graph_durable`'s
    `state_get`/`state_set`/`call` actions are not backed, and why DE1's KG

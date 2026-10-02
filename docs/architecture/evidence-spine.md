@@ -15,7 +15,7 @@ Most of the spine was already here, and had no producer:
 |---|---|---|
 | source identity, revision, ACL, payload, change events, provenance | `ChangeEnvelope` (`ingestion/change_envelope.py`) | nothing — it is reused verbatim |
 | atomic multi-node commit | `ingest_envelope` / `ingest_graph_slice` | nothing — the spine rides it |
-| an engine-side `Artifact` wire projection (`digest`, `content_ref`, `segment_ids`, `loci`) | `protocols/epistemic_operations` | **no Python ever constructed one**; `segment_ids` had no type behind it |
+| an engine-side `Artifact` wire projection (`digest`, `content_ref`, `segment_ids`, `loci`) | `protocols/epistemic_operations` (deleted, AU-BOUNDARY-R012) | **no Python ever constructed one**; `segment_ids` had no type behind it — the projection was deleted rather than re-pointed |
 | document chunking + section trees | `ontology/document_processing.py` | chunk ids of the form `{doc}::chunk::{i}:{sha(text)[:12]}` — **both positional and content-hashed**, so they break on an insert above *and* on a typo fix |
 
 The genuine gap was therefore narrow: a **stable, hashed, orderable, nestable citation

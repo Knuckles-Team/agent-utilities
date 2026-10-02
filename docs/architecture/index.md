@@ -11,7 +11,7 @@ The north star, the operating model, and the standards every other document here
 - [North-Star Architecture (the whole program)](north-star-architecture.md)
 - [Delegation-First Operating Model (orchestrate + resolve)](delegation-first-operating-model.md)
 - [agent-utilities-expert (KG-bound delegate)](agent-utilities-expert.md)
-- [Epistemic Operations Protocol](epistemic-operations-protocol.md)
+- [Epistemic Operations Protocol (retired)](epistemic-operations-protocol.md)
 - [Empirical Development Standards — the incidents behind the rules](empirical-development-standards.md)
 - [Troubleshooting (cross-layer diagnose)](troubleshooting.md)
 

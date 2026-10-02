@@ -8,6 +8,7 @@ to exactly the ``lane.lifecycle``/``lane.cleanup`` operations.
 from __future__ import annotations
 
 import pytest
+from epistemic_graph.generated.models import DevelopmentLaneIntent
 from pydantic import ValidationError
 
 from agent_utilities.orchestration.repository_work_item import (
@@ -15,10 +16,7 @@ from agent_utilities.orchestration.repository_work_item import (
     RepositoryWorkItemKind,
     RepositoryWorkItemRequest,
 )
-from agent_utilities.protocols.epistemic_operations._generated import (
-    DevelopmentLaneCleanupIntent,
-    DevelopmentLaneIntent,
-)
+from agent_utilities.protocols.epistemic_operations import DevelopmentLaneCleanupIntent
 
 _INTENT = DevelopmentLaneIntent(
     schema_version="1",
@@ -141,8 +139,8 @@ def test_lane_intent_field_is_genuinely_immutable_not_by_convention() -> None:
         request.lane_intent = other_intent  # type: ignore[misc]
     assert "frozen" in str(excinfo_second.value).lower()
 
-    # The generated DevelopmentLaneIntent DTO itself is also frozen+strict
-    # (ProtocolModel base), so even the nested typed value cannot be mutated
-    # in place.
+    # The engine-client DevelopmentLaneIntent DTO itself is also frozen
+    # (epistemic_graph.generated.models), so even the nested typed value
+    # cannot be mutated in place.
     with pytest.raises(ValidationError):
         request.lane_intent.lane_id = "lane:mutated"  # type: ignore[misc]

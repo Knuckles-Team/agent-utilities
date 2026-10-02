@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1229
+total_concepts: 1228
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2810,13 +2810,6 @@ concepts:
   - agent_utilities/mcp/tools/engine_surface_tools.py
   - agent_utilities/mcp/tools/engine_tools.py
   doc: Every method under one of
-- id: AU-KG.compute.epistemic-operations-protocol
-  name: one current-only operations
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/protocols/epistemic_operations/__init__.py
-  doc: one current-only operations
 - id: AU-KG.compute.firefly-iii-accounts-transactions
   name: Firefly III accounts/transactions/budgets →
   pillar: AU-KG

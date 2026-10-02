@@ -228,11 +228,15 @@ stdout/stderr and a fixed timeout; CLI failures expose only the exception class,
 environment-derived error text. Passing `--verify-signature` invokes the separately
 configured verifier before accepting the component declaration.
 
-The `epistemic-operations-protocol` catalog artifact is the canonical
-`agent_utilities/protocols/epistemic_operations/schemas/v1/catalog.json` generated
-and cross-repository-verified by
-`scripts/check_epistemic_operations_protocol.py --write`; release tooling must use
-those exact bytes rather than an operator-authored substitute.
+The `epistemic-operations-protocol` release component (AU-BOUNDARY-R012) is a frozen
+declaration in the compatibility matrix: its generator
+(`scripts/check_epistemic_operations_protocol.py`) and the catalog it produced
+(`agent_utilities/protocols/epistemic_operations/schemas/v1/catalog.json`) were
+retired once every DTO they generated was replaced by a direct import of the
+engine's own generated client (`epistemic_graph.generated.models`). Release tooling
+pins the component's last-generated version and digest rather than regenerating
+bytes from a now-deleted catalog; retiring the matrix declaration itself is release
+governance, tracked separately from this deletion.
 
 After all eight declarations exist, `scripts/release/generate_release_assembly.py`
 requires the exact component set from the compatibility matrix, the canonical
