@@ -36,8 +36,6 @@ import math
 from collections.abc import Sequence
 from typing import Any
 
-from agent_utilities.numeric import xp
-
 __all__ = ["TemporalSemanticIdEncoder"]
 
 _SECONDS_PER_DAY = 86400.0
@@ -51,6 +49,16 @@ def _squared_distances(
     data: list[list[float]], centroids: list[list[float]]
 ) -> list[list[float]]:
     """Compute a complete point/centroid distance matrix in native bulk ops."""
+    # Imported lazily (not at module scope): this keeps the module -- and
+    # everything that merely imports `TemporalSemanticIdEncoder` for type
+    # references or registration (CONCEPT:AU-KG.query.chronoid-fits-residual-
+    # quantization is reached only from fit()/encode_content()) -- importable
+    # without the native engine kernel installed, matching the degrade-
+    # gracefully-at-call-time contract the rest of the MCP tool surface
+    # already follows (see agent_utilities.mcp.tools.engine_tools's lazy
+    # `epistemic_graph.client` import).
+    from agent_utilities.numeric import xp
+
     data_norms = [sum(value * value for value in row) for row in data]
     centroid_norms = [sum(value * value for value in row) for row in centroids]
     dots = xp.matmul(data, _transpose(centroids))
@@ -74,6 +82,8 @@ def _l2_normalize_many(vectors: Sequence[Sequence[float]]) -> list[list[float]]:
     This keeps the PyO3/socket boundary outside the row loop. The remaining
     scalar normalization is deliberately local and allocation-bounded.
     """
+    from agent_utilities.numeric import xp  # lazy: see _squared_distances
+
     clean = xp.nan_to_num(
         [[float(value) for value in row] for row in vectors],
         nan=0.0,
@@ -179,6 +189,8 @@ class TemporalSemanticIdEncoder:
         updates, and empty-cluster handling are owned by one bounded native
         k-means call; AU only converts the returned centroid matrix.
         """
+        from agent_utilities.numeric import xp  # lazy: see _squared_distances
+
         n_samples = len(data)
         k = min(self._codebook_size, n_samples)
         del rng  # native k-means owns initialization and empty-cluster handling
