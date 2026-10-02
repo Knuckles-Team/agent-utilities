@@ -1,4 +1,4 @@
-"""AU-SEC-R004: the deterministic drift classifier and the declared evolution policy."""
+"""AU-SEC requirement 004: the deterministic drift classifier and the declared evolution policy."""
 
 from __future__ import annotations
 

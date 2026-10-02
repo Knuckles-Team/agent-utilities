@@ -1,4 +1,4 @@
-"""AU-SEC-R004/R005: contain drift, propose a repair, activate only an approved one."""
+"""AU-SEC requirements 004/005: contain drift, propose a repair, activate only an approved one."""
 
 from __future__ import annotations
 

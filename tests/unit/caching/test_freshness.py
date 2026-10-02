@@ -1,4 +1,4 @@
-"""AU-SEC-R003 — AU caches follow the engine's per-class invalidation feed and declared volatility.
+"""AU-SEC requirement 003 — AU caches follow the engine's per-class invalidation feed and declared volatility.
 
 CONCEPT:AU-KG.memory.semantic-response-cache. Proves:
 

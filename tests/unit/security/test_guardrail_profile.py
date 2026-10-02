@@ -1,4 +1,4 @@
-"""AU-SEC-R007: a declared guardrail ladder -- bounded, ordered, and exact about what moves."""
+"""AU-SEC requirement 007: a declared guardrail ladder -- bounded, ordered, and exact about what moves."""
 
 from __future__ import annotations
 

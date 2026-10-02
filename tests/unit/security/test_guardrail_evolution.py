@@ -1,4 +1,4 @@
-"""AU-SEC-R007: bounded tightening auto-applies; loosening always waits for a
+"""AU-SEC requirement 007: bounded tightening auto-applies; loosening always waits for a
 human approval, filed on the fleet action-approval queue."""
 
 from __future__ import annotations

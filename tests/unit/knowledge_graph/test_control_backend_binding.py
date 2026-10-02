@@ -86,7 +86,7 @@ def test_build_control_backend_falls_back_to_self_backend_when_no_view_factory()
 
 
 def test_build_control_backend_raises_when_view_factory_fails():
-    """AU-SEC-R002: a view-factory failure is surfaced as a typed error. Falling
+    """AU-SEC requirement 002: a view-factory failure is surfaced as a typed error. Falling
     back to this instance's content scope would split WorkItem authority."""
     import pytest
 

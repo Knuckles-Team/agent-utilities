@@ -2138,7 +2138,7 @@ class _ContractEngine(FakeEngine):
 def test_ops_connector_schema_drift_is_quarantined_without_checkpoint_advance(
     monkeypatch,
 ):
-    """AU-SEC-R004: the first sync bootstraps the record contract; a later delta
+    """AU-SEC requirement 004: the first sync bootstraps the record contract; a later delta
     that grows an undeclared field is held -- nothing applied, the watermark
     unchanged, a SchemaDriftReport and a Gap recorded -- and re-syncing keeps
     holding it (no ContractEvolutionPolicy declares the class)."""

@@ -1,4 +1,4 @@
-"""AU-SEC-R006: the shared elevation client keeps EG's two-person rules at every surface."""
+"""AU-SEC requirement 006: the shared elevation client keeps EG's two-person rules at every surface."""
 
 from __future__ import annotations
 

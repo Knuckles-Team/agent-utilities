@@ -233,7 +233,7 @@ class TestActorFromClaims:
         assert session.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
 
     def test_the_elevation_approval_scope_reaches_the_session_only_as_itself(self):
-        """AU-SEC-R006: an approver's realm role projects as the exact scope
+        """AU-SEC requirement 006: an approver's realm role projects as the exact scope
         EG requires; ``kg:admin`` never implies it."""
         approver = actor_from_claims(
             {

@@ -1,4 +1,4 @@
-"""An in-memory EG ``RbacElevation`` ledger for surface tests (AU-SEC-R006).
+"""An in-memory EG ``RbacElevation`` ledger for surface tests (AU-SEC requirement 006).
 
 It reproduces the EG rules a surface relies on -- the actor is the caller's
 verified identity (never a body field), two-person approval, the approval

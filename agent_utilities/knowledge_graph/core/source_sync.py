@@ -2376,7 +2376,7 @@ def _sync_ops_mcp_connector(
 def _ops_repair_context(
     engine: Any, docs: list[Any], package: str, sync: Any
 ) -> Any | None:
-    """The AU-SEC-R005 repair seam for one drained ops delta, or ``None``.
+    """The AU-SEC requirement 005 repair seam for one drained ops delta, or ``None``.
 
     Containment never depends on it: when the engine exposes no approval /
     schema surface, a drifted delta is still quarantined, only unproposed.
@@ -2401,7 +2401,7 @@ def _ops_repair_context(
 
 
 def _ops_drift_gate(engine: Any, docs: list[Any], package: str, sync: Any) -> Any:
-    """AU-SEC-R004: measure the drained delta against the source's approved
+    """AU-SEC requirement 004: measure the drained delta against the source's approved
     contract; fail closed (quarantine) on anything the declared policy does
     not name as continuable."""
     from ..schema_drift.gate import GateRequest, run_gate
