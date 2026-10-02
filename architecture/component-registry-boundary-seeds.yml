@@ -1,0 +1,215 @@
+schema: au-boundary-owner-seeds/v1
+owner_repository: agent-utilities
+manifest_version: 1
+generator: scripts/check_boundary_owners.py
+source_spec: specs/au-boundary-deconstruction/requirements.md
+
+# AU-BOUNDARY-R038 boundary seeds: module path prefixes (and, by resolving
+# `[project.scripts]` targets, console scripts) that `requirements.md` or
+# `coverage.md` name as moving to graph-os or agent-connector-sdk. Every
+# entry below cites the exact requirement row it is derived from; none is
+# guessed beyond what those two documents say.
+#
+# A seed path may be a directory (covers itself and everything under it) or
+# an exact file. `scripts/check_boundary_owners.py` fails when a real module
+# or console-script target matches a seed for owner O and the covering
+# `coverage.md` row for that path does not say "relocate to O" (coverage.md's
+# own phrasing for "moving, still present"). As each path is actually cut
+# over, its coverage.md row stops saying that, and the gate then forbids the
+# path from reappearing.
+#
+# This file is independent of `architecture/component-registry.yml`'s
+# cryptographically signed component schema (see
+# `agent_utilities/skills/validation.py`): that registry is a generated,
+# digest-verified artifact for a different, already-wired certification
+# path, and hand-adding boundary seeds to it would desynchronize its
+# signatures. Boundary seeds get their own small, human-read manifest.
+seeds:
+  - owner_repository: graph-os
+    requirement_id: AU-BOUNDARY-R001
+    owned_module_paths:
+      - agent_utilities/gateway
+  - owner_repository: graph-os
+    requirement_id: AU-BOUNDARY-R002
+    owned_module_paths:
+      - agent_utilities/deployment
+      - agent_utilities/skills/fleet_harness
+      - agent_utilities/skills/skill_graphs
+      - agent_utilities/skills/runtime_validation.py
+      - agent_utilities/skills/validation.py
+  - owner_repository: graph-os
+    requirement_id: AU-BOUNDARY-R003
+    owned_module_paths:
+      - agent_utilities/mcp/kg_server.py
+      - agent_utilities/mcp/tools
+      - agent_utilities/mcp/_graphos_action_manifest.py
+  - owner_repository: graph-os
+    requirement_id: AU-BOUNDARY-R004
+    # requirements.md names the multiplexer family and the host-only modules
+    # directly; coverage.md's `agent_utilities/mcp/` row treats both groups as
+    # "relocate to graph-os" (its own convention: a deletion because another
+    # repository already owns the behavior is shown as a relocation there)
+    # and additionally names six host-only README/env-drift modules.
+    owned_module_paths:
+      - agent_utilities/mcp/multiplexer.py
+      - agent_utilities/mcp/child_resilience.py
+      - agent_utilities/mcp/protocol_compat.py
+      - agent_utilities/mcp/shared_multiplexer.py
+      - agent_utilities/mcp/co_service_supervisor.py
+      - agent_utilities/mcp/catalog_reconciliation.py
+      - agent_utilities/mcp/remote_oauth_broker.py
+      - agent_utilities/mcp/tasks_extension.py
+      - agent_utilities/mcp/eunomia_principal.py
+      - agent_utilities/mcp/harness_server.py
+      - agent_utilities/mcp/middlewares.py
+      - agent_utilities/mcp/skill_coverage.py
+      - agent_utilities/mcp/check_env_var_drift.py
+      - agent_utilities/mcp/readme_env_vars.py
+      - agent_utilities/mcp/readme_mcp_examples.py
+      - agent_utilities/mcp/readme_tools.py
+      - agent_utilities/mcp/env_policy.py
+      - agent_utilities/mcp/env_sources.py
+  - owner_repository: graph-os
+    requirement_id: AU-BOUNDARY-R014
+    owned_module_paths:
+      - agent_utilities/security/request_identity.py
+      - agent_utilities/security/error_surface.py
+      - agent_utilities/security/browser_auth.py
+      - agent_utilities/security/security_policy_middleware.py
+      - agent_utilities/security/auth.py
+      - agent_utilities/security/conformance
+      - agent_utilities/observability/gateway_metrics.py
+      - agent_utilities/observability/gateway_health.py
+      - agent_utilities/observability/runtime_health.py
+      - agent_utilities/observability/health.py
+      - agent_utilities/observability/health_ingest.py
+      - agent_utilities/core/profile_guard.py
+      - agent_utilities/core/unified_install.py
+      - agent_utilities/core/release_channel.py
+      - agent_utilities/core/live_mount_guard.py
+      - agent_utilities/core/paths.py
+      - agent_utilities/core/workspace.py
+      - agent_utilities/core/workspace_config.py
+      - agent_utilities/core/config_admin.py
+      - agent_utilities/core/frontend_providers.py
+      - agent_utilities/ecosystem/hook_installer.py
+      - agent_utilities/ecosystem/agent_manager_dashboard.py
+      - agent_utilities/release_catalogs.py
+      - agent_utilities/gateway_client
+      - agent_utilities/knowledge_graph/readiness.py
+      - agent_utilities/knowledge_graph/core/connection_registry.py
+      - agent_utilities/knowledge_graph/core/engine_mcp_discovery.py
+  - owner_repository: graph-os
+    requirement_id: AU-BOUNDARY-R015
+    # `protocols/a2a_epistemic.py` and `protocols/universal_connector.py` are
+    # deleted outright (a second task store / SDK duplicate), not relocated;
+    # they are intentionally absent from this seed list.
+    owned_module_paths:
+      - agent_utilities/server
+      - agent_utilities/protocols/a2a.py
+      - agent_utilities/protocols/a2a_config.py
+      - agent_utilities/protocols/a2a_graph_skill.py
+      - agent_utilities/protocols/acp_adapter.py
+      - agent_utilities/protocols/agui_emitter.py
+  - owner_repository: graph-os
+    requirement_id: AU-BOUNDARY-R017
+    owned_module_paths:
+      - agent_utilities/messaging/agent_channel.py
+      - agent_utilities/messaging/daemon.py
+      - agent_utilities/messaging/service.py
+      - agent_utilities/messaging/router.py
+      - agent_utilities/messaging/inbox.py
+      - agent_utilities/messaging/bus_inbox.py
+      - agent_utilities/messaging/backends
+  - owner_repository: agent-connector-sdk
+    requirement_id: AU-BOUNDARY-R010
+    owned_module_paths:
+      - agent_utilities/mcp/server_factory.py
+      - agent_utilities/mcp/action_dispatch.py
+      - agent_utilities/mcp/concurrency.py
+      - agent_utilities/mcp/verbose_tools.py
+      - agent_utilities/mcp/context_helpers.py
+      - agent_utilities/mcp/client_credentials.py
+      - agent_utilities/mcp/delegated_auth.py
+      - agent_utilities/mcp/httpx_boundary.py
+      - agent_utilities/mcp/oauth_log_hygiene.py
+      - agent_utilities/core/transport_security.py
+      - agent_utilities/core/http_client.py
+      - agent_utilities/core/_env.py
+      - agent_utilities/core/decorators.py
+      - agent_utilities/core/credentials.py
+      - agent_utilities/core/exceptions.py
+      - agent_utilities/base_utilities.py
+      - agent_utilities/httpsupport
+      - agent_utilities/security/secrets_client.py
+      - agent_utilities/security/cli_secrets.py
+      - agent_utilities/security/oauth_client_credentials.py
+      - agent_utilities/security/source_credentials.py
+      - agent_utilities/security/credential_provider.py
+      - agent_utilities/security/oidc_discovery.py
+      - agent_utilities/security/http_boundary.py
+      - agent_utilities/security/brain_context.py
+      - agent_utilities/security/actor_identity.py
+  - owner_repository: agent-connector-sdk
+    requirement_id: AU-BOUNDARY-R011
+    owned_module_paths:
+      - agent_utilities/protocols/source_connectors
+      - agent_utilities/knowledge_graph/integrations/connector_certification.py
+      - agent_utilities/knowledge_graph/integrations/connector_certification_cli.py
+      - agent_utilities/knowledge_graph/integrations/connector_source_attestation.py
+  - owner_repository: agent-connector-sdk
+    requirement_id: AU-BOUNDARY-R024
+    owned_module_paths:
+      - agent_utilities/knowledge_graph/ingestion/external_graph.py
+      - agent_utilities/knowledge_graph/ingestion/external_graph_schema.py
+      - agent_utilities/knowledge_graph/ingestion/graphql_connection.py
+      - agent_utilities/knowledge_graph/ingestion/debezium_envelope.py
+      - agent_utilities/knowledge_graph/ingestion/event_log_adapter.py
+      - agent_utilities/knowledge_graph/ingestion/ocel_adapter.py
+      - agent_utilities/knowledge_graph/governance_import.py
+      - agent_utilities/ecosystem/ea_clients.py
+      - agent_utilities/data_prep
+      - agent_utilities/knowledge_graph/core/connection_profiler.py
+      - agent_utilities/knowledge_graph/core/data_prep_runtime.py
+      - agent_utilities/knowledge_graph/core/source_resolver.py
+  - owner_repository: agent-connector-sdk
+    requirement_id: AU-BOUNDARY-R025
+    owned_module_paths:
+      - agent_utilities/knowledge_graph/core/gitlab_indexer.py
+      - agent_utilities/knowledge_graph/core/conversation_ingestion.py
+      - agent_utilities/knowledge_graph/ingestion/web_fetch.py
+      - agent_utilities/knowledge_graph/ingestion/package_install_ingest.py
+      - agent_utilities/knowledge_graph/ingestion/repo_split.py
+      - agent_utilities/knowledge_graph/ingestion/repo_classifier.py
+      - agent_utilities/ingestion
+      - agent_utilities/automation/worldmodel_pipeline.py
+      - agent_utilities/automation/feed_sources.py
+      - agent_utilities/automation/file_watcher.py
+      - agent_utilities/sdd/watcher.py
+      - agent_utilities/knowledge_graph/kb/x_ingestion.py
+      - agent_utilities/knowledge_graph/extraction/readers.py
+      - agent_utilities/knowledge_graph/extraction/readers_media.py
+      - agent_utilities/knowledge_graph/extraction/readers_office.py
+      - agent_utilities/knowledge_graph/extraction/pdf.py
+      - agent_utilities/ecosystem/media
+  - owner_repository: agent-connector-sdk
+    requirement_id: AU-BOUNDARY-R026
+    owned_module_paths:
+      - agent_utilities/knowledge_graph/enrichment/extractors
+      - agent_utilities/knowledge_graph/enrichment/writeback
+      - agent_utilities/knowledge_graph/enrichment/git_history.py
+      - agent_utilities/knowledge_graph/enrichment/source_adapters.py
+  - owner_repository: agent-connector-sdk
+    requirement_id: AU-BOUNDARY-R029
+    owned_module_paths:
+      - agent_utilities/knowledge_graph/ontology/connector_manifest.py
+      - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py
+      - agent_utilities/knowledge_graph/ontology/connector_manifests
+      - agent_utilities/knowledge_graph/ontology/sync_conflict.py
+      - agent_utilities/knowledge_graph/ontology/leanix_metamodel.py
+integrity:
+  canonicalization: plain-yaml-no-signature
+  note: >-
+    This manifest intentionally carries no digest/signature block: it is a
+    plain, human-reviewed citation list, not a candidate for the generated
+    component-registry.yml certification path.
