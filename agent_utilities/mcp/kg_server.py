@@ -4413,11 +4413,11 @@ def _run_boot_hydration_plan(
 
     1. bounded GraphOS/fleet tool metadata, then runnable skills and MCP declarations;
     2. prompts/agent templates; and
-    3. codebases and configured connectors through their durable delta queues.
+    4. codebases and configured connectors through their durable delta queues.
 
-    Package ontologies are no longer a boot-hydration leg here: 43197d7c6
-    ("refactor: move semantic authority to epistemic graph") moved that
-    authority to generated epistemic-graph contracts.
+    (Priority 3, package ontology sync, was removed by 43197d7c6 along with
+    the AU-local ontology/OWL/SHACL authorities it loaded; ontology content
+    is now epistemic-graph's.)
 
     Each step is isolated so a failed optional source cannot prevent later
     priority classes from making progress.

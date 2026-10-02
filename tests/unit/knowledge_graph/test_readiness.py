@@ -18,6 +18,7 @@ the check.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 
@@ -174,13 +175,6 @@ def test_synthetic_query_ready_when_real_evidence_found(
         "agent_utilities.knowledge_graph.ingestion.connector_coverage.enumerate_expected_connectors",
         lambda: [],
     )
-    # Ontology activation is a separate concern from this test's target (the
-    # synthetic-query canary) — stub it ready, like the connector-coverage
-    # stub above isolates its own unrelated check.
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: {"state": "ready", "reason": None, "detail": {}},
-    )
     engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
 
     snapshot = rd.collect_readiness_snapshot(
@@ -209,10 +203,6 @@ def test_full_snapshot_ready_end_to_end(monkeypatch: pytest.MonkeyPatch):
         "agent_utilities.knowledge_graph.ingestion.connector_coverage.enumerate_expected_connectors",
         lambda: ["leanix"],
     )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: {"state": "ready", "reason": None, "detail": {}},
-    )
     engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
 
     class _Actor:
@@ -227,7 +217,12 @@ def test_full_snapshot_ready_end_to_end(monkeypatch: pytest.MonkeyPatch):
         engine,
         session=_Session(),
         synthetic_query="collect_readiness_snapshot",
-        connector_freshness={"leanix": "2026-08-16T00:00:00Z"},
+        # Within connector_coverage.DEFAULT_SLA_DAYS (7) of "now" — a fixed
+        # past date goes stale as real time passes it (this field was
+        # "2026-08-16", which cleared the SLA when this test was written but
+        # does not today), making source_sync (and so the whole snapshot)
+        # "degraded" for a reason unrelated to what this test proves.
+        connector_freshness={"leanix": datetime.now(UTC).isoformat()},
         deadline_s=2.0,
     )
 
@@ -236,7 +231,6 @@ def test_full_snapshot_ready_end_to_end(monkeypatch: pytest.MonkeyPatch):
     assert snapshot["checks"]["identity_policy"]["state"] == "ready"
     assert snapshot["checks"]["identity_policy"]["carrier"] == "verified"
     assert snapshot["checks"]["source_sync"]["state"] == "ready"
-    assert snapshot["checks"]["ontology_activation"]["state"] == "ready"
     assert rd.is_snapshot_ready(snapshot) is True
     # Serializes cleanly with no live objects left behind.
     json.dumps(snapshot)
@@ -394,88 +388,6 @@ def test_source_sync_degraded_on_partial_coverage(monkeypatch: pytest.MonkeyPatc
 
 
 # --------------------------------------------------------------------------- #
-# ontology_activation (CONCEPT:AU-KG.ontology.integrity-bootstrap, NE-152) —
-# fails closed: a graph never attempted, or that gave up, must never read
-# "ready" just because a socket/engine handle exists.
-# --------------------------------------------------------------------------- #
-def test_ontology_activation_unavailable_when_no_engine_supplied():
-    result = rd._check_ontology_activation(None, "")
-    assert result["state"] == "unavailable"
-    assert result["reason"] == "no_engine_supplied"
-
-
-def test_ontology_activation_unavailable_when_never_attempted(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: None,
-    )
-    result = rd._check_ontology_activation(object(), "")
-    assert result["state"] == "unavailable"
-    assert result["reason"] == "ontology_activation_not_attempted"
-
-
-def test_ontology_activation_ready_when_recorded_ready(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: {
-            "state": "ready",
-            "reason": None,
-            "detail": {"attempts": 1},
-        },
-    )
-    result = rd._check_ontology_activation(object(), "acme")
-    assert result["state"] == "ready"
-
-
-def test_ontology_activation_unavailable_when_recorded_failed(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: {
-            "state": "unavailable",
-            "reason": "activation_timeout",
-            "detail": {},
-        },
-    )
-    result = rd._check_ontology_activation(object(), "acme")
-    assert result["state"] == "unavailable"
-    assert result["reason"] == "activation_timeout"
-
-
-def test_ontology_activation_failure_makes_whole_snapshot_not_ready(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    """End-to-end proof of requirement 5: every OTHER check green, but
-    ontology activation never attempted -> overall must NOT read ready."""
-    monkeypatch.setattr(
-        rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
-    )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.connector_coverage.enumerate_expected_connectors",
-        lambda: [],
-    )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: None,
-    )
-    engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
-
-    snapshot = rd.collect_readiness_snapshot(
-        engine,
-        synthetic_query="collect_readiness_snapshot",
-        connector_freshness={},
-        deadline_s=2.0,
-    )
-
-    assert snapshot["checks"]["ontology_activation"]["state"] == "unavailable"
-    assert snapshot["overall"] != "ready"
-    assert rd.is_snapshot_ready(snapshot) is False
-
-
-# --------------------------------------------------------------------------- #
 # schema + payload hygiene
 # --------------------------------------------------------------------------- #
 def test_snapshot_schema_shape(monkeypatch: pytest.MonkeyPatch):
@@ -492,7 +404,6 @@ def test_snapshot_schema_shape(monkeypatch: pytest.MonkeyPatch):
         "identity_policy",
         "catalog",
         "source_sync",
-        "ontology_activation",
         "synthetic_query",
         "dense_index",
         "sparse_index",

@@ -18,6 +18,7 @@ from agent_utilities.knowledge_graph.research.auto_merge import (
     GovernedAutoMerger,
     MergePolicy,
 )
+from tests.unit.fleet_autonomy_fakes import FakeEngine
 
 pytestmark = pytest.mark.concept("AU-AHE.harness.failure-evolution")
 
@@ -90,8 +91,13 @@ class TestRegressionCheck:
 
 class TestMergerIntegration:
     def _merger(self, check):
+        # FakeEngine (add_node/query_cypher), not engine=None: the shipped
+        # default action-policy tier (approval_required) needs a real
+        # durable ActionApproval write to produce a "hold" rather than
+        # degrade to "unavailable" (5a4dd9a2f, "freeze receipt-backed policy
+        # outcomes").
         return GovernedAutoMerger(
-            engine=None,
+            engine=FakeEngine(),
             policy=MergePolicy(enabled=True, require_governance_valid=False),
             regression_check=check,
             promoter=lambda spec: True,

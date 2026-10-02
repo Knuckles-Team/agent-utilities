@@ -16,6 +16,17 @@ from agent_utilities.knowledge_graph.research.auto_merge import (
     GovernedAutoMerger,
     MergePolicy,
 )
+from tests.unit.fleet_autonomy_fakes import FakeEngine
+
+
+def _patch_governed_publish(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
+    """Patch ``change_publisher.governed_publish`` and return its call log."""
+    called: list[bool] = []
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.research.change_publisher.governed_publish",
+        lambda *a, **k: called.append(True) or {"status": "published"},
+    )
+    return called
 
 pytestmark = pytest.mark.concept("AU-AHE.assimilation.research-auto-merge")
 
@@ -95,9 +106,18 @@ class TestGovernedMerge:
         assert any("quality" in f for f in ev.failures)
 
     def test_high_score_governed_auto_merges(self):
+        """``engine=FakeEngine()``, not ``None``: the shipped default tier
+        (approval_required) now needs a real durable ``ActionApproval`` write
+        to produce a "hold" (5a4dd9a2f, "freeze receipt-backed policy
+        outcomes" — an un-persistable queue request correctly degrades to
+        "unavailable" instead, which blocks promotion). A bare
+        ``engine=None`` can never durably queue one, so it could never
+        auto-merge under the real default tier either way; this proves the
+        merge lifecycle itself, not the approval-queue mechanics.
+        """
         promoted = []
         merger = GovernedAutoMerger(
-            engine=None,
+            engine=FakeEngine(),
             policy=MergePolicy(enabled=True, require_governance_valid=True),
             governance_validator=lambda spec: True,
             promoter=lambda spec: promoted.append(spec) or True,
@@ -121,13 +141,9 @@ class TestGovernedMerge:
     def test_bare_claim_skips_governed_publish(self, monkeypatch):
         """D14: a bare Claim (C4's mined-finding artifact) is not git-publishable —
         ``_publish`` must skip ``governed_publish`` cleanly, never call it."""
-        called: list[bool] = []
-        monkeypatch.setattr(
-            "agent_utilities.knowledge_graph.research.change_publisher.governed_publish",
-            lambda *a, **k: called.append(True) or {"status": "published"},
-        )
+        called = _patch_governed_publish(monkeypatch)
         merger = GovernedAutoMerger(
-            engine=None,
+            engine=FakeEngine(),
             policy=MergePolicy(
                 enabled=True, require_governance_valid=False, quality_threshold=0.0
             ),
@@ -153,13 +169,9 @@ class TestGovernedMerge:
 
     def test_non_claim_spec_still_calls_governed_publish(self, monkeypatch):
         """Control: a normal TeamSpec-shaped merge still goes through governed_publish."""
-        called: list[bool] = []
-        monkeypatch.setattr(
-            "agent_utilities.knowledge_graph.research.change_publisher.governed_publish",
-            lambda *a, **k: called.append(True) or {"status": "published"},
-        )
+        called = _patch_governed_publish(monkeypatch)
         merger = GovernedAutoMerger(
-            engine=None,
+            engine=FakeEngine(),
             policy=MergePolicy(enabled=True, require_governance_valid=False),
             promoter=lambda spec: True,
         )
@@ -181,7 +193,7 @@ class TestGovernedMerge:
 
     def test_every_consideration_is_audited(self):
         merger = GovernedAutoMerger(
-            engine=None,
+            engine=FakeEngine(),
             policy=MergePolicy(enabled=True, require_governance_valid=False),
             promoter=lambda spec: True,
         )
@@ -195,16 +207,6 @@ class TestGovernedMerge:
 # ---------------------------------------------------------------------------
 
 
-class _FakeBackend:
-    def __init__(self):
-        self.writes = []
-
-
-class _FakeEngine:
-    def __init__(self):
-        self.backend = _FakeBackend()
-
-
 class TestLoopAutoMergeLivePath:
     """Wire-first: LoopController._synthesize_team consults the merger."""
 
@@ -213,7 +215,11 @@ class TestLoopAutoMergeLivePath:
             LoopController,
         )
 
-        ctrl = LoopController(_FakeEngine(), auto_merge=auto_merge)
+        # FakeEngine (not a bare .backend-only stub): the shipped default
+        # action-policy tier (approval_required) needs a real durable
+        # ActionApproval write to produce a "hold" rather than degrade to
+        # "unavailable" (5a4dd9a2f, "freeze receipt-backed policy outcomes").
+        ctrl = LoopController(FakeEngine(), auto_merge=auto_merge)
 
         # Replace the synthesis primitives at their SOURCE modules (the controller
         # re-imports them at call time) so the cycle yields our team proposal

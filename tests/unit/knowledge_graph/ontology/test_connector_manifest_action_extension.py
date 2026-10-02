@@ -180,13 +180,16 @@ def test_bundled_manifest_count_matches_measured_fleet():
     """CA-32-W01's original baseline measured 69; three fleet lanes (CA-40
     lakekeeper-mcp, CA-42 spark-mcp, CA-43 opensearch-mcp) landed on main
     ahead of this lane and brought it to 72 — re-measured at rebase time
-    (2026-08-26). This assertion is a tripwire, not a magic number: if it
-    fails, the fleet moved again and the count below needs re-verifying
-    against reality, not bumping blindly."""
+    (2026-08-26). Three more connectors landed since and brought it to 75,
+    re-verified against `git log --diff-filter=A` on this directory
+    (2026-10-01): vaultwarden-mcp (c15d27823), market-data-mcp and
+    world-reference-mcp (461197508). This assertion is a tripwire, not a
+    magic number: if it fails, the fleet moved again and the count below
+    needs re-verifying against reality, not bumping blindly."""
     paths = _on_disk_manifest_paths()
-    assert len(paths) == 72, (
-        f"expected 72 bundled connector_manifest.yml files (CA-32 lane baseline, "
-        f"re-measured 2026-08-26), found {len(paths)} — the fleet inventory moved; "
+    assert len(paths) == 75, (
+        f"expected 75 bundled connector_manifest.yml files (CA-32 lane baseline, "
+        f"re-measured 2026-10-01), found {len(paths)} — the fleet inventory moved; "
         f"re-verify the lane's premise."
     )
 

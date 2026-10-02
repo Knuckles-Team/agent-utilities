@@ -661,18 +661,6 @@ def test_stardog_upload_graph_defaults_to_the_dedicated_graph(fake_stardog):
     assert fake_stardog.conn.add.call_args.kwargs["graph_uri"] == "urn:mirror:kg_mirror"
 
 
-def test_both_stardog_backends_resolve_the_database_identically(fake_stardog):
-    """The OWL reasoning backend must not drift from the SPARQL data backend."""
-    from agent_utilities.knowledge_graph.backends.owl.stardog_backend import (
-        StardogBackend,
-    )
-
-    target = MirrorTarget(mode=MODE_DEDICATED, name="kg_mirror", level=LEVEL_DATABASE)
-    data = _stardog(target, database=None)
-    owl = StardogBackend(endpoint="http://sd:5820", mirror_target=target)
-    assert owl._database == data._database == "kg_mirror"
-
-
 def test_dedicated_graph_iri_is_predictable():
     target = MirrorTarget(mode=MODE_DEDICATED, name="kg_mirror", level=LEVEL_GRAPH)
     assert graph_iri_for_target(target) == "urn:mirror:kg_mirror"

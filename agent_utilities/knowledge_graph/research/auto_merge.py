@@ -359,21 +359,28 @@ class GovernedAutoMerger:
         if promote:
             decision = self._consult_action_policy(spec)
             if decision is not None:
-                # ``_consult_action_policy`` returns the unified promotion
-                # gate's ``PromotionOutcome`` (CONCEPT:AU-AHE.harness.unified-promotion-gate),
-                # which has no ``.decision`` attribute -- only ``.disposition``
-                # (a PolicyDisposition: deny/unavailable/hold/approve) and the
-                # ``.approved`` property (eligible AND disposition is APPROVE
-                # AND the receipt is bound to this exact request). Gate on
-                # ``.approved`` the same way the sibling governed_publish path
-                # does (change_publisher.py), not a plain disposition string
-                # compare: only an exact, receipt-backed approval proceeds.
+                # `_consult_action_policy` returns the unified gate's
+                # `PromotionOutcome` (5a4dd9a2f, "freeze receipt-backed policy
+                # outcomes"), not a raw `ActionDecision` — it carries
+                # `.disposition` (a `PolicyDisposition`: deny/unavailable/
+                # hold/approve), never a `.decision` attribute, so reading
+                # `.decision` here always silently fell back to the literal
+                # default "deny" regardless of the real outcome. Read the
+                # actual field, matching the convention every other
+                # promote()-consuming caller already uses (ops_causal_tools,
+                # skill_evolution, evolve_agent): `disposition.value`. Block
+                # only on "deny"/"unavailable" — "hold" (queue_approval) must
+                # still let the KG-internal flip proceed per this method's
+                # own docstring; gating on the stricter `.approved` property
+                # (receipt-backed APPROVE only) would also block "hold" and
+                # contradict that documented AHE-3.21 semantics.
+                disposition = getattr(decision, "disposition", None)
                 evaluation.action_decision = {
-                    "decision": decision.disposition.value,
+                    "decision": disposition.value if disposition else "unavailable",
                     "reason": getattr(decision, "reason", ""),
                     "approval_id": getattr(decision, "approval_id", None),
                 }
-                if not decision.approved:
+                if evaluation.action_decision["decision"] in ("deny", "unavailable"):
                     promote = False
                     denied_reason = (
                         "blocked by action policy (merge_promotion): "
@@ -461,14 +468,15 @@ class GovernedAutoMerger:
                         or ""
                     ),
                 },
-                # Bind this decision to the EXACT proposal payload being
-                # promoted, same content-hash convention
-                # change_publisher._proposal_provenance_receipts already
-                # established for the sibling golden-loop publish path — the
-                # unified promotion gate (artifact_promotion.promote) has
-                # required at least one receipt since its generalization and
-                # this call site was never updated, so every auto-merge
-                # promotion degraded to PolicyDisposition.UNAVAILABLE.
+                # 5a4dd9a2f ("refactor: freeze receipt-backed policy outcomes")
+                # made every PromotionCandidate require at least one
+                # provenance receipt but missed this call site, so every
+                # merge_promotion consult failed closed with "promotion
+                # provenance unavailable" regardless of policy/governance.
+                # Reuse change_publisher's own proposal-payload receipt (one
+                # content-addressed id binding this decision to the EXACT
+                # proposal presented), the same convention governed_publish
+                # already uses for the publication leg of this same lifecycle.
                 provenance_receipts=_proposal_provenance_receipts(spec, target),
             ),
             policy=self._action_policy,
