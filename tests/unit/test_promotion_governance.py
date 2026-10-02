@@ -11,6 +11,8 @@ added to the failure analyzer's gate.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from agent_utilities.knowledge_graph.enrichment.orchestration import TeamSpec
@@ -50,6 +52,14 @@ class _Engine:
 
     def add_node(self, node_id, node_type, properties=None):
         self.nodes[node_id] = {"id": node_id, "type": node_type, **(properties or {})}
+
+    def shacl_validate_committed(self, _data_graph_turtle):
+        # Governance shapes are EG's committed GraphSchema authority (see
+        # PromotionGovernanceValidator's module docstring); this fake always
+        # conforms so tests focus on the OTHER governance rules (merge
+        # policy, regression gate, constitution) unless they bind their own
+        # report, same shape as tests/ontology/test_shacl_gate.py's fakes.
+        return SimpleNamespace(conforms=True, results=[])
 
     def query_cypher(self, query, params=None):
         if "RegressionGateResult" in query:
@@ -94,12 +104,6 @@ class TestMergePolicyRule:
 
 
 class TestShaclRule:
-    def test_team_spec_conforms_vacuously(self):
-        # No :Team shape exists in governance.shapes.ttl ⇒ conforms.
-        v = PromotionGovernanceValidator(None, policy=_policy())
-        check = v._check_shacl(_strong_team())
-        assert check.passed is True
-
     def test_agent_without_name_violates_agent_shape(self):
         pytest.importorskip("pyshacl")
         v = PromotionGovernanceValidator(None, policy=_policy())
@@ -112,14 +116,6 @@ class TestShaclRule:
         v = PromotionGovernanceValidator(None, policy=_policy())
         check = v._check_shacl({"type": "Agent", "name": "researcher", "goal": "g"})
         assert check.passed is True
-
-    def test_missing_shapes_file_not_applicable(self):
-        v = PromotionGovernanceValidator(
-            None, policy=_policy(), shapes_path="/nonexistent/shapes.ttl"
-        )
-        check = v._check_shacl(_strong_team())
-        assert check.passed is True
-        assert "not found" in check.reason
 
 
 # ---------------------------------------------------------------------------
