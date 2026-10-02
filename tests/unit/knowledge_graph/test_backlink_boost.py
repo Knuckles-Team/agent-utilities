@@ -9,6 +9,26 @@ CONCEPT:AU-KG.ingest.engineering-rules
 import math
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+# Every test below ``@patch``es
+# "...retrieval.hybrid_retriever.create_embedding_model" by dotted string,
+# which (via unittest.mock's pkgutil-based target resolution) force-imports
+# agent_utilities.knowledge_graph.retrieval.hybrid_retriever -- a module that
+# transitively imports agent_utilities.numeric (hybrid_retriever -> ..core.
+# engine -> ..orchestration.engine_query -> ..retrieval.temporal_semantic_id
+# -> agent_utilities.numeric) and so, when the compiled epistemic_graph.
+# numeric kernel is absent, fails to import. mock.patch's target resolver
+# swallows that ImportError internally (a bare `except ImportError: break`)
+# and raises an unrelated, unchained `AttributeError: module '...retrieval'
+# has no attribute 'hybrid_retriever'` instead, which does not match any of
+# the engine-unreachable exception shapes tests/conftest.py's
+# pytest_runtest_makereport hook recognizes -- so the real "no engine here"
+# condition would otherwise surface as a hard, misleading failure. Skip the
+# whole module cleanly up front instead, the same way test_agent_step_po.py
+# and test_embedding_diagnostics.py already do (CONCEPT:AU-KG.compute.numeric-kernel).
+pytest.importorskip("epistemic_graph.numeric")
+
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.models.schema_pack import (
     BacklinkBoostStrategy,
