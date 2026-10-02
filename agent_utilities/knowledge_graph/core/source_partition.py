@@ -241,6 +241,25 @@ def _strict_partition_enabled() -> bool:
         return False
 
 
+def _record_default_graph_write(label: str) -> None:
+    """Count one node routed to the DEFAULT graph under ``label`` (the tally
+    :func:`default_graph_write_report` reads back)."""
+    with _dg_lock:
+        key = label or "?"
+        _default_graph_writes[key] = _default_graph_writes.get(key, 0) + 1
+
+
+def _refuse_unstamped_write(label: str) -> None:
+    """Raise when ``label`` is a non-internal, strict-mode default-graph write."""
+    if label and label not in INTERNAL_DEFAULT_LABELS and _strict_partition_enabled():
+        raise ValueError(
+            f"source-partition: node label {label!r} has no source_system and would land "
+            "in the SPARQL default graph. Stamp a source with "
+            "core.source_partition.make_source_id(...), or add the label to "
+            "INTERNAL_DEFAULT_LABELS if it is intentionally internal."
+        )
+
+
 def route_graph_uri(props: dict[str, Any] | None, label: str = "") -> str | None:
     """Guarded named-graph routing: like :func:`graph_uri_for`, but records + polices the
     default-graph fallback.
@@ -252,20 +271,8 @@ def route_graph_uri(props: dict[str, Any] | None, label: str = "") -> str | None
     """
     g = graph_uri_for(props)
     if g is None:
-        with _dg_lock:
-            key = label or "?"
-            _default_graph_writes[key] = _default_graph_writes.get(key, 0) + 1
-        if (
-            label
-            and label not in INTERNAL_DEFAULT_LABELS
-            and _strict_partition_enabled()
-        ):
-            raise ValueError(
-                f"source-partition: node label {label!r} has no source_system and would land "
-                "in the SPARQL default graph. Stamp a source with "
-                "core.source_partition.make_source_id(...), or add the label to "
-                "INTERNAL_DEFAULT_LABELS if it is intentionally internal."
-            )
+        _record_default_graph_write(label)
+        _refuse_unstamped_write(label)
     return g
 
 
