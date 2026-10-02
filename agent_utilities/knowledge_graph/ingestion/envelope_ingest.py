@@ -317,8 +317,8 @@ def _shacl_validate_rows(
     """
     try:
         shapes = (
-            files("agent_utilities.knowledge_graph")
-            .joinpath("shapes", "governance.shapes.ttl")
+            files("agent_utilities")
+            .joinpath("ontology", "shapes", "governance.shapes.ttl")
             .read_text(encoding="utf-8")
         )
         rdf = getattr(client, "rdf", None)
