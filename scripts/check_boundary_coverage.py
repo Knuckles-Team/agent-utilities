@@ -39,6 +39,8 @@ from scripts.boundary_inventory import (  # noqa: E402
     CoverageRow,
     directory_rows_by_path,
     load_coverage_rows,
+    report_findings,
+    resolve_cli_root,
 )
 
 _IGNORED_DIR_NAMES = frozenset({"__pycache__"})
@@ -146,19 +148,8 @@ def _has_listed_children(directory: str, by_path: dict[str, list[CoverageRow]]) 
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    root = Path(args[0]).resolve() if args else ROOT
-    findings = check(root)
-    if findings:
-        print(
-            "Boundary coverage inventory gate failed (AU-BOUNDARY-R042):",
-            file=sys.stderr,
-        )
-        for finding in findings:
-            print(f"- {finding}", file=sys.stderr)
-        return 1
-    print("Boundary coverage inventory gate passed")
-    return 0
+    root = resolve_cli_root(argv, ROOT)
+    return report_findings(check(root), gate_label="Boundary coverage inventory")
 
 
 if __name__ == "__main__":

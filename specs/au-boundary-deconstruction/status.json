@@ -409,8 +409,17 @@
     {
       "id": "AU-BOUNDARY-R038",
       "title": "Add a cross-owner component registry and path guard",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
+          "description": "architecture/component-registry-boundary-seeds.yml adds graph-os and agent-connector-sdk boundary seeds citing requirements.md/coverage.md rows; scripts/check_boundary_owners.py rejects a module or console script matching a seed unless coverage.md records it as relocating there; wired as a blocking pre-commit hook (passes against the real tree today); tests/gates/test_boundary_owners_gate.py covers the real tree plus fixtures for a wrong-owner module, a wrong-owner console script, a recorded still-present module, and an unrecorded one."
+        }
+      ],
+      "remaining": "Only the module-path and console-script seeds derivable from requirements.md/coverage.md text are encoded (graph-os and agent-connector-sdk owners); seeds for other destination repositories (epistemic-graph, repository-manager) are out of this requirement's two-owner scope and are not covered by this gate."
     },
     {
       "id": "AU-BOUNDARY-R039",
@@ -441,8 +450,17 @@
     {
       "id": "AU-BOUNDARY-R042",
       "title": "Every package directory has one recorded disposition",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "failed",
+          "commit": "2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
+          "description": "scripts/check_boundary_coverage.py parses coverage.md's inventory table (shared scripts/boundary_inventory.py) and compares it against the real agent_utilities/ tree, failing on an unlisted, stale, duplicate, or undecided row. Run against today's tree it correctly finds exactly the 17 known undecided directories (images/, data/, protocols/voice_supply_chain/, and 14 skill-content directories) and nothing else wrong; tests/gates/test_boundary_coverage_gate.py pins that exact evidence plus fixtures for each failure class and a passing case. Wired report-only in .github/workflows/advisory.yml (continue-on-error), not as a blocking pre-commit hook, because it is red against the real tree today."
+        }
+      ],
+      "remaining": "Cannot reach a passing delivery_state while 17 directories stay undecided in coverage.md: images/, data/, protocols/voice_supply_chain/, and 14 skill-content directories under skills/ (agent-utilities-deployment, agent-utilities-development, agent-utilities-evolution, agent-utilities-self-evolution, agent-utilities-source-integration, autonomous-contribution, graph-engine-and-modalities, graph-ingestion-and-integration, graph-modeling-and-mutation, graph-orchestration-and-automation, graph-query-and-explanation, graph-research-and-analysis, graph-runtime-and-governance, workflows). This requirement's own text forbids inventing a disposition for them; an owner must rule on each row before the gate can move to the blocking commit-stage hook set."
     },
     {
       "id": "AU-BOUNDARY-R043",

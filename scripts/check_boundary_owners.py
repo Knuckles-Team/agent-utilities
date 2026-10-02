@@ -39,6 +39,8 @@ from scripts.boundary_inventory import (  # noqa: E402
     directory_rows_by_path,
     load_coverage_rows,
     owner_recorded_present,
+    report_findings,
+    resolve_cli_root,
 )
 
 SEEDS_PATH = Path("architecture/component-registry-boundary-seeds.yml")
@@ -197,16 +199,8 @@ def check(root: Path) -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = sys.argv[1:] if argv is None else argv
-    root = Path(args[0]).resolve() if args else ROOT
-    findings = check(root)
-    if findings:
-        print("Boundary ownership gate failed (AU-BOUNDARY-R038):", file=sys.stderr)
-        for finding in findings:
-            print(f"- {finding}", file=sys.stderr)
-        return 1
-    print("Boundary ownership gate passed")
-    return 0
+    root = resolve_cli_root(argv, ROOT)
+    return report_findings(check(root), gate_label="Boundary ownership")
 
 
 if __name__ == "__main__":

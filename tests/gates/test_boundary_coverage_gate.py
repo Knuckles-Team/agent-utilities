@@ -6,11 +6,7 @@ from pathlib import Path
 
 from scripts.boundary_inventory import COVERAGE_PATH
 from scripts.check_boundary_coverage import check
-
-_HEADER = (
-    "| Directory | Approx. lines | Disposition | Covering requirement ID(s) | Notes |\n"
-    "|---|---:|---|---|---|\n"
-)
+from tests.gates._boundary_fixtures import HEADER, row, write_coverage
 
 # The 17 directories the real repository currently leaves undecided (see
 # coverage.md's own "Directories with no covering requirement" section). The
@@ -58,21 +54,6 @@ def test_real_tree_reports_exactly_the_known_undecided_rows() -> None:
     assert len(undecided) == 17
 
 
-def _row(directory: str, disposition: str, requirement: str = "AU-FIXTURE-R7") -> str:
-    return f"| `{directory}/` | 10 | {disposition} | {requirement} | fixture row |\n"
-
-
-def _write_coverage(root: Path, rows: str) -> None:
-    path = root / COVERAGE_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "# Fixture inventory\n\n## Deletion and relocation inventory\n\n"
-        + _HEADER
-        + rows,
-        encoding="utf-8",
-    )
-
-
 def _make_package(root: Path, directories: tuple[str, ...]) -> None:
     for directory in directories:
         package_dir = root / directory
@@ -82,44 +63,44 @@ def _make_package(root: Path, directories: tuple[str, ...]) -> None:
 
 def test_passing_case_clean_fixture_tree(tmp_path: Path) -> None:
     _make_package(tmp_path, ("agent_utilities", "agent_utilities/widgets"))
-    rows = _row("agent_utilities", "keep in AU") + _row(
+    rows = row("agent_utilities", "keep in AU") + row(
         "agent_utilities/widgets", "keep in AU"
     )
-    _write_coverage(tmp_path, rows)
+    write_coverage(tmp_path, rows)
     assert check(tmp_path) == []
 
 
 def test_unlisted_directory_is_a_finding(tmp_path: Path) -> None:
     _make_package(tmp_path, ("agent_utilities", "agent_utilities/widgets"))
-    _write_coverage(tmp_path, _row("agent_utilities", "keep in AU"))
+    write_coverage(tmp_path, row("agent_utilities", "keep in AU"))
     findings = check(tmp_path)
     assert any("unlisted directory: 'agent_utilities/widgets'" in f for f in findings)
 
 
 def test_stale_row_is_a_finding(tmp_path: Path) -> None:
     _make_package(tmp_path, ("agent_utilities",))
-    rows = _row("agent_utilities", "keep in AU") + _row(
+    rows = row("agent_utilities", "keep in AU") + row(
         "agent_utilities/ghost", "keep in AU"
     )
-    _write_coverage(tmp_path, rows)
+    write_coverage(tmp_path, rows)
     findings = check(tmp_path)
     assert any("stale row: 'agent_utilities/ghost'" in f for f in findings)
 
 
 def test_duplicate_row_is_a_finding(tmp_path: Path) -> None:
     _make_package(tmp_path, ("agent_utilities",))
-    rows = _row("agent_utilities", "keep in AU") + _row("agent_utilities", "delete")
-    _write_coverage(tmp_path, rows)
+    rows = row("agent_utilities", "keep in AU") + row("agent_utilities", "delete")
+    write_coverage(tmp_path, rows)
     findings = check(tmp_path)
     assert any("duplicate row: 'agent_utilities'" in f for f in findings)
 
 
 def test_undecided_row_is_a_finding(tmp_path: Path) -> None:
     _make_package(tmp_path, ("agent_utilities", "agent_utilities/widgets"))
-    rows = _row("agent_utilities", "keep in AU") + _row(
+    rows = row("agent_utilities", "keep in AU") + row(
         "agent_utilities/widgets", "undecided"
     )
-    _write_coverage(tmp_path, rows)
+    write_coverage(tmp_path, rows)
     findings = check(tmp_path)
     assert any("undecided row: 'agent_utilities/widgets'" in f for f in findings)
 
@@ -131,7 +112,7 @@ def test_unparseable_row_is_a_failure_not_a_skip(tmp_path: Path) -> None:
     # Four cells instead of five: a short row is unparseable, not skippable.
     path.write_text(
         "# Fixture inventory\n\n## Deletion and relocation inventory\n\n"
-        + _HEADER
+        + HEADER
         + "| `agent_utilities/` | 10 | keep in AU | AU-FIXTURE-R7 |\n",
         encoding="utf-8",
     )

@@ -15,6 +15,7 @@ skipped. An inventory a gate cannot fully read is not evidence of anything.
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -170,3 +171,20 @@ def _parse_directory(directory_cell: str, line_no: int) -> str:
             f"line {line_no}: unparseable directory cell {directory_cell!r}"
         )
     return match.group(1)
+
+
+def resolve_cli_root(argv: list[str] | None, default_root: Path) -> Path:
+    """Return the root a gate CLI should scan: an explicit argv[0], else the default."""
+    args = sys.argv[1:] if argv is None else argv
+    return Path(args[0]).resolve() if args else default_root
+
+
+def report_findings(findings: list[str], *, gate_label: str) -> int:
+    """Print ``findings`` in the one shared gate CLI shape and return its exit code."""
+    if findings:
+        print(f"{gate_label} gate failed:", file=sys.stderr)
+        for finding in findings:
+            print(f"- {finding}", file=sys.stderr)
+        return 1
+    print(f"{gate_label} gate passed")
+    return 0
