@@ -53,7 +53,21 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from agent_utilities.numeric import xp
+# epistemic-graph[numeric] kernel absent (lean/headless/CI import without the
+# `[numeric]`/`[graphos]` extra). Keep this module importable without a live
+# engine; the ranking code paths below use `xp` and require the kernel,
+# raising a clear ``AttributeError`` on this ``None`` sentinel at call time
+# if invoked without it, matching the existing guard on
+# :mod:`agent_utilities.knowledge_graph.retrieval.capability_index`
+# (tests/conftest.py's ``_is_none_numeric_shim_attribute_error`` already
+# recognizes this exact shape and skips cleanly instead of failing). `xp` is
+# declared once with its type before the try so the fallback assignment is a
+# plain, already-typed rebinding rather than a second conflicting definition.
+xp: Any
+try:
+    from agent_utilities.numeric import xp
+except ImportError:
+    xp = None
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (
