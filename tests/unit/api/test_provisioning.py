@@ -9,10 +9,21 @@ import re
 from typing import Any, cast
 
 import pytest
-from epistemic_graph.generated.connector_pack import (
-    AgentLibraryMutationContext,
-    McpCatalogSnapshotBinding,
-)
+
+try:
+    from epistemic_graph.generated.connector_pack import (
+        AgentLibraryMutationContext,
+        McpCatalogSnapshotBinding,
+    )
+except ImportError as _import_error:
+    # This job's own convention (pytest.ini's `engine` marker): the no-engine
+    # CI job installs no epistemic-graph package at all, and every test below
+    # constructs the generated contract directly, so the whole file carries
+    # the marker and skips cleanly instead of failing collection.
+    pytest.skip(
+        f"requires the installed epistemic-graph package: {_import_error}",
+        allow_module_level=True,
+    )
 
 from agent_utilities.api.provisioning import (
     PackImportAuthorityResolver,
@@ -32,6 +43,8 @@ from agent_utilities.orchestration.action_policy import (
 )
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
+
+pytestmark = pytest.mark.engine
 
 
 def _session(

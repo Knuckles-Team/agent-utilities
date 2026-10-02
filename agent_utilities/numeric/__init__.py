@@ -44,19 +44,49 @@ _MAX_NUMERIC_ELEMENTS = 1_000_000
 _MAX_NUMERIC_NODES = 2_000_000
 
 
+#: Set when the certified kernel could not be bound, so the ORIGINAL cause and
+#: message survive to the point of first actual use (see ``_require_kernel``).
+#: Importing this module must succeed even on a profile that has no engine
+#: installed (CONCEPT:AU-KG.memory.provides-real-ephemeral-one) -- the test suite's own
+#: no-engine CI job collects modules that merely import ``agent_utilities.numeric``
+#: transitively without ever calling a native operation, and engine markers /
+#: fixtures (not an import-time crash) are this repository's sanctioned way to
+#: skip the tests that do.  A caller that actually invokes a numeric surface
+#: without a bound kernel still gets the identical, explicit contract failure
+#: below -- this only moves WHEN it is raised, never whether it is raised.
+_KERNEL_IMPORT_ERROR: ImportError | None = None
+
 try:
     _KERNEL: Any = importlib.import_module("epistemic_graph.numeric")
 except ImportError as exc:
-    raise ImportError(
+    _KERNEL = None
+    _KERNEL_IMPORT_ERROR = ImportError(
         "the certified epistemic_graph.numeric kernel is required by "
         "agent_utilities.numeric and is not importable"
-    ) from exc
-
-if getattr(_KERNEL, "__kernel__", None) != "eg-numeric":
-    raise ImportError(
-        "epistemic_graph.numeric is not the certified eg-numeric kernel "
-        f"(found __kernel__={getattr(_KERNEL, '__kernel__', None)!r})"
     )
+    _KERNEL_IMPORT_ERROR.__cause__ = exc
+
+if _KERNEL is not None and getattr(_KERNEL, "__kernel__", None) != "eg-numeric":
+    _found = getattr(_KERNEL, "__kernel__", None)
+    _KERNEL = None
+    _KERNEL_IMPORT_ERROR = ImportError(
+        "epistemic_graph.numeric is not the certified eg-numeric kernel "
+        f"(found __kernel__={_found!r})"
+    )
+
+
+def _require_kernel() -> Any:
+    """Return the bound kernel module, or raise the deferred import error.
+
+    Every actual native call reaches this (via :func:`_call_native` or a
+    direct kernel probe); a module that only imports ``agent_utilities.numeric``
+    without exercising a native surface never does.
+    """
+
+    if _KERNEL is None:
+        assert _KERNEL_IMPORT_ERROR is not None
+        raise _KERNEL_IMPORT_ERROR
+    return _KERNEL
 
 
 def _to_builtin_scalar(value: Any, _state: list[int]) -> Any:
@@ -298,6 +328,8 @@ def load_numeric_artifact(path: str | Path) -> Any:
 def _call_native(kernel: Any, native_name: str, *args: Any, **kwargs: Any) -> Any:
     """Call one allowlisted native function with only boundary conversion."""
 
+    if kernel is None:
+        _require_kernel()  # always raises: no bound kernel to call through
     function = getattr(kernel, native_name, None)
     if not callable(function):
         raise UnsupportedNumericOperationError(
@@ -732,6 +764,8 @@ class _NativeNamespace:
         if name == "LinAlgError" and self._error_type is not None:
             return self._error_type
         if name in self._constants:
+            if self._kernel is None:
+                _require_kernel()  # always raises: no bound kernel to read from
             # A VALUE, not a callable: read straight off the kernel module and
             # type-checked, so a kernel that ever grew an array-shaped constant
             # could not smuggle one through this boundary (NE-249).
