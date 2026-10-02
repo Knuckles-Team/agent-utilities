@@ -14,22 +14,16 @@ from pathlib import Path
 
 import pytest
 
+from agent_utilities.numeric import kernel_available
+
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
-
-
-def _numeric_kernel_available() -> bool:
-    try:
-        from agent_utilities.numeric import kernel_available
-    except ImportError:
-        return False
-    return kernel_available()
 
 
 # The designation-eval gate ranks a frozen corpus through the capability index,
 # which needs the kernel-backed agent_utilities.numeric (not pip-installable in
 # lean CI). These pass/trip assertions only hold when the gate can actually run.
 _needs_numeric_kernel = pytest.mark.skipif(
-    not _numeric_kernel_available(),
+    not kernel_available(),
     reason="designation-eval gate requires the epistemic-graph[full] kernel "
     "(its trip/pass assertions do not apply without it)",
 )
