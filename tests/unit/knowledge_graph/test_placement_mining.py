@@ -804,12 +804,27 @@ def test_run_canary_promotion_reaches_the_placement_catalog(monkeypatch):
 class _CycleStubEngine:
     """Same shape as ``test_trace_pattern_miner.py``'s ``_TraceMiningStubEngine``:
     empty governance-adjacent query results ⇒ ``PromotionGovernanceValidator``
-    passes by default; ``governance_rules`` relaxes the ActionPolicy tier."""
+    passes by default; ``governance_rules`` relaxes the ActionPolicy tier.
+
+    ``shacl_validate_committed`` stands in for the committed EG SHACL
+    authority 43197d7c6 ("refactor: move semantic authority to epistemic
+    graph") moved governance-shape conformance onto:
+    ``PromotionGovernanceValidator._validate_shacl_spec`` fails closed
+    whenever the engine lacks this method at all, so a stub engine without
+    it can never clear ``verdict.valid`` and the canary/apply branch never
+    fires. Always reports conformance, matching "no shape violates" for the
+    synthetic specs these tests build.
+    """
 
     def __init__(self, *, governance_rules: list[dict[str, Any]] | None = None):
         self.nodes: dict[str, dict[str, Any]] = {}
         self.backend = object()
         self._governance_rules = governance_rules or []
+
+    def shacl_validate_committed(self, _document: str) -> Any:
+        from types import SimpleNamespace
+
+        return SimpleNamespace(conforms=True, results=[])
 
     def add_node(
         self, node_id: str, node_type: str, properties: dict[str, Any] | None = None
