@@ -427,14 +427,14 @@
     {
       "id": "AU-BOUNDARY-R041",
       "title": "Finance modules that produced fabricated data are removed",
-      "delivery_state": "BUILT",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "branch",
           "result": "passed",
-          "commit": "f48c0bb765dd19d4ee5bb1c8687c37f4f047554b",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f48c0bb765dd19d4ee5bb1c8687c37f4f047554b",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+          "commit": "e1508be891cfdee91c1ebc9e5a28ad2cbdb9d060",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/e1508be891cfdee91c1ebc9e5a28ad2cbdb9d060",
+          "description": "Implementation commit is published on a branch (cut/fabricated-finance-modules); not yet merged to the default branch. Deletes the three confirmed fabricators (exchange_bridge.py, knowledge_graph/core/quant_tasks.py, strategy_engine.py) and the synthetic/prediction-market providers inside market_data.py; the remaining nine named modules and five content-host modules did not fabricate data on inspection and are not deleted (see PR body for the per-module discrepancy)."
         }
       ]
     },
