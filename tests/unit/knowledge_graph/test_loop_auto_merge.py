@@ -9,20 +9,14 @@ a high-score governed proposal auto-merges; a low-score one stays proposal-only.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from fleet_autonomy_fakes import FakeEngine  # noqa: E402
-
-from agent_utilities.knowledge_graph.enrichment.orchestration import TeamSpec  # noqa: E402
-from agent_utilities.knowledge_graph.research.auto_merge import (  # noqa: E402
+from agent_utilities.knowledge_graph.enrichment.orchestration import TeamSpec
+from agent_utilities.knowledge_graph.research.auto_merge import (
     GovernedAutoMerger,
     MergePolicy,
 )
+from tests.unit.fleet_autonomy_fakes import FakeEngine
 
 pytestmark = pytest.mark.concept("AU-AHE.assimilation.research-auto-merge")
 
