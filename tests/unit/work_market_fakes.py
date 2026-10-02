@@ -1,4 +1,4 @@
-"""A deterministic in-memory stand-in for EG's work-market surfaces (AU-HARNESS-R003).
+"""A deterministic in-memory stand-in for EG's work-market surfaces (the harness-evolution spec's graph-driven work-market requirement).
 
 ``FakeWorkMarket`` mirrors the engine rules the AU callers depend on, exactly as
 ``eg_types::work_market`` states them: one Gap per ``(tenant, gap_id)`` created

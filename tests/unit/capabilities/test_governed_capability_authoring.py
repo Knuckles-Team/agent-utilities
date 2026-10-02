@@ -51,7 +51,8 @@ _INVALID_CAPABILITY_SOURCE = "this is not even python syntax :::"
 class LifecycleEngine(FakeEngine):
     """Same in-memory double as ``tests/test_wave6_gap_lifecycle.py`` — the
     backend-agnostic Cypher shapes ``get_spec``/``review_spec`` use, plus the typed
-    EG Gap surfaces the canonical Gap lives behind (AU-HARNESS-R003)."""
+    EG Gap surfaces the canonical Gap lives behind (the harness-evolution spec's
+    graph-driven work-market requirement)."""
 
     def __init__(self):
         super().__init__()

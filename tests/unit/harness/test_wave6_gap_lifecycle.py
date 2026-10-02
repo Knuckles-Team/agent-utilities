@@ -48,7 +48,8 @@ def _verified_session():
 class LifecycleEngine(FakeEngine):
     """FakeEngine + add_edge + the id-lookup / label-scan cyphers the SpecProposal side
     of the canonical-gap lifecycle uses, plus the typed EG Gap/work-market surfaces
-    (``engine.client.gaps`` ...) the canonical Gap now lives behind (AU-HARNESS-R003).
+    (``engine.client.gaps`` ...) the canonical Gap now lives behind (the harness-evolution
+    spec's graph-driven work-market requirement).
     """
 
     def __init__(self):

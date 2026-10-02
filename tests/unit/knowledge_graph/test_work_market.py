@@ -1,4 +1,4 @@
-"""AU-HARNESS-R003 graph-driven work market, end to end through the typed EG surfaces.
+"""The harness-evolution spec's graph-driven work market, end to end through the typed EG surfaces.
 
 signal → one Gap + its WorkItem → derived offer → fenced claim (one winner) →
 terminal outcome → engine-read evidence on the Gap → reopen on NEW evidence only,
