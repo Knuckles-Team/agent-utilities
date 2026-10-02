@@ -28,6 +28,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal, TypeVar, cast
 
+from epistemic_graph.generated.models import DevelopmentLaneIntent
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -60,10 +61,7 @@ from agent_utilities.orchestration.operation_payload import (
     operation_payload_from_mapping,
     payload_digest,
 )
-from agent_utilities.protocols.epistemic_operations._generated import (
-    DevelopmentLaneCleanupIntent,
-    DevelopmentLaneIntent,
-)
+from agent_utilities.protocols.epistemic_operations import DevelopmentLaneCleanupIntent
 from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
 
 CONTRACT_VERSION: Literal["1"] = "1"

@@ -322,8 +322,7 @@ runs a hook with cwd at the root of the repo being committed. So the identical,
 single-source-of-truth script — never copy-pasted — guards any repo, reached
 from the sibling checkout on disk with the SAME idiom the fleet already uses for
 cross-repo gates (`check_stubs.py`, `check_sprawl.py`, the
-`guardrail-epistemic-operations-protocol`/`guardrail-no-pyo3` gates that already
-call in the other direction):
+`guardrail-no-pyo3` gate that already calls in the other direction):
 
 ```yaml
 - repo: local

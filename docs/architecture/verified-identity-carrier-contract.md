@@ -28,18 +28,19 @@ CONCEPT:AU-OS.identity.verified-carrier-contract
    this lane's verification (2026-08-16, `epistemic-graph@02594f7`). Do not
    build against it. What DOES exist, and IS the real identity carrier, is
    documented below.
-2. **The JSON-Schema `RequestContext` model is dead code, not the carrier.**
+2. **The JSON-Schema `RequestContext` model was dead code, not the carrier.**
    `agent_utilities/protocols/epistemic_operations/schemas/v1/request-context.schema.json`
    (`$id: urn:epistemic-operations:v2:request-context`, `schema_version` const
-   `"2"`) generates a pydantic `RequestContext` class
-   (`agent_utilities/protocols/epistemic_operations/_generated.py`). It has
-   **zero live callers** anywhere in `agent-utilities` outside its own
-   `tests/unit/protocols/test_epistemic_operations.py` — grep confirms no
-   production code ever constructs or `model_validate`s a `RequestContext`.
-   Promoting this schema to "v3" (as an earlier lane plan proposed) would be
-   formalizing a projection nothing uses, while the *actual* wire carrier
-   (below) stays undocumented. This lane does not wire that dead model into a
-   live path — see [What this lane did NOT do](#what-this-lane-did-not-do-and-why).
+   `"2"`) generated a pydantic `RequestContext` class
+   (`agent_utilities/protocols/epistemic_operations/_generated.py`). It had
+   **zero live callers** anywhere in `agent-utilities` outside its own test —
+   grep confirmed no production code ever constructed or `model_validate`d a
+   `RequestContext`. Promoting this schema to "v3" (as an earlier lane plan
+   proposed) would have formalized a projection nothing used, while the
+   *actual* wire carrier (below) stayed undocumented. Retiring the second
+   projection deleted the model, its catalog, and the generator entirely
+   rather than wiring it into a live path — see
+   [What this lane did NOT do](#what-this-lane-did-not-do-and-why).
 
 ## The carrier that is actually live today
 

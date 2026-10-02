@@ -99,18 +99,6 @@
       "covers": ["G-11", "G-13"]
     },
     {
-      "id": "au-operations-protocol",
-      "repository": "agent-utilities",
-      "argv": [
-        "{python}",
-        "scripts/check_epistemic_operations_protocol.py",
-        "--epistemic-graph-root",
-        "{repo:epistemic-graph}"
-      ],
-      "timeout_seconds": 180,
-      "covers": ["G-12", "G-13", "G-15", "G-16", "G-25"]
-    },
-    {
       "id": "eg-modality-architecture",
       "repository": "epistemic-graph",
       "argv": ["{python}", "scripts/check_p2_modality_architecture.py"],
@@ -550,15 +538,15 @@
     {
       "id": "G-12",
       "evidence_classes": ["local-source", "exact-artifact"],
-      "scope": ["agent-utilities", "epistemic-graph", "langfuse-agent"],
-      "command_ids": ["au-current-only", "au-operations-protocol", "lf-api-parity"],
-      "rationale": "Canonical trace and outcome schema bindings are checked locally; trace query-back is an artifact gate."
+      "scope": ["agent-utilities", "langfuse-agent"],
+      "command_ids": ["au-current-only", "lf-api-parity"],
+      "rationale": "Canonical trace and outcome schema bindings are checked locally; trace query-back is an artifact gate. AU-BOUNDARY-R012 removed agent-utilities' cross-repo protocol comparison, so epistemic-graph coverage for this gate comes only from its own local gates."
     },
     {
       "id": "G-13",
       "evidence_classes": ["local-source", "exact-artifact"],
       "scope": ["agent-utilities", "epistemic-graph", "provider-fleet"],
-      "command_ids": ["au-change-envelope-boundary", "au-operations-protocol", "au-ontology-library", "eg-property-schema"],
+      "command_ids": ["au-change-envelope-boundary", "au-ontology-library", "eg-property-schema"],
       "rationale": "Artifact and evidence identities are checked across protocol and property source contracts."
     },
     {
@@ -571,15 +559,15 @@
     {
       "id": "G-15",
       "evidence_classes": ["local-source", "exact-artifact"],
-      "scope": ["agent-utilities", "epistemic-graph"],
-      "command_ids": ["au-operations-protocol", "eg-modality-architecture", "eg-analytics-reasoning", "eg-property-schema", "eg-release-harness-contract"],
-      "rationale": "All seven KnowledgeBatch family contracts and exact paging campaign shape are local source gates."
+      "scope": ["epistemic-graph"],
+      "command_ids": ["eg-modality-architecture", "eg-analytics-reasoning", "eg-property-schema", "eg-release-harness-contract"],
+      "rationale": "Exact paging campaign shape is a local source gate. AU-BOUNDARY-R012 deleted agent-utilities' KnowledgeBatch-family protocol projection; the engine's own native KnowledgeBatch contracts remain source-gated here."
     },
     {
       "id": "G-16",
       "evidence_classes": ["local-source", "external"],
       "scope": ["agent-utilities", "epistemic-graph"],
-      "command_ids": ["au-work-item-boundary", "au-operations-protocol", "eg-analytics-reasoning"],
+      "command_ids": ["au-work-item-boundary", "eg-analytics-reasoning"],
       "rationale": "Typed analytics scheduling and publication contracts are local; distributed worker failure is external."
     },
     {
@@ -641,9 +629,9 @@
     {
       "id": "G-25",
       "evidence_classes": ["local-source", "exact-artifact"],
-      "scope": ["agent-utilities", "epistemic-graph"],
-      "command_ids": ["au-operations-protocol", "eg-operations-protocol"],
-      "rationale": "Both generated protocol projections and schema bindings are compared from source."
+      "scope": ["epistemic-graph"],
+      "command_ids": ["eg-operations-protocol"],
+      "rationale": "AU-BOUNDARY-R012 deleted agent-utilities' Python-side protocol projection and its generator; only the engine's own standalone manifest check remains."
     },
     {
       "id": "G-26",
