@@ -56,7 +56,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Any, Protocol, cast
 
-from agent_utilities.protocols.epistemic_operations import (
+from epistemic_graph.generated.models import (
     ClaimWorkItemRequest,
     ClaimWorkItemResult,
 )

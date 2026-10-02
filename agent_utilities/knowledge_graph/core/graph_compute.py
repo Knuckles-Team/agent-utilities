@@ -3503,7 +3503,7 @@ class GraphComputeEngine:
 
     def claim_work_item(self, request: Any) -> Any:
         """Atomically select and lease one WorkItem in the engine."""
-        from agent_utilities.protocols.epistemic_operations import (
+        from epistemic_graph.generated.models import (
             ClaimWorkItemRequest,
             ClaimWorkItemResult,
         )
@@ -4164,7 +4164,7 @@ class GraphComputeEngine:
         """
         if not ids:
             return []
-        from agent_utilities.protocols.epistemic_operations import EvidenceBundle
+        from epistemic_graph.generated.models import EvidenceBundle
 
         bundle = EvidenceBundle.model_validate(
             self._client.query.explain_provenance_by_ids(list(ids))
