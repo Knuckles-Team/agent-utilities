@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from _cdc_scenario import run_two_page_cdc_scenario
 
 from agent_utilities.knowledge_graph.ingestion.external_graph import (
     ExternalGraphIngestionError,
@@ -917,75 +918,18 @@ def test_external_graph_enforces_payload_budget_on_cdc_events(monkeypatch) -> No
 def test_external_graph_uses_discovered_native_cdc_and_advances_cursor_once(
     monkeypatch,
 ) -> None:
-    captured = []
-
-    class _CDCGraph:
-        def __init__(self) -> None:
-            self.cursors: list[str | None] = []
-
-        def execute_read(self, _query: str, _params: dict):
-            raise AssertionError("snapshot query must not run when CDC is available")
-
-        def read_change_page(self, *, cursor: str | None, limit: int):
-            assert limit == 2
-            self.cursors.append(cursor)
-            if cursor == "cursor-1":
-                return {
-                    "events": [
-                        {
-                            "operation": "upsert",
-                            "entity": "node",
-                            "record": {
-                                "id": "raw-node-a",
-                                "kind": "Capability",
-                                "version": "1",
-                                "properties": {"title": "Synthetic A"},
-                            },
-                        },
-                        {
-                            "operation": "delete",
-                            "entity": "node",
-                            "id": "raw-node-old",
-                        },
-                    ],
-                    "next_cursor": "cursor-2",
-                    "has_more": True,
-                }
-            return {
-                "events": [
-                    {
-                        "operation": "upsert",
-                        "entity": "node",
-                        "record": {
-                            "id": "raw-node-b",
-                            "kind": "Process",
-                            "version": "2",
-                            "properties": {"title": "Synthetic B"},
-                        },
-                    }
-                ],
-                "next_cursor": "cursor-3",
-                "has_more": False,
-            }
-
-    graph = _CDCGraph()
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.external_graph.read_change_cursor",
-        lambda _engine, _connector, *, source_instance: "cursor-1",
-    )
-    _patch_ingest_capture(monkeypatch, captured)
-    cdc_request = ExternalGraphIngestionRequest(
-        **{**_request().__dict__, "page_size": 2, "max_pages": 2}
-    )
-
-    cdc_result = ingest_registered_graph(
-        object(), _Registry(graph), cdc_request, profile=_profile()
+    graph, result, captured = run_two_page_cdc_scenario(
+        monkeypatch,
+        registry_cls=_Registry,
+        profile=_profile,
+        patch_capture=_patch_ingest_capture,
+        base_request=_request(),
     )
 
     assert graph.cursors == ["cursor-1", "cursor-2"]
-    assert cdc_result["sync_strategy"] == "cdc"
-    assert cdc_result["nodes"] == 2
-    assert cdc_result["deletes"] == 1
+    assert result["sync_strategy"] == "cdc"
+    assert result["nodes"] == 2
+    assert result["deletes"] == 1
     assert [envelope.operation for envelope in captured] == [
         "upsert",
         "upsert",

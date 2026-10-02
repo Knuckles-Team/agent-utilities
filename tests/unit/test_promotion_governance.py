@@ -54,6 +54,17 @@ class _Engine:
             return [r for r in self.gate_rows if r.get("proposal_id") in (None, pid)]
         if "ConstitutionRule" in query:
             return self.rule_rows
+        if "governance_rule" in query:
+            # ActionPolicy._kg_rules()'s own query shape: {"r": {...}} rows
+            # for every governance_rule node with scope='action_policy',
+            # same contract tests/unit/fleet_autonomy_fakes.py's FakeEngine
+            # implements for test_auto_merge_action_policy.py.
+            return [
+                {"r": dict(n)}
+                for n in self.nodes.values()
+                if n.get("type") == "governance_rule"
+                and n.get("scope") == "action_policy"
+            ]
         return []
 
 
@@ -211,6 +222,50 @@ class TestVerdictAndMergerIntegration:
         assert merger._governance_validator is sentinel
 
     def test_governed_merge_with_real_validator_promotes_clean_proposal(self):
+        """A clean, strong proposal promotes end to end through the REAL,
+        default-resolved ActionPolicy (no injected fake) -- but only once
+        that policy actually resolves to a receipt-backed ``approve``.
+
+        The shipped default tier for an unconfigured actor is
+        ``approval_required`` (-> a ``hold`` disposition, see
+        ``test_default_tier_holds_and_does_not_promote`` below), which the
+        shared promotion contract (``artifact_promotion.promote()``'s
+        ``PromotionOutcome.approved``, mirrored by
+        ``GovernedAutoMerger._gate_by_action_policy``) correctly does NOT
+        activate. Relax the tier the same way production does -- a
+        KG-stored ``governance_rule`` override with ``scope='action_policy'``
+        -- so this test exercises a genuinely approved decision through the
+        real path, not a loosened gate.
+        """
+        promoted = []
+        engine = _Engine()
+        engine.add_node(
+            "rule:promo-auto",
+            "governance_rule",
+            properties={
+                "scope": "action_policy",
+                "kind": "merge_promotion",
+                "target": "*",
+                "tier": "auto",
+            },
+        )
+        merger = GovernedAutoMerger(
+            engine=engine,
+            policy=_policy(require_governance_valid=True),
+            promoter=lambda spec: promoted.append(spec) or True,
+        )
+        ev = merger.consider(_strong_team())
+        assert ev.governance_valid is True
+        assert ev.action_decision["decision"] == "approve"
+        assert ev.merged is True
+        assert len(promoted) == 1
+
+    def test_default_tier_holds_and_does_not_promote(self):
+        """The shipped default tier (``approval_required``, unconfigured
+        actor) resolves to a ``hold`` disposition -- NOT an approval -- so
+        the lifecycle flip must not proceed, proving ``hold`` cannot
+        activate a promotion even for an otherwise-clean, governance-valid
+        proposal."""
         promoted = []
         merger = GovernedAutoMerger(
             engine=_Engine(),
@@ -219,8 +274,9 @@ class TestVerdictAndMergerIntegration:
         )
         ev = merger.consider(_strong_team())
         assert ev.governance_valid is True
-        assert ev.merged is True
-        assert len(promoted) == 1
+        assert ev.action_decision["decision"] == "hold"
+        assert ev.merged is False
+        assert promoted == []
 
     def test_recorded_gate_hold_blocks_governed_merge(self):
         # TeamSpec mints its own id ("team:resolver-team") — record against it.

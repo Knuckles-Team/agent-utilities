@@ -28,6 +28,7 @@ def _patch_governed_publish(monkeypatch: pytest.MonkeyPatch) -> list[bool]:
     )
     return called
 
+
 pytestmark = pytest.mark.concept("AU-AHE.assimilation.research-auto-merge")
 
 
@@ -43,6 +44,31 @@ def _strong_team() -> TeamSpec:
 
 def _weak_team() -> TeamSpec:
     return TeamSpec(name="bare", goal="", lead="", members=[])
+
+
+def _fake_engine_with_auto_tier() -> FakeEngine:
+    """A ``FakeEngine`` with a KG-stored ``governance_rule`` override
+    relaxing ``merge_promotion`` to the ``auto`` tier -- the same real path
+    production uses to grant a receipt-backed ``approve`` disposition. The
+    shipped DEFAULT tier (unconfigured actor) resolves to ``hold``, which
+    the shared promotion contract (``PromotionOutcome.approved``) correctly
+    does NOT activate (see test_auto_merge_action_policy.py's
+    ``test_shipped_default_holds_and_blocks_promotion``); tests here that
+    mean to exercise an ACTIVATED merge need a genuinely approved decision
+    through this real path, not a loosened gate.
+    """
+    engine = FakeEngine()
+    engine.add_node(
+        "rule:promo-auto",
+        "governance_rule",
+        properties={
+            "scope": "action_policy",
+            "kind": "merge_promotion",
+            "target": "*",
+            "tier": "auto",
+        },
+    )
+    return engine
 
 
 # ---------------------------------------------------------------------------
@@ -106,18 +132,18 @@ class TestGovernedMerge:
         assert any("quality" in f for f in ev.failures)
 
     def test_high_score_governed_auto_merges(self):
-        """``engine=FakeEngine()``, not ``None``: the shipped default tier
-        (approval_required) now needs a real durable ``ActionApproval`` write
-        to produce a "hold" (5a4dd9a2f, "freeze receipt-backed policy
-        outcomes" — an un-persistable queue request correctly degrades to
-        "unavailable" instead, which blocks promotion). A bare
-        ``engine=None`` can never durably queue one, so it could never
-        auto-merge under the real default tier either way; this proves the
-        merge lifecycle itself, not the approval-queue mechanics.
+        """``engine=_fake_engine_with_auto_tier()``: the shipped DEFAULT tier
+        (approval_required) resolves to a ``hold`` disposition, which the
+        shared promotion contract (``PromotionOutcome.approved``) correctly
+        does NOT activate — a bare ``engine=None``/default ``FakeEngine()``
+        could never auto-merge under the real default tier. Relax the tier
+        via the same KG-stored ``governance_rule`` override production uses,
+        so this proves the merge lifecycle itself through a genuinely
+        approved decision, not the approval-queue mechanics.
         """
         promoted = []
         merger = GovernedAutoMerger(
-            engine=FakeEngine(),
+            engine=_fake_engine_with_auto_tier(),
             policy=MergePolicy(enabled=True, require_governance_valid=True),
             governance_validator=lambda spec: True,
             promoter=lambda spec: promoted.append(spec) or True,
@@ -126,6 +152,23 @@ class TestGovernedMerge:
         assert ev.merged is True
         assert len(promoted) == 1
         assert ev.reason == "auto-merged"
+
+    def test_default_tier_holds_and_blocks_governed_merge(self):
+        """Control for the test above: WITHOUT the tier-relaxing
+        ``governance_rule`` override, the same otherwise-clean, strong,
+        governance-valid proposal does NOT merge -- ``hold`` cannot
+        activate a promotion, full stop."""
+        promoted = []
+        merger = GovernedAutoMerger(
+            engine=FakeEngine(),
+            policy=MergePolicy(enabled=True, require_governance_valid=True),
+            governance_validator=lambda spec: True,
+            promoter=lambda spec: promoted.append(spec) or True,
+        )
+        ev = merger.consider(_strong_team())
+        assert ev.merged is False
+        assert promoted == []
+        assert ev.action_decision["decision"] == "hold"
 
     def test_governance_invalid_blocks_merge(self):
         merger = GovernedAutoMerger(
@@ -143,7 +186,7 @@ class TestGovernedMerge:
         ``_publish`` must skip ``governed_publish`` cleanly, never call it."""
         called = _patch_governed_publish(monkeypatch)
         merger = GovernedAutoMerger(
-            engine=FakeEngine(),
+            engine=_fake_engine_with_auto_tier(),
             policy=MergePolicy(
                 enabled=True, require_governance_valid=False, quality_threshold=0.0
             ),
@@ -171,7 +214,7 @@ class TestGovernedMerge:
         """Control: a normal TeamSpec-shaped merge still goes through governed_publish."""
         called = _patch_governed_publish(monkeypatch)
         merger = GovernedAutoMerger(
-            engine=FakeEngine(),
+            engine=_fake_engine_with_auto_tier(),
             policy=MergePolicy(enabled=True, require_governance_valid=False),
             promoter=lambda spec: True,
         )
@@ -193,7 +236,7 @@ class TestGovernedMerge:
 
     def test_every_consideration_is_audited(self):
         merger = GovernedAutoMerger(
-            engine=FakeEngine(),
+            engine=_fake_engine_with_auto_tier(),
             policy=MergePolicy(enabled=True, require_governance_valid=False),
             promoter=lambda spec: True,
         )
@@ -215,11 +258,13 @@ class TestLoopAutoMergeLivePath:
             LoopController,
         )
 
-        # FakeEngine (not a bare .backend-only stub): the shipped default
-        # action-policy tier (approval_required) needs a real durable
-        # ActionApproval write to produce a "hold" rather than degrade to
-        # "unavailable" (5a4dd9a2f, "freeze receipt-backed policy outcomes").
-        ctrl = LoopController(FakeEngine(), auto_merge=auto_merge)
+        # The tier-relaxed fake engine: the shipped DEFAULT action-policy
+        # tier (approval_required) resolves to "hold", which the shared
+        # promotion contract (PromotionOutcome.approved) correctly does NOT
+        # activate. The auto_merge=True live-path test below means to prove
+        # an activated merge, so it needs a genuinely approved decision
+        # through the real KG-stored governance_rule override path.
+        ctrl = LoopController(_fake_engine_with_auto_tier(), auto_merge=auto_merge)
 
         # Replace the synthesis primitives at their SOURCE modules (the controller
         # re-imports them at call time) so the cycle yields our team proposal

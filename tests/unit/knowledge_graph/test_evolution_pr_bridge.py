@@ -508,8 +508,31 @@ class TestMergerBridgeWiring:
             "quality_score": 0.95,
         }
 
-    def test_merged_proposal_queues_publication(self, target_repo, tmp_path):
+    def test_merged_proposal_publishes_end_to_end(self, target_repo, tmp_path):
+        """The shipped DEFAULT ``merge_promotion`` tier (approval_required)
+        resolves to ``hold``, which the shared promotion contract
+        (``PromotionOutcome.approved``) correctly does NOT activate --
+        ``consider()`` never reaches ``_execute_promotion``/``_publish`` for
+        a held decision (the "queues an approval" scenario is covered
+        directly against ``governed_publish`` by
+        ``test_default_policy_queues_approval`` above, decoupled from the
+        merger). Relax the tier via the same KG-stored ``governance_rule``
+        override ``test_kg_rule_can_relax_tier_to_auto`` uses, so BOTH the
+        merge-time and publish-time consults (same kind/target/policy)
+        resolve to a genuine, receipt-backed ``approve`` -- proving the full
+        consider()-to-published bridge activates end to end.
+        """
         engine = BridgeEngine()
+        engine.add_node(
+            "rule:promo-auto",
+            "governance_rule",
+            properties={
+                "scope": "action_policy",
+                "kind": "merge_promotion",
+                "target": "*",
+                "tier": "auto",
+            },
+        )
         merger = GovernedAutoMerger(
             engine,
             policy=MergePolicy(enabled=True),
@@ -519,8 +542,30 @@ class TestMergerBridgeWiring:
         )
         evaluation = merger.consider(self._spec())
         assert evaluation.merged
+        assert evaluation.action_decision["decision"] == "approve"
         assert evaluation.publication is not None
-        assert evaluation.publication["status"] == "approval_queued"
+        assert evaluation.publication["status"] == "published"
+        assert not engine.by_type("ActionApproval")
+
+    def test_default_tier_holds_and_never_reaches_publish(self, target_repo, tmp_path):
+        """Control: WITHOUT the tier-relaxing override, the shipped default
+        tier holds -- the merger's own gate blocks before ``_publish`` is
+        ever called, so publication never happens (the pending approval it
+        queues is independently exercised by
+        ``test_default_policy_queues_approval`` against the standalone
+        ``governed_publish`` entry point)."""
+        engine = BridgeEngine()
+        merger = GovernedAutoMerger(
+            engine,
+            policy=MergePolicy(enabled=True),
+            governance_validator=lambda s: True,
+            promoter=lambda s: True,
+            publisher=_publisher(engine, target_repo, tmp_path),
+        )
+        evaluation = merger.consider(self._spec())
+        assert evaluation.merged is False
+        assert evaluation.publication is None
+        assert evaluation.action_decision["decision"] == "hold"
         assert engine.by_type("ActionApproval")
 
     def test_disabled_policy_never_publishes(self, target_repo, tmp_path):

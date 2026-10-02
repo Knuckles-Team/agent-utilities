@@ -331,11 +331,18 @@ class GovernedAutoMerger:
 
         An enabled + eligible promotion additionally consults the operational
         OS-5.24 :class:`ActionPolicy` under the reserved ``merge_promotion``
-        kind (the AHE-3.20 adoption): ``deny`` blocks the lifecycle flip
-        (recorded on the evaluation + audit trail), ``queue_approval`` keeps
-        the AHE-3.21 semantics — the KG-internal flip proceeds and the
-        real-world publication queues the (deduped) ``ActionApproval`` —
-        and ``allow``/``allow_notify`` proceed (the policy notifies).
+        kind (the AHE-3.20 adoption), through the SAME unified promotion gate
+        (``artifact_promotion.promote``) every other promotion caller uses.
+        That gate's ``PromotionOutcome.approved`` property is the ONE
+        authority for "may this effect proceed" (eligible AND disposition is
+        ``APPROVE`` AND a receipt is bound to the exact decided request) —
+        this predates 5a4dd9a2f ("freeze receipt-backed policy outcomes") and
+        described the OLDER raw-``ActionDecision`` contract, where
+        ``queue_approval`` let the KG-internal flip proceed while only
+        publication stayed approval-gated. That is no longer the contract:
+        a ``hold`` (``queue_approval``'s current disposition) is NOT an
+        approval and must not activate anything, exactly like ``deny`` and
+        ``unavailable`` — only a receipt-backed ``approve`` proceeds.
         """
         evaluation = self.evaluate(spec)
         promote = self.policy.enabled and evaluation.eligible
@@ -363,24 +370,25 @@ class GovernedAutoMerger:
                 # `PromotionOutcome` (5a4dd9a2f, "freeze receipt-backed policy
                 # outcomes"), not a raw `ActionDecision` — it carries
                 # `.disposition` (a `PolicyDisposition`: deny/unavailable/
-                # hold/approve), never a `.decision` attribute, so reading
-                # `.decision` here always silently fell back to the literal
-                # default "deny" regardless of the real outcome. Read the
-                # actual field, matching the convention every other
-                # promote()-consuming caller already uses (ops_causal_tools,
-                # skill_evolution, evolve_agent): `disposition.value`. Block
-                # only on "deny"/"unavailable" — "hold" (queue_approval) must
-                # still let the KG-internal flip proceed per this method's
-                # own docstring; gating on the stricter `.approved` property
-                # (receipt-backed APPROVE only) would also block "hold" and
-                # contradict that documented AHE-3.21 semantics.
+                # hold/approve) and the `.approved` property, never a
+                # `.decision` attribute, so reading `.decision` here always
+                # silently fell back to the literal default "deny" regardless
+                # of the real outcome. Gate on `.approved` — the ONE shared
+                # promotion contract every `artifact_promotion.promote()`
+                # caller must honor (see that function's own docstring):
+                # only an exact, receipt-backed `approve` may activate an
+                # effect. `hold` (a human approval still pending) is NOT an
+                # approval and must block the lifecycle flip exactly like
+                # `deny`/`unavailable`, mirroring the sibling
+                # `governed_publish` path (change_publisher.py), which
+                # already gates the same way.
                 disposition = getattr(decision, "disposition", None)
                 evaluation.action_decision = {
                     "decision": disposition.value if disposition else "unavailable",
                     "reason": getattr(decision, "reason", ""),
                     "approval_id": getattr(decision, "approval_id", None),
                 }
-                if evaluation.action_decision["decision"] in ("deny", "unavailable"):
+                if not decision.approved:
                     promote = False
                     denied_reason = (
                         "blocked by action policy (merge_promotion): "

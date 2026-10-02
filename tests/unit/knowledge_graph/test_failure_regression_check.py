@@ -91,13 +91,25 @@ class TestRegressionCheck:
 
 class TestMergerIntegration:
     def _merger(self, check):
-        # FakeEngine (add_node/query_cypher), not engine=None: the shipped
-        # default action-policy tier (approval_required) needs a real
-        # durable ActionApproval write to produce a "hold" rather than
-        # degrade to "unavailable" (5a4dd9a2f, "freeze receipt-backed policy
-        # outcomes").
+        # The shipped DEFAULT action-policy tier (approval_required)
+        # resolves to "hold", which the shared promotion contract
+        # (PromotionOutcome.approved) correctly does NOT activate. Relax it
+        # via the same KG-stored governance_rule override production uses,
+        # so a cleared regression check actually reaches a genuinely
+        # approved decision instead of being masked by an unrelated hold.
+        engine = FakeEngine()
+        engine.add_node(
+            "rule:promo-auto",
+            "governance_rule",
+            properties={
+                "scope": "action_policy",
+                "kind": "merge_promotion",
+                "target": "*",
+                "tier": "auto",
+            },
+        )
         return GovernedAutoMerger(
-            engine=FakeEngine(),
+            engine=engine,
             policy=MergePolicy(enabled=True, require_governance_valid=False),
             regression_check=check,
             promoter=lambda spec: True,
