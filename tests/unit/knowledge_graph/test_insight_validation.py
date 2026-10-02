@@ -43,6 +43,16 @@ class _InsightStubEngine:
         self.edges: list[tuple[str, str, dict[str, Any]]] = []
         self.registered_materializations: list[str] = []
 
+    def shacl_validate_committed(self, _document: str) -> Any:
+        """Stand in for the committed EG SHACL authority 43197d7c6 ("refactor:
+        move semantic authority to epistemic graph") moved
+        PromotionGovernanceValidator's governance-shape check onto: an engine
+        lacking this method fails that check closed unconditionally. Always
+        reports conformance for these synthetic specs."""
+        from types import SimpleNamespace
+
+        return SimpleNamespace(conforms=True, results=[])
+
     def add_node(
         self, node_id: str, node_type: str, properties: dict[str, Any] | None = None
     ) -> None:

@@ -10,11 +10,18 @@ eval regression case + reward nudge.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pytest
 
-from agent_utilities.knowledge_graph.adaptation.failure_analyzer import FailureAnalyzer
-from agent_utilities.knowledge_graph.enrichment.orchestration import TeamSpec
-from agent_utilities.knowledge_graph.research.auto_merge import (
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from fleet_autonomy_fakes import FakeEngine  # noqa: E402
+
+from agent_utilities.knowledge_graph.adaptation.failure_analyzer import FailureAnalyzer  # noqa: E402
+from agent_utilities.knowledge_graph.enrichment.orchestration import TeamSpec  # noqa: E402
+from agent_utilities.knowledge_graph.research.auto_merge import (  # noqa: E402
     GovernedAutoMerger,
     MergePolicy,
 )
@@ -90,8 +97,13 @@ class TestRegressionCheck:
 
 class TestMergerIntegration:
     def _merger(self, check):
+        # FakeEngine (add_node/query_cypher), not engine=None: the shipped
+        # default action-policy tier (approval_required) needs a real
+        # durable ActionApproval write to produce a "hold" rather than
+        # degrade to "unavailable" (5a4dd9a2f, "freeze receipt-backed policy
+        # outcomes").
         return GovernedAutoMerger(
-            engine=None,
+            engine=FakeEngine(),
             policy=MergePolicy(enabled=True, require_governance_valid=False),
             regression_check=check,
             promoter=lambda spec: True,
