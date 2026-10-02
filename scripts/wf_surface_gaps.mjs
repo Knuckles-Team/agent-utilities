@@ -33,9 +33,7 @@ const MODULES = [
   ['agent_utilities/domains/finance/banking.py', 'graph_analyze', 'quant_banking'],
   ['agent_utilities/domains/finance/cross_market_arb.py', 'graph_analyze', 'quant_arb'],
   ['agent_utilities/domains/finance/crypto_connector.py', 'graph_analyze', 'quant_crypto'],
-  ['agent_utilities/domains/finance/exchange_bridge.py', 'graph_analyze', 'quant_exchange'],
   ['agent_utilities/domains/finance/microstructure.py', 'graph_analyze', 'quant_microstructure'],
-  ['agent_utilities/domains/finance/strategy_engine.py', 'graph_analyze', 'quant_strategy'],
   ['agent_utilities/domains/finance/regime_detector.py', 'graph_analyze', 'quant_regime'],
   ['agent_utilities/domains/hr/workforce_manager.py', 'graph_analyze', 'workforce_plan'],
 ]
