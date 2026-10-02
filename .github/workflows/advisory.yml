@@ -241,6 +241,17 @@ jobs:
         continue-on-error: true
         run: python3 scripts/check_context_compiler_boundary.py
 
+      # Report-only until the 17 undecided coverage.md rows (images/, data/,
+      # protocols/voice_supply_chain/, and 14 skill-content directories) get
+      # an owner ruling -- see this script's module docstring and
+      # tests/gates/test_boundary_coverage_gate.py for the exact list. The
+      # owning boundary requirement forbids inventing a disposition for them,
+      # so this step stays red until an owner resolves each row; it is
+      # deliberately not in the blocking commit-stage hook set until then.
+      - name: Boundary deletion/relocation coverage inventory (report only)
+        continue-on-error: true
+        run: python3 scripts/check_boundary_coverage.py
+
       - name: Governed HTTP egress boundary
         continue-on-error: true
         run: python3 scripts/check_http_egress_boundary.py
