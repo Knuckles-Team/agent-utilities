@@ -6,16 +6,23 @@ name: Release
 # This repo ships exactly two GitHub Actions workflows:
 #
 #   release.yml (THIS FILE)  — the ONLY workflow that can block a release.
-#     Four release-critical jobs, wired strictly `needs:` so a failure names
-#     its stage at a glance: clone-scanners + gates -> build ->
-#     numeric-runtime-gate -> publish-pypi -> publish-docker. The scanner job
-#     provisions the pinned native clone gates against an immutable PR/push
-#     SHA range; it is part of the release contract, not a report-only check.
-#     "Release-critical" is deliberately narrow: secret-history scanning, the
-#     test suite, clone gates, and wheel build + reproducibility +
-#     release-contract + wheel-privacy checks. NOTHING else may block
-#     publishing — if you are tempted to add a step here, it almost
-#     certainly belongs in advisory.yml instead.
+#     Five release-critical jobs, wired strictly `needs:` so a failure names
+#     its stage at a glance: clone-scanners + gates + engine-release-order ->
+#     build -> numeric-runtime-gate -> publish-pypi -> publish-docker. The
+#     scanner job provisions the pinned native clone gates against an
+#     immutable PR/push SHA range; it is part of the release contract, not a
+#     report-only check. `engine-release-order` runs independently of
+#     `gates` (no `needs:` between them) specifically so a red cross-repo
+#     release-order check never prevents `gates`' test suite from running
+#     and giving a pull request real test evidence; only `build` (and
+#     therefore everything downstream of it) `needs` this job, so building,
+#     the numeric-runtime gate, and every publish job stay unreachable while
+#     the engine release is not resolvable. "Release-critical" is
+#     deliberately narrow: secret-history scanning, the test suite, clone
+#     gates, the cross-repo release-order check, and wheel build +
+#     reproducibility + release-contract + wheel-privacy checks. NOTHING
+#     else may block publishing — if you are tempted to add a step here, it
+#     almost certainly belongs in advisory.yml instead.
 #
 #   advisory.yml — everything else. Concept governance, docs/nav/link
 #     consistency, the liveness ratchet, coupling, event-loop-blocking,
@@ -35,10 +42,15 @@ name: Release
 #
 # CROSS-REPO ORDERING: epistemic-graph must publish to PyPI before
 # agent-utilities can, because agent-utilities pins a floor on it (see
-# pyproject.toml). The `gates` job below verifies that floor is actually
-# resolvable on PyPI (scripts/release/check_eg_pypi_resolvable.py) and fails
-# with a clear message naming the missing version, rather than letting a
-# normal `pip`/`uv` resolver die deep inside a backtrace.
+# pyproject.toml). The `engine-release-order` job below verifies that floor
+# is actually resolvable on PyPI (scripts/release/check_eg_pypi_resolvable.py)
+# and fails with a clear message naming the missing version, rather than
+# letting a normal `pip`/`uv` resolver die deep inside a backtrace. It used
+# to be a step inside `gates`, which meant a red release-order check also
+# skipped `gates`' own test suite -- leaving a pull request with zero test
+# evidence. Moving it to its own job, needed only by `build`, keeps the same
+# ordering guarantee (nothing can build or publish while it is red) while
+# letting `gates` always reach the test suite.
 # ─────────────────────────────────────────────────────────────────────────
 
 on:
@@ -196,6 +208,26 @@ jobs:
       - name: jscpd full-tree census (advisory evidence)
         run: python3 scripts/check_duplication.py census
 
+  # ── STAGE 0.5: cross-repo release-order gate, on its own so a red result
+  # here never also hides `gates`' test suite. Stdlib-only: checkout plus one
+  # script, nothing else -- verifies the epistemic-graph floor this repo
+  # declares is actually resolvable on PyPI before any CI time is spent
+  # building. eg must publish before au; this turns that deadlock into one
+  # clear line instead of a pip/uv resolver backtrace (Deploy-Pages' prior
+  # failure mode). Deliberately has no `needs:` on `gates`/`clone-scanners`
+  # and nothing needs it except `build`, so a red run here still lets `gates`
+  # produce test evidence while leaving build/publish unreachable.
+  engine-release-order:
+    name: epistemic-graph release is resolvable on PyPI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Verify required epistemic-graph release is resolvable on PyPI
+        run: python3 scripts/release/check_eg_pypi_resolvable.py
+
   # ── STAGE 1: release-critical checks only. Nothing else may live here. ──
   gates:
     name: gates
@@ -236,15 +268,6 @@ jobs:
           version: '0.11.7'
           enable-cache: true
           cache-dependency-glob: uv.lock
-
-      # ---- Cross-repo release-order gate. Stdlib-only (no sync needed):
-      # verifies the epistemic-graph floor this repo declares is actually
-      # resolvable on PyPI before we spend any CI time building. eg must
-      # publish before au; this turns that deadlock into one clear line
-      # instead of a pip/uv resolver backtrace (Deploy-Pages' prior failure
-      # mode).
-      - name: Verify required epistemic-graph release is resolvable on PyPI
-        run: python3 scripts/release/check_eg_pypi_resolvable.py
 
       # Static source-contract lane. D-CIP-4/D-CIP-9 precedent: no runtime
       # engine needed for source-level checks or the test suite (tests
@@ -312,16 +335,20 @@ jobs:
       - name: Test suite
         run: python3 -m pytest -q -n auto --dist loadfile
 
-  # ── STAGE 2: build the release wheel. Needs: gates + clone-scanners. ────
+  # ── STAGE 2: build the release wheel. Needs: gates + clone-scanners +
+  # engine-release-order. ──────────────────────────────────────────────────
   # This is release-critical item #3: wheel build + reproducibility +
   # release-contract + wheel-privacy checks, ALL against the exact candidate
   # that would publish. Unchanged from the former pipeline.yml `build-wheel`
   # job except: triggered by `needs: gates` instead of `workflow_run`, and
   # `HEAD_SHA`/`ref:` now read directly off this push (github.sha) instead
-  # of a foreign workflow_run event.
+  # of a foreign workflow_run event. `engine-release-order` is in this list
+  # (not `gates`') so building stays unreachable while the epistemic-graph
+  # floor is not resolvable on PyPI, even though that check no longer lives
+  # inside `gates` itself.
   build:
     name: build
-    needs: [gates, clone-scanners]
+    needs: [gates, clone-scanners, engine-release-order]
     runs-on: ubuntu-latest
     env:
       SOURCE_DATE_EPOCH: "0"
