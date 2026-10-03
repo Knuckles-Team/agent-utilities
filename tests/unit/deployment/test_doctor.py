@@ -2087,40 +2087,12 @@ def test_runtime_integrations_doctor_redacts_invalid_config_value(monkeypatch):
     assert "identity=hidden" not in rendered
 
 
-def test_skills_check_requires_exact_suite_without_persisting_local_path(
-    tmp_path, monkeypatch
-):
+def _install_doctor_skill_assets(tmp_path, monkeypatch, skill_names):
     from agent_utilities.core import paths, providers
     from agent_utilities.core.provider_materialization import build_asset_manifest
 
     source = tmp_path / "source"
-    (source / "unrelated-skill").mkdir(parents=True)
-    (source / "unrelated-skill" / "SKILL.md").write_text("synthetic", encoding="utf-8")
-    xdg = tmp_path / "xdg"
-    xdg.mkdir()
-    manifest = build_asset_manifest(source, leg="skills")
-    monkeypatch.setattr(paths, "skills_dir", lambda: xdg)
-    monkeypatch.setattr(providers, "current_provider_assets", lambda _group: ())
-    monkeypatch.setattr(
-        providers,
-        "_own_skill_assets",
-        lambda: ("agent-utilities", "a" * 64, source, manifest),
-    )
-
-    result = D._check_skills()
-
-    assert result["status"] == "warn"
-    assert "agent-utilities-development" in result["data"]["missing"]
-    assert str(tmp_path) not in json.dumps(result)
-
-
-def test_skills_check_accepts_the_complete_consolidated_suite(tmp_path, monkeypatch):
-    from agent_utilities.core import paths, providers
-    from agent_utilities.core.provider_materialization import build_asset_manifest
-    from agent_utilities.skills import BUNDLED_SKILLS
-
-    source = tmp_path / "source"
-    for name in BUNDLED_SKILLS:
+    for name in skill_names:
         skill_dir = source / name
         skill_dir.mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text("synthetic", encoding="utf-8")
@@ -2134,6 +2106,24 @@ def test_skills_check_accepts_the_complete_consolidated_suite(tmp_path, monkeypa
         "_own_skill_assets",
         lambda: ("agent-utilities", "a" * 64, source, manifest),
     )
+
+
+def test_skills_check_requires_exact_suite_without_persisting_local_path(
+    tmp_path, monkeypatch
+):
+    _install_doctor_skill_assets(tmp_path, monkeypatch, ("unrelated-skill",))
+
+    result = D._check_skills()
+
+    assert result["status"] == "warn"
+    assert "agent-utilities-development" in result["data"]["missing"]
+    assert str(tmp_path) not in json.dumps(result)
+
+
+def test_skills_check_accepts_the_complete_consolidated_suite(tmp_path, monkeypatch):
+    from agent_utilities.skills import BUNDLED_SKILLS
+
+    _install_doctor_skill_assets(tmp_path, monkeypatch, BUNDLED_SKILLS)
 
     result = D._check_skills()
 
