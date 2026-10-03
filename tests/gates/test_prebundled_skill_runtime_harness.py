@@ -78,6 +78,49 @@ _SKILL_REF = persistence_reference(
     "skill", "graph-query-and-explanation", namespace="execution-trace"
 )
 _SKILL_BODY_REF = "pref_skill_body_" + "c" * 64
+
+# "graph-query-and-explanation" moved to graph-os on 2026-10-03 along with
+# every other domain-tier skill; agent-utilities now bundles only
+# agent-utilities-development, which is special-cased elsewhere in
+# ``runtime_validation`` (``_ARCHITECTURE_SKILL``) for owner-manifest
+# architecture evidence this file's generic harness-mechanics tests do not
+# exercise. This file keeps "graph-query-and-explanation" as its synthetic
+# example skill id
+# (it never needed a real covering domain skill, only a real-shaped
+# instructions body) and reads that body from disk itself rather than through
+# ``agent_utilities/skills/<id>/SKILL.md``, via the ``_synthetic_skill_body``
+# autouse fixture below.
+_SYNTHETIC_SKILL_BODY = (
+    "# Synthetic Skill\n\n"
+    "A stand-in instructions body for exercising the prebundled-skill runtime "
+    "harness without depending on any one real bundled skill's content or "
+    "continued presence in this repository.\n\n"
+    "## Workflow\n\n"
+    "1. Resolve the requested capability.\n"
+    "2. Call the routed tool with bounded, validated arguments.\n"
+    "3. Report the outcome and any blocked follow-up.\n"
+)
+
+
+@pytest.fixture(autouse=True)
+def _synthetic_skill_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Serve ``_SYNTHETIC_SKILL_BODY`` for this file's synthetic skill id.
+
+    Everything in this file that pins the skill name for the harness tests
+    below reads a REAL file through ``runtime_harness._skill_body``; since
+    "graph-query-and-explanation" is no longer present on disk, this stands
+    in for that read without changing any test's skill id or assertions.
+    """
+    real_skill_body = runtime_harness._skill_body
+
+    def _fake_skill_body(skill: str) -> str:
+        if skill == "graph-query-and-explanation":
+            return _SYNTHETIC_SKILL_BODY
+        return real_skill_body(skill)
+
+    monkeypatch.setattr(runtime_harness, "_skill_body", _fake_skill_body)
+
+
 _TRACE_EVIDENCE = {
     "run_ref": _RUN_REF,
     "model_ref": _MODEL_REF,
@@ -139,7 +182,7 @@ def test_contract_instruction_binds_exact_skill_identity() -> None:
 
 
 def test_direct_execution_prompt_places_closed_contract_after_original_task() -> None:
-    case = _matrix_case("orchestration-direct")
+    case = _matrix_case("development-direct")
     contract = _contract_instruction(case)
 
     prompt = _direct_execution_prompt(case)
@@ -154,7 +197,7 @@ def test_direct_execution_prompt_places_closed_contract_after_original_task() ->
 def test_direct_semantic_contract_uses_prompted_json_not_tool_output() -> None:
     from pydantic_ai import PromptedOutput
 
-    output_type = _direct_semantic_output_type(_matrix_case("engine-direct"))
+    output_type = _direct_semantic_output_type(_matrix_case("development-direct"))
 
     assert isinstance(output_type, PromptedOutput)
     assert issubclass(output_type.outputs, SemanticOutput)
@@ -164,7 +207,7 @@ def test_direct_semantic_contract_uses_prompted_json_not_tool_output() -> None:
 
 
 def test_direct_prompted_output_accepts_exact_case_route_set() -> None:
-    case = _matrix_case("query-direct")
+    case = _matrix_case("development-direct")
     output_type = _direct_semantic_output_type(case)
 
     output = output_type.outputs.model_validate(
@@ -178,7 +221,7 @@ def test_direct_prompted_output_accepts_exact_case_route_set() -> None:
 
 
 def test_direct_prompted_output_rejects_engine_route_expansion() -> None:
-    case = _matrix_case("engine-direct")
+    case = _matrix_case("development-direct")
     output_type = _direct_semantic_output_type(case)
     expanded_routes = [*case.expected_routes, "engine_datascience"]
 

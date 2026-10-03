@@ -13,6 +13,7 @@ from typing import Any
 import yaml
 
 from agent_utilities.mcp.skill_coverage import parse_graph_os_sidecar
+from agent_utilities.mcp.tool_specs import canonical_tool_names
 from agent_utilities.skills import BUNDLED_SKILLS
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -22,36 +23,13 @@ EXPERT_PROMPT = PACKAGE_ROOT / "prompts" / "agent-utilities-expert.json"
 
 EXPECTED_SKILLS = frozenset(BUNDLED_SKILLS)
 
-_REQUIRED_WORKFLOW_TERMS: dict[str, frozenset[str]] = {
-    "agent-utilities-deployment": frozenset(
-        {"migration", "persisted-format", "upgrade"}
-    ),
-    "graph-engine-and-modalities": frozenset(
-        {
-            "sql",
-            "sparql",
-            "reasoning",
-            "consensus",
-            "tenancy",
-            "rbac",
-            "administration",
-        }
-    ),
-    "graph-runtime-and-governance": frozenset({"troubleshoot"}),
-}
-_REQUIRED_WORKFLOW_ROUTES: dict[str, frozenset[str]] = {
-    "graph-engine-and-modalities": frozenset(
-        {
-            "engine_admin",
-            "engine_consensus",
-            "engine_query",
-            "engine_rbac",
-            "engine_rdf",
-            "engine_reasoning",
-            "engine_tenants",
-        }
-    )
-}
+# The skills these keyed terms/routes once covered (agent-utilities-deployment,
+# graph-engine-and-modalities, graph-runtime-and-governance) moved to graph-os
+# on 2026-10-03, leaving only agent-utilities-development in EXPECTED_SKILLS,
+# which has no entry here; kept empty (rather than deleted) so a future
+# retained skill can add its own without re-deriving this contract's shape.
+_REQUIRED_WORKFLOW_TERMS: dict[str, frozenset[str]] = {}
+_REQUIRED_WORKFLOW_ROUTES: dict[str, frozenset[str]] = {}
 
 _PRIVATE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -616,6 +594,14 @@ def _forward_matrix_domain_wraps() -> tuple[dict[str, set[str]], set[str]]:
         if meta.tier == "domain" and not meta.errors:
             domain_wraps[skill] = set(meta.wraps)
     all_domain_wraps = set().union(*domain_wraps.values()) if domain_wraps else set()
+    # A delegated case's allowed_tools must name a REAL registered verb; that a
+    # bundled domain skill locally wraps it is sufficient but, since the
+    # domain skills moved to graph-os (2026-10-03) and agent-utilities no
+    # longer bundles any, no longer necessary -- the canonical ToolSpec
+    # universe is this repository's own remaining source of truth for "is
+    # this a real Graph-OS verb" and stays in scope regardless of which
+    # package currently documents it with a domain skill.
+    all_domain_wraps |= canonical_tool_names()
     return domain_wraps, all_domain_wraps
 
 
@@ -1117,8 +1103,11 @@ def _validate_skill_inventory() -> tuple[set[str], list[str]]:
         path.parent.name for path in SKILLS_ROOT.glob("*/SKILL.md") if path.is_file()
     }
     errors: list[str] = []
-    if len(EXPECTED_SKILLS) != 13:
-        errors.append("canonical taxonomy must contain exactly 13 workflow skills")
+    if len(EXPECTED_SKILLS) != len(BUNDLED_SKILLS):
+        errors.append(
+            f"canonical taxonomy must contain exactly {len(BUNDLED_SKILLS)} "
+            "workflow skill(s)"
+        )
     if actual != EXPECTED_SKILLS:
         errors.append(
             "skill inventory mismatch: "
