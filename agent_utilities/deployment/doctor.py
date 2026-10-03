@@ -192,7 +192,7 @@ def _check_config() -> dict[str, Any]:
         status,
         f"config needs attention (profile {profile!r}) — see checks",
         remediation="`setup-config doctor` for detail; `setup-config generate --profile <p>` to (re)seed",
-        skill="agent-utilities-deployment",
+        skill="graphos-deployment",
         data=rep,
     )
 
@@ -1828,7 +1828,7 @@ def _engine_remote_result(
             "configured remote engine is unreachable — "
             "remote mode never autostarts a local stand-in (fail-loud)",
             remediation="start the external engine (Docker/host) or fix GRAPH_SERVICE_ENDPOINTS",
-            skill="agent-utilities-deployment",
+            skill="graphos-deployment",
             data=redacted_status,
         )
     if runtime_directory_refs:
@@ -1878,7 +1878,7 @@ def _engine_local_result(
             "no engine running yet — resolved mode=autostart: "
             f"a detached, supervised engine will be spawned on first use, {life}",
             remediation="no action needed (auto-provisions on demand); start eagerly with `graph-os-daemon` if preferred",
-            skill="agent-utilities-deployment",
+            skill="graphos-deployment",
             data=redacted_status,
         )
     return _result(
@@ -1886,7 +1886,7 @@ def _engine_local_result(
         "fail",
         f"no epistemic-graph engine endpoint reachable ({len(endpoints)} configured) and autostart disabled",
         remediation="remove GRAPH_SERVICE_ENDPOINTS for the packaged local lifecycle, or start the configured external engine",
-        skill="agent-utilities-deployment",
+        skill="graphos-deployment",
         data=redacted_status,
     )
 
@@ -2034,7 +2034,7 @@ def _check_engine_domains() -> dict[str, Any]:
             "required engine_<domain> tool families and their REST twins are "
             "actually served"
         ),
-        skill="agent-utilities-deployment",
+        skill="graphos-deployment",
         data=data,
     )
 
@@ -2153,7 +2153,7 @@ def _check_secrets() -> dict[str, Any]:
             remediation=(
                 "repair the private runtime source or configured secret backend"
             ),
-            skill="agent-utilities-deployment",
+            skill="graphos-deployment",
             data={
                 "runtime_source": source_status,
                 "redacted": True,
@@ -2210,7 +2210,7 @@ def _check_secrets_backend() -> dict[str, Any]:
             "fail",
             f"secret reference scheme scan failed ({type(exc).__name__})",
             remediation="repair AgentConfig construction or the configured secrets backend",
-            skill="agent-utilities-deployment",
+            skill="graphos-deployment",
             data={"redacted": True},
         )
 
@@ -4545,7 +4545,7 @@ def _check_workspace_config() -> dict[str, Any]:
                 "validate entries against docs/guides/workspace-config.md and the "
                 "annotated template in docs/examples/workspace.yml"
             ),
-            skill="agent-utilities-deployment",
+            skill="graphos-deployment",
             data=data,
         )
     detail = f"workspace.yml valid — {rep['repo_count']} repositories"
@@ -4646,7 +4646,7 @@ def _check_skills() -> dict[str, Any]:
             "fail",
             f"current skill resolution failed ({type(exc).__name__})",
             remediation="reconcile provider registrations and run `agent-utilities install`",
-            skill="agent-utilities-deployment",
+            skill="graphos-deployment",
             data={"ready": False, "redacted": True},
         )
 
@@ -4657,7 +4657,7 @@ def _check_skills() -> dict[str, Any]:
             "warn",
             f"{len(missing)} of {len(BUNDLED_SKILLS)} pre-bundled workflow skills are missing",
             remediation="`agent-utilities install` (installs the thirteen-skill workflow toolkit)",
-            skill="agent-utilities-deployment",
+            skill="graphos-deployment",
             data={"installed": len(installed_names), "missing": missing},
         )
     return _result(
@@ -4866,7 +4866,7 @@ def _unified_install_result(
             "fail",
             f"current provider sources cannot be validated ({tally.unresolved} issue(s))",
             remediation="repair provider distributions before materialization",
-            skill="agent-utilities-deployment",
+            skill="graphos-deployment",
             data=data,
         )
     issues = (
@@ -4884,7 +4884,7 @@ def _unified_install_result(
                 "`agent-utilities install` (materializes current providers, marks "
                 "ownership, and prunes removed managed providers)"
             ),
-            skill="agent-utilities-deployment",
+            skill="graphos-deployment",
             data=data,
         )
     return _result(
@@ -4951,7 +4951,7 @@ def _check_unified_install() -> dict[str, Any]:
                 "fail",
                 f"provider registry invalid ({type(exc).__name__})",
                 remediation="remove duplicate or invalid provider registrations",
-                skill="agent-utilities-deployment",
+                skill="graphos-deployment",
                 data={"ready": False, "redacted": True},
             )
         expected_counts[leg] = _sweep_install_leg(leg, root, registrations, tally)

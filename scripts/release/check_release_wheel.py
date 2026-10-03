@@ -141,16 +141,14 @@ def _structural_skill_assets() -> frozenset[str]:
 
     ``agent_utilities/skills/`` also ships ``fleet_harness/`` (the skill
     fleet-validation harness, backing the ``agent-utilities-validate-skill-fleet``
-    console script), ``skill_graphs/`` (the KG-ingestion reference corpus),
-    and ``workflows/`` (nested workflow-type skills, each with its own
-    SKILL.md, including agent-os-genesis's Helm chart assets under
-    ``assets/helm/``). pyproject.toml's ``skills/**`` package-data glob
-    already ships all three deliberately (fleet_harness has a live entry
-    point; the other two are documented architecture, not accidents) — D-CIP-18
-    recorded that as the explicit ship decision for these categories, since
-    the packaging config had already made it. This scans them (bounded, no
-    symlinks, mirroring agent_utilities/release_catalogs.py's own walk) so
-    they carry real contract coverage instead of none.
+    console script) and ``skill_graphs/`` (the KG-ingestion reference corpus).
+    pyproject.toml's ``skills/**`` package-data glob already ships both
+    deliberately (fleet_harness has a live entry point; the other is
+    documented architecture, not an accident) — that was recorded as the
+    explicit ship decision for these categories, since the packaging config
+    had already made it. This scans them (bounded, no symlinks, mirroring
+    agent_utilities/release_catalogs.py's own walk) so they carry real
+    contract coverage instead of none.
     """
 
     assets: set[str] = set()

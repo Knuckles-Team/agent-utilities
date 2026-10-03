@@ -1,17 +1,22 @@
 """Track 1 of the pydantic-ai native-adoption program: measure the real prompt-token
-cost of expressing two EXISTING agent-utilities units — the ``graph-query-and-explanation``
-skill and the ``graph-orchestration-and-automation`` skill (the fleet's own delegation
-playbook, used here as the "agent" unit) — as native ``pydantic_ai.capabilities.Capability``
+cost of expressing two tool sets — the ``graph-query-and-explanation`` verbs and the
+``graph-orchestration-and-automation`` verbs (the fleet's own delegation playbook,
+used here as the "agent" unit) — as native ``pydantic_ai.capabilities.Capability``
 objects with ``defer_loading=True``, versus the same objects with ``defer_loading=False``.
+Both tool sets are still real, served Graph-OS verbs; only the skill that documents
+each moved (to graph-os, 2026-10-03), so the instructions body each Capability carries
+is read from agent-utilities' own remaining skill instead (see
+``_REAL_SKILL_BODY_SOURCE``) rather than from the two moved skills' own SKILL.md files.
 
 CONCEPT:AU-ORCH — see ``reports/program/pydantic-ai-native-adoption.md`` Track 1.
 
-Both SKILL.md bodies are read verbatim from disk (100% real, already-shipped instructions
+The SKILL.md body is read verbatim from disk (100% real, already-shipped instructions
 text). The per-tool descriptions attached as function tools are copied verbatim from each
-skill's own "Action reference" table — real text, real tool names — but the tool FUNCTIONS
-themselves are thin measurement stand-ins (they raise if actually called) since invoking the
-real graph-os intent-surface tools requires a live engine; this test only measures the
-request-shaping cost (instructions + tool-schema bytes), never executes a tool.
+moved skill's own "Action reference" table (as it stood on agent-utilities' main before the
+move) — real text, real tool names — but the tool FUNCTIONS themselves are thin measurement
+stand-ins (they raise if actually called) since invoking the real graph-os intent-surface
+tools requires a live engine; this test only measures the request-shaping cost
+(instructions + tool-schema bytes), never executes a tool.
 
 Token counts are produced with ``tiktoken`` (``o200k_base``) as a PROXY — neither Anthropic
 nor every provider publishes an offline tokenizer, so absolute counts are not billing-exact
@@ -74,6 +79,17 @@ def _read_skill_body(skill_id: str) -> str:
     path = _SKILLS_ROOT / skill_id / "SKILL.md"
     assert path.exists(), f"expected real skill file at {path}"
     return path.read_text(encoding="utf-8")
+
+
+# graph-query-and-explanation and graph-orchestration-and-automation -- the two
+# skills this test originally read verbatim -- moved to graph-os on 2026-10-03
+# along with every other domain-tier skill; agent-utilities now bundles only
+# agent-utilities-development. Its SKILL.md is still 100% real, already-shipped
+# instructions text (just no longer from the two skills the tool_specs below are
+# named after), so it is the real body source for both parametrized cases; the
+# measurement (deferred vs. non-deferred token cost of a real instructions body
+# plus a real tool-schema set) is unaffected by which real skill supplies the body.
+_REAL_SKILL_BODY_SOURCE = "agent-utilities-development"
 
 
 # Real tool names + descriptions copied verbatim from
@@ -163,11 +179,11 @@ def _measurement_tool(name: str, description: str) -> Any:
 def _build_capability(
     *, skill_id: str, tool_specs: list[tuple[str, str]], defer_loading: bool
 ) -> Capability:
-    instructions = _read_skill_body(skill_id)
+    instructions = _read_skill_body(_REAL_SKILL_BODY_SOURCE)
     tools = [_measurement_tool(name, desc) for name, desc in tool_specs]
     return Capability(
         id=skill_id,
-        description=f"Real agent-utilities skill: {skill_id}",
+        description=f"Real agent-utilities tool set: {skill_id}",
         instructions=instructions,
         tools=tools,
         defer_loading=defer_loading,
