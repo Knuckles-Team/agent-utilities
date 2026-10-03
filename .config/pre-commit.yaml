@@ -287,6 +287,12 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: check-topology-authority
+    name: One topology authority (no AU TopologyTemplate Cypher, success-rate selection or second selector)
+    entry: scripts/hook_python.sh scripts/check_topology_authority.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: check-no-stdout-writes
     name: Stdio JSON-RPC purity (no print()/sys.stdout.write() in the served MCP surface, B-19)
     entry: scripts/hook_python.sh scripts/check_no_stdout_writes.py
