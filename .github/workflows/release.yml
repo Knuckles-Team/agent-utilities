@@ -177,15 +177,38 @@ jobs:
             echo "head_sha=$head"
           } >> "$GITHUB_OUTPUT"
 
-      # Versions come from [tool.agent_utilities.clone_scanners] in
-      # pyproject.toml; the same script provisions a local checkout.
+      # The local installer pins provider source and verifies every cached build.
+      - name: Restore pinned clone scanner toolchain
+        id: scanner-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/scanners
+          key: au-clone-scanners-${{ runner.os }}-${{ runner.arch }}-rust1.95.0-1.97.0-${{ hashFiles('scripts/install_scanners.sh') }}
+
       - name: Install exact clone scanner toolchain
         shell: bash
         run: |
           set -euo pipefail
           rustup toolchain install 1.95.0 --profile minimal
           rustup default 1.95.0
+          rustup toolchain install 1.97.0 --profile minimal
           SCANNER_ROOT="$RUNNER_TEMP/scanners" bash scripts/install_scanners.sh
+
+      - name: Save pinned clone scanner toolchain
+        if: steps.scanner-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/scanners
+          key: ${{ steps.scanner-cache.outputs.cache-primary-key }}
+
+      - name: Record clone scanner provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: clone-scanner-provenance
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/scanners/jscpd/*/bin/jscpd.provenance.json
+            ${{ runner.temp }}/scanners/jscpd.sha256
 
       - name: Dupehound changed-function gate
         env:
@@ -242,9 +265,10 @@ jobs:
       # itself is untouched and not expired.
       #
       # Artifact expires 2026-12-30T16:03:35Z. Before then, either re-pin all
-      # five values below from a current successful epistemic-graph release
+      # values below from a current successful epistemic-graph release
       # run, or -- preferably -- switch this job to installing the published
       # PyPI package once epistemic-graph 2.27 ships there.
+      EG_WHEEL_SOURCE: "7f5179650d87e6f763b129cfeea6dfb4f8b0273b"
       EG_WHEEL_RUN_ID: "36889097785"
       EG_WHEEL_ARTIFACT_ID: "11196548715"
       EG_WHEEL_ARTIFACT_NAME: "wheel-linux-x86_64"
@@ -291,16 +315,9 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
-      # Static source-contract lane. D-CIP-4/D-CIP-9 precedent: no runtime
-      # engine needed for source-level checks or the test suite (tests
-      # requiring the real engine carry the `engine` marker and skip cleanly
-      # when no prebuilt binary is present). `--extra test` is the fix for
-      # the CI/local drift that produced "async def functions are not
-      # natively supported" on 36 tests: the `guardrails` dependency-group
-      # alone never pulled in pytest-asyncio/pytest-env/pytest-timeout (they
-      # live in the `test` extra), so CI silently ran a plainer pytest than
-      # the one every local invocation used (`asyncio_mode = auto` in
-      # pytest.ini requires pytest-asyncio to be installed to take effect).
+      # Install the test plugins from the locked test extra, then install the
+      # verified engine wheel below. Engine-dependent tests run in this job;
+      # their failures remain part of the gate and require attribution.
       - name: Sync test environment (the engine wheel is installed next)
         run: |
           uv sync --frozen --extra test --group guardrails \
@@ -321,10 +338,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if python -c "import epistemic_graph.numeric" 2>/dev/null; then
-            echo "epistemic-graph is already installed in this environment (local replay); nothing to do"; exit 0
-          fi
           mkdir -p eg-wheel
+          gh api "repos/Knuckles-Team/epistemic-graph/actions/artifacts/${EG_WHEEL_ARTIFACT_ID}" > eg-wheel-identity.json
+          python -I scripts/release/verify_test_engine.py artifact eg-wheel-identity.json \
+            --id "$EG_WHEEL_ARTIFACT_ID" --name "$EG_WHEEL_ARTIFACT_NAME" \
+            --run "$EG_WHEEL_RUN_ID" --source "$EG_WHEEL_SOURCE"
           echo "Attempting cross-repo artifact download via gh CLI..."
           if gh run download "$EG_WHEEL_RUN_ID" \
               -R Knuckles-Team/epistemic-graph \
@@ -335,7 +353,7 @@ jobs:
             echo "::warning::gh run download failed; falling back to the REST artifact zip endpoint"
             cat gh-download.err >&2
             rm -rf eg-wheel && mkdir -p eg-wheel
-            http_status="$(curl -sS -w '%{http_code}' -o eg-wheel/artifact.zip \
+            http_status="$(curl --location --proto '=https' --proto-redir '=https' -sS -w '%{http_code}' -o eg-wheel/artifact.zip \
               -H "Authorization: Bearer $GH_TOKEN" \
               -H "Accept: application/vnd.github+json" \
               "https://api.github.com/repos/Knuckles-Team/epistemic-graph/actions/artifacts/${EG_WHEEL_ARTIFACT_ID}/zip")"
@@ -351,33 +369,20 @@ jobs:
       - name: Verify downloaded wheel sha256
         run: |
           set -euo pipefail
-          if python -c "import epistemic_graph.numeric" 2>/dev/null; then
-            echo "epistemic-graph is already installed in this environment (local replay); nothing to do"; exit 0
-          fi
-          wheel_path="eg-wheel/${EG_WHEEL_FILENAME}"
-          if [ ! -f "$wheel_path" ]; then
-            echo "::error::expected wheel not found at $wheel_path; downloaded contents:"
-            find eg-wheel -maxdepth 2 -type f
-            exit 1
-          fi
-          actual_sha256="$(sha256sum "$wheel_path" | cut -d' ' -f1)"
-          if [ "$actual_sha256" != "$EG_WHEEL_SHA256" ]; then
-            echo "::error::sha256 mismatch for $wheel_path: expected $EG_WHEEL_SHA256, got $actual_sha256"
-            exit 1
-          fi
-          echo "verified sha256=$actual_sha256 for $wheel_path"
+          python -I scripts/release/verify_test_engine.py wheel "eg-wheel/${EG_WHEEL_FILENAME}" \
+            --filename "$EG_WHEEL_FILENAME" --sha256 "$EG_WHEEL_SHA256"
 
       - name: Install the frozen epistemic-graph[full] wheel
         run: |
           set -euo pipefail
-          if python -c "import epistemic_graph.numeric" 2>/dev/null; then
-            echo "epistemic-graph is already installed in this environment (local replay); nothing to do"; exit 0
-          fi
-          wheel_path="$(readlink -f "eg-wheel/${EG_WHEEL_FILENAME}")"
-          uv pip install --python "$PWD/.venv/bin/python" "${wheel_path}[full]"
+          wheel_url="$(python -I -c 'from pathlib import Path; import sys; print(Path(sys.argv[1]).resolve().as_uri())' "eg-wheel/${EG_WHEEL_FILENAME}")"
+          uv pip install --reinstall-package epistemic-graph --python "$PWD/.venv/bin/python" \
+            "epistemic-graph[full] @ ${wheel_url}#sha256=${EG_WHEEL_SHA256}"
 
       - name: Assert the real engine is importable
-        run: python -c "import epistemic_graph, epistemic_graph.numeric"
+        run: |
+          .venv/bin/python -I scripts/release/verify_test_engine.py installed "eg-wheel/${EG_WHEEL_FILENAME}" \
+            --sha256 "$EG_WHEEL_SHA256"
 
       # ---- THE test suite. pytest.ini's testpaths covers the whole `tests/`
       # tree (gates, scale, unit, integration, security, retrieval, ...) in
@@ -782,10 +787,8 @@ jobs:
     # SC-GHA-001 (this repo's own supply-chain-source-contract gate) requires every
     # external reusable workflow pinned to a full commit SHA, never a floating branch
     # ref -- so unlike epistemic-graph/agent-webui (no such gate), this cannot be
-    # `@main`. Pinned to `main`'s tip as of 2026-08-06 to replace the stale/propagated
-    # dc60f5c pin with current content while staying SHA-pinned; bump this SHA the
-    # next time Knuckles-Team/pipelines' container_pipeline.yml changes.
-    uses: Knuckles-Team/pipelines/.github/workflows/container_pipeline.yml@f304e620912e7b1e1bc1f590fa6c297faba274fb # main as of 2026-07-28
+    # `@main`. Use the reviewed merged provider also pinned by the scanner installer.
+    uses: Knuckles-Team/pipelines/.github/workflows/container_pipeline.yml@c0a089c83eea9d0d08f48e6c00681eb989268d9a # pipelines-hooks 2.0.2
     permissions:
       contents: read
     secrets:

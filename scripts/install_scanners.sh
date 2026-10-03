@@ -3,11 +3,12 @@
 #
 # The versions are read from [tool.agent_utilities.clone_scanners] in
 # pyproject.toml, the one place they are pinned; the gate wrappers verify the
-# installed versions against the same table. Hooks never install anything
+# installed versions against the same table. jscpd additionally requires the
+# source-pinned pipelines build and its verified provenance. Hooks never install anything
 # themselves: run this once (scripts/bootstrap.sh --scanners does), or let CI
-# run it. Idempotent: a scanner already at its pinned version is left alone.
+# run it. Cached jscpd builds are reverified on every invocation.
 #
-# Needs cargo (Rust) for dupehound and npm (Node.js) for jscpd.
+# Needs cargo for dupehound, Rust 1.97.0 for jscpd, and curl for provider source.
 #
 # Env: SCANNER_ROOT  install prefix (default ~/.local; binaries in $SCANNER_ROOT/bin)
 # Under GitHub Actions the binaries are also exported through GITHUB_ENV and
@@ -44,20 +45,33 @@ else
 fi
 test "$("$BIN/dupehound" --version)" = "dupehound $DUPEHOUND_VERSION"
 
-if [ "$("$BIN/jscpd" --version 2>/dev/null || true)" = "cpd $JSCPD_VERSION" ]; then
-  log "jscpd $JSCPD_VERSION already installed"
-else
-  command -v npm >/dev/null 2>&1 || { echo "install_scanners: npm is required for jscpd" >&2; exit 1; }
-  log "installing jscpd $JSCPD_VERSION"
-  npm install --global --prefix "$SCANNER_ROOT" --no-audit --no-fund "jscpd@$JSCPD_VERSION"
+# Immutable merged provider source; cache bytes must still match before extraction.
+PIPELINES_REV="c0a089c83eea9d0d08f48e6c00681eb989268d9a"
+PIPELINES_ARCHIVE_SHA256="5521ddf30a7d8b09fd0a48fca1aa6251179567d1a56e76115d679516090f6d7a"
+provider_archive="$SCANNER_ROOT/providers/$PIPELINES_REV.tar.gz"
+provider_source="$(mktemp -d "$SCANNER_ROOT/pipelines.XXXXXXXX")"
+trap 'rm -rf "$provider_source"' EXIT
+mkdir -p "$SCANNER_ROOT/providers" "$provider_source/source"
+if [ ! -f "$provider_archive" ]; then
+  curl --fail --location --silent --show-error \
+    "https://codeload.github.com/Knuckles-Team/pipelines/tar.gz/$PIPELINES_REV" \
+    --output "$provider_source/provider.tar.gz"
+  printf '%s  %s\n' "$PIPELINES_ARCHIVE_SHA256" "$provider_source/provider.tar.gz" | sha256sum --check >&2
+  mv "$provider_source/provider.tar.gz" "$provider_archive"
 fi
-test "$("$BIN/jscpd" --version)" = "cpd $JSCPD_VERSION"
+printf '%s  %s\n' "$PIPELINES_ARCHIVE_SHA256" "$provider_archive" | sha256sum --check >&2
+tar -xzf "$provider_archive" --strip-components=1 -C "$provider_source/source"
+jscpd_bin_dir="$(python3 "$provider_source/source/scripts/install_jscpd.py" --root "$SCANNER_ROOT/jscpd")"
+test "$("$jscpd_bin_dir/jscpd" --version)" = "cpd $JSCPD_VERSION"
+cat "$jscpd_bin_dir/jscpd.provenance.json" >&2
+sha256sum "$jscpd_bin_dir/jscpd" > "$SCANNER_ROOT/jscpd.sha256"
+cat "$SCANNER_ROOT/jscpd.sha256" >&2
 
 if [ -n "${GITHUB_ENV:-}" ]; then
   {
     echo "DUPEHOUND_BIN=$BIN/dupehound"
-    echo "JSCPD_BIN=$BIN/jscpd"
+    echo "JSCPD_BIN=$jscpd_bin_dir/jscpd"
   } >>"$GITHUB_ENV"
-  echo "$BIN" >>"$GITHUB_PATH"
+  printf '%s\n' "$BIN" "$jscpd_bin_dir" >>"$GITHUB_PATH"
 fi
 log "scanners ready in $BIN"

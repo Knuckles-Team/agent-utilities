@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-574 typed fields · 372 runtime-only call-site inputs.
+574 typed fields · 369 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -769,9 +769,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `AU_SEMANTIC_CACHE` | 1 |
 | `BACKSTAGE_FILE` | 1 |
 | `BAO_URL` | 1 |
-| `BINANCE_API_KEY` | 1 |
-| `BINANCE_SECRET` | 1 |
-| `BINANCE_SECRET_KEY` | 1 |
 | `BPMN_FILE` | 1 |
 | `BPM_PROVIDER` | 1 |
 | `BPM_TOKEN` | 1 |

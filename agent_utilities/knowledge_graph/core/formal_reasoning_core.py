@@ -44,38 +44,6 @@ Implements mathematically rigorous graph-theoretic operations derived from
 logger = logging.getLogger(__name__)
 
 
-def _build_rx_digraph(
-    nodes: list[str],
-    edges: list[tuple[str, str, dict[str, Any]]],
-) -> tuple[rx.PyDiGraph, dict[str, int], dict[int, str]]:
-    """Helper: build a rustworkx PyDiGraph from node/edge lists."""
-    g = rx.PyDiGraph()
-    n2i: dict[str, int] = {}
-    for n in nodes:
-        n2i[n] = g.add_node(n)
-    for src, tgt, data in edges:
-        if src in n2i and tgt in n2i:
-            g.add_edge(n2i[src], n2i[tgt], data)
-    i2n = {v: k for k, v in n2i.items()}
-    return g, n2i, i2n
-
-
-def _build_rx_graph(
-    nodes: list[str],
-    edges: list[tuple[str, str, dict[str, Any]]],
-) -> tuple[rx.PyGraph, dict[str, int], dict[int, str]]:
-    """Helper: build a rustworkx PyGraph (undirected) from node/edge lists."""
-    g = rx.PyGraph()
-    n2i: dict[str, int] = {}
-    for n in nodes:
-        n2i[n] = g.add_node(n)
-    for src, tgt, data in edges:
-        if src in n2i and tgt in n2i:
-            g.add_edge(n2i[src], n2i[tgt], data)
-    i2n = {v: k for k, v in n2i.items()}
-    return g, n2i, i2n
-
-
 def dag_critical_path(
     graph: rx.PyDiGraph,
     weight_attr: str = "weight",
@@ -1920,17 +1888,6 @@ def _cit_bfs_active_path(
 logger = logging.getLogger(__name__)
 
 
-def _rx_node_labels(graph: rx.PyDiGraph) -> list[str]:
-    """Extract node labels from a rx.PyDiGraph."""
-    labels: list[str] = []
-    for idx in graph.node_indices():
-        data = graph[idx]
-        labels.append(
-            data["id"] if isinstance(data, dict) and "id" in data else str(data)
-        )
-    return labels
-
-
 def _rx_node_map(graph: rx.PyDiGraph) -> dict[str, int]:
     """Build str→index map for a rx.PyDiGraph."""
     m: dict[str, int] = {}
@@ -2048,43 +2005,13 @@ def equivalence_classes(graph: rx.PyDiGraph) -> list[set[str]]:
 def _copy_pydigraph_nodes(graph: rx.PyDiGraph) -> tuple[rx.PyDiGraph, dict[int, int]]:
     """Helper: copy a PyDiGraph's nodes (no edges) into a fresh graph.
 
-    Returns (new_graph, old_index -> new_index map). Shared by
-    `transitive_closure` and `hasse_diagram`.
+    Returns (new_graph, old_index -> new_index map) for `hasse_diagram`.
     """
     new_graph = rx.PyDiGraph()
     idx_map: dict[int, int] = {}
     for old_idx in graph.node_indices():
         idx_map[old_idx] = new_graph.add_node(graph[old_idx])
     return new_graph, idx_map
-
-
-def _bfs_reachable(graph: rx.PyDiGraph, src_idx: int) -> set[int]:
-    """Helper: node indices reachable from src_idx via successor edges (BFS)."""
-    visited: set[int] = {src_idx}
-    queue = collections.deque([src_idx])
-    while queue:
-        cur = queue.popleft()
-        for succ in graph.successor_indices(cur):
-            if succ not in visited:
-                visited.add(succ)
-                queue.append(succ)
-    return visited
-
-
-def transitive_closure(graph: rx.PyDiGraph) -> rx.PyDiGraph:
-    """Compute the transitive closure of a relation."""
-    tc, idx_map = _copy_pydigraph_nodes(graph)
-    # For each node, BFS to find all reachable nodes
-    for src_idx in graph.node_indices():
-        reachable = _bfs_reachable(graph, src_idx)
-        # Add edges from src to all reachable (except self unless already exists)
-        for r in reachable:
-            if r != src_idx or graph.has_edge(src_idx, src_idx):
-                new_src = idx_map[src_idx]
-                new_tgt = idx_map[r]
-                if not tc.has_edge(new_src, new_tgt):
-                    tc.add_edge(new_src, new_tgt, None)
-    return tc
 
 
 def _hasse_has_alt_path(graph: rx.PyDiGraph, src_idx: int, succ: int) -> bool:

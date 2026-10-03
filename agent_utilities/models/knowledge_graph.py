@@ -1192,35 +1192,6 @@ class EvaluatorFeedbackNode(RegistryNode):
     feedback_text: str = ""
 
 
-class DeliberationNode(RegistryNode):
-    """A deliberation synthesis result from the sequential deliberation phase.
-
-    CONCEPT:AU-AHE.evaluation.backtest-harness — Heavy Thinking Orchestration
-
-    Represents the output of the deliberation agent that critically
-    analyzes multiple parallel trajectories and synthesizes a final
-    consensus answer.  Links to consumed trajectories via
-    ``DELIBERATED_BY`` edges and records agreement/disagreement via
-    ``AGREES_WITH`` / ``DISAGREES_WITH`` edges.
-
-    Attributes:
-        trajectories_analyzed: Number of trajectory nodes consumed.
-        consensus_answer: The final synthesized answer.
-        confidence: Deliberation confidence score (0.0–1.0).
-        critical_analysis: Free-text analysis of trajectory differences.
-        iteration: The refinement iteration that produced this node (0 = first pass).
-        model_id: The LLM model used for deliberation (may differ from thinkers).
-    """
-
-    type: RegistryNodeType = RegistryNodeType.DELIBERATION
-    trajectories_analyzed: int = 0
-    consensus_answer: str = ""
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
-    critical_analysis: str = ""
-    iteration: int = 0
-    model_id: str = ""
-
-
 class AgentNode(RegistryNode):
     """Represents a specialist agent in the registry."""
 
@@ -1351,26 +1322,12 @@ class RegistryGraphMetadata(BaseModel):
     version: str = "1.0.0"
 
 
-class SymbolMetadata(BaseModel):
-    name: str
-    type: str  # Class, Function, Method
-    line: int
-    docstring: str | None = None
-    args: list[str] = Field(default_factory=list)
-    return_type: str | None = None
-
-
 class PhaseResult(BaseModel):
     name: str
     duration_ms: float
     output: Any
     success: bool = True
     error: str | None = None
-
-
-class ResolutionContext(BaseModel):
-    file_map: dict[str, str] = Field(default_factory=dict)  # Name to ID
-    symbol_map: dict[str, str] = Field(default_factory=dict)  # Name to ID
 
 
 class PipelineConfig(BaseModel):
@@ -1470,62 +1427,10 @@ class ExternalGraphReferenceNode(RegistryNode):
     properties: dict[str, Any] = Field(default_factory=dict)
 
 
-class ClientNode(RegistryNode):
-    type: RegistryNodeType = RegistryNodeType.CLIENT
-
-
-class UserNode(RegistryNode):
-    type: RegistryNodeType = RegistryNodeType.USER
-    role: str = "user"
-
-
 class PreferenceNode(RegistryNode):
     type: RegistryNodeType = RegistryNodeType.PREFERENCE
     category: str
     value: str
-
-
-class JobNode(RegistryNode):
-    type: RegistryNodeType = RegistryNodeType.JOB
-    schedule: str
-    command: str
-
-
-class LogNode(RegistryNode):
-    type: RegistryNodeType = RegistryNodeType.LOG
-    timestamp: str
-    status: str
-    output: str
-
-
-class ThreadNode(RegistryNode):
-    type: RegistryNodeType = RegistryNodeType.THREAD
-    title: str
-    created_at: str
-
-
-class MessageNode(RegistryNode):
-    type: RegistryNodeType = RegistryNodeType.MESSAGE
-    role: str
-    content: str
-    timestamp: str
-
-
-class ChatSummaryNode(RegistryNode):
-    type: RegistryNodeType = RegistryNodeType.CHAT_SUMMARY
-    summary_text: str
-    key_entities: list[str] = Field(default_factory=list)
-    importance_score: float = 0.5
-    original_count: int = 0
-
-
-class HeartbeatNode(RegistryNode):
-    type: RegistryNodeType = RegistryNodeType.HEARTBEAT
-    agent_name: str
-    timestamp: str
-    status: str
-    issues: list[str] = Field(default_factory=list)
-    raw_data: str = ""
 
 
 # --- Enhanced Memory & Reasoning Nodes ---
@@ -1536,64 +1441,6 @@ class ReasoningTraceNode(RegistryNode):
     thought: str
     reflection: str | None = None
     confidence: float = 1.0
-
-
-class RunEventNode(RegistryNode):
-    """One typed, content-addressed run event (CONCEPT:AU-ORCH.runvcs.event-kernel).
-
-    ``record_id`` (the content digest) IS the event's identity; ``mode`` splits a
-    *declaration* (intent) from a *capture* (observed outcome) so a recorded exchange can
-    stand in for the model on deterministic replay. ``ordinal`` is the append position.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.RUN_EVENT
-    run_id: str = ""
-    schema_ref: str = ""
-    mode: str = "capture"
-    ordinal: int = 0
-    record_id: str = ""
-    payload_json: str = ""
-
-
-class RunCommitNode(RegistryNode):
-    """One content-addressed run commit (CONCEPT:AU-ORCH.runvcs.run-commit).
-
-    Binds a message checkpoint + an ``FsSnapshot`` + a ``RunCut`` (process/event frontier)
-    so a run's conversation, files, and effects revert together as one exact world.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.RUN_COMMIT
-    run_id: str = ""
-    commit_id: str = ""
-    checkpoint_id: str = ""
-    snapshot_id: str = ""
-    cut_ordinal: int = 0
-    parent_commit_id: str | None = None
-    label: str = ""
-
-
-class FsSnapshotNode(RegistryNode):
-    """A content-addressed CoW filesystem snapshot (CONCEPT:AU-ORCH.runvcs.run-commit)."""
-
-    type: RegistryNodeType = RegistryNodeType.FS_SNAPSHOT
-    snapshot_id: str = ""
-    file_count: int = 0
-    strategy: str = "blobstore"
-
-
-class RetainedRunProposalNode(RegistryNode):
-    """A run's world delta held for review (CONCEPT:AU-ORCH.runvcs.retained-output-gate).
-
-    Materialized into the real world only when the ``run.select`` action-policy gate accepts;
-    a discard leaves the world untouched and compensates any recorded KG edits.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.RETAINED_RUN_PROPOSAL
-    run_id: str = ""
-    commit_id: str = ""
-    edit_ids: list[str] = Field(default_factory=list)
-    materialized: bool = False
-    discarded: bool = False
 
 
 class TraceNode(RegistryNode):
@@ -2021,12 +1868,6 @@ class EpisodeNode(RegistryNode):
     tags: list[str] = Field(default_factory=list)
 
 
-class FactNode(RegistryNode):
-    type: RegistryNodeType = RegistryNodeType.FACT
-    content: str
-    certainty: float = 1.0
-
-
 class ConceptNode(RegistryNode):
     """Atomic knowledge unit (e.g. 'p53 gene', 'SN2 reaction')."""
 
@@ -2162,33 +2003,6 @@ class EvolutionEvidenceNode(RegistryNode):
     lineage: dict[str, Any] = Field(default_factory=dict)
 
 
-class VirtualContextBlockNode(RegistryNode):
-    """Tiered Virtual Context/Memory blocks.
-
-    CONCEPT:AU-KG.memory.tiered-memory-caching — Manages tiered memory caching for the graph, ranging
-    from 'working_memory' to 'episodic' to 'semantic'.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.VIRTUAL_CONTEXT_BLOCK
-    tier: str = "working_memory"  # working_memory, episodic, semantic
-    block_data: dict[str, Any] = Field(default_factory=dict)
-    ttl_seconds: int | None = None
-
-
-class QuietStarRationaleNode(RegistryNode):
-    """Quiet-STaR rationale persistence in the Knowledge Graph.
-
-    CONCEPT:AU-KG.memory.tiered-memory-caching — Captures the internal chain-of-thought rationale
-    used to arrive at decisions or plans, persistently stored for self-improvement.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.QUIET_STAR_RATIONALE
-    rationale: str
-    context_tokens: int = 0
-    decision_id: str | None = None
-    outcome_reward: float | None = None
-
-
 class PersonNode(RegistryNode):
     """Researchers, authors, or agents."""
 
@@ -2206,10 +2020,6 @@ class RelationshipNode(RegistryNode):
     entity1_id: str
     entity2_id: str
     facts: list[dict[str, Any]] = Field(default_factory=list)
-
-
-class CapabilityNode(RegistryNode):
-    type: RegistryNodeType = RegistryNodeType.CAPABILITY
 
 
 # --- Ecosystem Topology Nodes (CONCEPT:AU-ECO.messaging.native-backend-abstraction) ---
@@ -2247,31 +2057,6 @@ class EcosystemPackageNode(RegistryNode):
     is_mcp_server: bool = False
     is_skill_package: bool = False
     dependency_names: list[str] = Field(default_factory=list)
-
-
-class SynergyInsightNode(RegistryNode):
-    """A discovered cross-pillar synergy persisted in the KG.
-
-    CONCEPT:AU-KG.compute.cross-pillar-synergy — Cross-Pillar Synergy Engine
-
-    Attributes:
-        source_concept: Source concept ID (e.g., ``AHE-3.5``).
-        target_concept: Target concept ID (e.g., ``KG-2.0``).
-        relationship_type: The suggested or existing relationship.
-        confidence: Synergy confidence score (0.0–1.0).
-        rationale: Explanation of the synergy.
-        pillar_a: Primary pillar of the source concept.
-        pillar_b: Primary pillar of the target concept.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.SYNERGY_INSIGHT
-    source_concept: str = ""
-    target_concept: str = ""
-    relationship_type: str = ""
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
-    rationale: str = ""
-    pillar_a: str = ""
-    pillar_b: str = ""
 
 
 # --- Callable Resources & Agent Nodes ---
@@ -2524,16 +2309,6 @@ class ExperienceNode(RegistryNode):
     source_run_id: str | None = None
 
 
-class PatternTemplateNode(RegistryNode):
-    """Reusable code pattern or TDD cycle (Hoarding)."""
-
-    type: RegistryNodeType = RegistryNodeType.PATTERN_TEMPLATE
-    pattern_type: str  # tdd_cycle, code_snippet, architectural_pattern
-    content: str
-    success_rate: float = 1.0
-    tags: list[str] = Field(default_factory=list)
-
-
 # --- Knowledge Base Nodes ---
 
 
@@ -2685,29 +2460,6 @@ class PolicyNode(RegistryNode):
     created_at: str | None = None
     valid_from: str | None = None
     valid_to: str | None = None
-
-
-class ProcessFlowNode(RegistryNode):
-    type: RegistryNodeType = RegistryNodeType.PROCESS_FLOW
-    flow_id: str
-    goal: str
-    start_step: str
-    version: str = "1.0"
-    created_at: str | None = None
-
-
-class ProcessStepNode(RegistryNode):
-    type: RegistryNodeType = RegistryNodeType.PROCESS_STEP
-    step_id: str
-    step_type: str
-    tool: str | None = None
-    condition: str | None = None
-
-
-class KnowledgeBaseTopicNode(RegistryNode):
-    type: RegistryNodeType = RegistryNodeType.KNOWLEDGE_BASE_TOPIC
-    topic_id: str
-    source: str | None = None
 
 
 # --- KG V2: Human-memory-inspired Nodes (see docs/KG_V2_DESIGN.md §2) ---
@@ -2891,7 +2643,7 @@ class BeliefNode(RegistryNode):
     """A claim-with-confidence grounded in evidence.
 
     Collins & Quillian (1969) / ACT-R declarative-activation analogue.
-    Distinct from FactNode (timeless) because beliefs are *held*, can be
+    Distinct from timeless fact records because beliefs are *held*, can be
     *revised*, and have ``last_reviewed`` per ACT-R activation theory.
     See docs/KG_V2_DESIGN.md §2.2.8.
     """
@@ -3142,173 +2894,6 @@ class ActionNode(RegistryNode):
 # --- Standard Ontology Nodes (BFO, Schema.org, PROV-O, DC, FIBO) ---
 
 
-class DocumentNode(RegistryNode):
-    """A digital or physical document — Dublin Core aligned.
-
-    BFO:GenericallyDependentContinuant, mapped to schema:DigitalDocument
-    and bibo:Document. Properties align with Dublin Core Terms.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.DOCUMENT
-    title: str = Field(description="dc:title — document title")
-    creator: str | None = Field(
-        default=None, description="dc:creator — author or creator"
-    )
-    date: str | None = Field(
-        default=None, description="dc:date — creation or publication date"
-    )
-    subject: str | None = Field(
-        default=None, description="dc:subject — topic or subject"
-    )
-    identifier: str | None = Field(
-        default=None, description="dc:identifier — DOI, ISBN, URN, etc."
-    )
-    format: str | None = Field(default=None, description="dc:format — MIME type")
-    language: str | None = Field(
-        default=None, description="dc:language — language code"
-    )
-    content: str = ""
-    word_count: int = 0
-    tags: list[str] = Field(default_factory=list)
-
-
-class CreativeWorkNode(RegistryNode):
-    """A book, manual, SOP, or creative output — Schema.org aligned.
-
-    BFO:GenericallyDependentContinuant, mapped to schema:CreativeWork.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.CREATIVE_WORK
-    title: str
-    creator: str | None = None
-    date_published: str | None = None
-    genre: str | None = None
-    content: str = ""
-    tags: list[str] = Field(default_factory=list)
-
-
-class DatasetNode(RegistryNode):
-    """A data collection — Schema.org aligned.
-
-    BFO:GenericallyDependentContinuant, mapped to schema:Dataset.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.DATASET
-    distribution_url: str | None = None
-    temporal_coverage: str | None = Field(
-        default=None, description="Time period the dataset covers"
-    )
-    spatial_coverage: str | None = None
-    format: str | None = None
-    record_count: int | None = None
-    license: str | None = None
-
-
-class SoftwareProjectNode(RegistryNode):
-    """A software project or repository.
-
-    BFO:IndependentContinuant, aligned to schema:SoftwareSourceCode.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.SOFTWARE_PROJECT
-    repo_url: str | None = None
-    language: str | None = None
-    license: str | None = None
-    version: str | None = None
-    stars: int | None = None
-    tech_stack: list[str] = Field(default_factory=list)
-
-
-class MedicalEntityNode(RegistryNode):
-    """A medical concept, condition, or entity — stub for medical domain.
-
-    BFO:IndependentContinuant, aligned to schema:MedicalEntity.
-    Future extension point for SNOMED-CT, FHIR, etc.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.MEDICAL_ENTITY
-    entity_type: str = "generic"  # condition, procedure, drug, anatomy
-    icd_code: str | None = None
-    snomed_id: str | None = None
-
-
-class ProcedureNode(RegistryNode):
-    """An operational procedure or SOP — blue-collar/ops domain.
-
-    BFO:Process (occurrent), aligned to schema:HowTo.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.PROCEDURE
-    steps: list[str] = Field(default_factory=list)
-    required_tools: list[str] = Field(default_factory=list)
-    safety_notes: list[str] = Field(default_factory=list)
-    estimated_duration: str | None = None
-    category: str = "general"
-
-
-class RegulationNode(RegistryNode):
-    """A compliance or regulatory rule.
-
-    BFO:GenericallyDependentContinuant. Supports compliance tracking
-    across healthcare, finance, and technology domains.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.REGULATION
-    jurisdiction: str | None = None
-    effective_date: str | None = None
-    expiry_date: str | None = None
-    authority: str | None = None
-    regulation_type: str = "general"  # general, financial, healthcare, data_privacy
-    compliance_status: str = (
-        "unknown"  # compliant, non_compliant, under_review, unknown
-    )
-
-
-class FinancialInstrumentNode(RegistryNode):
-    """A financial instrument — FIBO aligned.
-
-    BFO:GenericallyDependentContinuant. Aligned to FIBO
-    FinancialInstrument for finance domain support.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.FINANCIAL_INSTRUMENT
-    instrument_type: str = "generic"  # stock, bond, derivative, fund, crypto
-    ticker: str | None = None
-    issuer: str | None = None
-    currency: str | None = None
-    isin: str | None = Field(
-        default=None, description="International Securities Identification Number"
-    )
-
-
-class FinancialTransactionNode(RegistryNode):
-    """A financial transaction event — FIBO aligned.
-
-    BFO:Process (occurrent). Represents a buy, sell, transfer, or settlement.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.FINANCIAL_TRANSACTION
-    transaction_type: str = "generic"  # buy, sell, transfer, settlement, dividend
-    amount: float | None = None
-    currency: str | None = None
-    counterparty: str | None = None
-    executed_at: str | None = None
-    status: str = "completed"  # pending, completed, failed, reversed
-
-
-class AccountNode(RegistryNode):
-    """A financial account — FIBO aligned.
-
-    BFO:GenericallyDependentContinuant.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.ACCOUNT
-    account_type: str = "generic"  # checking, savings, brokerage, custodial
-    institution: str | None = None
-    currency: str | None = None
-    status: str = "active"  # active, closed, frozen
-
-
 # --- Emergent Architecture Nodes (CONCEPT:AU-ORCH.execution.inject-signal-board-observations) ---
 
 
@@ -3441,34 +3026,6 @@ class PromptChainNode(RegistryNode):
     success_rate: float = 1.0
 
 
-class ResourceUsageNode(RegistryNode):
-    """Per-session resource consumption record.
-
-    CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Resource-Aware Optimization
-
-    Tracks token usage, cost, and latency per specialist per session.
-    Historical data feeds into the MemoryRetriever for trend analysis and
-    the OWL reasoner for model selection optimization.
-
-    BFO:Process (occurrent), aligned to :ResourceUsage.
-    See docs/pillars/architecture_c4.md §CONCEPT:AU-OS.state.cognitive-scheduler-preemption
-    """
-
-    type: RegistryNodeType = RegistryNodeType.RESOURCE_USAGE
-    session_id: str = Field(description="Session that generated this record")
-    specialist_id: str | None = Field(
-        default=None, description="Specialist that consumed resources"
-    )
-    tokens_input: int = 0
-    tokens_output: int = 0
-    cost_usd: float = 0.0
-    latency_ms: float = 0.0
-    model_id: str | None = None
-    model_tier: str | None = None
-    budget_allocated: float = 0.0
-    budget_remaining: float = 0.0
-
-
 class EvaluationRecordNode(RegistryNode):
     """Multi-dimensional evaluation of an agent response.
 
@@ -3505,41 +3062,6 @@ class EvaluationRecordNode(RegistryNode):
     schema_pack: str | None = None
 
 
-class WorkItemPriorityNode(RegistryNode):
-    """A lifecycle-neutral multi-factor priority assessment for a WorkItem.
-
-    CONCEPT:AU-ORCH.planning.recursion-nesting-depth — Task Prioritization
-
-    Extends the basic SDD task model with urgency, impact, effort, and risk
-    dimensions. Supports dynamic re-prioritization, priority inheritance
-    from blocking tasks, and capability-based specialist assignment.
-
-    BFO:Process (occurrent), aligned to :Action.
-    See docs/pillars/architecture_c4.md §CONCEPT:AU-ORCH.planning.recursion-nesting-depth
-    """
-
-    type: RegistryNodeType = RegistryNodeType.WORK_ITEM_PRIORITY
-    work_item_id: str = Field(description="Stable WorkItem identifier")
-    urgency: float = Field(default=0.5, ge=0.0, le=1.0)
-    impact: float = Field(default=0.5, ge=0.0, le=1.0)
-    effort: float = Field(
-        default=0.5,
-        ge=0.0,
-        le=1.0,
-        description="Estimated complexity (0=trivial, 1=massive)",
-    )
-    risk: float = Field(
-        default=0.5,
-        ge=0.0,
-        le=1.0,
-        description="Failure probability",
-    )
-    composite_priority: float = Field(default=0.0, ge=0.0, le=1.0)
-    assigned_specialist: str | None = None
-    blocking_work_item_ids: list[str] = Field(default_factory=list)
-    blocked_by_work_item_ids: list[str] = Field(default_factory=list)
-
-
 class KnowledgeGapNode(RegistryNode):
     """An identified gap in the agent's knowledge.
 
@@ -3565,36 +3087,6 @@ class KnowledgeGapNode(RegistryNode):
     status: str = "identified"  # identified, exploring, filled, deferred
     hypothesis_ids: list[str] = Field(default_factory=list)
     discovered_fact_ids: list[str] = Field(default_factory=list)
-
-
-class ExplorationExperimentNode(RegistryNode):
-    """A structured experiment to explore a hypothesis.
-
-    CONCEPT:AU-AHE.harness.exploration-discovery — Exploration & Discovery
-
-    Represents an experiment designed to test a hypothesis, including
-    design, variables, success criteria, and results. Supports
-    multi-reviewer evaluation with structured scoring.
-
-    BFO:Process (occurrent), aligned to :Procedure.
-    See docs/pillars/architecture_c4.md §CONCEPT:AU-AHE.harness.exploration-discovery
-    """
-
-    type: RegistryNodeType = RegistryNodeType.EXPLORATION_EXPERIMENT
-    experiment_id: str = Field(description="Stable experiment identifier")
-    hypothesis_id: str = Field(description="HypothesisNode ID being tested")
-    design: str = Field(description="Natural language experiment description")
-    variables: dict[str, str] = Field(
-        default_factory=dict,
-        description="Variable name -> description mapping",
-    )
-    success_criteria: str = ""
-    results: str | None = None
-    review_scores: dict[str, float] = Field(
-        default_factory=dict,
-        description="Reviewer name -> score mapping",
-    )
-    status: str = "designed"  # designed, running, completed, failed
 
 
 # --- First-Principles Architecture Nodes (CONCEPT:AU-AHE.evaluation.interpretability-tests) ---
@@ -4647,68 +4139,6 @@ class AgentPolicyDecisionNode(RegistryNode):
         )
 
 
-class AgentDigitalTwinNode(RegistryNode):
-    """A durable, queryable projection of one agent run (Codex X-8).
-
-    NOT a new provenance store: an ``AgentDigitalTwin`` never duplicates the
-    properties of the ``RunTrace``/``:ToolCall``/``WorkItem``/
-    ``AgentPolicyDecision`` nodes it describes — it references their ids
-    (``work_item_ids``/``tool_call_ids``/``decision_ids``) and adds exactly
-    the one thing none of them carry: the exact version pins (model/prompt/
-    tool/skill/policy/catalog-epoch) the run executed under, so a stored
-    twin can be deterministically replayed later against a historical KG
-    snapshot. See :mod:`agent_utilities.orchestration.agent_digital_twin`
-    for the capture/replay machinery (``VersionPins``, ``capture_twin``,
-    ``replay_twin``, ``counterfactual_replay``).
-
-    Linked ``(:AgentDigitalTwin)-[:TWIN_OF]->(:RunTrace)`` to the run it
-    twins, and ``(:AgentDigitalTwin)-[:REFERENCES]->`` each ``WorkItem``/
-    ``ToolCall``/``ActionDecision`` node in its run graph.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.AGENT_DIGITAL_TWIN
-    run_id: str = Field(
-        default="", description="The RunTrace/run id this twin projects"
-    )
-    agent_name: str = Field(
-        default="", description="Agent identity that executed the run"
-    )
-    task: str = Field(default="", description="The task/goal text the run pursued")
-    versions_digest: str = Field(
-        default="",
-        description="VersionPins.digest() — a single content digest of every version pin",
-    )
-    versions_json: str = Field(
-        default="",
-        description="Full VersionPins, JSON-serialized (content-addressed by versions_digest)",
-    )
-    budget: dict[str, Any] = Field(
-        default_factory=dict,
-        description="The run's WorkItem.budget (e.g. token/cost/time caps)",
-    )
-    work_item_ids: list[str] = Field(
-        default_factory=list, description="WorkItem ids forming this run's DAG"
-    )
-    tool_call_ids: list[str] = Field(
-        default_factory=list, description="ToolCall node ids this run made"
-    )
-    decision_ids: list[str] = Field(
-        default_factory=list,
-        description="AgentPolicyDecision (ActionDecision) audit ids this run produced",
-    )
-    outcome: str = Field(
-        default="",
-        description="Terminal outcome: succeeded | failed | cancelled | dead_letter",
-    )
-    event_count: int = Field(
-        default=0,
-        description="Number of run-VCS events (runtime.run_vcs.kernel.RunEvent) captured",
-    )
-    created_at: float = Field(
-        default=0.0, description="Unix timestamp the twin was captured"
-    )
-
-
 class HostNode(RegistryNode):
     """A remote host in the Agent OS infrastructure.
 
@@ -4790,58 +4220,6 @@ class HostNode(RegistryNode):
     health_status: str = Field(
         default="unknown",
         description="Current health: healthy, degraded, unreachable",
-    )
-
-
-class InfrastructureTemplateNode(RegistryNode):
-    """A deployable infrastructure blueprint.
-
-    References existing compose files from agent repos — does NOT
-    duplicate them.  Used by ``container-manager-mcp`` to scaffold
-    dependencies on-demand (databases, search engines, observability).
-
-    Attributes:
-        compose_ref: Path to compose file relative to workspace root.
-        services: Service names defined in the compose file.
-        required_env: Environment variables that must be set before deploy.
-        optional_env: Optional env vars with defaults.
-        depends_on_templates: Other templates that must be deployed first.
-        profile: Deployment profile (standalone, traefik, swarm).
-        tags: Searchable tags.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.INFRASTRUCTURE_TEMPLATE
-
-    compose_ref: str = Field(
-        default="",
-        description="Compose file path relative to workspace (e.g. agents/langfuse-agent/compose.yml)",
-    )
-    services: list[str] = Field(
-        default_factory=list,
-        description="Service names in the compose file",
-    )
-    required_env: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Required canonical runtime settings or secret references "
-            "(for example LANGFUSE_HOST and LANGFUSE_PUBLIC_KEY_REF)"
-        ),
-    )
-    optional_env: dict[str, str] = Field(
-        default_factory=dict,
-        description="Optional env vars with defaults (e.g. PORT=9001)",
-    )
-    depends_on_templates: list[str] = Field(
-        default_factory=list,
-        description="Templates that must be deployed first (e.g. postgres)",
-    )
-    profile: str = Field(
-        default="standalone",
-        description="Deployment profile: standalone, traefik, swarm",
-    )
-    tags: list[str] = Field(
-        default_factory=list,
-        description="Searchable tags (e.g. observability, os_service)",
     )
 
 
@@ -5121,92 +4499,6 @@ class DataFetchRecordNode(RegistryNode):
 
 
 # --- Swarm Preset Template Nodes (CONCEPT:AU-ORCH.adapter.kg-graph-materialization) ---
-
-
-class SwarmPresetNode(RegistryNode):
-    """A declarative multi-agent workflow preset stored in the KG.
-
-    CONCEPT:AU-ORCH.adapter.kg-graph-materialization — Swarm Preset Template Engine
-
-    Represents a reusable DAG-based swarm configuration with agent
-    specifications, task dependencies, and template variables.
-    Links to ``TeamConfigNode`` via ``PRESET_OF`` for evolutionary
-    recommendation.
-
-    Attributes:
-        preset_name: Unique preset identifier (e.g., 'investment_committee').
-        agent_specs: List of agent role specifications (id, role, tools).
-        task_graph: DAG of task definitions with dependency edges.
-        variables: Template variables available for substitution.
-        success_count: Number of successful executions.
-        total_runs: Total number of executions.
-        avg_duration_seconds: Average run duration.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.SWARM_PRESET
-    preset_name: str = ""
-    agent_specs: list[dict[str, Any]] = Field(default_factory=list)
-    task_graph: list[dict[str, Any]] = Field(default_factory=list)
-    variables: dict[str, str] = Field(default_factory=dict)
-    success_count: int = 0
-    total_runs: int = 0
-    avg_duration_seconds: float = 0.0
-
-
-class SwarmRunNode(RegistryNode):
-    """Execution record of a swarm preset run.
-
-    CONCEPT:AU-ORCH.adapter.kg-graph-materialization — Swarm Preset Template Engine
-
-    Links to the originating ``SwarmPresetNode`` via ``RAN_PRESET``.
-
-    Attributes:
-        preset_id: Reference to the preset that was executed.
-        status: Run status (pending, running, completed, failed, cancelled).
-        user_vars: User-provided variable substitutions.
-        total_input_tokens: Cumulative input tokens.
-        total_output_tokens: Cumulative output tokens.
-        duration_seconds: Total run duration.
-        task_count: Number of tasks in the run.
-        started_at: ISO start timestamp.
-        completed_at: ISO completion timestamp.
-        final_report: Aggregated output summary.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.SWARM_RUN
-    preset_id: str = ""
-    status: str = "pending"  # pending, running, completed, failed, cancelled
-    user_vars: dict[str, str] = Field(default_factory=dict)
-    total_input_tokens: int = 0
-    total_output_tokens: int = 0
-    duration_seconds: float = 0.0
-    task_count: int = 0
-    started_at: str | None = None
-    completed_at: str | None = None
-    final_report: str | None = None
-
-
-class SwarmTaskRecordNode(RegistryNode):
-    """Individual task execution record within a swarm run.
-
-    CONCEPT:AU-ORCH.adapter.kg-graph-materialization — Swarm Preset Template Engine
-
-    Attributes:
-        task_id: Task identifier within the preset DAG.
-        agent_id: Agent that executed this task.
-        status: Task status (pending, in_progress, completed, failed).
-        summary: Output summary from the task.
-        depends_on: Upstream task IDs in the DAG.
-        duration_seconds: Task execution duration.
-    """
-
-    type: RegistryNodeType = RegistryNodeType.SWARM_TASK_RECORD
-    task_id: str = ""
-    agent_id: str = ""
-    status: str = "pending"
-    summary: str = ""
-    depends_on: list[str] = Field(default_factory=list)
-    duration_seconds: float = 0.0
 
 
 # --- Risk Scoring Nodes (CONCEPT:AU-KG.research.research-pipeline-runner) ---
