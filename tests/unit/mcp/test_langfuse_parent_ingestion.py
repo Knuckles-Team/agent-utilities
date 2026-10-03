@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -149,7 +150,21 @@ def test_parent_ingestion_uses_verified_write_session(monkeypatch) -> None:
     assert calls == [("trace_list", {"data": [{"id": "synthetic-trace"}]})]
 
 
-def test_parent_ingestion_live_writer_uses_change_envelope(monkeypatch) -> None:
+@pytest.fixture
+def isolated_ingest_session(monkeypatch) -> GraphSession:
+    """Give the fresh fake client matching OCC state; restore the prior scope."""
+    import agent_utilities.knowledge_graph.ingestion.envelope_ingest as envelope_ingest
+
+    session = _session("kg:write")
+    scope = (str(session.tenant), str(session.graph))
+    monkeypatch.setitem(envelope_ingest._NATIVE_GRAPH_VERSIONS, scope, 0)
+    monkeypatch.setitem(envelope_ingest._NATIVE_LOCKS, scope, threading.RLock())
+    return session
+
+
+def test_parent_ingestion_live_writer_uses_change_envelope(
+    monkeypatch, isolated_ingest_session: GraphSession
+) -> None:
     import agent_utilities.knowledge_graph.ingestion.envelope_ingest as envelope_ingest
     import agent_utilities.knowledge_graph.memory.native_ingest as native_ingest
 
@@ -203,7 +218,7 @@ def test_parent_ingestion_live_writer_uses_change_envelope(monkeypatch) -> None:
         content=[],
     )
 
-    with use_session(_session("kg:write")):
+    with use_session(isolated_ingest_session):
         for _delivery in range(2):
             _mediate_langfuse_kg_ingestion(
                 child_config=_config(),
