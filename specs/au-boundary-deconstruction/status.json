@@ -495,8 +495,23 @@
     {
       "id": "AU-BOUNDARY-R048",
       "title": "Domain models, shapes, assets and skill content are placed",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "49b087cb97e4bbab87eb4527c3c088d526129142",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/49b087cb97e4bbab87eb4527c3c088d526129142",
+          "description": "Source cut: skill directories deleted, coverage.md rows resolved, zero undecided rows. Published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "4f1f26c10fec5ae50d805300f73b1034943f4006",
+          "url": "https://github.com/Knuckles-Team/graph-os/commit/4f1f26c10fec5ae50d805300f73b1034943f4006",
+          "description": "Destination: moved/merged skill content received into graph_os/skills/. Published on a branch in the graph-os repository; not yet merged to its default branch."
+        }
+      ]
     }
   ]
 }
