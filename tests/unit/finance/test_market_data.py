@@ -9,50 +9,46 @@ pytest.importorskip("epistemic_graph.numeric")
 from agent_utilities.domains.finance.market_data import (
     DataFetchResult,
     DataRegistry,
-    SyntheticProvider,
     normalize_ohlcv,
 )
 
 
-class TestSyntheticProvider:
-    def test_basic_fetch(self):
-        provider = SyntheticProvider()
-        df = provider.fetch("SYNTH", n_bars=100)
-        assert len(df) == 100
-        assert set(df.columns) == {"Open", "High", "Low", "Close", "Volume"}
+class _FakeOHLCVProvider:
+    """A deterministic, in-memory provider for exercising ``DataRegistry``'s
+    fallback-chain mechanics without a real (or fabricated) market feed. This
+    test double stays under ``tests/`` rather than in the production
+    market-data module."""
 
-    def test_all_values_positive(self):
-        provider = SyntheticProvider()
-        df = provider.fetch("SYNTH", n_bars=50)
-        assert (df > 0).all().all()
+    def __init__(self, name: str = "fake", n_bars: int = 10):
+        self._name = name
+        self._n_bars = n_bars
 
-    def test_high_above_low(self):
-        provider = SyntheticProvider()
-        df = provider.fetch("SYNTH", n_bars=100)
-        assert (df["High"] >= df["Low"]).all()
+    @property
+    def name(self) -> str:
+        return self._name
 
-    def test_deterministic_with_seed(self):
-        p1 = SyntheticProvider()
-        p2 = SyntheticProvider()
-        df1 = p1.fetch("X", n_bars=50, seed=123)
-        df2 = p2.fetch("X", n_bars=50, seed=123)
-        pd.testing.assert_frame_equal(df1, df2)
+    def supports(self, symbol: str) -> bool:
+        return True
 
-    def test_supports_all_symbols(self):
-        provider = SyntheticProvider()
-        assert provider.supports("AAPL") is True
-        assert provider.supports("ANYTHING") is True
-
-    def test_name(self):
-        assert SyntheticProvider().name == "synthetic"
+    def fetch(self, symbol, **kwargs) -> pd.DataFrame:
+        n = kwargs.get("n_bars", self._n_bars)
+        return pd.DataFrame(
+            {
+                "Open": [100.0] * n,
+                "High": [101.0] * n,
+                "Low": [99.0] * n,
+                "Close": [100.5] * n,
+                "Volume": [1000.0] * n,
+            }
+        )
 
 
 class TestDataRegistry:
-    def test_synthetic_fallback(self):
-        registry = DataRegistry(providers=[SyntheticProvider()])
-        result = registry.fetch("SYNTH")
+    def test_fallback_provider_result(self):
+        registry = DataRegistry(providers=[_FakeOHLCVProvider()])
+        result = registry.fetch("TEST")
         assert isinstance(result, DataFetchResult)
-        assert result.provider == "synthetic"
+        assert result.provider == "fake"
         assert result.row_count > 0
 
     def test_fallback_chain(self):
@@ -69,9 +65,9 @@ class TestDataRegistry:
             def fetch(self, symbol, **kwargs):
                 raise ConnectionError("Simulated failure")
 
-        registry = DataRegistry(providers=[FailingProvider(), SyntheticProvider()])
+        registry = DataRegistry(providers=[FailingProvider(), _FakeOHLCVProvider()])
         result = registry.fetch("TEST")
-        assert result.provider == "synthetic"
+        assert result.provider == "fake"
         assert any("failing" in w for w in result.warnings)
 
     def test_all_providers_fail(self):
@@ -92,17 +88,17 @@ class TestDataRegistry:
         assert result.row_count == 0
 
     def test_provider_names(self):
-        registry = DataRegistry(providers=[SyntheticProvider()])
-        assert "synthetic" in registry.provider_names
+        registry = DataRegistry(providers=[_FakeOHLCVProvider()])
+        assert "fake" in registry.provider_names
 
     def test_add_provider(self):
         registry = DataRegistry(providers=[])
-        registry.add_provider(SyntheticProvider())
+        registry.add_provider(_FakeOHLCVProvider())
         assert len(registry.provider_names) == 1
 
     def test_fetched_at_populated(self):
-        registry = DataRegistry(providers=[SyntheticProvider()])
-        result = registry.fetch("SYNTH")
+        registry = DataRegistry(providers=[_FakeOHLCVProvider()])
+        result = registry.fetch("TEST")
         assert result.fetched_at != ""
 
 

@@ -142,7 +142,6 @@ _SYMBOL_MODULES: dict[str, str] = {
     "SwarmConsensus": "trading_swarm",
     "SwarmDecision": "trading_swarm",
     "SwarmRole": "trading_swarm",
-    "SyntheticProvider": "market_data",
     "TDXExporter": "strategy_export",
     "Tick": "market_feeds",
     "TickAggregator": "market_feeds",
@@ -288,7 +287,6 @@ __all__ = [
     # Market Data (KG-2.6)
     "MarketDataProvider",
     "YFinanceProvider",
-    "SyntheticProvider",
     "DataRegistry",
     "DataFetchResult",
     "normalize_ohlcv",

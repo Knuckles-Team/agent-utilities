@@ -5,15 +5,20 @@ Provides a protocol-based data provider system with auto-fallback chains,
 OHLCV normalization, and KG data provenance tracking.
 
 Sources: Qlib Data Server, Vibe-Trading Data Sources
+
+Every provider in the default chain either returns real market data fetched
+from its upstream source or raises/returns empty so the registry can fall
+through to the next provider. A synthetic (GBM-generated) provider and a
+prediction-market provider that silently substituted synthetic data for real
+quotes previously lived here; both were removed because they returned
+fabricated prices under the same ``DataFetchResult`` shape as genuine market
+data, with no caller-visible signal beyond the ``provider`` field.
 """
 
 import logging
-import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Protocol, runtime_checkable
-
-from agent_utilities.numeric import xp
 
 try:
     import pandas as pd
@@ -207,101 +212,6 @@ class CryptoProvider:
             return pd.DataFrame()
 
 
-class PredictionMarketProvider:
-    """
-    Polymarket/Kalshi provider for prediction market probability data.
-    Maps prediction odds to 'price' and liquidity to 'volume'.
-    """
-
-    @property
-    def name(self) -> str:
-        return "prediction_market"
-
-    def supports(self, symbol: str) -> bool:
-        """Prediction markets use specific question IDs or prefixes."""
-        return symbol.startswith("POLY:") or symbol.startswith("KALSHI:")
-
-    def fetch(
-        self, symbol: str, period: str = "1y", interval: str = "1d"
-    ) -> pd.DataFrame:
-        # Provider API mapping for prediction market (requires Py-Polymarket or Kalshi SDK)
-        # Returns synthetic probability data for now to satisfy the abstraction
-        logger.info(f"Using synthetic prediction market data for {symbol}")
-        provider = SyntheticProvider()
-        df = provider.fetch(
-            symbol=symbol,
-            period=period,
-            interval=interval,
-            initial_price=0.5,
-            volatility=0.05,
-        )
-        # Bound between 0 and 1 (0% to 100% probability)
-        for col in ["Open", "High", "Low", "Close"]:
-            df[col] = df[col].clip(0.01, 0.99)
-        return df
-
-
-class SyntheticProvider:
-    """
-    Synthetic data provider for testing — generates realistic OHLCV data
-    using geometric Brownian motion.
-    """
-
-    @property
-    def name(self) -> str:
-        return "synthetic"
-
-    def supports(self, symbol: str) -> bool:
-        return True
-
-    def fetch(
-        self,
-        symbol: str = "SYNTH",
-        period: str = "1y",
-        interval: str = "1d",
-        n_bars: int = 252,
-        initial_price: float = 100.0,
-        volatility: float = 0.02,
-        seed: int = 42,
-    ) -> pd.DataFrame:
-        """Generate synthetic OHLCV data using GBM."""
-        rng = xp.random.default_rng(seed)
-
-        dates = pd.bdate_range(end=datetime.now(), periods=n_bars)
-        returns = rng.normal(0.0005, volatility, n_bars)
-        close: list[float] = []
-        current = float(initial_price)
-        for change in returns:
-            current *= math.exp(float(change))
-            close.append(current)
-        high = [
-            price * (1.0 + float(offset))
-            for price, offset in zip(close, rng.uniform(0.0, 0.02, n_bars), strict=True)
-        ]
-        low = [
-            price * (1.0 - float(offset))
-            for price, offset in zip(close, rng.uniform(0.0, 0.02, n_bars), strict=True)
-        ]
-        open_price = [
-            price * (1.0 + float(offset))
-            for price, offset in zip(close, rng.normal(0.0, 0.005, n_bars), strict=True)
-        ]
-        volume = [float(value) for value in rng.integers(100_000, 10_000_000, n_bars)]
-
-        df = pd.DataFrame(
-            {
-                "Open": open_price,
-                "High": high,
-                "Low": low,
-                "Close": close,
-                "Volume": volume,
-            },
-            index=dates,
-        )
-
-        return df
-
-
 class DataRegistry:
     """
     Auto-fallback data registry — tries providers in priority order
@@ -312,13 +222,14 @@ class DataRegistry:
         if providers is not None:
             self._providers = providers
         else:
-            # Default chain: yfinance → akshare → crypto → synthetic
+            # Default chain: yfinance → akshare → crypto. Each provider either
+            # returns real market data or raises/returns empty — none of them
+            # fabricates a result (see CONCEPT note below on the retired
+            # synthetic/prediction-market providers).
             self._providers = [
                 YFinanceProvider(),
                 AKShareProvider(),
                 CryptoProvider(),
-                PredictionMarketProvider(),
-                SyntheticProvider(),
             ]
 
     def add_provider(self, provider, priority: int | None = None):
