@@ -158,18 +158,6 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
                 "that pushes to a Docker registry via DOCKER_* secrets. Publishing "
                 "must never happen from a local pre-push hook."
             ),
-            "engine-installed-tests": (
-                "downloads a frozen epistemic-graph wheel build artifact from a "
-                "DIFFERENT GitHub repository via the Actions API (gh run download / "
-                "the REST artifact zip endpoint), which needs a GITHUB_TOKEN with "
-                "cross-repo Actions read access this local hook does not have and "
-                "must not acquire. Report-only and release-non-blocking by design "
-                "(see the job's own comment in release.yml) — it is not part of the "
-                "release-critical chain this replica exists to mirror. Run its "
-                "pytest step by hand (`python3 -m pytest -q -m engine`) against a "
-                "real locally-installed epistemic-graph[full] if you need a local "
-                "proxy."
-            ),
         },
     ),
     "advisory.yml": WorkflowSpec(
