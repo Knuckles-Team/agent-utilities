@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from scripts.release import check_loadgen_assets, render_loadgen_assets
 from scripts.scale.loadgen_source_authority import source_authority_digest
@@ -110,3 +111,38 @@ def test_rendered_bundle_is_deterministic_and_has_explicit_mock_boundary(
             (first / "source-registration.json").read_text(encoding="utf-8")
         )["commands"]["mock"]
     )
+
+
+@pytest.mark.parametrize("mode", ["production", "mock"])
+@pytest.mark.parametrize("mutation", ["missing", "wrong", "optional", "pod-only"])
+def test_kubernetes_contract_reference_fails_closed(
+    tmp_path: Path, mode: str, mutation: str
+) -> None:
+    output = tmp_path / "rendered"
+    render_loadgen_assets.render(output_dir=output, inputs=_inputs())
+    metadata = json.loads((output / "source-registration.json").read_text())
+    path = output / mode / "k8s/loadgen.yaml"
+    checker = getattr(check_loadgen_assets, f"_{mode}_kubernetes")
+    checker(path, metadata)
+
+    documents = list(yaml.safe_load_all(path.read_text()))
+    job = next(document for document in documents if document["kind"] == "Job")
+    pod = job["spec"]["template"]["spec"]
+    container = pod["containers"][0]
+    reference = container.pop("envFrom")
+    if mutation == "pod-only":
+        pod["envFrom"] = reference
+    elif mutation != "missing":
+        changes = {
+            "wrong": {"name": "synthetic-wrong-contract"},
+            "optional": {"optional": True},
+        }
+        reference[0]["configMapRef"].update(changes[mutation])
+        container["envFrom"] = reference
+    path.write_text(yaml.safe_dump_all(documents, sort_keys=False))
+
+    with pytest.raises(
+        check_loadgen_assets.LoadgenAssetError,
+        match=f"{mode} Kubernetes contract reference is not exact",
+    ):
+        checker(path, metadata)

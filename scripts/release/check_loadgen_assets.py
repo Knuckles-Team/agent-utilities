@@ -317,7 +317,7 @@ def _production_kubernetes(path: Path, metadata: dict[str, Any]) -> None:
         raise LoadgenAssetError("production Kubernetes certification label is absent")
     if pod.get("serviceAccountName") != "graphos-certification-load":
         raise LoadgenAssetError("production Kubernetes workload identity is absent")
-    if pod.get("envFrom") != [
+    if container.get("envFrom") != [
         {
             "configMapRef": {
                 "name": "graphos-loadgen-contract",
@@ -497,7 +497,7 @@ def _mock_kubernetes(path: Path, metadata: dict[str, Any]) -> None:
         raise LoadgenAssetError("mock Kubernetes must not carry live SecretRefs")
     if container.get("env"):
         raise LoadgenAssetError("mock Kubernetes must not carry runtime environment")
-    if pod.get("envFrom") != [
+    if container.get("envFrom") != [
         {
             "configMapRef": {
                 "name": "graphos-loadgen-mock-contract",
