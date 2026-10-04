@@ -97,7 +97,7 @@ graph TD
 | **Conversation Checkpoints** | Full conversation snapshots (checkpoints) at tool/turn boundaries. | Persisted as `CheckpointNode` evidence for runtime-owned restoration. |
 | **Agent Teams** | Shared work management and P2P messaging across agent groups. | Persists `TeamNode` and authoritative `WorkItem` relationships. |
 | **Governance** | Policies and guardrails discovered from the graph during planning. | `PolicyNode` linked to topics and agents. |
-| **Process Flows** | Standard Operating Procedures (SOPs) fetched and executed dynamically. | `ProcessFlowNode` and `ProcessStepNode` sequences. |
+| **Process Flows** | Standard Operating Procedures (SOPs) fetched and executed dynamically. | `ProcessFlow` and `ProcessStep` graph records defined in `models/schema_definition.py`. |
 | **Output Styles** | Dynamic response style discovery (concise, formal, etc.) via KB. | Styles are stored as `Article` nodes in `kb:output-styles`. |
 
 ## Agent coordination and editor ACP

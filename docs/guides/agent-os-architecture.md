@@ -113,7 +113,7 @@ Pure Python library. Owns all models, logic, graph orchestration, and KG. **Neve
 | Registry logic + default catalog | `core/registry/package_adapter.py` (`AgentRegistry`) + `core/default_catalog.py` | CONCEPT:AU-OS.state.cognitive-scheduler-preemption |
 | File watcher | `automation/file_watcher.py` | CONCEPT:AU-OS.safety.doom-loop-detection |
 | Maintenance cron | `automation/maintenance_cron.py` | CONCEPT:AU-OS.state.cognitive-scheduler-preemption |
-| KG models (incl. HostNode, InfrastructureTemplateNode) | `models/knowledge_graph.py` | CONCEPT:AU-KG.query.object-graph-mapper |
+| KG models (including HostNode) | `models/knowledge_graph.py` | CONCEPT:AU-KG.query.object-graph-mapper |
 | Tool guard | `security/tool_guard.py` | CONCEPT:AU-ORCH.execution.inject-signal-board-observations |
 | Self-model + ACO | `knowledge_graph/retrieval/memory_retriever.py` | CONCEPT:AU-KG.memory.tiered-memory-caching |
 
@@ -194,13 +194,13 @@ HostNode(
 1. **container-manager-mcp** queries KG for `node_type=host AND docker_host=true`, targets `docker_endpoint` per-operation
 2. **tunnel-manager** queries KG for any `HostNode`, resolves `credential_ref` via Secret Engine, connects via SSH
 3. **systems-manager** health checks poll `HostNode.last_seen` and update `health_status`
-4. **Infrastructure Templates** deploy to a specific host by targeting its `docker_endpoint`
+4. **Infrastructure Templates** are a proposed deployment flow targeting a host’s `docker_endpoint`; the automatic template lookup described below is not implemented by an AU DTO.
 
 ---
 
-## Infrastructure Templates
+## Planned Infrastructure Templates
 
-Every agent package ships a `compose.yml`. These become **Infrastructure Templates** — blueprints that `container-manager-mcp` can reference to scaffold dependencies on-demand.
+The following design proposes indexing package `compose.yml` files as deployment blueprints for `container-manager-mcp`. The retired, unused `InfrastructureTemplateNode` scaffold did not implement discovery or deployment. Automatic template resolution remains undelivered; this sequence describes the intended workflow.
 
 ```mermaid
 sequenceDiagram
@@ -210,7 +210,7 @@ sequenceDiagram
     participant CM as container-manager-mcp
 
     A->>GR: "I need langfuse for tracing"
-    GR->>KG: Lookup InfrastructureTemplateNode("langfuse")
+    GR->>KG: Proposed template lookup for langfuse
     KG-->>GR: Template found (compose_ref, required_env, deps)
     GR->>CM: compose_up("agents/langfuse-agent/compose.yml")
     CM->>CM: Resolve env from Secret Engine
@@ -221,7 +221,7 @@ sequenceDiagram
 ### Template Resolution
 
 ```
-Agent needs langfuse → KG lookup → InfrastructureTemplateNode found
+Proposed: agent needs langfuse → KG lookup → template record found
   → Check deps: needs postgres? → Deploy postgres template first
   → Resolve env: secret://langfuse/token → Secret Engine
   → Pick target host: KG query docker_host=true
