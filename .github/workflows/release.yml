@@ -1,57 +1,12 @@
 name: Release
 
-# ─────────────────────────────────────────────────────────────────────────
-# THE TWO-WORKFLOW MODEL (read this before adding a check to either file)
-#
-# This repo ships exactly two GitHub Actions workflows:
-#
-#   release.yml (THIS FILE)  — the ONLY workflow that can block a release.
-#     Five release-critical jobs, wired strictly `needs:` so a failure names
-#     its stage at a glance: clone-scanners + gates + engine-release-order ->
-#     build -> numeric-runtime-gate -> publish-pypi -> publish-docker. The
-#     scanner job provisions the pinned native clone gates against an
-#     immutable PR/push SHA range; it is part of the release contract, not a
-#     report-only check. `engine-release-order` runs independently of
-#     `gates` (no `needs:` between them) specifically so a red cross-repo
-#     release-order check never prevents `gates`' test suite from running
-#     and giving a pull request real test evidence; only `build` (and
-#     therefore everything downstream of it) `needs` this job, so building,
-#     the numeric-runtime gate, and every publish job stay unreachable while
-#     the engine release is not resolvable. "Release-critical" is
-#     deliberately narrow: secret-history scanning, the test suite, clone
-#     gates, the cross-repo release-order check, and wheel build +
-#     reproducibility + release-contract + wheel-privacy checks. NOTHING
-#     else may block publishing — if you are tempted to add a step here, it
-#     almost certainly belongs in advisory.yml instead.
-#
-#   advisory.yml — everything else. Concept governance, docs/nav/link
-#     consistency, the liveness ratchet, coupling, event-loop-blocking,
-#     swallowed-errors, gate meta-tests, CI-parity forwarders, SBOM/license
-#     policy, CodeQL, tenant/identity contract scripts, and Pages. Every
-#     step there runs with `continue-on-error: true` so debt is visible
-#     (red step, annotation, job summary) but never blocks a release.
-#
-# WHY: this replaced a `pipeline.yml` that triggered on `workflow_run` of a
-# separate `Guardrails` workflow with `if: conclusion == 'success'`. Any red
-# guardrail anywhere — including pre-existing debt with zero relationship to
-# packaging — silently skipped the release with no signal ("all skipped").
-# release.yml now triggers directly on pushes to `main` and to `v*` release
-# tags. Main pushes and pull requests keep their validation/build semantics;
-# only a valid release-tag push can enter the protected publish jobs. It is
-# never triggered via `workflow_run`, and nothing here uses that indirection.
-#
-# CROSS-REPO ORDERING: epistemic-graph must publish to PyPI before
-# agent-utilities can, because agent-utilities pins a floor on it (see
-# pyproject.toml). The `engine-release-order` job below verifies that floor
-# is actually resolvable on PyPI (scripts/release/check_eg_pypi_resolvable.py)
-# and fails with a clear message naming the missing version, rather than
-# letting a normal `pip`/`uv` resolver die deep inside a backtrace. It used
-# to be a step inside `gates`, which meant a red release-order check also
-# skipped `gates`' own test suite -- leaving a pull request with zero test
-# evidence. Moving it to its own job, needed only by `build`, keeps the same
-# ordering guarantee (nothing can build or publish while it is red) while
-# letting `gates` always reach the test suite.
-# ─────────────────────────────────────────────────────────────────────────
+# PRs and main qualify the exact installed engine candidate, the full suite,
+# reproducible AU wheel, and Linux/Windows installed-wheel smokes. This is
+# integration evidence; it does not establish public package availability.
+# Tag pushes additionally require the public EG floor before building and clean
+# public-only installs on both OSes before the unchanged protected publish chain.
+# A public gate skipped on a candidate event is not a public-installability pass.
+# advisory.yml retains its existing independent reporting responsibilities.
 
 on:
   push:
@@ -231,16 +186,10 @@ jobs:
       - name: jscpd full-tree census (advisory evidence)
         run: python3 scripts/check_duplication.py census
 
-  # ── STAGE 0.5: cross-repo release-order gate, on its own so a red result
-  # here never also hides `gates`' test suite. Stdlib-only: checkout plus one
-  # script, nothing else -- verifies the epistemic-graph floor this repo
-  # declares is actually resolvable on PyPI before any CI time is spent
-  # building. eg must publish before au; this turns that deadlock into one
-  # clear line instead of a pip/uv resolver backtrace (Deploy-Pages' prior
-  # failure mode). Deliberately has no `needs:` on `gates`/`clone-scanners`
-  # and nothing needs it except `build`, so a red run here still lets `gates`
-  # produce test evidence while leaving build/publish unreachable.
+  # Public availability is a release prerequisite. Keep it independent so a
+  # missing release never hides the engine-present full-suite evidence.
   engine-release-order:
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     name: epistemic-graph release is resolvable on PyPI
     runs-on: ubuntu-latest
     steps:
@@ -254,6 +203,8 @@ jobs:
   # ── STAGE 1: release-critical checks only. Nothing else may live here. ──
   gates:
     name: gates
+    outputs:
+      engine-contract: ${{ steps.candidate-receipts.outputs.contract }}
     runs-on: ubuntu-latest
     env:
       # Frozen 2.27 Linux x86_64 wheel, built by epistemic-graph's OWN release
@@ -268,6 +219,14 @@ jobs:
       # values below from a current successful epistemic-graph release
       # run, or -- preferably -- switch this job to installing the published
       # PyPI package once epistemic-graph 2.27 ships there.
+      EG_REPOSITORY_ID: "1248541673"
+      EG_WORKFLOW_ID: "333719087"
+      EG_RUN_ATTEMPT: "1"
+      EG_LINUX_JOB_ID: "110489463714"
+      EG_WINDOWS_JOB_ID: "110489401420"
+      EG_WINDOWS_ARTIFACT_ID: "11193049469"
+      EG_WINDOWS_FILENAME: "epistemic_graph-2.27.0-py3-none-win_amd64.whl"
+      EG_WINDOWS_SHA256: "88cf9acd0a32edd22ae495e523120ad3e0e445bbd2b06d5962e1f5a2b3d55286"
       EG_WHEEL_SOURCE: "7f5179650d87e6f763b129cfeea6dfb4f8b0273b"
       EG_WHEEL_RUN_ID: "36889097785"
       EG_WHEEL_ARTIFACT_ID: "11196548715"
@@ -281,6 +240,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -324,6 +284,102 @@ jobs:
             --no-install-package epistemic-graph \
             --no-install-package langfuse-agent
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      # Check authoritative producer metadata before executing any engine bytes.
+      # The pinned overall run was cancelled; only these successful producer
+      # jobs qualify. A fork PR has the same read-only acquisition requirements.
+      - name: Verify official candidate producer provenance
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+        run: |
+          import datetime
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          repository = "Knuckles-Team/epistemic-graph"
+          repository_id = int(os.environ["EG_REPOSITORY_ID"])
+          run_id = int(os.environ["EG_WHEEL_RUN_ID"])
+          attempt = int(os.environ["EG_RUN_ATTEMPT"])
+          source = os.environ["EG_WHEEL_SOURCE"]
+
+          def api(endpoint):
+              return json.loads(subprocess.check_output(
+                  ["gh", "api", f"repos/{repository}/{endpoint}"], text=True
+              ))
+
+          def require(actual, expected, boundary):
+              for key, value in expected.items():
+                  if type(actual.get(key)) is not type(value) or actual[key] != value:
+                      raise SystemExit(f"candidate {boundary} mismatch: {key}")
+
+          run = api(f"actions/runs/{run_id}/attempts/{attempt}")
+          require(run, {
+              "id": run_id, "run_attempt": attempt, "head_sha": source,
+              "workflow_id": int(os.environ["EG_WORKFLOW_ID"]),
+              "path": ".github/workflows/release.yml", "event": "push",
+              "head_branch": "v2.27.0", "status": "completed",
+              "conclusion": "cancelled",
+          }, "producer run")
+          for key in ("repository", "head_repository"):
+              require(run[key], {"id": repository_id, "full_name": repository}, key)
+
+          contract = {
+              "ubuntu-latest": {
+                  "platform": "linux-x86_64",
+                  "job_id": int(os.environ["EG_LINUX_JOB_ID"]),
+                  "job_name": "wheel linux-x86_64 / wheel linux-x86_64 (trusted tag)",
+                  "artifact_id": int(os.environ["EG_WHEEL_ARTIFACT_ID"]),
+                  "artifact_name": os.environ["EG_WHEEL_ARTIFACT_NAME"],
+                  "filename": os.environ["EG_WHEEL_FILENAME"],
+                  "sha256": os.environ["EG_WHEEL_SHA256"],
+              },
+              "windows-latest": {
+                  "platform": "windows-x86_64",
+                  "job_id": int(os.environ["EG_WINDOWS_JOB_ID"]),
+                  "job_name": "wheel windows-x86_64",
+                  "artifact_id": int(os.environ["EG_WINDOWS_ARTIFACT_ID"]),
+                  "artifact_name": "wheel-windows-x86_64",
+                  "filename": os.environ["EG_WINDOWS_FILENAME"],
+                  "sha256": os.environ["EG_WINDOWS_SHA256"],
+              },
+          }
+          candidate = os.environ["EVENT_NAME"] == "pull_request" or (
+              os.environ["EVENT_NAME"] == "push"
+              and os.environ["EVENT_REF"] == "refs/heads/main"
+          )
+          for runner, pin in contract.items():
+              if runner == "windows-latest" and not candidate:
+                  continue
+              job = api(f"actions/jobs/{pin['job_id']}")
+              require(job, {
+                  "id": pin["job_id"], "name": pin["job_name"],
+                  "run_id": run_id, "run_attempt": attempt, "head_sha": source,
+                  "status": "completed", "conclusion": "success",
+                  "run_url": f"https://api.github.com/repos/{repository}/actions/runs/{run_id}",
+              }, "producer job")
+              uploads = [step for step in job["steps"] if step["name"] == "Upload wheel artifact"]
+              if len(uploads) != 1 or uploads[0]["conclusion"] != "success":
+                  raise SystemExit("candidate producer upload did not succeed")
+              artifact = api(f"actions/artifacts/{pin['artifact_id']}")
+              require(artifact, {"id": pin["artifact_id"], "name": pin["artifact_name"], "expired": False}, "artifact")
+              require(artifact["workflow_run"], {
+                  "id": run_id, "head_sha": source,
+                  "repository_id": repository_id, "head_repository_id": repository_id,
+              }, "artifact producer")
+              timestamps = [datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+                            for value in (job["started_at"], artifact["created_at"], job["completed_at"])]
+              if not timestamps[0] <= timestamps[1] <= timestamps[2]:
+                  raise SystemExit("candidate artifact is outside the pinned producer attempt")
+              pin.update(repository=repository, repository_id=repository_id,
+                         head_repository_id=repository_id, run_id=run_id,
+                         run_attempt=attempt, source=source,
+                         workflow_id=int(os.environ["EG_WORKFLOW_ID"]))
+          Path("engine-contract.json").write_text(json.dumps(contract, sort_keys=True))
 
       # Two download attempts, same artifact, no retries beyond that: `gh run
       # download` first (simplest, handles pagination/zip extraction itself),
@@ -396,9 +452,8 @@ jobs:
       #
       # `-n auto` (pytest-xdist, already a declared dependency) is the
       # dominant lever on the suite's 36-47min serial wall-clock: this job
-      # already runs with no real engine installed above, so it is pure
-      # per-worker-process Python test execution with no shared engine
-      # binary/socket contention.
+      # runs with the verified real engine installed above. Engine-dependent
+      # test failures remain blocking and require their own attribution.
       #
       # `--dist loadfile` here (not `loadgroup`) is deliberate, and matches
       # pytest.ini's addopts exactly -- CLI args win over addopts (pytest's
@@ -433,15 +488,100 @@ jobs:
       - name: Test suite
         run: python3 -m pytest -q -n auto --dist loadfile
 
+      - name: Acquire verified Windows candidate for installed-wheel smoke
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref == 'refs/heads/main')
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          import json
+          import subprocess
+          import sys
+          import zipfile
+          from pathlib import Path
+
+          pin = json.loads(Path("engine-contract.json").read_text())["windows-latest"]
+          directory = Path("eg-wheel-windows")
+          directory.mkdir()
+          endpoint = f"repos/{pin['repository']}/actions/artifacts/{pin['artifact_id']}"
+          metadata = subprocess.check_output(["gh", "api", endpoint])
+          identity = directory / "identity.json"
+          identity.write_bytes(metadata)
+          verifier = [sys.executable, "-I", "scripts/release/verify_test_engine.py"]
+          subprocess.check_call(verifier + ["artifact", str(identity), "--id", str(pin["artifact_id"]),
+              "--name", pin["artifact_name"], "--run", str(pin["run_id"]), "--source", pin["source"]])
+          archive = directory / "artifact.zip"
+          with archive.open("wb") as output:
+              subprocess.check_call(["gh", "api", endpoint + "/zip"], stdout=output)
+          with zipfile.ZipFile(archive) as bundle:
+              if bundle.namelist() != [pin["filename"]]:
+                  raise SystemExit("candidate Windows archive must contain only its pinned wheel")
+              bundle.extract(pin["filename"], directory)
+          subprocess.check_call(verifier + ["wheel", str(directory / pin["filename"]),
+              "--filename", pin["filename"], "--sha256", pin["sha256"]])
+
+      - name: Bind candidate artifacts to this qualification run
+        id: candidate-receipts
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref == 'refs/heads/main')
+        shell: python
+        env:
+          CONSUMER_SOURCE: ${{ github.sha }}
+        run: |
+          import json
+          import os
+          from pathlib import Path
+
+          contract = json.loads(Path("engine-contract.json").read_text())
+          for runner, directory in (("ubuntu-latest", "eg-wheel"), ("windows-latest", "eg-wheel-windows")):
+              receipt = {"engine": contract[runner], "runner": runner,
+                         "repository": os.environ["GITHUB_REPOSITORY"],
+                         "run_id": os.environ["GITHUB_RUN_ID"],
+                         "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+                         "source": os.environ["CONSUMER_SOURCE"]}
+              Path(directory, "candidate-receipt.json").write_text(json.dumps(receipt, sort_keys=True))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("contract=" + json.dumps(contract, sort_keys=True) + "\n")
+
+      - name: Preserve qualified Linux candidate
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref == 'refs/heads/main')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: eg-candidate-${{ github.run_id }}-${{ github.run_attempt }}-ubuntu-latest
+          path: |
+            eg-wheel/${{ env.EG_WHEEL_FILENAME }}
+            eg-wheel/candidate-receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Preserve qualified Windows candidate
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref == 'refs/heads/main')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: eg-candidate-${{ github.run_id }}-${{ github.run_attempt }}-windows-latest
+          path: |
+            eg-wheel-windows/${{ env.EG_WINDOWS_FILENAME }}
+            eg-wheel-windows/candidate-receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
   build:
     name: build
     needs: [gates, clone-scanners, engine-release-order]
+    if: >-
+      ${{ !cancelled() && needs.gates.result == 'success' &&
+          needs.clone-scanners.result == 'success' &&
+          (((github.event_name == 'pull_request' ||
+             (github.event_name == 'push' && github.ref_type == 'branch' && github.ref == 'refs/heads/main')) &&
+            needs.engine-release-order.result == 'skipped') ||
+           (github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v') &&
+            needs.engine-release-order.result == 'success')) }}
     runs-on: ubuntu-latest
     env:
       SOURCE_DATE_EPOCH: "0"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - *sdk-checkout
@@ -488,21 +628,26 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # ── STAGE 3: install-and-smoke the exact built wheel on every supported
-  # OS before it is allowed to publish. Needs: build. Unchanged from the
-  # former pipeline.yml `numeric-runtime-gate` job except the checkout no
-  # longer pins a workflow_run head_sha (this job already runs against the
-  # commit that triggered it).
+  # Both OS legs prove the exact AU wheel. Candidate events install the
+  # qualified same-run engine; tags resolve all dependencies from public PyPI.
   numeric-runtime-gate:
     name: numeric runtime (${{ matrix.os }})
-    needs: build
+    needs: [build, gates]
+    if: >-
+      ${{ !cancelled() && needs.build.result == 'success' && needs.gates.result == 'success' &&
+          (github.event_name == 'pull_request' ||
+           (github.event_name == 'push' && github.ref_type == 'branch' && github.ref == 'refs/heads/main') ||
+           (github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v'))) }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - *release-checkout
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - *release-python
       - *release-uv
       - name: Download the sole publish candidate
@@ -510,14 +655,105 @@ jobs:
         with:
           name: agent-utilities-wheel
           path: dist
+      - name: Download this run's qualified engine candidate
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref == 'refs/heads/main')
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: eg-candidate-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.os }}
+          path: engine-candidate
+      # Python's checked subprocesses fail immediately on both Windows and
+      # Linux; a later native command cannot overwrite an earlier failure.
       - name: Install exact Agent Utilities wheel with declared full engine
-        run: python -c "from pathlib import Path; import subprocess; subprocess.check_call(['uv', 'pip', 'install', '--system', str(next(Path('dist').glob('agent_utilities-*.whl')))])"
+        id: runtime-install
+        shell: python
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          CONSUMER_SOURCE: ${{ github.sha }}
+          MATRIX_OS: ${{ matrix.os }}
+          ENGINE_CONTRACT: ${{ needs.gates.outputs.engine-contract }}
+        run: |
+          import json
+          import os
+          import shutil
+          import subprocess
+          import sys
+          import tempfile
+          from pathlib import Path
+
+          candidate = os.environ["EVENT_NAME"] == "pull_request" or (
+              os.environ["EVENT_NAME"] == "push" and os.environ["REF_TYPE"] == "branch"
+              and os.environ["EVENT_REF"] == "refs/heads/main"
+          )
+          public = (os.environ["EVENT_NAME"] == "push" and os.environ["REF_TYPE"] == "tag"
+                    and os.environ["REF_NAME"].startswith("v")
+                    and os.environ["EVENT_REF"] == "refs/tags/" + os.environ["REF_NAME"])
+          if not (candidate or public):
+              raise SystemExit("unsupported qualification event")
+          wheels = list(Path("dist").glob("agent_utilities-*.whl"))
+          if len(wheels) != 1 or wheels[0].is_symlink() or not wheels[0].is_file():
+              raise SystemExit("expected exactly one regular AU wheel")
+          requirements = [str(wheels[0].resolve())]
+          verifier = str(Path("scripts/release/verify_test_engine.py").resolve())
+          if candidate:
+              runner = os.environ["MATRIX_OS"]
+              pin = json.loads(os.environ["ENGINE_CONTRACT"])[runner]
+              receipt = json.loads(Path("engine-candidate/candidate-receipt.json").read_text())
+              expected = {"engine": pin, "runner": runner,
+                          "repository": os.environ["GITHUB_REPOSITORY"],
+                          "run_id": os.environ["GITHUB_RUN_ID"],
+                          "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+                          "source": os.environ["CONSUMER_SOURCE"]}
+              if receipt != expected:
+                  raise SystemExit("candidate receipt OS, producer, source or run mismatch")
+              engine = Path("engine-candidate", pin["filename"])
+              subprocess.check_call([sys.executable, "-I", verifier, "wheel", str(engine),
+                                     "--filename", pin["filename"], "--sha256", pin["sha256"]])
+              engine = engine.resolve()
+              requirements.append(f"epistemic-graph[full] @ {engine.as_uri()}#sha256={pin['sha256']}")
+          # Ignore user/project resolver configuration and every inherited
+          # installer/Python override. The fresh venv has no system packages;
+          # --no-cache prevents a prior candidate wheel rescuing a public miss.
+          clean = {key: value for key, value in os.environ.items()
+                   if not key.upper().startswith(("UV_", "PIP_", "PYTHON", "CONDA_"))
+                   and key.upper() not in {"VIRTUAL_ENV", "VIRTUAL_ENV_PROMPT"}}
+          directory = Path(tempfile.mkdtemp(prefix="au-runtime-", dir=os.environ["RUNNER_TEMP"]))
+          subprocess.check_call([sys.executable, "-I", "-m", "venv", str(directory)], env=clean)
+          python = directory / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+          uv = shutil.which("uv")
+          if uv is None:
+              raise SystemExit("pinned uv executable is missing")
+          subprocess.check_call([uv, "--no-config", "--no-cache", "pip", "install",
+                                 "--python", str(python), "--index-url", "https://pypi.org/simple",
+                                 *requirements], env=clean, cwd=directory)
+          if candidate:
+              subprocess.check_call([str(python), "-I", verifier, "installed", str(engine),
+                                     "--sha256", pin["sha256"]], env=clean, cwd=directory)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("python=" + str(python) + "\n")
       - name: Smoke installed numeric runtime outside the checkout
         working-directory: ${{ runner.temp }}
-        run: python "${{ github.workspace }}/scripts/check_numeric_runtime.py"
+        shell: python
+        env: &installed-runtime-env
+          RUNTIME_PYTHON: ${{ steps.runtime-install.outputs.python }}
+        run: |
+          import os
+          import subprocess
+
+          subprocess.check_call([os.environ["RUNTIME_PYTHON"], "-I",
+              os.path.join(os.environ["GITHUB_WORKSPACE"], "scripts/check_numeric_runtime.py")])
       - name: Smoke installed Langfuse privacy support outside the checkout
         working-directory: ${{ runner.temp }}
-        run: python -c "import agent_utilities.observability.langfuse_trust; import agent_utilities.security.persistence_privacy"
+        shell: python
+        env: *installed-runtime-env
+        run: |
+          import os
+          import subprocess
+
+          subprocess.check_call([os.environ["RUNTIME_PYTHON"], "-I", "-c",
+              "import agent_utilities.observability.langfuse_trust; import agent_utilities.security.persistence_privacy"])
 
   # ── STAGE 4: publish to PyPI. Needs: numeric-runtime-gate (which needs:
   # build, which needs: gates) — publishing is unreachable if any earlier
@@ -525,8 +761,8 @@ jobs:
   # vX.Y.Z tag/version/commit identity check on the tagged commit.
   publish-pypi:
     needs: numeric-runtime-gate
-    # Main pushes and pull requests still run every validation/build/runtime
-    # gate above. Publishing is reachable only from an explicit release-tag
+    # Main pushes and pull requests run candidate validation/build/runtime
+    # gates; tag pushes also require public dependency closure. Publishing is reachable only from an explicit release-tag
     # push; the exact semver/tag/commit checks below remain the fail-closed
     # boundary before the protected environment is used.
     if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')

@@ -32,6 +32,56 @@ uv pip install -e ".[all]"
 
 Default: `pytest -m "not live"` runs unit + integration.
 
+## Candidate integration and public release qualification
+
+The Release workflow distinguishes compatibility with the exact engine candidate
+from public package availability. A successful candidate run does not establish
+that Agent Utilities can be installed from PyPI.
+
+| Event | Required integration evidence | Public dependency evidence | Publication |
+|---|---|---|---|
+| Pull request, including forks, matching the existing path filters | Verified engine, full suite, scanners, reproducible AU wheel, Linux and Windows installed-wheel smokes | Not applicable; the public gate is skipped, not passed | Ineligible |
+| Push to `main` | Same candidate qualification | Not applicable; skipped, not passed | Ineligible |
+| Push of a `v*` tag | Full suite, scanners, reproducible AU wheel | Required public EG floor before build; fresh public-PyPI installs and smokes on Linux and Windows | Existing exact `vX.Y.Z` identity checks and protected approvals |
+| Release event or manual dispatch | No configured trigger | Not executed | Ineligible |
+| Rerun | Original event and source rules | Original event rules | Existing authorization unchanged |
+
+```mermaid
+flowchart TD
+    S[Secret scan and full candidate suite] --> B[Reproducible AU wheel and package checks]
+    C[Required clone scanners] --> B
+    P[Tag only: public EG availability] --> B
+    B --> I[PR or main: exact candidate installs on Linux and Windows]
+    B --> R[Tag: clean public-only installs on Linux and Windows]
+    R --> T["Exact tag, source and wheel identity plus protected approvals"]
+    T --> U[Existing publication chain]
+```
+
+Candidate qualification checks the official producer repository and head repository,
+workflow, event, source, run and attempt, successful wheel-producing job, OS-specific
+artifact identity, expiry and wheel digest before executing engine bytes. The pinned
+producer run was cancelled after its Linux and Windows producer jobs succeeded;
+those individual results are recorded explicitly and do not make the whole run
+successful. Missing, inaccessible, expired or mismatched evidence fails the job.
+Forks use the existing read-only permissions; denied artifact access is a failure.
+
+The full suite runs with the verified installed Linux engine. Both installed-wheel
+smoke jobs consume the sole reproducible AU wheel. PR/main smokes install the
+verified engine candidate with its normal declared dependencies, check the installed
+receipt and imports, then run numeric and privacy smokes outside the checkout.
+The transported engine receipts bind the OS and producer to the AU repository,
+run, attempt and merge commit. A partial rerun cannot reuse a candidate artifact
+from another attempt; rerun the qualification chain to produce matching evidence.
+PR tests, builds and smokes use the same merge commit; clone scanners retain their
+contributor differential range.
+
+Tag smokes create fresh isolated environments, disable resolver configuration and
+caches, remove inherited installer overrides, and resolve dependencies explicitly
+from public PyPI. Both smokes use that environment's interpreter. Candidate wheels,
+preinstalled packages and alternate indexes cannot satisfy public qualification.
+All suite, scanner, build, install, provenance and smoke failures remain blocking.
+No test failure or skipped release check becomes a passing qualification result.
+
 ## Runtime Prerequisites
 
 **Core runtime settings are model-registry entries, not package defaults:**
