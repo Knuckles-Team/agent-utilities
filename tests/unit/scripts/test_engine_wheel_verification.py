@@ -144,6 +144,21 @@ def _executable(path, source):
     path.chmod(0o755)
 
 
+def _run_literal_step(fragment, tmp_path, binaries):
+    return subprocess.run(
+        ["bash", "-c", _step(fragment)],
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            **GATES["env"],
+            "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
+        },
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
 def test_literal_rest_fallback_follows_redirect_even_with_importable_engine(tmp_path):
     scripts = tmp_path / "scripts/release"
     scripts.mkdir(parents=True)
@@ -219,18 +234,7 @@ def test_literal_checksum_rejects_wrong_bytes_despite_importable_engine(tmp_path
     )
     (tmp_path / "eg-wheel").mkdir()
     (tmp_path / "eg-wheel" / GATES["env"]["EG_WHEEL_FILENAME"]).write_bytes(b"wrong")
-    result = subprocess.run(
-        ["bash", "-c", _step("Verify downloaded")],
-        cwd=tmp_path,
-        env={
-            **os.environ,
-            **GATES["env"],
-            "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
-        },
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    result = _run_literal_step("Verify downloaded", tmp_path, binaries)
     assert result.returncode != 0
     assert "sha256 mismatch" in result.stderr
 
@@ -246,18 +250,7 @@ def test_literal_install_binds_digest_even_with_importable_engine(tmp_path):
         binaries / "uv",
         f'#!{sys.executable}\nimport json,sys\nfrom pathlib import Path\nPath("install-args.json").write_text(json.dumps(sys.argv[1:]))\n',
     )
-    result = subprocess.run(
-        ["bash", "-c", _step("Install the frozen")],
-        cwd=tmp_path,
-        env={
-            **os.environ,
-            **GATES["env"],
-            "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
-        },
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    result = _run_literal_step("Install the frozen", tmp_path, binaries)
     assert result.returncode == 0, result.stdout + result.stderr
     args = json.loads((tmp_path / "install-args.json").read_text())
     wheel = tmp_path / "eg-wheel" / GATES["env"]["EG_WHEEL_FILENAME"]
