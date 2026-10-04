@@ -47,3 +47,20 @@ def test_gate_does_not_confuse_domain_agent_names_with_pydantic_agent() -> None:
 
 def test_repository_has_one_governed_agent_constructor_boundary() -> None:
     assert _gate().violations() == []
+
+
+def test_nested_import_is_resolved_before_shallower_call() -> None:
+    failures = _gate()._source_violations(
+        "agent_utilities/example.py",
+        "agent = pa.Agent(model)\ndef configure():\n    import pydantic_ai as pa\n",
+    )
+    assert failures == [
+        "agent_utilities/example.py:1: direct Agent construction pa.Agent; "
+        "use create_context_agent"
+    ]
+
+
+def test_unmarked_invalid_source_still_fails_parsing() -> None:
+    failures = _gate()._source_violations("agent_utilities/example.py", "def broken(\n")
+    assert len(failures) == 1
+    assert failures[0].startswith("agent_utilities/example.py: parse failed:")

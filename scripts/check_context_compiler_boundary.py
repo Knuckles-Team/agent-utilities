@@ -111,6 +111,12 @@ def _function_ancestors(tree: ast.AST) -> dict[ast.AST, str]:
     return owners
 
 
+def _inspection_nodes(tree: ast.AST) -> tuple[ast.AST, ...]:
+    """Share breadth-first nodes while keeping imports before call inspection."""
+    inspected = (ast.Import, ast.ImportFrom, ast.Assign, ast.AnnAssign, ast.Call)
+    return tuple(node for node in ast.walk(tree) if isinstance(node, inspected))
+
+
 def _source_violations(relative: str, source: str) -> list[str]:
     """Return boundary violations for one Python source unit.
 
@@ -126,7 +132,7 @@ def _source_violations(relative: str, source: str) -> list[str]:
        canonical boundary module itself (to allow ``create_context_agent``'s
        own internal ``Agent(...)`` call) — yet it ran for every file. It is
        now computed only when ``canonical`` is true.
-    2. The imports pass stays its OWN full walk, run to completion first —
+    2. The imports pass stays its OWN pass, run to completion first —
        it must fully populate ``pydantic_modules``/``pydantic_agent_aliases``
        before any call is judged, and ``ast.walk``'s breadth-first order
        does not guarantee a deeper-nested aliased import is seen before an
@@ -179,8 +185,9 @@ def _source_violations(relative: str, source: str) -> list[str]:
     owners: dict[ast.AST, str] = _function_ancestors(tree) if canonical else {}
     pydantic_modules: set[str] = set()
     pydantic_agent_aliases: set[str] = {"Agent", "PydanticAgent"}
+    relevant_nodes = _inspection_nodes(tree)
 
-    for node in ast.walk(tree):
+    for node in relevant_nodes:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name == "pydantic_ai":
@@ -206,7 +213,7 @@ def _source_violations(relative: str, source: str) -> list[str]:
                         f"{local_name!r}; use create_context_agent"
                     )
 
-    for node in ast.walk(tree):
+    for node in relevant_nodes:
         if isinstance(node, (ast.Assign, ast.AnnAssign)):
             value = node.value
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
