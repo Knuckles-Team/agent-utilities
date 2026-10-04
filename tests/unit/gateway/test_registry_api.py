@@ -293,6 +293,36 @@ class _AuthorityMiddleware:
             await self.app(scope, receive, send)
 
 
+@pytest.fixture(autouse=True)
+def catalog_service_identity(monkeypatch):
+    """Keep fake catalog reads independent of process identity configuration."""
+    from agent_utilities.security import request_identity
+
+    _, service_session = _direct_authority("catalog-service", "catalog-tenant")
+    resolution_sessions: list[GraphSession | None] = []
+
+    def resolve_service_session(config=None):
+        # Match the real provider's ambient-session preference: forgetting to
+        # suspend the caller must not be hidden by an unconditional fake.
+        ambient = current_session()
+        resolution_sessions.append(ambient)
+        return ambient or service_session
+
+    monkeypatch.setattr(
+        request_identity, "system_write_session", resolve_service_session
+    )
+    return service_session, resolution_sessions
+
+
+def _assert_service_session_exchange(
+    service_session, observed_sessions, resolution_sessions
+):
+    """Pin the SQL identity and the provider's suspended caller context."""
+    assert all(session is service_session for session in observed_sessions)
+    assert resolution_sessions
+    assert all(session is None for session in resolution_sessions)
+
+
 def _authority_app(
     monkeypatch,
     *,
@@ -506,7 +536,9 @@ def test_registry_reads_native_catalog_with_tenant_and_principal_predicate(monke
     assert "tenant-b" not in response.text
 
 
-def test_catalog_sql_runs_under_the_fixed_catalog_service_identity(monkeypatch):
+def test_catalog_sql_runs_under_the_fixed_catalog_service_identity(
+    monkeypatch, catalog_service_identity
+):
     """D-catalog-503-human root-cause regression.
 
     The engine's native ``Method::Sql`` RPC opens an OWNER-SCOPED catalog
@@ -522,12 +554,15 @@ def test_catalog_sql_runs_under_the_fixed_catalog_service_identity(monkeypatch):
     HTTP caller's own actor id.
     """
     engine = _FakeEngine(_rows())
+    service_session, resolution_sessions = catalog_service_identity
     observed_actor_ids: list[str] = []
+    observed_sessions: list[GraphSession | None] = []
     real_sql_exec = engine.graph_compute.sql_exec
 
     def _recording_sql_exec(statement: str):
         session = current_session()
         observed_actor_ids.append(session.actor.actor_id if session else "")
+        observed_sessions.append(session)
         return real_sql_exec(statement)
 
     monkeypatch.setattr(engine.graph_compute, "sql_exec", _recording_sql_exec)
@@ -547,6 +582,14 @@ def test_catalog_sql_runs_under_the_fixed_catalog_service_identity(monkeypatch):
     # -- only the RPC-executing identity changed, never the authorization
     # boundary.
     assert "tenant_id = 'tenant-a'" in engine.graph_compute.statements[-1]
+
+    _, caller_session = _direct_authority()
+    with use_session(caller_session):
+        registry_api._require_sql_exec(engine)(engine.graph_compute.statements[-1])
+        assert current_session() is caller_session
+    _assert_service_session_exchange(
+        service_session, observed_sessions, resolution_sessions
+    )
 
 
 def test_discovery_is_principal_scoped_and_error_is_classified(monkeypatch):
@@ -991,6 +1034,27 @@ def test_catalog_failure_is_explicit_unavailable(monkeypatch):
         "status": "unavailable",
         "reason": "catalog_unavailable",
     }
+
+
+@pytest.mark.parametrize("suffix", ["servers", "servers/mcp_server_alpha"])
+def test_missing_catalog_service_identity_is_unavailable_without_sql(
+    monkeypatch, suffix
+):
+    from agent_utilities.security import request_identity
+
+    engine = _FakeEngine(_rows())
+    client = _authority_app(monkeypatch, engine=engine)
+
+    def unavailable_identity(config=None):
+        assert current_session() is None
+        raise RuntimeError("synthetic process identity unavailable")
+
+    monkeypatch.setattr(request_identity, "system_write_session", unavailable_identity)
+    response = client.get(f"/api/registry/{suffix}")
+
+    assert response.status_code == 503
+    assert response.json() == {"status": "unavailable", "reason": "catalog_unavailable"}
+    assert engine.graph_compute.statements == []
 
 
 def test_get_kind_catalog_failure_is_explicit_unavailable(monkeypatch):

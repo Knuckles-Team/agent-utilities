@@ -28,9 +28,15 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from agent_utilities.gateway import registry_api
-from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+from agent_utilities.knowledge_graph.core.session import GraphSession
 from agent_utilities.security.actor_identity import ActorType
-from agent_utilities.security.brain_context import ActorContext, use_actor
+from agent_utilities.security.brain_context import ActorContext
+from tests.unit.gateway.test_registry_api import (
+    _AuthorityMiddleware,
+)
+from tests.unit.gateway.test_registry_api import (
+    catalog_service_identity as catalog_service_identity,
+)
 
 _TENANT_TERM = re.compile(r"tenant_id = '([^']*)'")
 _TABLE = re.compile(r"\bFROM\s+([A-Za-z_][A-Za-z0-9_]*)")
@@ -105,17 +111,6 @@ class _Engine:
         self.graph_compute = _AggregateBlindGraphCompute(rows)
 
 
-class _BindAuthority:
-    def __init__(self, app, actor: ActorContext, session: GraphSession):
-        self.app = app
-        self.actor = actor
-        self.session = session
-
-    async def __call__(self, scope, receive, send):
-        with use_actor(self.actor), use_session(self.session):
-            await self.app(scope, receive, send)
-
-
 def _client(monkeypatch, engine: _Engine, *, tenant: str = "tenant-a") -> TestClient:
     actor = ActorContext(
         actor_id="actor-a",
@@ -135,7 +130,7 @@ def _client(monkeypatch, engine: _Engine, *, tenant: str = "tenant-a") -> TestCl
     monkeypatch.setattr(registry_api, "_get_catalog_engine", lambda: engine)
     app = FastAPI()
     registry_api.register_registry_routes(app, prefix="/api")
-    return TestClient(_BindAuthority(app, actor, session))
+    return TestClient(_AuthorityMiddleware(app, actor, session))
 
 
 def test_count_never_reports_another_tenants_rows(monkeypatch):
