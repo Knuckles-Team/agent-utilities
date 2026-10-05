@@ -18,7 +18,7 @@
 | [`engine_blob`](#capability-engine_blob) | write | Low-level epistemic-graph engine surface for the 'blob' domain (streamed content-addressed media | 11 | `/engine/blob` |
 | [`engine_broker`](#capability-engine_broker) | act, manage, ask | Low-level epistemic-graph engine surface for the 'broker' domain (native message broker: | 22 | `/engine/broker` |
 | [`engine_channels`](#capability-engine_channels) | act | Low-level epistemic-graph engine surface for the 'channels' domain (dynamic agent communication | 8 | `/engine/channels` |
-| [`engine_consensus`](#capability-engine_consensus) | act | Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust identity + multisig | 4 | `/engine/consensus` |
+| [`engine_consensus`](#capability-engine_consensus) | act | Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust identity + multisig | 5 | `/engine/consensus` |
 | [`engine_datascience`](#capability-engine_datascience) | ask | Low-level epistemic-graph engine surface for the 'datascience' domain (estimators + primitives + | 15 | `/engine/datascience` |
 | [`engine_edges`](#capability-engine_edges) | write | Low-level epistemic-graph engine surface for the 'edges' domain (edge CRUD, temporal | 10 | `/engine/edges` |
 | [`engine_finance`](#capability-engine_finance) | ask, act | Low-level epistemic-graph engine surface for the 'finance' domain (quantitative finance | 67 | `/engine/finance` |
@@ -32,12 +32,12 @@
 | [`engine_placement`](#capability-engine_placement) | manage, ask | Low-level epistemic-graph engine surface for the 'placement' domain (DIST-P2-1 raft | 4 | `/engine/placement` |
 | [`engine_query`](#capability-engine_query) | ask | Low-level epistemic-graph engine surface for the 'query' domain (SQL / Cypher / GraphQL / UQL / | 26 | `/engine/query` |
 | [`engine_rbac`](#capability-engine_rbac) | manage | Low-level epistemic-graph engine surface for the 'rbac' domain (RBAC policy administration: roles + | 5 | `/engine/rbac` |
-| [`engine_rdf`](#capability-engine_rdf) | write, ask | Low-level epistemic-graph engine surface for the 'rdf' domain (RDF triples + SPARQL + OWL | 11 | `/engine/rdf` |
+| [`engine_rdf`](#capability-engine_rdf) | write, ask | Low-level epistemic-graph engine surface for the 'rdf' domain (RDF triples + SPARQL + OWL | 13 | `/engine/rdf` |
 | [`engine_reasoning`](#capability-engine_reasoning) | why | Low-level epistemic-graph engine surface for the 'reasoning' domain (forward-chaining OWL/RDFS | 1 | `/engine/reasoning` |
 | [`engine_resharding`](#capability-engine_resharding) | manage | Low-level epistemic-graph engine surface for the 'resharding' domain (M3 catalog/reshard/rebalance | 7 | `/engine/resharding` |
 | [`engine_streaming`](#capability-engine_streaming) | act | Low-level epistemic-graph engine surface for the 'streaming' domain (CDC / continuous queries / | 13 | `/engine/streaming` |
 | [`engine_tenants`](#capability-engine_tenants) | manage | Low-level epistemic-graph engine surface for the 'tenants' domain (multi-tenant graph | 3 | `/engine/tenants` |
-| [`engine_timeseries`](#capability-engine_timeseries) | write, ask | Low-level epistemic-graph engine surface for the 'timeseries' domain (native TSDB | 9 | `/engine/timeseries` |
+| [`engine_timeseries`](#capability-engine_timeseries) | write, ask | Low-level epistemic-graph engine surface for the 'timeseries' domain (native TSDB | 10 | `/engine/timeseries` |
 | [`engine_txn`](#capability-engine_txn) | act | Low-level epistemic-graph engine surface for the 'txn' domain (server-side OCC ACID transactions). | 18 | `/engine/txn` |
 | [`engine_viz`](#capability-engine_viz) | act, ask | Low-level epistemic-graph engine surface for the 'viz' domain (D-VZ-1 native visualization: | 2 | `/engine/viz` |
 | [`find`](#capability-find) | find | Discover the graph-os capability (or fleet-wide MCP tool) that matches a natural-language | 1 | `/intent/find` |
@@ -511,7 +511,7 @@ Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust 
 - **Intent verbs:** act
 - **REST route:** `/engine/consensus`
 - **MCP tags:** admin, consensus, engine, gated, granular, graph-os
-- **Side effects:** 4/4 actions matched an EG ledger Method; any_mutates=True; durability=['ControlRedb', 'GraphRedb', 'None']; txn=['Atomic', 'Saga', 'Snapshot']
+- **Side effects:** 4/5 actions matched an EG ledger Method; any_mutates=True; durability=['ControlRedb', 'GraphRedb', 'None']; txn=['Atomic', 'Saga', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
 
@@ -519,6 +519,7 @@ Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust 
 
 - `apply_multisig_mutation` → EG `ApplyMultisigMutation` (confidence 1.0)
 - `bootstrap_system_identity` → EG `GetIdentity` (confidence 0.5)
+- `check_access` → (no EG ledger match)
 - `get_identity` → EG `GetIdentity` (confidence 1.0)
 - `register_identity` → EG `RegisterIdentity` (confidence 1.0)
 
@@ -655,7 +656,6 @@ Low-level epistemic-graph engine surface for the 'finance' domain (quantitative 
 - `effective_independent_n` → EG `FinanceEffectiveIndependentN` (confidence 1.0)
 - `efficient_frontier` → EG `FinanceEfficientFrontier` (confidence 1.0)
 - `empirical_kelly` → EG `FinanceEmpiricalKelly` (confidence 1.0)
-- `ewma` → EG `FinanceEwma` (confidence 1.0)
 - `expected_pnl_rate` → EG `FinanceExpectedPnlRate` (confidence 1.0)
 - `forensic_report` → EG `FinanceForensicReport` (confidence 1.0)
 - `glosten_milgrom_spread` → EG `FinanceGlostenMilgromSpread` (confidence 1.0)
@@ -670,6 +670,7 @@ Low-level epistemic-graph engine surface for the 'finance' domain (quantitative 
 - `kelly_fraction` → EG `FinanceKellyFraction` (confidence 1.0)
 - `kyle_lambda` → EG `FinanceKyleLambda` (confidence 1.0)
 - `logit_quotes` → EG `FinanceLogitQuotes` (confidence 1.0)
+- `market` → EG `FinanceMarketImpact` (confidence 0.667)
 - `market_impact` → EG `FinanceMarketImpact` (confidence 1.0)
 - `markov_transition_matrix` → EG `FinanceMarkovTransitionMatrix` (confidence 1.0)
 - `match_orders` → EG `FinanceMatchOrders` (confidence 1.0)
@@ -691,11 +692,11 @@ Low-level epistemic-graph engine surface for the 'finance' domain (quantitative 
 - `realized_vol_tick` → EG `FinanceRealizedVolTick` (confidence 1.0)
 - `risk_metrics` → EG `FinanceRiskMetrics` (confidence 1.0)
 - `risk_parity` → EG `FinanceRiskParity` (confidence 1.0)
-- `rolling_zscore` → EG `FinanceRollingZscore` (confidence 1.0)
 - `sabr_calibrate` → EG `FinanceSabrCalibrate` (confidence 1.0)
 - `sabr_implied_vol` → EG `FinanceSabrImpliedVol` (confidence 1.0)
 - `sabr_smile` → EG `FinanceSabrSmile` (confidence 1.0)
 - `signal_decay` → EG `FinanceSignalDecay` (confidence 1.0)
+- `signal_models` → EG `FinanceSignalDecay` (confidence 0.667)
 - ... and 7 more actions
 
 **Typed input:**
@@ -1156,7 +1157,7 @@ Low-level epistemic-graph engine surface for the 'rdf' domain (RDF triples + SPA
 - **Intent verbs:** write, ask
 - **REST route:** `/engine/rdf`
 - **MCP tags:** engine, gated, granular, graph-os, rdf
-- **Side effects:** 10/11 actions matched an EG ledger Method; any_mutates=True; durability=['GraphRedb', 'None']; txn=['Atomic', 'Snapshot']
+- **Side effects:** 12/13 actions matched an EG ledger Method; any_mutates=True; durability=['GraphRedb', 'None']; txn=['Atomic', 'Snapshot']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
 
@@ -1171,6 +1172,8 @@ Low-level epistemic-graph engine surface for the 'rdf' domain (RDF triples + SPA
 - `owl_reason_distributed` → EG `OwlReason` (confidence 1.0)
 - `remove_triples` → EG `RemoveTriples` (confidence 1.0)
 - `sparql` → EG `Sparql` (confidence 1.0)
+- `sparql_explain` → EG `Sparql` (confidence 1.0)
+- `sparql_result` → EG `Sparql` (confidence 1.0)
 - `sparql_virtual` → EG `Sparql` (confidence 1.0)
 - `validate_shacl` → EG `ShaclValidate` (confidence 1.0)
 
@@ -1341,7 +1344,7 @@ Low-level epistemic-graph engine surface for the 'timeseries' domain (native TSD
 - **Intent verbs:** write, ask
 - **REST route:** `/engine/timeseries`
 - **MCP tags:** engine, gated, granular, graph-os, timeseries
-- **Side effects:** 0/9 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
+- **Side effects:** 0/10 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
 
@@ -1349,6 +1352,7 @@ Low-level epistemic-graph engine surface for the 'timeseries' domain (native TSD
 
 - `append` → (no EG ledger match)
 - `asof_join` → (no EG ledger match)
+- `define_series` → (no EG ledger match)
 - `delete_series` → (no EG ledger match)
 - `evict_before` → (no EG ledger match)
 - `gap_fill` → (no EG ledger match)
@@ -1380,7 +1384,7 @@ Low-level epistemic-graph engine surface for the 'txn' domain (server-side OCC A
 - **Intent verbs:** act
 - **REST route:** `/engine/txn`
 - **MCP tags:** engine, gated, granular, graph-os, txn
-- **Side effects:** 18/18 actions matched an EG ledger Method; any_mutates=True; durability=['BlobRedb', 'ControlRedb', 'GraphRedb', 'None']; txn=['Atomic', 'Saga']
+- **Side effects:** 17/18 actions matched an EG ledger Method; any_mutates=True; durability=['BlobRedb', 'ControlRedb', 'GraphRedb', 'None']; txn=['Atomic', 'Saga']
 - **Cost:** (unmeasured)
 - **Latency:** {'add_node': {'eg_method': 'AddNode', 'p50_ms': 0.187, 'p99_ms': 0.223, 'source': 'epistemic-graph/docs/benchmarks.md#results (2026-06-01, UDS, in-memory graph)', 'kind': 'measured'}}
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -1403,8 +1407,8 @@ Low-level epistemic-graph engine surface for the 'txn' domain (server-side OCC A
 - `remove_edge` → EG `RemoveEdge` (confidence 1.0)
 - `remove_node` → EG `RemoveNode` (confidence 1.0)
 - `rollback` → EG `Rollback` (confidence 1.0)
-- `unified_query` → EG `TxnUnifiedQuery` (confidence 1.0)
 - `unified_query_plan` → EG `TxnUnifiedQuery` (confidence 1.0)
+- `uql` → (no EG ledger match)
 
 **Typed input:**
 

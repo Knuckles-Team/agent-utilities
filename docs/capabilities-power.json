@@ -2180,6 +2180,11 @@
           "eg_note": "identity read-back closing the RegisterIdentity blind-upsert gap: None means unregistered/unknown, Some(identity) with empty roles means registered-and-confirmed-empty -- gated security:admin like RegisterIdentity/RbacAdmin so it grants no caller new privilege"
         },
         {
+          "action": "check_access",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
           "action": "get_identity",
           "eg_method": "GetIdentity",
           "match_confidence": 1.0,
@@ -2272,7 +2277,7 @@
       },
       "side_effects": {
         "matched_action_count": 4,
-        "unmatched_action_count": 0,
+        "unmatched_action_count": 1,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [
@@ -2310,7 +2315,7 @@
         "engine_consensus: Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust",
         "engine_consensus action=apply_multisig_mutation",
         "engine_consensus action=bootstrap_system_identity",
-        "engine_consensus action=get_identity"
+        "engine_consensus action=check_access"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -3146,22 +3151,6 @@
           "txn_participation": "None"
         },
         {
-          "action": "ewma",
-          "eg_method": "FinanceEwma",
-          "match_confidence": 1.0,
-          "matched_tokens": [
-            "ewma",
-            "finance"
-          ],
-          "mutates": "false",
-          "durability": "None",
-          "authz_action": "compute:finance",
-          "idempotent": "true",
-          "audited": "false",
-          "emits_cdc": "false",
-          "txn_participation": "None"
-        },
-        {
           "action": "expected_pnl_rate",
           "eg_method": "FinanceExpectedPnlRate",
           "match_confidence": 1.0,
@@ -3391,6 +3380,22 @@
             "finance",
             "logit",
             "quotes"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "compute:finance",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "None"
+        },
+        {
+          "action": "market",
+          "eg_method": "FinanceMarketImpact",
+          "match_confidence": 0.667,
+          "matched_tokens": [
+            "finance",
+            "market"
           ],
           "mutates": "false",
           "durability": "None",
@@ -3764,23 +3769,6 @@
           "txn_participation": "None"
         },
         {
-          "action": "rolling_zscore",
-          "eg_method": "FinanceRollingZscore",
-          "match_confidence": 1.0,
-          "matched_tokens": [
-            "finance",
-            "rolling",
-            "zscore"
-          ],
-          "mutates": "false",
-          "durability": "None",
-          "authz_action": "compute:finance",
-          "idempotent": "true",
-          "audited": "false",
-          "emits_cdc": "false",
-          "txn_participation": "None"
-        },
-        {
           "action": "sabr_calibrate",
           "eg_method": "FinanceSabrCalibrate",
           "match_confidence": 1.0,
@@ -3838,6 +3826,22 @@
           "match_confidence": 1.0,
           "matched_tokens": [
             "decay",
+            "finance",
+            "signal"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "compute:finance",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "None"
+        },
+        {
+          "action": "signal_models",
+          "eg_method": "FinanceSignalDecay",
+          "match_confidence": 0.667,
+          "matched_tokens": [
             "finance",
             "signal"
           ],
@@ -7440,6 +7444,36 @@
           "txn_participation": "Snapshot"
         },
         {
+          "action": "sparql_explain",
+          "eg_method": "Sparql",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "sparql"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "sparql:read",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot"
+        },
+        {
+          "action": "sparql_result",
+          "eg_method": "Sparql",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "sparql"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "sparql:read",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Snapshot"
+        },
+        {
           "action": "sparql_virtual",
           "eg_method": "Sparql",
           "match_confidence": 1.0,
@@ -7527,7 +7561,7 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 10,
+        "matched_action_count": 12,
         "unmatched_action_count": 1,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
@@ -8501,6 +8535,11 @@
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
         {
+          "action": "define_series",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
           "action": "delete_series",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
@@ -8593,7 +8632,7 @@
       },
       "side_effects": {
         "matched_action_count": 0,
-        "unmatched_action_count": 9,
+        "unmatched_action_count": 10,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [],
@@ -8621,7 +8660,7 @@
         "engine_timeseries: Low-level epistemic-graph engine surface for the 'timeseries' domain (native",
         "engine_timeseries action=append",
         "engine_timeseries action=asof_join",
-        "engine_timeseries action=delete_series"
+        "engine_timeseries action=define_series"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -8923,7 +8962,7 @@
           "eg_note": "encrypted Raft-native transaction staging removal"
         },
         {
-          "action": "unified_query",
+          "action": "unified_query_plan",
           "eg_method": "TxnUnifiedQuery",
           "match_confidence": 1.0,
           "matched_tokens": [
@@ -8940,21 +8979,9 @@
           "txn_participation": "Saga"
         },
         {
-          "action": "unified_query_plan",
-          "eg_method": "TxnUnifiedQuery",
-          "match_confidence": 1.0,
-          "matched_tokens": [
-            "query",
-            "txn",
-            "unified"
-          ],
-          "mutates": "false",
-          "durability": "None",
-          "authz_action": "txn:read",
-          "idempotent": "true",
-          "audited": "false",
-          "emits_cdc": "false",
-          "txn_participation": "Saga"
+          "action": "uql",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         }
       ],
       "typed_io": {
@@ -9013,8 +9040,8 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 18,
-        "unmatched_action_count": 0,
+        "matched_action_count": 17,
+        "unmatched_action_count": 1,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [
