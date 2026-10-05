@@ -275,6 +275,19 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
+      - name: Install reviewed source-freeze tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ripgrep
+          python3 - <<'PYTHON'
+          from scripts.source_freeze_gate import _resolve_reviewed_tool
+
+          for name in ("git", "rg"):
+              print(f"{name}: {_resolve_reviewed_tool(name)}")
+          PYTHON
+
       # Install the test plugins from the locked test extra, then install the
       # verified engine wheel below. Engine-dependent tests run in this job;
       # their failures remain part of the gate and require attribution.
