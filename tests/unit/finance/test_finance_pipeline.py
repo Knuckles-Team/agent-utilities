@@ -32,21 +32,23 @@ pytestmark = pytest.mark.skipif(not HAS_FINANCE, reason="Finance dependencies mi
 
 def generate_mock_market_data(n_samples: int = 100) -> pd.DataFrame:
     """Generates synthetic random walk OHLCV data."""
-    np.random.seed(42)
-    close = 100 * np.exp(np.cumsum(np.random.normal(0, 0.01, n_samples)))
-    high = close * (1 + np.abs(np.random.normal(0, 0.005, n_samples)))
-    low = close * (1 - np.abs(np.random.normal(0, 0.005, n_samples)))
-    open_price = close * (1 + np.random.normal(0, 0.002, n_samples))
-    volume = np.random.lognormal(10, 1, n_samples)
+    # The native xp contract returns builtin lists; pandas owns the
+    # element-wise fixture arithmetic.
+    rng = np.random.default_rng(42)
+    close = pd.Series(np.exp(np.cumsum(rng.normal(0, 0.01, n_samples)))) * 100
+    high = close * (1 + pd.Series(rng.normal(0, 0.005, n_samples)).abs())
+    low = close * (1 - pd.Series(rng.normal(0, 0.005, n_samples)).abs())
+    open_price = close * (1 + pd.Series(rng.normal(0, 0.002, n_samples)))
+    volume = pd.Series(np.exp(rng.normal(10, 1, n_samples)))
 
     dates = pd.date_range(start="2020-01-01", periods=n_samples, freq="D")
     return pd.DataFrame(
         {
-            "Open": open_price,
-            "High": high,
-            "Low": low,
-            "Close": close,
-            "Volume": volume,
+            "Open": open_price.tolist(),
+            "High": high.tolist(),
+            "Low": low.tolist(),
+            "Close": close.tolist(),
+            "Volume": volume.tolist(),
         },
         index=dates,
     )
@@ -82,12 +84,13 @@ def test_kelly_criterion():
 
 def test_regime_shift_detection():
     # Identical distributions should not flag a regime shift
-    hist = np.random.normal(0, 1, 100)
-    recent = np.random.normal(0, 1, 100)
+    rng = np.random.default_rng(42)
+    hist = rng.normal(0, 1, 100)
+    recent = rng.normal(0, 1, 100)
 
     # 0.1 threshold is quite sensitive, 0.2 or 0.3 for these small samples
     # but let's test a massive shift
-    shifted = np.random.normal(5, 1, 100)
+    shifted = rng.normal(5, 1, 100)
 
     assert not check_regime_shift(hist, recent, threshold=0.5)
     assert check_regime_shift(hist, shifted, threshold=0.1)

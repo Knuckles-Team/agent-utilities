@@ -29,14 +29,16 @@ def sample_ohlcv():
     rng = np.random.default_rng(42)
     n = 300
     dates = pd.bdate_range(end="2024-12-31", periods=n)
-    close = 100 * np.exp(np.cumsum(rng.normal(0.0005, 0.02, n)))
+    # The native xp contract returns builtin lists; pandas owns the
+    # element-wise fixture arithmetic.
+    close = pd.Series(np.exp(np.cumsum(rng.normal(0.0005, 0.02, n)))) * 100
     return pd.DataFrame(
         {
-            "Open": close * (1 + rng.normal(0, 0.005, n)),
-            "High": close * (1 + rng.uniform(0, 0.02, n)),
-            "Low": close * (1 - rng.uniform(0, 0.02, n)),
-            "Close": close,
-            "Volume": rng.integers(100_000, 10_000_000, n).astype(float),
+            "Open": (close * (1 + pd.Series(rng.normal(0, 0.005, n)))).tolist(),
+            "High": (close * (1 + pd.Series(rng.uniform(0, 0.02, n)))).tolist(),
+            "Low": (close * (1 - pd.Series(rng.uniform(0, 0.02, n)))).tolist(),
+            "Close": close.tolist(),
+            "Volume": pd.Series(rng.integers(100_000, 10_000_000, n), dtype=float).tolist(),
         },
         index=dates,
     )
@@ -121,7 +123,7 @@ class TestICIRAnalysis:
         rng = np.random.default_rng(42)
         n = 100
         factor = pd.Series(rng.standard_normal(n))
-        returns = factor * 0.5 + pd.Series(rng.standard_normal(n) * 0.1)
+        returns = factor * 0.5 + pd.Series(rng.standard_normal(n)) * 0.1
         ic = compute_factor_ic(factor, returns)
         assert ic > 0.3  # Strong positive IC expected
 
@@ -144,9 +146,9 @@ class TestICIRAnalysis:
     def test_rank_factors(self):
         rng = np.random.default_rng(42)
         n = 200
-        returns = pd.Series(rng.standard_normal(n) * 0.01)
+        returns = pd.Series(rng.standard_normal(n)) * 0.01
         factors = {
-            "good_factor": pd.Series(returns * 5 + rng.standard_normal(n) * 0.01),
+            "good_factor": returns * 5 + pd.Series(rng.standard_normal(n)) * 0.01,
             "bad_factor": pd.Series(rng.standard_normal(n)),
         }
         ranking = rank_factors(factors, returns)

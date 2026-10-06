@@ -19,7 +19,7 @@ class TestProfitAttributor:
         """Strategy that perfectly tracks benchmark → alpha=0, beta=1."""
         rng = np.random.default_rng(42)
         bench = rng.normal(0.001, 0.02, 200)
-        strat = bench.copy()
+        strat = list(bench)
         attr = ProfitAttributor()
         result = attr.attribute(strat, bench)
         assert result.beta_coefficient == pytest.approx(1.0, abs=0.01)
@@ -29,7 +29,7 @@ class TestProfitAttributor:
         """Strategy with consistent alpha → positive alpha component."""
         rng = np.random.default_rng(42)
         bench = rng.normal(0.0, 0.02, 200)
-        strat = bench + 0.001  # Add daily alpha
+        strat = [b + 0.001 for b in bench]  # Add daily alpha
         attr = ProfitAttributor()
         result = attr.attribute(strat, bench)
         assert result.alpha_return > 0
@@ -91,7 +91,7 @@ class TestBenchmarkComparison:
     def test_outperformance(self):
         rng = np.random.default_rng(42)
         bench = rng.normal(0.0005, 0.02, 200)
-        strat = bench + 0.001  # Consistent alpha
+        strat = [b + 0.001 for b in bench]  # Consistent alpha
         result = compare_to_benchmark(strat, bench)
         assert result.excess_return > 0
         assert result.information_ratio > 0
@@ -99,21 +99,21 @@ class TestBenchmarkComparison:
     def test_underperformance(self):
         rng = np.random.default_rng(42)
         bench = rng.normal(0.001, 0.02, 200)
-        strat = bench - 0.002
+        strat = [b - 0.002 for b in bench]
         result = compare_to_benchmark(strat, bench)
         assert result.excess_return < 0
 
     def test_tracking_error_positive(self):
         rng = np.random.default_rng(42)
         bench = rng.normal(0, 0.02, 200)
-        strat = bench + rng.normal(0, 0.005, 200)
+        strat = [b + e for b, e in zip(bench, rng.normal(0, 0.005, 200), strict=True)]
         result = compare_to_benchmark(strat, bench)
         assert result.tracking_error > 0
 
     def test_high_correlation(self):
         rng = np.random.default_rng(42)
         bench = rng.normal(0, 0.02, 200)
-        strat = bench * 1.1  # Levered benchmark
+        strat = [b * 1.1 for b in bench]  # Levered benchmark
         result = compare_to_benchmark(strat, bench)
         assert result.correlation > 0.95
 

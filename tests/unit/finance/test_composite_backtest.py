@@ -5,6 +5,8 @@ no-look-ahead test (a signal on the *final* bar must never affect P&L), and a
 shared-capital-pool scaling test.
 """
 
+import math
+
 import pytest
 
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
@@ -101,7 +103,7 @@ class TestMetricsAndEdges:
         res = run_composite_backtest([MarketSpec("m", r, np.ones(100))])
         assert res.metrics_source in ("local", "engine")
         # Sharpe finite and drawdown non-positive regardless of source.
-        assert np.isfinite(res.annualized_sharpe)
+        assert math.isfinite(res.annualized_sharpe)
         assert res.max_drawdown <= 0.0
 
     def test_empty_and_too_short(self):

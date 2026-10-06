@@ -19,11 +19,19 @@ from agent_utilities.numeric import xp as np
 def sample_ohlcv():
     rng = np.random.default_rng(42)
     n = 200
-    close = 100 * np.exp(np.cumsum(rng.normal(0.0005, 0.02, n)))
-    opens = close * (1 + rng.normal(0, 0.005, n))
-    highs = np.maximum(opens, close) * (1 + rng.uniform(0, 0.01, n))
-    lows = np.minimum(opens, close) * (1 - rng.uniform(0, 0.01, n))
-    volumes = rng.integers(100_000, 10_000_000, n).astype(float)
+    # The native xp contract returns builtin lists, so the fixture composes
+    # its series element-wise.
+    close = [100 * v for v in np.exp(np.cumsum(rng.normal(0.0005, 0.02, n)))]
+    opens = [c * (1 + e) for c, e in zip(close, rng.normal(0, 0.005, n), strict=True)]
+    highs = [
+        m * (1 + u)
+        for m, u in zip(np.maximum(opens, close), rng.uniform(0, 0.01, n), strict=True)
+    ]
+    lows = [
+        m * (1 - u)
+        for m, u in zip(np.minimum(opens, close), rng.uniform(0, 0.01, n), strict=True)
+    ]
+    volumes = [float(v) for v in rng.integers(100_000, 10_000_000, n)]
     return opens, highs, lows, close, volumes
 
 

@@ -20,8 +20,8 @@ class TestSimpleBacktester:
         rng = np.random.default_rng(42)
         n = 300
         returns = rng.normal(0.001, 0.01, n)
-        entry = np.zeros(n, dtype=bool)
-        exit_ = np.zeros(n, dtype=bool)
+        entry = [False] * n
+        exit_ = [False] * n
         # Enter every 10 bars, exit 5 bars later
         for i in range(0, n, 10):
             entry[i] = True
@@ -36,7 +36,7 @@ class TestSimpleBacktester:
     def test_no_trades(self):
         n = 100
         bt = SimpleBacktester()
-        metrics = bt.run(np.zeros(n, dtype=bool), np.zeros(n, dtype=bool), np.zeros(n))
+        metrics = bt.run([False] * n, [False] * n, np.zeros(n))
         assert metrics.total_trades == 0
 
     def test_short_data(self):
@@ -48,8 +48,8 @@ class TestSimpleBacktester:
         rng = np.random.default_rng(42)
         n = 200
         returns = rng.normal(0.002, 0.01, n)
-        entry = rng.random(n) > 0.9
-        exit_ = rng.random(n) > 0.85
+        entry = [v > 0.9 for v in rng.random(n)]
+        exit_ = [v > 0.85 for v in rng.random(n)]
         bt = SimpleBacktester()
         metrics = bt.run(entry, exit_, returns)
         if metrics.total_trades > 0:
@@ -140,8 +140,8 @@ class TestResearchAutopilot:
         n = 200
         data = {
             "h1": {
-                "entry_signals": rng.random(n) > 0.9,
-                "exit_signals": rng.random(n) > 0.85,
+                "entry_signals": [v > 0.9 for v in rng.random(n)],
+                "exit_signals": [v > 0.85 for v in rng.random(n)],
                 "returns": rng.normal(0.002, 0.01, n),
             }
         }
