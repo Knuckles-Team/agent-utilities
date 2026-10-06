@@ -48,7 +48,7 @@
 # what the original job used — see docker/graphos-unified-langfuse-kaniko-job.yaml for the
 # variant that adds it and pushes the `:langfuse` validation tag.
 
-FROM ubuntu:26.04@sha256:3131b4cc82a783df6c9df078f86e01819a13594b865c2cad47bd1bca2b7063bb
+FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7
 
 ARG HOST=127.0.0.1
 ARG PORT=8000
@@ -94,7 +94,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # uv — fast resolver/installer (same pinned version as docker/Dockerfile, for consistency).
-COPY --from=ghcr.io/astral-sh/uv:0.11.7@sha256:240fb85ab0f263ef12f492d8476aa3a2e4e1e333f7d67fbdd923d00a506a516a /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.23@sha256:61d393e44e249f2e4b526b6c7ddcecce245946826e608e11c93ad4f5bba55b21 /uv /uvx /usr/local/bin/
 ENV UV_SYSTEM_PYTHON=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
