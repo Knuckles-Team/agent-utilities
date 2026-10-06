@@ -265,22 +265,22 @@ class RegistryMixin(_Base):
         """
         if self.backend:
             results = self.backend.execute(
-                "MATCH (s:SystemPrompt) RETURN s.id, s.name, s.description, "
-                "s.content, s.version, s.tags, s.parameters, s.source "
+                "MATCH (s:SystemPrompt) RETURN s.id AS id, s.name AS name, s.description AS description, "
+                "s.content AS content, s.version AS version, s.tags AS tags, s.parameters AS parameters, s.source AS source "
                 "ORDER BY s.timestamp DESC LIMIT 1",
                 {},
             )
             if results:
                 row = results[0]
                 return {
-                    "id": row.get("s.id", ""),
-                    "name": row.get("s.name", "Agent"),
-                    "description": row.get("s.description", ""),
-                    "content": row.get("s.content", ""),
-                    "version": row.get("s.version", "1.0"),
-                    "tags": row.get("s.tags", []),
-                    "parameters": row.get("s.parameters", {}),
-                    "source": row.get("s.source", "KG"),
+                    "id": row.get("id", ""),
+                    "name": row.get("name", "Agent"),
+                    "description": row.get("description", ""),
+                    "content": row.get("content", ""),
+                    "version": row.get("version", "1.0"),
+                    "tags": row.get("tags", []),
+                    "parameters": row.get("parameters", {}),
+                    "source": row.get("source", "KG"),
                 }
 
         # In-memory fallback within graph
@@ -367,20 +367,20 @@ class RegistryMixin(_Base):
         results: list[dict[str, Any]] = []
         if self.backend:
             rows = self.backend.execute(
-                "MATCH (p:Prompt) RETURN p.id, p.name, p.description, "
-                "p.system_prompt, p.capabilities, p.timestamp "
+                "MATCH (p:prompt) RETURN p.id AS id, p.name AS name, p.description AS description, "
+                "p.system_prompt AS system_prompt, p.capabilities AS capabilities, p.timestamp AS timestamp "
                 "ORDER BY p.name",
                 {},
             )
             for row in rows:
                 results.append(
                     {
-                        "id": row.get("p.id", ""),
-                        "name": row.get("p.name", ""),
-                        "description": row.get("p.description", ""),
-                        "content": row.get("p.system_prompt", ""),
-                        "capabilities": row.get("p.capabilities", []),
-                        "timestamp": row.get("p.timestamp", ""),
+                        "id": row.get("id", ""),
+                        "name": row.get("name", ""),
+                        "description": row.get("description", ""),
+                        "content": row.get("system_prompt", ""),
+                        "capabilities": row.get("capabilities", []),
+                        "timestamp": row.get("timestamp", ""),
                         "type": "prompt",
                     }
                 )
@@ -400,20 +400,20 @@ class RegistryMixin(_Base):
         """
         if self.backend:
             rows = self.backend.execute(
-                "MATCH (p:Prompt {id: $id}) RETURN p.id, p.name, p.description, "
-                "p.system_prompt, p.capabilities, p.timestamp, p.json_blueprint",
+                "MATCH (p:prompt {id: $id}) RETURN p.id AS id, p.name AS name, p.description AS description, "
+                "p.system_prompt AS system_prompt, p.capabilities AS capabilities, p.timestamp AS timestamp, p.json_blueprint AS json_blueprint",
                 {"id": prompt_id},
             )
             if rows:
                 row = rows[0]
                 return {
-                    "id": row.get("p.id", ""),
-                    "name": row.get("p.name", ""),
-                    "description": row.get("p.description", ""),
-                    "content": row.get("p.system_prompt", ""),
-                    "capabilities": row.get("p.capabilities", []),
-                    "timestamp": row.get("p.timestamp", ""),
-                    "json_blueprint": row.get("p.json_blueprint", {}),
+                    "id": row.get("id", ""),
+                    "name": row.get("name", ""),
+                    "description": row.get("description", ""),
+                    "content": row.get("system_prompt", ""),
+                    "capabilities": row.get("capabilities", []),
+                    "timestamp": row.get("timestamp", ""),
+                    "json_blueprint": row.get("json_blueprint", {}),
                 }
         if self.graph.has_node(prompt_id):
             return {"id": prompt_id, **self.graph._get_node_properties(prompt_id)}
@@ -466,17 +466,17 @@ class RegistryMixin(_Base):
             rows = self.backend.execute(
                 "MATCH (s:MCPServer) "
                 "OPTIONAL MATCH (s)-[:SERVES]->(t:Tool) "
-                "RETURN s.id, s.name, s.synonyms, s.disabled, count(t) AS tool_count "
+                "RETURN s.id AS id, s.name AS name, s.synonyms AS synonyms, s.disabled AS disabled, count(t) AS tool_count "
                 "ORDER BY s.name",
                 {},
             )
             for row in rows:
                 results.append(
                     {
-                        "id": row.get("s.id", ""),
-                        "name": row.get("s.name", ""),
-                        "synonyms": row.get("s.synonyms", []),
-                        "disabled": bool(row.get("s.disabled", False)),
+                        "id": row.get("id", ""),
+                        "name": row.get("name", ""),
+                        "synonyms": row.get("synonyms", []),
+                        "disabled": bool(row.get("disabled", False)),
                         "tool_count": row.get("tool_count", 0),
                         "type": "mcp_server",
                     }
@@ -592,10 +592,10 @@ class RegistryMixin(_Base):
         # Find all prompts in the SUPERSEDES chain
         assert self.backend is not None  # guaranteed by the caller's `if self.backend:`
         rows = self.backend.execute(
-            "MATCH path = (latest:Prompt)-[:SUPERSEDES*0..]->(root:Prompt) "
+            "MATCH path = (latest:prompt)-[:SUPERSEDES*0..]->(root:prompt) "
             "WHERE root.id = $id OR latest.id = $id "
-            "RETURN latest.id, latest.name, latest.system_prompt, "
-            "latest.author, latest.version_number, latest.timestamp, latest.parent_id "
+            "RETURN latest.id AS id, latest.name AS name, latest.system_prompt AS system_prompt, "
+            "latest.author AS author, latest.version_number AS version_number, latest.timestamp AS timestamp, latest.parent_id AS parent_id "
             "ORDER BY latest.version_number DESC "
             "LIMIT $limit",
             {"id": prompt_id, "limit": limit},
@@ -603,19 +603,19 @@ class RegistryMixin(_Base):
         versions: list[dict[str, Any]] = []
         seen = set()
         for row in rows:
-            vid = row.get("latest.id", "")
+            vid = row.get("id", "")
             if not vid or vid in seen:
                 continue
             seen.add(vid)
             versions.append(
                 {
                     "id": vid,
-                    "name": row.get("latest.name", ""),
-                    "content": row.get("latest.system_prompt", ""),
-                    "author": row.get("latest.author", ""),
-                    "version_number": row.get("latest.version_number", 1),
-                    "timestamp": row.get("latest.timestamp", ""),
-                    "parent_id": row.get("latest.parent_id", ""),
+                    "name": row.get("name", ""),
+                    "content": row.get("system_prompt", ""),
+                    "author": row.get("author", ""),
+                    "version_number": row.get("version_number", 1),
+                    "timestamp": row.get("timestamp", ""),
+                    "parent_id": row.get("parent_id", ""),
                 }
             )
         return versions
@@ -686,19 +686,19 @@ class RegistryMixin(_Base):
         if self.backend:
             rows = self.backend.execute(
                 "MATCH (s:CallableResource) WHERE s.resource_type = 'AGENT_SKILL' "
-                "RETURN s.id, s.name, s.description, s.source_ref, s.timestamp",
+                "RETURN s.id AS id, s.name AS name, s.description AS description, s.source_ref AS source_ref, s.timestamp AS timestamp",
                 {},
             )
             for row in rows:
                 results.append(
                     {
-                        "id": row.get("s.id", ""),
-                        "name": row.get("s.name", ""),
-                        "description": row.get("s.description", ""),
+                        "id": row.get("id", ""),
+                        "name": row.get("name", ""),
+                        "description": row.get("description", ""),
                         "enabled": True,
                         "type": "skill",
                         "source": "universal-skills",
-                        "source_ref": row.get("s.source_ref", ""),
+                        "source_ref": row.get("source_ref", ""),
                     }
                 )
 
@@ -731,18 +731,18 @@ class RegistryMixin(_Base):
         if self.backend:
             rows = self.backend.execute(
                 "MATCH (r:CallableResource) WHERE r.resource_type = 'MCP_TOOL' "
-                "RETURN r.id, r.name, r.description, r.endpoint, r.timestamp",
+                "RETURN r.id AS id, r.name AS name, r.description AS description, r.endpoint AS endpoint, r.timestamp AS timestamp",
                 {},
             )
             for row in rows:
                 results.append(
                     {
-                        "id": row.get("r.id", ""),
-                        "name": row.get("r.name", ""),
-                        "description": row.get("r.description", ""),
+                        "id": row.get("id", ""),
+                        "name": row.get("name", ""),
+                        "description": row.get("description", ""),
                         "enabled": True,
                         "type": "mcp_tool",
-                        "source": row.get("r.endpoint", "mcp"),
+                        "source": row.get("endpoint", "mcp"),
                     }
                 )
 
@@ -782,12 +782,12 @@ class RegistryMixin(_Base):
         if self.backend:
             # Check current enabled state
             rows = self.backend.execute(
-                "MATCH (n {id: $id}) RETURN n.id, n.enabled, n.name",
+                "MATCH (n {id: $id}) RETURN n.id AS id, n.enabled AS enabled, n.name AS name",
                 {"id": resource_id},
             )
             if rows:
                 # A missing/None enabled flag means "enabled" by default.
-                current = rows[0].get("n.enabled")
+                current = rows[0].get("enabled")
                 if current is None:
                     current = True
                 new_state = not current
@@ -797,7 +797,7 @@ class RegistryMixin(_Base):
                 )
                 return {
                     "id": resource_id,
-                    "name": rows[0].get("n.name", ""),
+                    "name": rows[0].get("name", ""),
                     "enabled": new_state,
                 }
 
@@ -1109,12 +1109,12 @@ class RegistryMixin(_Base):
             # still correct rather than assuming a cold start.
             rows = self.backend.execute(
                 "MATCH (tc:TeamConfig {id: $id}) "
-                "RETURN tc.success_rate, tc.usage_count",
+                "RETURN tc.success_rate AS success_rate, tc.usage_count AS usage_count",
                 {"id": team_config_id},
             )
             if rows:
-                old_rate = rows[0].get("tc.success_rate") or 0.5
-                usage_count = rows[0].get("tc.usage_count") or 0
+                old_rate = rows[0].get("success_rate") or 0.5
+                usage_count = rows[0].get("usage_count") or 0
 
         new_rate = alpha * reward + (1 - alpha) * old_rate
         new_usage_count = usage_count + 1
