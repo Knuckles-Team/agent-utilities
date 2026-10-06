@@ -219,6 +219,21 @@ DEFAULT_POLICY: dict[str, Any] = {
         {"kind": "deploy_service", "target": "*", "tier": TIER_APPROVAL},
         {"kind": "redeploy_stack", "target": "*", "tier": TIER_APPROVAL},
         {"kind": "merge_promotion", "target": "*", "tier": TIER_APPROVAL},
+        # GraphOS provisions its own two semantic content packs at deploy time
+        # (``graph-os-production-ops provision-semantic-content``) through
+        # ``agent_utilities.api.pack_import_authority``. Only those exact
+        # connector targets run unattended (audited); any other connector-pack
+        # import falls through to the approval_required default.
+        {
+            "kind": "connector_pack_import",
+            "target": "graph-os",
+            "tier": TIER_AUTO_NOTIFY,
+        },
+        {
+            "kind": "connector_pack_import",
+            "target": "agent-utilities",
+            "tier": TIER_AUTO_NOTIFY,
+        },
         # Insight Engine closed loop (CONCEPT:AU-KG.evolution.insight-engine-closed-loop,
         # workstream C4): a mined finding (:AssociationRule/:Anomaly/:PredictedEdge)
         # that cleared its confidence floor and the promotion-governance validator
