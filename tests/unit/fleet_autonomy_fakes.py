@@ -12,6 +12,11 @@ from contextlib import contextmanager
 from dataclasses import replace
 from typing import Any
 
+from agent_utilities.orchestration.action_policy import (
+    ActionDecision,
+    ActionRequest,
+    PolicyReceipt,
+)
 from agent_utilities.orchestration.fleet_health import (
     FleetDependencyEvidence,
     FleetHealthEvidence,
@@ -27,6 +32,43 @@ from agent_utilities.orchestration.scaling_signals import (
 
 def utc_now_str() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+class FakePolicy:
+    """Recording ActionPolicy double returning a canned decision, with a
+    bound PolicyReceipt the way the real ``ActionPolicy.decide()``'s
+    ``_bind_decision_receipt`` always produces (5a4dd9a2f, "freeze
+    receipt-backed policy outcomes"): the unified ``artifact_promotion.
+    promote()`` gate degrades an ``approve`` disposition with no matching
+    receipt to ``unavailable``, so a double that never bound one could never
+    actually reach "approve" no matter what decision string it returned.
+    Shared by test_auto_merge_action_policy.py and test_artifact_promotion.py.
+    """
+
+    def __init__(self, decision: str, *, reason: str = "r", approval_id=None):
+        self._decision = decision
+        self._reason = reason
+        self._approval_id = approval_id
+        self.requests: list[ActionRequest] = []
+
+    def decide(self, request: ActionRequest) -> ActionDecision:
+        self.requests.append(request)
+        decision = ActionDecision(
+            decision=self._decision,
+            tier="approval_required",
+            request=request,
+            reason=self._reason,
+            approval_id=self._approval_id,
+            audit_id="action_decision:fixture",
+        )
+        decision.receipt = PolicyReceipt(
+            receipt_id=decision.audit_id,
+            request_digest=request.digest(),
+            disposition=decision.disposition,
+            policy_origin="fixture",
+            approval_id=decision.approval_id,
+        )
+        return decision
 
 
 def healthy_fleet_evidence() -> FleetHealthEvidence:

@@ -11,9 +11,10 @@ added to the failure analyzer's gate.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
-from agent_utilities.knowledge_graph.enrichment.orchestration import TeamSpec
 from agent_utilities.knowledge_graph.research.auto_merge import (
     GovernedAutoMerger,
     MergePolicy,
@@ -21,22 +22,10 @@ from agent_utilities.knowledge_graph.research.auto_merge import (
 from agent_utilities.knowledge_graph.research.promotion_governance import (
     PromotionGovernanceValidator,
 )
+from tests.golden_loop_proposal_fixtures import strong_team as _strong_team
+from tests.golden_loop_proposal_fixtures import weak_team as _weak_team
 
 pytestmark = pytest.mark.concept("AU-AHE.harness.promotion-governance-validator")
-
-
-def _strong_team() -> TeamSpec:
-    return TeamSpec(
-        name="Resolver Team",
-        goal="Address open KG topics about retrieval quality",
-        lead="Lead",
-        members=["Researcher", "Validator"],
-        description="A complete, well-formed team proposal.",
-    )
-
-
-def _weak_team() -> TeamSpec:
-    return TeamSpec(name="bare", goal="", lead="", members=[])
 
 
 class _Engine:
@@ -51,12 +40,31 @@ class _Engine:
     def add_node(self, node_id, node_type, properties=None):
         self.nodes[node_id] = {"id": node_id, "type": node_type, **(properties or {})}
 
+    def shacl_validate_committed(self, _data_graph_turtle):
+        # Governance shapes are EG's committed GraphSchema authority (see
+        # PromotionGovernanceValidator's module docstring); this fake always
+        # conforms so tests focus on the OTHER governance rules (merge
+        # policy, regression gate, constitution) unless they bind their own
+        # report, same shape as tests/ontology/test_shacl_gate.py's fakes.
+        return SimpleNamespace(conforms=True, results=[])
+
     def query_cypher(self, query, params=None):
         if "RegressionGateResult" in query:
             pid = (params or {}).get("pid")
             return [r for r in self.gate_rows if r.get("proposal_id") in (None, pid)]
         if "ConstitutionRule" in query:
             return self.rule_rows
+        if "governance_rule" in query:
+            # ActionPolicy._kg_rules()'s own query shape: {"r": {...}} rows
+            # for every governance_rule node with scope='action_policy',
+            # same contract tests/unit/fleet_autonomy_fakes.py's FakeEngine
+            # implements for test_auto_merge_action_policy.py.
+            return [
+                {"r": dict(n)}
+                for n in self.nodes.values()
+                if n.get("type") == "governance_rule"
+                and n.get("scope") == "action_policy"
+            ]
         return []
 
 
@@ -94,12 +102,6 @@ class TestMergePolicyRule:
 
 
 class TestShaclRule:
-    def test_team_spec_conforms_vacuously(self):
-        # No :Team shape exists in governance.shapes.ttl ⇒ conforms.
-        v = PromotionGovernanceValidator(None, policy=_policy())
-        check = v._check_shacl(_strong_team())
-        assert check.passed is True
-
     def test_agent_without_name_violates_agent_shape(self):
         pytest.importorskip("pyshacl")
         v = PromotionGovernanceValidator(None, policy=_policy())
@@ -112,14 +114,6 @@ class TestShaclRule:
         v = PromotionGovernanceValidator(None, policy=_policy())
         check = v._check_shacl({"type": "Agent", "name": "researcher", "goal": "g"})
         assert check.passed is True
-
-    def test_missing_shapes_file_not_applicable(self):
-        v = PromotionGovernanceValidator(
-            None, policy=_policy(), shapes_path="/nonexistent/shapes.ttl"
-        )
-        check = v._check_shacl(_strong_team())
-        assert check.passed is True
-        assert "not found" in check.reason
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +193,20 @@ class TestConstitutionRule:
 # ---------------------------------------------------------------------------
 
 
+def _consider_strong_team(engine) -> tuple[list, object]:
+    """Consider ``_strong_team()`` with governance required, recording
+    promotions. Shared by the real-ActionPolicy merger tests below, which
+    differ only in whether ``engine`` carries a tier-relaxing
+    ``governance_rule`` override."""
+    promoted: list = []
+    merger = GovernedAutoMerger(
+        engine=engine,
+        policy=_policy(require_governance_valid=True),
+        promoter=lambda spec: promoted.append(spec) or True,
+    )
+    return promoted, merger.consider(_strong_team())
+
+
 class TestVerdictAndMergerIntegration:
     def test_full_verdict_valid_for_clean_strong_proposal(self):
         v = PromotionGovernanceValidator(_Engine(), policy=_policy())
@@ -228,16 +236,49 @@ class TestVerdictAndMergerIntegration:
         assert merger._governance_validator is sentinel
 
     def test_governed_merge_with_real_validator_promotes_clean_proposal(self):
-        promoted = []
-        merger = GovernedAutoMerger(
-            engine=_Engine(),
-            policy=_policy(require_governance_valid=True),
-            promoter=lambda spec: promoted.append(spec) or True,
+        """A clean, strong proposal promotes end to end through the REAL,
+        default-resolved ActionPolicy (no injected fake) -- but only once
+        that policy actually resolves to a receipt-backed ``approve``.
+
+        The shipped default tier for an unconfigured actor is
+        ``approval_required`` (-> a ``hold`` disposition, see
+        ``test_default_tier_holds_and_does_not_promote`` below), which the
+        shared promotion contract (``artifact_promotion.promote()``'s
+        ``PromotionOutcome.approved``, mirrored by
+        ``GovernedAutoMerger._gate_by_action_policy``) correctly does NOT
+        activate. Relax the tier the same way production does -- a
+        KG-stored ``governance_rule`` override with ``scope='action_policy'``
+        -- so this test exercises a genuinely approved decision through the
+        real path, not a loosened gate.
+        """
+        engine = _Engine()
+        engine.add_node(
+            "rule:promo-auto",
+            "governance_rule",
+            properties={
+                "scope": "action_policy",
+                "kind": "merge_promotion",
+                "target": "*",
+                "tier": "auto",
+            },
         )
-        ev = merger.consider(_strong_team())
+        promoted, ev = _consider_strong_team(engine)
         assert ev.governance_valid is True
+        assert ev.action_decision["decision"] == "approve"
         assert ev.merged is True
         assert len(promoted) == 1
+
+    def test_default_tier_holds_and_does_not_promote(self):
+        """The shipped default tier (``approval_required``, unconfigured
+        actor) resolves to a ``hold`` disposition -- NOT an approval -- so
+        the lifecycle flip must not proceed, proving ``hold`` cannot
+        activate a promotion even for an otherwise-clean, governance-valid
+        proposal."""
+        promoted, ev = _consider_strong_team(_Engine())
+        assert ev.governance_valid is True
+        assert ev.action_decision["decision"] == "hold"
+        assert ev.merged is False
+        assert promoted == []
 
     def test_recorded_gate_hold_blocks_governed_merge(self):
         # TeamSpec mints its own id ("team:resolver-team") — record against it.

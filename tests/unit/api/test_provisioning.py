@@ -6,13 +6,26 @@ import asyncio
 import hashlib
 import inspect
 import re
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from epistemic_graph.generated.connector_pack import (
-    AgentLibraryMutationContext,
-    McpCatalogSnapshotBinding,
-)
+
+if TYPE_CHECKING:
+    # Only for type hints below (lazy under `from __future__ import
+    # annotations`, so this import never actually executes). The no-engine
+    # CI job installs no epistemic_graph package at all; a module-level
+    # runtime import here previously made the WHOLE FILE skip at collection,
+    # hiding the several tests below (scope/signature checks) that exercise
+    # agent_utilities.api.provisioning's OWN logic and need no engine package
+    # at all. Tests that construct the real generated contract types import
+    # them locally instead (see `_binding()` and the tests marked
+    # `@pytest.mark.engine` below) so only THOSE genuinely fail closed -- via
+    # the real `ModuleNotFoundError` tests/conftest.py's engine-unreachable
+    # detection already recognizes -- when the package is absent.
+    from epistemic_graph.generated.connector_pack import (
+        AgentLibraryMutationContext,
+        McpCatalogSnapshotBinding,
+    )
 
 from agent_utilities.api.provisioning import (
     PackImportAuthorityResolver,
@@ -32,6 +45,13 @@ from agent_utilities.orchestration.action_policy import (
 )
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
+
+# No file-level `engine` mark: test_resolver_requires_pack_control_scope_before_providers
+# and test_resolver_does_not_accept_a_caller_supplied_policy below exercise
+# agent_utilities.api.provisioning's own scope/signature logic and construct
+# no generated epistemic-graph contract at all. Every OTHER test here calls
+# the resolver (which imports the generated contract unconditionally at the
+# very top of its own body) and is marked `@pytest.mark.engine` individually.
 
 
 def _session(
@@ -89,6 +109,8 @@ def _install_policy(monkeypatch: pytest.MonkeyPatch, policy: Any) -> None:
 
 
 def _binding() -> Any:
+    from epistemic_graph.generated.connector_pack import McpCatalogSnapshotBinding
+
     digest = "ab" * 32
     return McpCatalogSnapshotBinding(
         authorization_scope_digest=digest,
@@ -134,6 +156,7 @@ def _assert_policy_refuses_before_binding_load(
     assert not binding_loaded
 
 
+@pytest.mark.engine
 def test_policy_issued_resolver_returns_generated_contracts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -188,18 +211,25 @@ def test_resolver_does_not_accept_a_caller_supplied_policy() -> None:
     assert "policy" not in inspect.signature(pack_import_authority).parameters
 
 
+@pytest.mark.engine
 def test_resolver_refuses_without_effect_authorizing_policy_receipt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Also needs the engine package: ``resolve()`` imports the generated
+    contract unconditionally before it even reaches the policy check this
+    test targets (see ``agent_utilities/api/provisioning.py``), so a denied
+    policy is unreachable here without it."""
     _assert_policy_refuses_before_binding_load(monkeypatch, _Policy(allow=False))
 
 
+@pytest.mark.engine
 def test_resolver_refuses_an_allow_decision_without_a_policy_receipt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _assert_policy_refuses_before_binding_load(monkeypatch, _AllowWithoutReceipt())
 
 
+@pytest.mark.engine
 def test_resolver_refuses_malformed_authoritative_principal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -216,9 +246,12 @@ def test_resolver_refuses_malformed_authoritative_principal(
             _resolve_pack_import(resolver)
 
 
+@pytest.mark.engine
 def test_resolver_refuses_a_non_generated_binding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from epistemic_graph.generated.connector_pack import McpCatalogSnapshotBinding
+
     session = _session()
     _install_policy(monkeypatch, _Policy(allow=True))
     with use_session(session):

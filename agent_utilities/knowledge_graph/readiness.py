@@ -21,8 +21,9 @@ dense/sparse retrieval-index signal, ontology integrity-policy activation
 (CONCEPT:AU-KG.ontology.integrity-bootstrap — ``ontology_activation``, closing the
 sibling defect class where the engine's RDF write guard rejects every
 ontology load with no registered SHACL/ICV policy and the process keeps
-serving anyway; see :mod:`agent_utilities.knowledge_graph.ontology.activation`),
-and — the check that actually proves the
+serving anyway; currently always ``unavailable`` pending a replacement status
+source backed by the epistemic-graph-owned authority — see that check's own
+module-level comment), and — the check that actually proves the
 defect class above is closed — a **synthetic query canary** that runs the SAME
 ``build_code_context`` implementation the live ``graph_code(action=
 "code_context")`` MCP/REST route dispatches to
@@ -479,13 +480,35 @@ def _check_sparse_index(
 # NEVER attempted, or whose attempt gave up, reads ``unavailable`` here —
 # fails closed, never silently ``ready``, mirroring ``synthetic_query``'s own
 # "never trust a signal about state; check state" contract.
+#
+# 43197d7c6 ("refactor: move semantic authority to epistemic graph") deleted
+# agent_utilities/knowledge_graph/ontology/activation.py, the module this
+# check reads, without providing a replacement status source backed by the
+# epistemic-graph-owned authority. Until that replacement exists, this check
+# can only ever report "unavailable" — in plain words: ``ready`` is NOT
+# currently reachable for this leg, by design, because there is nothing yet
+# to read a real activation status from. That is intentionally different
+# from deleting the check outright: the check's CONTRACT (fail closed, never
+# silently "ready") still holds and still shows up in every snapshot, so a
+# future PR that wires a real epistemic-graph-backed status read only has to
+# replace the body of this function, not reintroduce the check itself or
+# relearn why it exists.
 # --------------------------------------------------------------------------- #
 def _check_ontology_activation(engine: Any, tenant: str) -> ReadinessCheckDict:
     if engine is None:
         return _check("unavailable", reason="no_engine_supplied")
 
     from .core.shard_topology import tenant_graph_name
-    from .ontology.activation import get_activation_status
+
+    try:
+        from .ontology.activation import get_activation_status
+    except ImportError:
+        # See the module-level note above: the status-read module this
+        # function depends on was deleted without a replacement authority.
+        # Fail closed exactly like every other branch of this function
+        # (never silently "ready") instead of raising ImportError out of a
+        # readiness snapshot.
+        return _check("unavailable", reason="ontology_activation_status_source_removed")
 
     graph_name = tenant_graph_name(tenant or "", base="ontology")
     status = get_activation_status(graph_name)
