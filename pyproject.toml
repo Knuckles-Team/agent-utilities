@@ -274,18 +274,9 @@ agent-runtime = [
     # providers are opt-in add-ons (`[agent-anthropic]`, `[agent-google]`, …).
     "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli]==2.54.0",
     "pydantic-graph==2.54.0",
-    # Upper bound: fasta2a 1.0.0 (not just the eventual 2.x) already removed
-    # the `kind` discriminator this module's own TaskSendParams/Message/Part
-    # handling depends on throughout agent_utilities/protocols/a2a_epistemic.py
-    # (Message/Task no longer declare `kind` at all; Part became one flat
-    # TypedDict instead of a Union discriminated by `kind`) -- confirmed by
-    # reading fasta2a 1.0.0's and 2.1.1's own agent_utilities/schema.py, not
-    # merely a changelog note. Adapting this module to the new schema is a
-    # real migration (every Part/Message/Task construction and read site),
-    # not a one-line fix, so this stays on the last 0.x release (0.6.1,
-    # fasta2a's OWN pydantic-ai-slim floor is an open `>=1.92`, compatible
-    # with the 2.54.0 pin above) until that migration is done.
-    "fasta2a[pydantic-ai]>=0.6.1,<1.0.0",
+    # fasta2a 2.x speaks A2A 1.0 (no `kind` discriminators, flat Part,
+    # TASK_STATE_* enum); agent_utilities/protocols/a2a_epistemic.py targets it.
+    "fasta2a[pydantic-ai]>=2.1.1,<3.0.0",
     # CONCEPT:AU-OS.safety.harness-guardrails-adoption — bare harness (no extras): its
     # own metadata requires only httpx + pydantic-ai-slim (both already required above),
     # so it rides along wherever an agent can be built. Provides InputGuardrail/
@@ -310,10 +301,8 @@ agent-headless = [
     # providers are opt-in add-ons (`[agent-anthropic]`, `[agent-google]`, …).
     "pydantic-ai-slim[mcp,openai,web,cli]==2.54.0",
     "pydantic-graph==2.54.0",
-    # See agent-runtime above: fasta2a >=1.0.0 removed the `kind` discriminator
-    # this module's A2A handling depends on; stays on 0.6.1 until that
-    # migration is done.
-    "fasta2a[pydantic-ai]>=0.6.1,<1.0.0",
+    # See agent-runtime above: fasta2a 2.x (A2A 1.0).
+    "fasta2a[pydantic-ai]>=2.1.1,<3.0.0",
     # See agent-runtime above: bare harness for InputGuardrail/OutputGuardrail
     # (CONCEPT:AU-OS.safety.harness-guardrails-adoption), the serving-plane path.
     "pydantic-ai-harness>=0.54.0,<0.55.0",
@@ -345,21 +334,11 @@ ag-ui = [
     # `TypeError: Agent.to_web() got an unexpected keyword argument 'builtin_tools'`
     # against any current pydantic-ai. Fixed upstream in agent-webui 2.4.0.
     #
-    # Upper bound: agent-webui 2.6.0 (commit "refactor(webui): inject GraphOS
-    # application composition", one day before the 2.6.0 release tag) removed
-    # its own fleet-catalog/tool-inventory surface outright (-1064 lines in
-    # api_extensions.py alone) rather than renaming it, so `/api/enhanced/tools`
-    # has no successor path to adopt -- it is simply gone, pending AU itself
-    # "injecting" that composition, which is a real feature decision, not a
-    # one-line adaptation. 2.6.0 also lands the (separately clean, mechanical)
-    # `/api/chat` + `/api/enhanced/chats*` -> `/api/chats`/`/api/chats/messages`
-    # rename from "Collapse chat transport + history CRUD into one /api/chats
-    # resource" (2026-08-24) -- harmless on its own, but it ships in the SAME
-    # 2.6.0 release as the tool-catalog removal, so there is no version that
-    # has the rename without also losing the catalog. Stays on 2.5.0 (the
-    # last release before both) until AU's own composition layer replaces the
-    # removed catalog.
-    "agent-webui>=2.4.0,<2.6.0"]
+    # 2.6.0 moved the gateway routes out of the WebUI behind its public
+    # `application_composer` seam (GraphOS composes them) and made the governed
+    # helper / bounded engine accessors public (`invoke_governed_helper`,
+    # `get_engine_bounded`).
+    "agent-webui>=2.6.3,<3.0.0"]
 terminal = [
     "agent-terminal-ui>=1.0.0"]
 browser = [
