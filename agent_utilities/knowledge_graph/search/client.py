@@ -3,8 +3,7 @@
 (CONCEPT:AU-KG.retrieval.opensearch-cdc-indexer, CA-24, DEC-CA-09)
 
 Mirrors the fleet convention of wrapping a real client library rather than
-hand-rolling REST calls (cf. ``backends/sparql/jena_fuseki_backend.py``'s
-``execute``/``upload_graph`` shape, and the "inject a client for tests"
+hand-rolling REST calls (cf. the "inject a client for tests"
 pattern :mod:`knowledge_graph.streams.kafka_adapter` already uses for
 ``aiokafka``). ``opensearch-py`` is an optional dependency (the
 ``[opensearch]`` extra) — importing this module never requires it installed;
