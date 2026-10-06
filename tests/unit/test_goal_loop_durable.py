@@ -15,8 +15,26 @@ import pytest
 from agent_utilities.core import sessions as _sessions
 
 
+def _append_and_fail(marker, char: str) -> str:
+    """One shell-free validation argv: append ``char`` to ``marker``, exit 1.
+
+    The host runner takes a single allowlisted executable and never a shell,
+    so the side effect is written by ``python3`` rather than ``printf >>``.
+    """
+    import shlex
+
+    script = (
+        f"import pathlib; pathlib.Path({str(marker)!r}).open('a').write({char!r}); "
+        "raise SystemExit(1)"
+    )
+    return f"python3 -c {shlex.quote(script)}"
+
+
 @pytest.fixture
-def loop_env(tmp_path, monkeypatch):
+def loop_env(tmp_path, monkeypatch, tiny_engine):
+    # ``tiny_engine`` (value unused) makes the real-engine need visible to
+    # tests/conftest.py's per-worker classifier, so this live-path fixture gets
+    # an engine regardless of which other files share its worker.
     # These are LIVE-PATH tests: run_goal_loop spins a real IntelligenceGraphEngine
     # whose iteration validation only fires when the engine is reachable. With no
     # isolated test engine (a bare pre-commit run), run_loop fails internally and
@@ -73,6 +91,11 @@ def loop_env(tmp_path, monkeypatch):
     monkeypatch.setattr(_sessions, "_get_db_path", lambda: db)
     monkeypatch.setattr(_sessions, "_rehydrated", False)
     monkeypatch.setattr(_sessions, "active_goals", {})
+    # The goals validate through a host command; that runner is opt-in.
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "kg_loop_allow_host_validation", True)
+    monkeypatch.setattr(config, "kg_loop_host_validation_executables", "python3")
     monkeypatch.setattr(_sessions, "background_goal_runs", {})
     # Pin sqlite state regardless of an ambient STATE_DB_URI (a dev checkout's
     # .env may externalize session metadata to Postgres, which would bypass the
@@ -103,7 +126,7 @@ async def test_terminal_work_item_replay_does_not_rerun_validation(loop_env):
     marker = loop_env / "marker.txt"
     # Always-failing command (exit 1) so the loop runs all iterations; each run
     # appends one byte to the marker — the observable side effect.
-    cmd = f"printf x >> {marker}; exit 1"
+    cmd = _append_and_fail(marker, "x")
 
     await _sessions.run_goal_loop(
         session_id="sess-1",
@@ -130,7 +153,7 @@ async def test_terminal_work_item_replay_does_not_rerun_validation(loop_env):
 
 async def test_goal_loop_distinct_goals_isolated(loop_env):
     marker = loop_env / "marker.txt"
-    cmd = f"printf y >> {marker}; exit 1"
+    cmd = _append_and_fail(marker, "y")
 
     await _sessions.run_goal_loop(
         session_id="sess-1",

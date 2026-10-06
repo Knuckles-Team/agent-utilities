@@ -585,7 +585,10 @@ def _rows(db_path, table: str) -> list[dict]:
 
 
 @pytest.fixture
-def dispatch_db(tmp_path, monkeypatch):
+def dispatch_db(tmp_path, monkeypatch, tiny_engine):
+    # ``tiny_engine`` (value unused) makes the real-engine need visible to
+    # tests/conftest.py's per-worker classifier, so this live-path fixture gets
+    # an engine regardless of which other files share its worker.
     import tests.conftest as _ct
 
     if not getattr(_ct, "_TEST_ENGINE_AVAILABLE", False):
@@ -606,6 +609,13 @@ def dispatch_db(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "agent_utilities.core.state_store.postgres_state_enabled", lambda: False
     )
+    # These goals validate with a trivial host command (``true``). The host
+    # runner is opt-in (LoopController._host_validation_blocked); without it
+    # the iteration reports "host validation is disabled" and the goal fails.
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "kg_loop_allow_host_validation", True)
+    monkeypatch.setattr(config, "kg_loop_host_validation_executables", "true")
     # Production processes construct/activate the process engine once at
     # startup, long before any request handler runs -- create_goal's
     # _persist_goal() call (the goal's KG Loop-node write) assumes an already
@@ -685,10 +695,11 @@ def test_worker_claims_executes_and_writes_back(dispatch_db, fake_queue, queued_
     fake_queue.ack(item_id)
 
     node = _goal_node(goal_id)
-    assert node["status"] == "completed"  # run_goal_loop wrote back durably
+    # The goal entry reports its exact authoritative WorkItem state.
+    assert node["status"] == "succeeded"  # run_goal_loop wrote back durably
     assert node["total_iterations"] == 1
     sessions = _rows(dispatch_db, "sessions")
-    assert sessions[0]["status"] == "completed"
+    assert sessions[0]["status"] == "succeeded"
     turns = _rows(dispatch_db, "turns")
     assert any(t["role"] == "assistant" for t in turns)  # iteration turn appended
     assert fake_queue.get_queue_size() == 0
@@ -761,7 +772,7 @@ def test_crash_requeue_stale_claim_is_reclaimed(dispatch_db, fake_queue, queued_
     outcome = worker.execute_agent_turn(env, token="hostB:2:agent-dispatch")
     assert outcome == "completed"
     fake_queue.ack(item_id)
-    assert _goal_node(goal_id)["status"] == "completed"
+    assert _goal_node(goal_id)["status"] == "succeeded"
 
 
 def test_worker_expires_past_deadline_turn(dispatch_db, fake_queue, queued_goal):
@@ -799,7 +810,7 @@ def test_consumer_loop_processes_and_acks_after(dispatch_db, fake_queue, queued_
     fake_queue.get = _get
     worker.run_dispatch_consumer_loop(fake_queue, stop, idle_sleep_s=0.01)
     assert fake_queue.get_queue_size() == 0  # processed AND acked
-    assert _goal_node(queued_goal["goal_id"])["status"] == "completed"
+    assert _goal_node(queued_goal["goal_id"])["status"] == "succeeded"
 
 
 def test_consumer_loop_acks_poison_envelope(dispatch_db, fake_queue):
@@ -979,11 +990,14 @@ def test_two_workers_one_session_execute_serially(dispatch_db, fake_queue, monke
             _sessions.create_goal(_FakeRequest({"objective": "serial goal"}))
         ).body
     )
-    session_id = body["session_id"]
     # The same envelope delivered to BOTH workers (at-least-once duplicate).
-    env = AgentTurnEnvelope(
-        session_id=session_id, kind=KIND_GOAL_LOOP, payload_ref=body["goal_id"]
-    )
+    # It must be the envelope create_goal actually enqueued: a worker claims the
+    # dispatch WorkItem keyed by that envelope's job_id, so a hand-built
+    # envelope with a fresh job_id has nothing to claim and both workers skip.
+    _item_id, payload = fake_queue.get()
+    env = AgentTurnEnvelope.from_item(payload)
+    assert env.session_id == body["session_id"]
+    assert env.kind == KIND_GOAL_LOOP
 
     active = {"n": 0, "max": 0}
     gate = threading.Lock()
@@ -997,7 +1011,7 @@ def test_two_workers_one_session_execute_serially(dispatch_db, fake_queue, monke
     # of the hang/flake — whether it returned at all was timing luck). The no-op
     # records concurrency and returns the same "completed" the real body returns,
     # so the contract assertion is unchanged while the test is deterministic.
-    def _tracked(spec):
+    def _tracked(spec, engine=None):
         with gate:
             active["n"] += 1
             active["max"] = max(active["max"], active["n"])

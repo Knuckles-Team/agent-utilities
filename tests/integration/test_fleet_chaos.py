@@ -51,6 +51,21 @@ async def _payload(resp):
     return json.loads(resp.body)
 
 
+def _append_and_fail(marker, char: str) -> str:
+    """One shell-free validation argv: append ``char`` to ``marker``, exit 1.
+
+    The host runner takes a single allowlisted executable and never a shell,
+    so the side effect is written by ``python3`` rather than ``printf >>``.
+    """
+    import shlex
+
+    script = (
+        f"import pathlib; pathlib.Path({str(marker)!r}).open('a').write({char!r}); "
+        "raise SystemExit(1)"
+    )
+    return f"python3 -c {shlex.quote(script)}"
+
+
 @pytest.fixture
 def fleet_env(tmp_path, monkeypatch):
     db = tmp_path / "sessions.db"
@@ -70,6 +85,12 @@ def fleet_env(tmp_path, monkeypatch):
         "agent_utilities.core.state_store.postgres_state_enabled", lambda: False
     )
 
+    # The goals validate through a host command; that runner is opt-in.
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "kg_loop_allow_host_validation", True)
+    monkeypatch.setattr(config, "kg_loop_host_validation_executables", "python3")
+
     async def _fast_sleep(_delay):
         return None
 
@@ -78,7 +99,15 @@ def fleet_env(tmp_path, monkeypatch):
 
 
 def _insert_session(db, sid, status="active", domain=None):
-    meta = json.dumps({"domain": domain}) if domain else "{}"
+    # Fleet supervision is tenant-scoped (gateway.fleet._tenant_scope): a
+    # session row is only visible to its own tenant's caller, so stamp the
+    # ambient test actor's tenant like a real session creation does.
+    from agent_utilities.security.brain_context import current_actor
+
+    meta_fields = {"tenant": current_actor().tenant_id}
+    if domain:
+        meta_fields["domain"] = domain
+    meta = json.dumps(meta_fields)
     conn = sqlite3.connect(str(db))
     conn.execute(
         "INSERT INTO sessions (id, status, created_at, updated_at, metadata_json, turn_count) "
@@ -120,12 +149,13 @@ async def test_goal_loop_honors_pause_with_zero_effects(fleet_env):
         session_id="sp",
         goal_id="gp",
         objective="obj",
-        validation_cmd=f"printf x >> {marker}; exit 1",
+        validation_cmd=_append_and_fail(marker, "x"),
         max_iterations=5,
         constraints=[],
     )
     # Reconciled to paused at the loop top, before any iteration ran.
-    assert _sessions.active_goals["gp"]["status"] == GoalStatus.PAUSED
+    # A paused goal releases its WorkItem back to "ready" (sessions._GOAL_RESULT_STATUSES).
+    assert _sessions.active_goals["gp"]["status"] == "ready"
     assert not marker.exists()
 
 
@@ -145,7 +175,7 @@ async def test_many_concurrent_goals_independent(fleet_env):
                 session_id=sid,
                 goal_id=gid,
                 objective="obj",
-                validation_cmd=f"printf x >> {marker}; exit 1",
+                validation_cmd=_append_and_fail(marker, "x"),
                 max_iterations=2,
                 constraints=[],
             )
@@ -155,7 +185,7 @@ async def test_many_concurrent_goals_independent(fleet_env):
 
     for sid, gid, marker, paused in specs:
         if paused:
-            assert _sessions.active_goals[gid]["status"] == GoalStatus.PAUSED
+            assert _sessions.active_goals[gid]["status"] == "ready"
             assert not marker.exists()
         else:
             # Ran both iterations -> two effects, then failed (cmd exit 1).
