@@ -132,7 +132,9 @@ class MontySandbox(Sandbox):
                     # rejects an unknown key instead of silently ignoring it. One
                     # `feed_run` per call here (see module docstring), so the feed-scoped
                     # limit is the exact replacement for the old per-snippet budget.
-                    limits=ResourceLimits(max_feed_duration_secs=self._max_duration_secs)
+                    limits=ResourceLimits(
+                        max_feed_duration_secs=self._max_duration_secs
+                    )
                 ) as session:
                     await session.feed_run(
                         full_code,
