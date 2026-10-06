@@ -196,10 +196,14 @@ class OpenSearchClient:
         collapsed into "treat as absent" — the caller's ordering check must
         never mistake an unreachable cluster for a fresh node.
         """
+        # Annotate the wider common type ONCE so both branches below (the real
+        # opensearch-py exception, or AU's own fallback) assign a conforming
+        # value instead of mypy narrowing to the first branch's specific type.
+        NotFoundError: type[Exception]
         try:
             from opensearchpy.exceptions import NotFoundError
         except ImportError:  # pragma: no cover - optional dep
-            NotFoundError = OpenSearchNotFoundError  # type: ignore[assignment]
+            NotFoundError = OpenSearchNotFoundError
         try:
             result = self.raw.get(index=index, id=doc_id)
         except NotFoundError:
@@ -214,10 +218,14 @@ class OpenSearchClient:
         """Delete one document. Returns True if it existed and was deleted,
         False if it was already absent (idempotent — never raises on a
         redelivered tombstone for an already-deleted node)."""
+        # Annotate the wider common type ONCE so both branches below (the real
+        # opensearch-py exception, or AU's own fallback) assign a conforming
+        # value instead of mypy narrowing to the first branch's specific type.
+        NotFoundError: type[Exception]
         try:
             from opensearchpy.exceptions import NotFoundError
         except ImportError:  # pragma: no cover - optional dep
-            NotFoundError = OpenSearchNotFoundError  # type: ignore[assignment]
+            NotFoundError = OpenSearchNotFoundError
         try:
             self.raw.delete(index=index, id=doc_id)
             return True

@@ -221,16 +221,16 @@ RUN uv pip install --system --break-system-packages --no-cache \
         "redis>=5.0.0" \
         "neo4j>=6.2.0" \
         "falkordb>=1.6.2" \
-        "fastmcp>=4.0.0b1" \
+        "fastmcp>=4.0.11" \
         "llama-index-embeddings-openai>=0.6.0" \
         "python-telegram-bot>=22.8" \
         "mattermostdriver>=7.3.2" \
-        "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli,google,groq]==2.29.0" \
-        "pydantic-ai==2.29.0" \
-        "pydantic-graph==2.29.0" \
-        "pydantic-ai-harness[acp,dynamic-workflow]==0.14.0" \
-        "pydantic-ai-skills==1.2.0" \
-        "pydantic-monty==0.0.19" \
+        "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli,google,groq]==2.54.0" \
+        "pydantic-ai==2.54.0" \
+        "pydantic-graph==2.54.0" \
+        "pydantic-ai-harness[acp,dynamic-workflow]==0.54.0" \
+        "pydantic-ai-skills==2.1.0" \
+        "pydantic-monty==1.1.0" \
         "fasta2a[pydantic-ai]>=0.6.1" \
     && python3 /tmp/check_epistemic_graph_client_preflight.py \
         --wheel-dir /tmp/wheels --require-installed \
@@ -267,7 +267,7 @@ RUN uv pip install --system --break-system-packages --no-cache \
 # tolerant handler at kg_server's attach site is by design (a dead fleet loader must not
 # take graph-os down), but it also meant a version-mismatched image shipped green and only
 # logged the loss of every fleet meta-tool. Failing the BUILD is where that belongs.
-RUN python3 -c "import importlib.metadata as m; import agent_utilities; import graph_os; import epistemic_graph.numeric; import langfuse_agent; import owlready2; import pyshacl; import rdflib; from graph_os.fleet.multiplexer import attach_fleet_loader; from graph_os.fleet.protocol_compat import check_mcp_sdk_floor; r = check_mcp_sdk_floor(); eps = [e for e in m.distribution('graph-os').entry_points if e.group == 'console_scripts' and e.name == 'graph-os']; assert len(eps) == 1 and eps[0].value == 'graph_os.mcp_server.server:mcp_server', eps; assert r['ok'] is True, r['detail']; assert m.version('pydantic-ai-slim') == '2.29.0'; assert m.version('pydantic-ai-harness') == '0.14.0'; print('graph-os authority OK:', eps[0].value); print('mcp_sdk_floor OK:', r['detail'])" \
+RUN python3 -c "import importlib.metadata as m; import agent_utilities; import graph_os; import epistemic_graph.numeric; import langfuse_agent; import owlready2; import pyshacl; import rdflib; from graph_os.fleet.multiplexer import attach_fleet_loader; from graph_os.fleet.protocol_compat import check_mcp_sdk_floor; r = check_mcp_sdk_floor(); eps = [e for e in m.distribution('graph-os').entry_points if e.group == 'console_scripts' and e.name == 'graph-os']; assert len(eps) == 1 and eps[0].value == 'graph_os.mcp_server.server:mcp_server', eps; assert r['ok'] is True, r['detail']; assert m.version('pydantic-ai-slim') == '2.54.0'; assert m.version('pydantic-ai-harness') == '0.54.0'; print('graph-os authority OK:', eps[0].value); print('mcp_sdk_floor OK:', r['detail'])" \
     && epistemic-graph-server --help >/dev/null \
     && command -v graph-os >/dev/null
 

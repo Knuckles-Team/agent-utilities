@@ -126,7 +126,13 @@ class MontySandbox(Sandbox):
         try:
             async with AsyncMonty() as pool:
                 async with pool.checkout(
-                    limits=ResourceLimits(max_duration_secs=self._max_duration_secs)
+                    # pydantic-monty >=1.0 split the single `max_duration_secs` key into
+                    # `max_feed_duration_secs` (resets at each `feed_run` call) and
+                    # `max_turn_duration_secs` (resets at each host round trip), and now
+                    # rejects an unknown key instead of silently ignoring it. One
+                    # `feed_run` per call here (see module docstring), so the feed-scoped
+                    # limit is the exact replacement for the old per-snippet budget.
+                    limits=ResourceLimits(max_feed_duration_secs=self._max_duration_secs)
                 ) as session:
                     await session.feed_run(
                         full_code,

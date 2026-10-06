@@ -1,6 +1,6 @@
 requests>=2.34.2
 urllib3>=2.7.0
-pydantic[email]>=2.13.4
+pydantic[email]>=2.13.5,<2.14.0.dev0
 pydantic-settings>=2.14.2
 PyYAML>=6.0.3
 epistemic-graph[full]>=2.27.0,<3.0.0
@@ -8,5 +8,5 @@ agent-connector-sdk>=0.1.0,<1.0.0
 ladybug>=0.17.1
 cryptography>=50.0.0
 pathspec>=1.1.1
-pydantic-ai-slim[mcp,openai,anthropic,ag-ui,ui,web,cli]==2.29.0
+pydantic-ai-slim[mcp,openai,anthropic,ag-ui,ui,web,cli]==2.54.0
 fasta2a[pydantic-ai]>=0.6.1

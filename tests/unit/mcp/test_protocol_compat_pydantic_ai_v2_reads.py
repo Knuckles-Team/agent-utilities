@@ -1,6 +1,6 @@
 """Contract tests for AU's native Pydantic-AI MCP compatibility boundary.
 
-Pydantic-AI 2.29.0 owns the SDK-v1/v2 field adaptation and modern FastMCP
+Pydantic-AI 2.54.0 owns the SDK-v1/v2 field adaptation and modern FastMCP
 session handling. These tests make that decision explicit: AU must not silently
 apply a copied method body to a different release, and both field spellings
 remain covered at the AU-owned boundary for mixed-generation resilience paths.
@@ -53,7 +53,7 @@ def test_native_toolset_surface_is_used_without_monkeypatch() -> None:
 
 
 def test_upstream_methods_retain_both_mcp_field_surfaces() -> None:
-    """The real 2.29 source uses its SDK-neutral compatibility helpers."""
+    """The real 2.54 source uses its SDK-neutral compatibility helpers."""
     _skip_unless_contract_is_installed()
     import pydantic_ai.mcp as pydantic_mcp
 
@@ -114,7 +114,7 @@ def test_mcp_field_matrix_rejects_an_unknown_surface() -> None:
 
 
 def test_real_toolset_reads_current_sdk_tool_fields_without_warning() -> None:
-    """Exercise the real 2.29 MCPToolset against an SDK-v2 model instance."""
+    """Exercise the real 2.54 MCPToolset against an SDK-v2 model instance."""
     _skip_unless_contract_is_installed()
     import mcp.types as mcp_types
     import pydantic_ai.mcp as pydantic_mcp
@@ -164,7 +164,7 @@ def test_version_contract_matches_manifest_lock_and_image() -> None:
 
     lock_text = (root / "uv.lock").read_text(encoding="utf-8")
     assert 'name = "pydantic-ai-slim"' in lock_text
-    assert 'version = "2.29.0"' in lock_text
+    assert f'version = "{protocol_compat._PYDANTIC_AI_CONTRACT_VERSION}"' in lock_text
     assert all(
         f'specifier = "{expected}"' in line
         for line in lock_text.splitlines()
