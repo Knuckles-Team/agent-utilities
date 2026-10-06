@@ -231,7 +231,7 @@ RUN uv pip install --system --break-system-packages --no-cache \
         "pydantic-ai-harness[acp,dynamic-workflow]==0.54.0" \
         "pydantic-ai-skills==2.1.0" \
         "pydantic-monty==1.1.0" \
-        "fasta2a[pydantic-ai]>=0.6.1" \
+        "fasta2a[pydantic-ai]>=0.6.1,<1.0.0" \
     && python3 /tmp/check_epistemic_graph_client_preflight.py \
         --wheel-dir /tmp/wheels --require-installed \
     && uv pip install --system --break-system-packages --no-cache --no-deps \

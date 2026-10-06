@@ -678,7 +678,7 @@ requires-dist = [
     { name = "agent-utilities", extras = ["mcp", "sandbox"], marker = "extra == 'agent-headless'", specifier = ">=1.0.0" },
     { name = "agent-utilities", extras = ["messaging-discord", "messaging-googlechat", "messaging-googlemeet", "messaging-irc", "messaging-line", "messaging-matrix", "messaging-mattermost", "messaging-nextcloud", "messaging-signal", "messaging-slack", "messaging-synology", "messaging-teams", "messaging-telegram", "messaging-twitch", "messaging-voicecall", "messaging-whatsapp"], marker = "extra == 'messaging'" },
     { name = "agent-utilities", extras = ["rdf"], marker = "extra == 'stardog'" },
-    { name = "agent-webui", marker = "extra == 'ag-ui'", specifier = ">=2.4.0" },
+    { name = "agent-webui", marker = "extra == 'ag-ui'", specifier = ">=2.4.0,<2.6.0" },
     { name = "aiohttp", marker = "extra == 'test'", specifier = ">=3.14.1" },
     { name = "aiokafka", marker = "extra == 'kafka'", specifier = ">=0.14.0" },
     { name = "ansible-tower-mcp", marker = "extra == 'gateway-widgets'", specifier = ">=2.0.1" },
@@ -698,8 +698,8 @@ requires-dist = [
     { name = "erpnext-agent", marker = "extra == 'gateway-widgets'", specifier = ">=1.0.1" },
     { name = "eunomia-core", marker = "extra == 'mcp'", specifier = ">=0.3.10" },
     { name = "falkordb", marker = "extra == 'falkordb'", specifier = ">=1.6.2" },
-    { name = "fasta2a", extras = ["pydantic-ai"], marker = "extra == 'agent-headless'", specifier = ">=0.6.1" },
-    { name = "fasta2a", extras = ["pydantic-ai"], marker = "extra == 'agent-runtime'", specifier = ">=0.6.1" },
+    { name = "fasta2a", extras = ["pydantic-ai"], marker = "extra == 'agent-headless'", specifier = ">=0.6.1,<1.0.0" },
+    { name = "fasta2a", extras = ["pydantic-ai"], marker = "extra == 'agent-runtime'", specifier = ">=0.6.1,<1.0.0" },
     { name = "fastapi", marker = "extra == 'mcp'", specifier = ">=0.139.2" },
     { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=4.0.11" },
     { name = "feedparser", marker = "extra == 'feeds'", specifier = ">=6.0.12" },
@@ -857,7 +857,7 @@ guardrails = [
 
 [[package]]
 name = "agent-webui"
-version = "2.6.3"
+version = "2.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastapi" },
@@ -871,9 +871,9 @@ dependencies = [
     { name = "uvicorn" },
     { name = "watchfiles" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7e/8d/074c55d4cfb71ec4a971c924e3b47e2f221caa39602e4d108a7ccb42d7a0/agent_webui-2.6.3.tar.gz", hash = "sha256:b33c5e82c9ef6053615468d3ec11f5f0fbf5bd5ae2df7a0485e5e06d526eb1ab", size = 5461674, upload-time = "2026-09-29T02:06:06.195Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/22/99/057d265521bc0047d8a57f3530ec732b48ec1f2db7c00de6b78b5c575a2f/agent_webui-2.5.0.tar.gz", hash = "sha256:545b12cf0de54961a159e7ac633aeadcaf99e898439bc1095df3c3b1b27bcbfc", size = 4751370, upload-time = "2026-08-16T20:12:35.573Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/39/dd/c644c5398551da7cc6d71d46faf1f1177140190f828f6a6a448013d9da99/agent_webui-2.6.3-py3-none-any.whl", hash = "sha256:5a1cb175c32614d39dcff2add019a04f2c8efb42ffc6349e8dd46b9acbf8bc8f", size = 5720893, upload-time = "2026-09-29T02:06:02.705Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/9f/7d602d1fcb39c6556e95403ced50269630a61a4d42115201b601d7ba194a/agent_webui-2.5.0-py3-none-any.whl", hash = "sha256:1a7d8bd8c7750153fcaa4af144ff3406ac1ea341705aa48de0960911b3c0811b", size = 4981719, upload-time = "2026-08-16T20:12:31.712Z" },
 ]
 
 [[package]]
@@ -2311,16 +2311,16 @@ wheels = [
 
 [[package]]
 name = "fasta2a"
-version = "2.1.1"
+version = "0.6.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "pydantic" },
     { name = "starlette" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/86/bf/85e6118dd85a6c894b64b56ea9990c193745f174f2b201d1e1c6cfc23b13/fasta2a-2.1.1.tar.gz", hash = "sha256:cec2b74a6fb14740b28c33a23fd2a59d2ce46efba3240e0124497cffab84652c", size = 1477969, upload-time = "2026-10-05T12:52:20.968Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b1/28/35949997804129537becf17d0635b8b2b67036589a4da851e44a053857fc/fasta2a-0.6.1.tar.gz", hash = "sha256:e97b92771ad338166b1516dcbb687c9f3f8392a5cd5820542ec4b75ff5219a48", size = 1453473, upload-time = "2026-05-15T20:51:22.059Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/56/93/b0e9f6aee8fc2acff0c6a46c1ac633aee565e9bce19d958b4de4c293a5f0/fasta2a-2.1.1-py3-none-any.whl", hash = "sha256:98931d242b80bd3c15539a4b146d3712794d0472a4cfc944441ccf4d2b3759d0", size = 41055, upload-time = "2026-10-05T12:52:19.482Z" },
+    { url = "https://files.pythonhosted.org/packages/21/21/4d7e00c10bb4ec33a196efc55190ae086e97f5f487945bdfceb94df3e8d8/fasta2a-0.6.1-py3-none-any.whl", hash = "sha256:1b5369ee1b62405eebafa6d71c57c9e40a1a3f0dcbae5ec3aa6ee450361028dd", size = 28888, upload-time = "2026-05-15T20:51:20.222Z" },
 ]
 
 [package.optional-dependencies]
