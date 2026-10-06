@@ -12,29 +12,22 @@ from pathlib import Path
 
 import pytest
 
+from agent_utilities.numeric import kernel_available
+
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 
 
-def _numeric_kernel_available() -> bool:
-    """True when the epistemic-graph[full] kernel is importable.
-
-    The retrieval-quality gate ranks vectors through the kernel-backed
-    ``agent_utilities.numeric`` namespace and SKIPS (exit 0) when it is absent
-    (lean/headless CI without the ``[full]``/``[graphos]`` extra, or the static
-    source-contract CI lane that doesn't install the sibling full-engine
-    artifact). Its pass/trip assertions below only hold when the gate can
-    actually run, so they skip in lockstep with the gate — the same
-    subprocess env the test drives.
-    """
-    try:
-        import agent_utilities.numeric  # noqa: F401
-    except ImportError:
-        return False
-    return True
-
-
+# True when the epistemic-graph[full] kernel is importable.
+#
+# The retrieval-quality gate ranks vectors through the kernel-backed
+# ``agent_utilities.numeric`` namespace and SKIPS (exit 0) when it is absent
+# (lean/headless CI without the ``[full]``/``[graphos]`` extra, or the static
+# source-contract CI lane that doesn't install the sibling full-engine
+# artifact). Its pass/trip assertions below only hold when the gate can
+# actually run, so they skip in lockstep with the gate — the same
+# subprocess env the test drives.
 _needs_numeric_kernel = pytest.mark.skipif(
-    not _numeric_kernel_available(),
+    not kernel_available(),
     reason="retrieval-quality gate requires the epistemic-graph[full] kernel "
     "(it skips cleanly without it, so these trip/pass assertions do not apply)",
 )

@@ -39,7 +39,7 @@ network, no upward dependencies.
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agent_utilities.harness.explore_exploit_router import ExploreExploitRouter
 from agent_utilities.harness.graph_search_evolution import GraphSearchEvolver
@@ -55,7 +55,18 @@ from agent_utilities.knowledge_graph.retrieval.score_gate import score_gate
 from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (
     TemporalSemanticIdEncoder,
 )
-from agent_utilities.numeric import NDArray, RandomGenerator, xp
+
+if TYPE_CHECKING:
+    # Type-only: with `from __future__ import annotations` above, annotations
+    # are never evaluated at runtime, so these names need no runtime import.
+    from agent_utilities.numeric import NDArray, RandomGenerator
+
+# agent_utilities.numeric always imports successfully -- it defers the
+# certified epistemic_graph.numeric kernel's absence to first actual use
+# (agent_utilities/numeric/__init__.py's _require_kernel()), which raises
+# a clear ImportError naming the missing kernel instead of failing this
+# module's own import. No try/except/None-fallback needed here anymore.
+from agent_utilities.numeric import xp
 
 __all__ = [
     "BenchmarkResult",

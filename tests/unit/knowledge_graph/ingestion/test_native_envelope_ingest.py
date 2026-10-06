@@ -636,8 +636,13 @@ def test_native_material_preserves_exact_blob_and_structured_evidence() -> None:
 
 
 def test_privacy_gate_sanitizes_structured_evidence_before_materialization() -> None:
+    # Deliberately not keyed "source"/"target"/etc.: bdaca1b81 exempts those
+    # names from the free-text pattern pass everywhere in the guard (they are
+    # graph-edge-endpoint/primary-key fields that must survive byte-for-byte),
+    # so a structured_evidence fixture using one would never exercise this
+    # path's actual free-text redaction.
     sanitized = module._privacy_gate(
-        _envelope(structured_evidence={"source": "/home/example/secret.csv"})
+        _envelope(structured_evidence={"origin_path": "/home/example/secret.csv"})
     )
 
     assert sanitized.structured_evidence is not None
