@@ -120,7 +120,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 
 ## Recipes
 
-- [Recipe: Stardog + pg-age database environments](../recipes/databases.md) — catalog
+- [Recipe: pg-age database environment](../recipes/databases.md) — catalog
 - [Recipe — Delta-based KG ingestion via the backends](../recipes/delta-ingestion.md) — catalog
 - [Recipe — Enterprise (Kubernetes/RKE2)](../recipes/enterprise.md) — catalog
 - [Recipe — Enable the shared KV-cache (highly recommended)](../recipes/kv-caching.md) — catalog
@@ -221,7 +221,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Intelligent ingestion — classify, evolve, embed fast, tame the tail](../architecture/intelligent-ingestion.md) — catalog
 - [Intent Surface — Seam 8, Phases 2-5 (complete)](../architecture/intent-surface.md) — catalog
 - [KG Connectors, Ingestors & Enrichers — the unified ingestion architecture](../architecture/kg_connectors_and_ingestion.md) — catalog
-- [Knowledge Graph as a Bidirectional ETL Hub (Stardog data backend, connectors, write-back, lineage)](../architecture/kg_etl_hub.md) — catalog
+- [Knowledge Graph as a Bidirectional ETL Hub (connectors, write-back, lineage)](../architecture/kg_etl_hub.md) — catalog
 - [Knowledge Distillation → Skill-Graphs](../architecture/knowledge_distillation_skill_graphs.md) — catalog
 - [Knowledge Graph Ingestion Stability & Locking Architecture](../architecture/knowledge_graph_ingestion_stability.md) — catalog
 - [Dynamic KV-Cache-Layering Policy (per-execution cache-worthiness)](../architecture/kv-cache-layering-policy.md) — catalog

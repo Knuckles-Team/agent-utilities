@@ -51,8 +51,10 @@ curl -fsSL https://knuckles-team.github.io/agent-utilities/install.sh | sh -s --
 # (b) generate a complete, profile-seeded config.json in the XDG config directory
 setup-config generate --profile tiny          # tiny | single-node-prod | enterprise
 
-# (c) (prod only) provision the durable Postgres+AGE tier the delta store lives on
-setup-databases --profile prod --postgres-mode managed_image --connection-profile-ref "$GRAPH_DB_CONNECTION_PROFILE_REF"
+# (c) (prod only) stand up the durable Postgres+AGE tier the delta store lives on,
+# then register + backfill it — see the pg-age recipe (databases.md) for the
+# docker compose + graph_configure(action="add_connection"/"reconcile") steps.
+docker compose -f docker/pg-age-full.compose.yml up -d --build
 
 # (d) verify
 agent-utilities-doctor --preflight --profile tiny
@@ -84,16 +86,17 @@ Mirror connection names listed in `GRAPH_MIRROR_TARGETS` are declared in
 | `falkordb` | `GRAPH_DB_CONNECTION_PROFILE_REF` resolving to host, port, and graph name |
 | `ladybug` | `GRAPH_DB_CONNECTION_PROFILE_REF` resolving to `db_path` (or the XDG embedded default); single-writer |
 
-One-command provisioning (managed Postgres image carrying AGE + pgvector +
-ParadeDB), via CLI or MCP:
+Provision the managed Postgres image carrying AGE + pgvector + ParadeDB, then
+register + backfill it over `graph_configure` (see the
+[pg-age recipe](databases.md) for the full walkthrough):
 
 ```bash
-setup-databases --profile prod --postgres-mode existing --connection-profile-ref "${GRAPH_DB_CONNECTION_PROFILE_REF}" --verify
+docker compose -f docker/pg-age-full.compose.yml up -d --build
 ```
 ```
-graph_configure(action="setup_databases", config_key="prod",
-                config_value='{"postgres_mode":"existing","connection_profile_ref":"secret://graph-connections/primary"}')
-graph_configure(action="verify_databases")          # probes age + vector + pg_search
+graph_configure(action="add_connection", config_key="pg-age-mirror",
+                config_value='{"backend":"age","connection_profile_ref":"secret://graph-connections/primary","role":"mirror"}')
+graph_configure(action="reconcile")          # backfill the existing graph into it
 ```
 
 Add extra backends (read / mirror) without re-provisioning:
@@ -178,8 +181,8 @@ Give a hot source its own cadence by adding a `schedules.yml` entry
 Hand Claude this recipe in a new environment. The guided path:
 
 - **tiny / single-node** → the **`agent-utilities-deployment`** skill: composes
-  `setup-config` + `setup-databases` + the
-  `database-environment-setup` skill, then verifies with `agent-utilities-doctor`.
+  `setup-config` + the [pg-age recipe](databases.md)'s `graph_configure` calls,
+  then verifies with `agent-utilities-doctor`.
 - **enterprise / multi-node** → the **`agent-utilities-deployment`** skill, driven by
   the root **`genesis.yaml`** manifest.
   Its backend/config steps:
@@ -196,7 +199,8 @@ Minimal genesis-aligned sequence:
 ```bash
 scripts/install.sh --profile single-node-prod
 setup-config generate --profile single-node-prod
-setup-databases --profile prod --postgres-mode managed_image --connection-profile-ref "$GRAPH_DB_CONNECTION_PROFILE_REF" --verify
+docker compose -f docker/pg-age-full.compose.yml up -d --build
+# register + backfill the pg-age mirror (see databases.md), then:
 # set KG_DAEMON_ROLE=host in config.json, then:
 graph-os-daemon
 agent-utilities-doctor --preflight --profile single-node-prod --live
@@ -226,4 +230,4 @@ source_sync(source="all", mode="delta")   # each result carries "skipped_unchang
 | `skipped_unchanged` always 0 on re-run | `KG_WRITE_DELTA=0`, or backend can't answer the prefetch | Set `KG_WRITE_DELTA=1`; confirm the backend persists `content_hash` (any real backend does). |
 | Sweep never runs | No host daemon | Set `KG_DAEMON_ROLE=host` and run `graph-os-daemon`; confirm the flock isn't held elsewhere. |
 | A source is `skipped` in the sweep | Unconfigured (no client/creds) | Add the connector's credentials; unconfigured sources are skipped, not errored. |
-| Writes not appearing in the pg-age projection | No mirror declaration or profile | Set `GRAPH_MIRROR_TARGETS`, `GRAPH_DB_CONNECTION_PROFILE_REF`, and `GRAPH_PG_AGE=1` (restart-required), then re-run `setup-databases`. The engine authority is durable on its own. |
+| Writes not appearing in the pg-age projection | No mirror declaration or profile | Set `GRAPH_MIRROR_TARGETS`, `GRAPH_DB_CONNECTION_PROFILE_REF`, and `GRAPH_PG_AGE=1` (restart-required), then re-run `graph_configure(action="reconcile")`. The engine authority is durable on its own. |
