@@ -331,11 +331,18 @@ class GovernedAutoMerger:
 
         An enabled + eligible promotion additionally consults the operational
         OS-5.24 :class:`ActionPolicy` under the reserved ``merge_promotion``
-        kind (the AHE-3.20 adoption): ``deny`` blocks the lifecycle flip
-        (recorded on the evaluation + audit trail), ``queue_approval`` keeps
-        the AHE-3.21 semantics — the KG-internal flip proceeds and the
-        real-world publication queues the (deduped) ``ActionApproval`` —
-        and ``allow``/``allow_notify`` proceed (the policy notifies).
+        kind (the AHE-3.20 adoption), through the SAME unified promotion gate
+        (``artifact_promotion.promote``) every other promotion caller uses.
+        That gate's ``PromotionOutcome.approved`` property is the ONE
+        authority for "may this effect proceed" (eligible AND disposition is
+        ``APPROVE`` AND a receipt is bound to the exact decided request) —
+        this predates 5a4dd9a2f ("freeze receipt-backed policy outcomes") and
+        described the OLDER raw-``ActionDecision`` contract, where
+        ``queue_approval`` let the KG-internal flip proceed while only
+        publication stayed approval-gated. That is no longer the contract:
+        a ``hold`` (``queue_approval``'s current disposition) is NOT an
+        approval and must not activate anything, exactly like ``deny`` and
+        ``unavailable`` — only a receipt-backed ``approve`` proceeds.
         """
         evaluation = self.evaluate(spec)
         promote = self.policy.enabled and evaluation.eligible
@@ -359,12 +366,29 @@ class GovernedAutoMerger:
         if promote:
             decision = self._consult_action_policy(spec)
             if decision is not None:
+                # `_consult_action_policy` returns the unified gate's
+                # `PromotionOutcome` (5a4dd9a2f, "freeze receipt-backed policy
+                # outcomes"), not a raw `ActionDecision` — it carries
+                # `.disposition` (a `PolicyDisposition`: deny/unavailable/
+                # hold/approve) and the `.approved` property, never a
+                # `.decision` attribute, so reading `.decision` here always
+                # silently fell back to the literal default "deny" regardless
+                # of the real outcome. Gate on `.approved` — the ONE shared
+                # promotion contract every `artifact_promotion.promote()`
+                # caller must honor (see that function's own docstring):
+                # only an exact, receipt-backed `approve` may activate an
+                # effect. `hold` (a human approval still pending) is NOT an
+                # approval and must block the lifecycle flip exactly like
+                # `deny`/`unavailable`, mirroring the sibling
+                # `governed_publish` path (change_publisher.py), which
+                # already gates the same way.
+                disposition = getattr(decision, "disposition", None)
                 evaluation.action_decision = {
-                    "decision": getattr(decision, "decision", "deny"),
+                    "decision": disposition.value if disposition else "unavailable",
                     "reason": getattr(decision, "reason", ""),
                     "approval_id": getattr(decision, "approval_id", None),
                 }
-                if evaluation.action_decision["decision"] == "deny":
+                if not decision.approved:
                     promote = False
                     denied_reason = (
                         "blocked by action policy (merge_promotion): "
@@ -421,6 +445,9 @@ class GovernedAutoMerger:
         """
         target = self._spec_id(spec)
         from agent_utilities.harness.reward_signal import RewardSignal
+        from agent_utilities.knowledge_graph.research.change_publisher import (
+            _proposal_provenance_receipts,
+        )
         from agent_utilities.orchestration.artifact_promotion import (
             PromotionCandidate,
         )
@@ -449,6 +476,16 @@ class GovernedAutoMerger:
                         or ""
                     ),
                 },
+                # 5a4dd9a2f ("refactor: freeze receipt-backed policy outcomes")
+                # made every PromotionCandidate require at least one
+                # provenance receipt but missed this call site, so every
+                # merge_promotion consult failed closed with "promotion
+                # provenance unavailable" regardless of policy/governance.
+                # Reuse change_publisher's own proposal-payload receipt (one
+                # content-addressed id binding this decision to the EXACT
+                # proposal presented), the same convention governed_publish
+                # already uses for the publication leg of this same lifecycle.
+                provenance_receipts=_proposal_provenance_receipts(spec, target),
             ),
             policy=self._action_policy,
         )

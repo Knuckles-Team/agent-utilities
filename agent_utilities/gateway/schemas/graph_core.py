@@ -183,7 +183,6 @@ GraphResearchAction = Literal[
 ]
 GraphEvaluateAction = Literal[
     "evaluate",
-    "evaluate_alpha",
     "evaluate_harness",
     "guard_corpus",
     "harness_gate",
@@ -198,9 +197,7 @@ GraphEvaluateAction = Literal[
     "causal",
     "invariant",
     "quant_crypto",
-    "quant_exchange",
     "quant_microstructure",
-    "quant_strategy",
     "quant_regime",
     "quant_insider",
 ]

@@ -211,8 +211,17 @@ async def test_graph_runvcs_twin_counterfactual_recomputes_a_real_policy_decisio
     delta = report["decision_delta"][0]
     assert delta["original"]["decision"] == "allow"
     # ActionPolicy.decide() genuinely recomputed this — a hardcoded fake could never
-    # produce "queue_approval" from a hand-authored ruleset it never actually loaded.
-    assert delta["counterfactual"]["decision"] == "queue_approval"
+    # derive "approval_required" from a hand-authored ruleset it never actually loaded.
+    # The counterfactual policy here is deliberately engine=None (a "pure function"
+    # recompute per counterfactual_replay's own docstring — no KG audit write), and
+    # ActionPolicy.queue_approval() explicitly returns None without an engine (it
+    # cannot file a durable ActionApproval node), so _hold() converts what would
+    # otherwise queue for approval into the fail-closed "unavailable" decision —
+    # never a silent allow. "unavailable" together with the recomputed tier below is
+    # the genuine-recompute proof; "queue_approval" is unreachable from an
+    # intentionally engine-less ActionPolicy.
+    assert delta["counterfactual"]["decision"] == "unavailable"
+    assert delta["counterfactual"]["tier"] == "approval_required"
 
 
 async def test_graph_runvcs_twin_incident_walks_the_real_recorded_run(monkeypatch):
@@ -355,10 +364,36 @@ async def test_graph_runvcs_twin_capture_kg_hydration_path_also_attaches_policy_
 # ---------------------------------------------------------------------------
 
 
+_KG_NS = "http://knuckles.team/kg#"
+
+
+def _fake_owl_reason(**_kwargs: Any) -> dict[str, Any]:
+    """A faithful OwlReason double: a genuine, consistent, digest-bound
+    composed-GraphSchema classification (same response shape
+    ``tests/unit/knowledge_graph/retrieval/test_capability_projection.py``'s
+    own ``_Graph.owl_reason`` fake returns) encoding the ONE subsumption fact
+    these routing tests need — ``EncryptedTransport`` is a direct subtype of
+    ``TransportCapability``. ``DNSCapability`` is deliberately absent from
+    this hierarchy, so the ineligible-routing test below proves a real
+    "not a subtype" negative, not an unavailable classification.
+    """
+    return {
+        "consistent": True,
+        "schema_digests": ["sha256:seam7-routing-fixture"],
+        "subclasses": [
+            [f"<{_KG_NS}EncryptedTransport>", f"<{_KG_NS}TransportCapability>"]
+        ],
+        "direct_subclasses": [
+            [f"<{_KG_NS}EncryptedTransport>", f"<{_KG_NS}TransportCapability>"]
+        ],
+    }
+
+
 def _make_routing_engine(nodes: dict[str, dict[str, Any]]) -> Any:
     graph = types.SimpleNamespace(
         node_ids=lambda: list(nodes.keys()),
         _get_node_properties=lambda nid: nodes.get(nid, {}),
+        owl_reason=_fake_owl_reason,
     )
     return types.SimpleNamespace(graph=graph)
 
