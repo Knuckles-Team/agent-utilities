@@ -67,6 +67,10 @@ cat "$jscpd_bin_dir/jscpd.provenance.json" >&2
 sha256sum "$jscpd_bin_dir/jscpd" > "$SCANNER_ROOT/jscpd.sha256"
 cat "$SCANNER_ROOT/jscpd.sha256" >&2
 
+# Local bootstrap runs this script in a child shell. Expose the verified build
+# through the same bin directory that the gate's local discovery searches.
+ln -sfn "$jscpd_bin_dir/jscpd" "$BIN/jscpd"
+
 if [ -n "${GITHUB_ENV:-}" ]; then
   {
     echo "DUPEHOUND_BIN=$BIN/dupehound"
