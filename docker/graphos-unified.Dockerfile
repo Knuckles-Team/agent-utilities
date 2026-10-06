@@ -116,6 +116,10 @@ ENV UV_SYSTEM_PYTHON=1 \
 #    staged wheel makes stale or duplicate artifacts observable to that gate instead of
 #    allowing a fixed filename to hide them.
 COPY build-artifacts/eg-wheel/*.whl /tmp/wheels/
+# Ecosystem siblings that are not on PyPI (agent-connector-sdk), built from their main
+# branches and staged separately: the engine-wheel preflight requires exactly one wheel
+# in /tmp/wheels.
+COPY build-artifacts/sibling-wheels/*.whl /tmp/sibling-wheels/
 COPY scripts/release/check_epistemic_graph_client_preflight.py /tmp/check_epistemic_graph_client_preflight.py
 RUN set -eu; \
     uv pip install --system --break-system-packages \
@@ -216,6 +220,7 @@ RUN uv pip install --system --break-system-packages --no-cache \
         --no-sources \
         --override /tmp/overrides.txt \
         --find-links /tmp/wheels \
+        --find-links /tmp/sibling-wheels \
         -e "/opt/agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,owl,logfire,messaging-telegram,messaging-mattermost,postgresql,acp,gateway-widgets]" \
         "/tmp/langfuse-agent-src" \
         "redis>=5.0.0" \
@@ -237,7 +242,7 @@ RUN uv pip install --system --break-system-packages --no-cache \
     && uv pip install --system --break-system-packages --no-cache --no-deps \
         -e /opt/graph-os \
     && chmod -R a+rX /opt/agent-utilities /opt/graph-os \
-    && rm -rf /tmp/langfuse-agent-src /tmp/wheels /tmp/overrides.txt \
+    && rm -rf /tmp/langfuse-agent-src /tmp/wheels /tmp/sibling-wheels /tmp/overrides.txt \
         /tmp/check_epistemic_graph_client_preflight.py
 # ^ this pin list matches the exact stack the CURRENT split-image deploy pip-installs at
 #   pod-start (`kubectl get deploy graph-os -n platform -o yaml`) — most of it
