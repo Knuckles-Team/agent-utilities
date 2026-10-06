@@ -1,5 +1,7 @@
 """CONCEPT:AU-KG.compute.cross-pillar-synergy"""
 
+import math
+
 import pytest
 
 from agent_utilities.knowledge_graph.core.hypergraph import PositionalInteractionEncoder
@@ -7,18 +9,18 @@ from agent_utilities.knowledge_graph.core.hypergraph import PositionalInteractio
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
 pytest.importorskip("epistemic_graph.numeric")
 
-from agent_utilities.numeric import xp as np
 
 
 def test_positional_interaction_encoder_initialization():
     """Test that EncPI initializes properly with seeded weights."""
     enc = PositionalInteractionEncoder(pos_dim=16, hidden_dim=32, out_dim=16, seed=42)
-    assert enc.W1.shape == (32, 32)
-    assert enc.W2.shape == (32, 16)
+    # The native xp contract stores weights as builtin nested lists.
+    assert (len(enc.W1), len(enc.W1[0])) == (32, 32)
+    assert (len(enc.W2), len(enc.W2[0])) == (32, 16)
 
     # Check deterministic behavior
     enc2 = PositionalInteractionEncoder(pos_dim=16, hidden_dim=32, out_dim=16, seed=42)
-    np.testing.assert_array_equal(enc.W1, enc2.W1)
+    assert enc.W1 == enc2.W1
 
 
 def test_sinusoidal_encoding():
@@ -26,11 +28,11 @@ def test_sinusoidal_encoding():
     enc = PositionalInteractionEncoder(pos_dim=4)
     pos_encoding = enc._sinusoidal_encoding(1)
 
-    assert pos_encoding.shape == (4,)
+    assert len(pos_encoding) == 4
     # Position 1, index 0 -> sin(1 / 10000^0) = sin(1)
-    assert np.isclose(pos_encoding[0], np.sin(1))
+    assert math.isclose(pos_encoding[0], math.sin(1))
     # Position 1, index 1 -> cos(1 / 10000^0) = cos(1)
-    assert np.isclose(pos_encoding[1], np.cos(1))
+    assert math.isclose(pos_encoding[1], math.cos(1))
 
 
 def test_encode_interaction_shape_and_type():

@@ -45,22 +45,21 @@ def _make_node(name: str, embedding: list[float] | None = None) -> RegistryNode:
     )
 
 
-def _random_embedding(dim: int = 64, seed: int | None = None) -> list[float]:
+def _random_embedding(dim: int = 64, seed: int = 0) -> list[float]:
     """Generate a random unit-norm embedding."""
-    rng = np.random.default_rng(seed)
-    vec = rng.standard_normal(dim)
-    vec /= np.linalg.norm(vec)
-    return vec.tolist()
+    vec = np.random.default_rng(seed).standard_normal(dim)
+    norm = float(np.linalg.norm(vec))
+    return [v / norm for v in vec]
 
 
 def _similar_embedding(
     base: list[float], noise: float = 0.1, seed: int = 42
 ) -> list[float]:
     """Create a vector similar to base with controlled noise."""
-    rng = np.random.default_rng(seed)
-    arr = np.array(base) + rng.standard_normal(len(base)) * noise
-    arr /= np.linalg.norm(arr)
-    return arr.tolist()
+    draws = np.random.default_rng(seed).standard_normal(len(base))
+    arr = [b + d * noise for b, d in zip(base, draws, strict=True)]
+    norm = float(np.linalg.norm(arr))
+    return [v / norm for v in arr]
 
 
 # =====================================================================
@@ -202,7 +201,11 @@ class TestKGNativeRetrievalRetriever:
         base_emb = _random_embedding(dim=32, seed=42)
         nodes = [
             _make_node("target node", embedding=base_emb),
-            _make_node("distant node", embedding=_random_embedding(dim=32, seed=99)),
+            _make_node(
+                "distant node",
+                # Heavily perturbed copy: positively related, but clearly farther.
+                embedding=_similar_embedding(base_emb, noise=0.25, seed=99),
+            ),
         ]
 
         query_emb = _similar_embedding(base_emb, noise=0.05, seed=1)

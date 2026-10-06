@@ -23,6 +23,12 @@ from agent_utilities.numeric import xp as np
 # ── KG-2.34: Spectral Cluster Navigator ──────────────────────────────
 
 
+def _gaussian_rows(rng, rows: int, offset: list[float]) -> list[list[float]]:
+    """``rows`` standard-normal vectors shifted by ``offset`` (builtin lists)."""
+    draws = rng.standard_normal((rows, len(offset)))
+    return [[v + o for v, o in zip(row, offset, strict=True)] for row in draws]
+
+
 class TestSpectralClusterNavigator:
     """Tests for CONCEPT:AU-KG.compute.spectral-cluster-navigator — Spectral Cluster Navigator."""
 
@@ -33,10 +39,10 @@ class TestSpectralClusterNavigator:
         )
 
         nav = SpectralClusterNavigator()
-        np.random.seed(42)
-        c1 = np.random.randn(10, 5) + np.array([5, 0, 0, 0, 0])
-        c2 = np.random.randn(10, 5) + np.array([0, 5, 0, 0, 0])
-        vectors = np.vstack([c1, c2]).tolist()
+        rng = np.random.default_rng(42)
+        vectors = _gaussian_rows(rng, 10, [5, 0, 0, 0, 0]) + _gaussian_rows(
+            rng, 10, [0, 5, 0, 0, 0]
+        )
 
         clusters = nav.cluster(vectors, max_k=5)
         assert len(clusters) == 2
@@ -61,8 +67,7 @@ class TestSpectralClusterNavigator:
         )
 
         nav = SpectralClusterNavigator()
-        np.random.seed(42)
-        vectors = np.random.randn(20, 4).tolist()
+        vectors = _gaussian_rows(np.random.default_rng(42), 20, [0, 0, 0, 0])
         clusters = nav.cluster(vectors, max_k=4)
         for c in clusters:
             assert 0.0 <= c.coherence <= 1.0
@@ -75,8 +80,7 @@ class TestSpectralClusterNavigator:
         from agent_utilities.models.knowledge_graph import RegistryNodeType
 
         nav = SpectralClusterNavigator()
-        np.random.seed(42)
-        vectors = (np.random.randn(20, 3) + np.array([5, 0, 0])).tolist()
+        vectors = _gaussian_rows(np.random.default_rng(42), 20, [5, 0, 0])
         clusters = nav.cluster(vectors, max_k=3)
 
         nodes = nav.cluster_to_kg_nodes(clusters, domain="research")
@@ -92,10 +96,8 @@ class TestSpectralClusterNavigator:
         )
 
         nav = SpectralClusterNavigator()
-        np.random.seed(42)
-        bull = np.random.randn(15, 3) + np.array([3, 0, 0])
-        bear = np.random.randn(15, 3) + np.array([0, 3, 0])
-        data = np.vstack([bull, bear]).tolist()
+        rng = np.random.default_rng(42)
+        data = _gaussian_rows(rng, 15, [3, 0, 0]) + _gaussian_rows(rng, 15, [0, 3, 0])
 
         regimes = nav.detect_financial_regimes(data, max_regimes=3)
         assert len(regimes) >= 2

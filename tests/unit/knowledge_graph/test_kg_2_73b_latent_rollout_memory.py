@@ -53,8 +53,10 @@ class TestMechanism:
         _, y1 = m.predict_latent("room_alpha", "go")
         _, raw = m.predict_latent("room_beta", "go")
         _, blended = m.predict_latent("room_beta", "go", prior=y1, memory_weight=0.25)
-        d_raw = float(np.linalg.norm(np.asarray(raw) - np.asarray(y1)))
-        d_blended = float(np.linalg.norm(np.asarray(blended) - np.asarray(y1)))
+        d_raw = float(np.linalg.norm([a - b for a, b in zip(raw, y1, strict=True)]))
+        d_blended = float(
+            np.linalg.norm([a - b for a, b in zip(blended, y1, strict=True)])
+        )
         assert d_blended < d_raw
 
 

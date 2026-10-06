@@ -47,9 +47,9 @@ def _grant_public(*node_ids: str) -> None:
 
 def _basis(i: int, dim: int = DIM, scale: float = 1.0) -> list[float]:
     """One-hot basis vector along axis ``i`` (controllable similarities)."""
-    v = np.zeros(dim, dtype=np.float32)
+    v = [0.0] * dim
     v[i % dim] = scale
-    return v.tolist()
+    return v
 
 
 def _nodes() -> list[dict]:

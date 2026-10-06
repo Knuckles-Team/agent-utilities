@@ -42,8 +42,8 @@ def test_branch_gate_respects_threshold_and_bound():
 
 def test_step_credit_writes_back_into_capability_ema():
     idx = CapabilityIndex(dim=3)
-    idx.add("tool_a", np.array([1.0, 0.0, 0.0], dtype=np.float32), ["x"])
-    idx.add("tool_b", np.array([0.0, 1.0, 0.0], dtype=np.float32), ["x"])
+    idx.add("tool_a", [1.0, 0.0, 0.0], ["x"])
+    idx.add("tool_b", [0.0, 1.0, 0.0], ["x"])
     before_a = idx.reward_of("tool_a")
     # tool_a got a strongly positive step advantage, tool_b a negative one
     n = write_back_step_credit(idx, ["tool_a", "tool_b"], [3.0, -3.0])

@@ -36,28 +36,23 @@ from agent_utilities.numeric import xp as np
 # ── Fixtures ──
 
 
+def _unit(values: list[float]) -> list[float]:
+    """Scale a builtin-list vector to unit norm (zero vectors are unchanged)."""
+    norm = float(np.linalg.norm(values))
+    return [float(v) / norm for v in values] if norm > 0 else [float(v) for v in values]
+
+
 def _make_random_embedding(dim: int = 128, seed: int = 0) -> list[float]:
     """Generate a reproducible random embedding."""
-    rng = np.random.RandomState(seed)
-    vec = rng.randn(dim).astype(np.float32)
-    norm = np.linalg.norm(vec)
-    if norm > 0:
-        vec = vec / norm
-    return vec.tolist()
+    return _unit(np.random.default_rng(seed).standard_normal(dim))
 
 
 def _make_similar_embedding(
     base: list[float], noise: float = 0.05, seed: int = 1
 ) -> list[float]:
     """Create an embedding similar to base by adding small noise."""
-    rng = np.random.RandomState(seed)
-    vec = np.array(base, dtype=np.float32) + noise * rng.randn(len(base)).astype(
-        np.float32
-    )
-    norm = np.linalg.norm(vec)
-    if norm > 0:
-        vec = vec / norm
-    return vec.tolist()
+    draws = np.random.default_rng(seed).standard_normal(len(base))
+    return _unit([b + noise * d for b, d in zip(base, draws, strict=True)])
 
 
 def _make_block(
