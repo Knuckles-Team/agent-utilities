@@ -221,7 +221,7 @@ RUN uv pip install --system --break-system-packages --no-cache \
         --override /tmp/overrides.txt \
         --find-links /tmp/wheels \
         --find-links /tmp/sibling-wheels \
-        -e "/opt/agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,owl,logfire,messaging-telegram,messaging-mattermost,postgresql,acp,gateway-widgets]" \
+        -e "/opt/agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,rdf,logfire,messaging-telegram,messaging-mattermost,postgresql,acp,gateway-widgets]" \
         "/tmp/langfuse-agent-src" \
         "redis>=5.0.0" \
         "neo4j>=6.2.0" \
@@ -272,7 +272,7 @@ RUN uv pip install --system --break-system-packages --no-cache \
 # tolerant handler at kg_server's attach site is by design (a dead fleet loader must not
 # take graph-os down), but it also meant a version-mismatched image shipped green and only
 # logged the loss of every fleet meta-tool. Failing the BUILD is where that belongs.
-RUN python3 -c "import importlib.metadata as m; import agent_utilities; import graph_os; import epistemic_graph.numeric; import langfuse_agent; import owlready2; import pyshacl; import rdflib; from graph_os.fleet.multiplexer import attach_fleet_loader; from graph_os.fleet.protocol_compat import check_mcp_sdk_floor; r = check_mcp_sdk_floor(); eps = [e for e in m.distribution('graph-os').entry_points if e.group == 'console_scripts' and e.name == 'graph-os']; assert len(eps) == 1 and eps[0].value == 'graph_os.mcp_server.server:mcp_server', eps; assert r['ok'] is True, r['detail']; assert m.version('pydantic-ai-slim') == '2.29.0'; assert m.version('pydantic-ai-harness') == '0.14.0'; print('graph-os authority OK:', eps[0].value); print('mcp_sdk_floor OK:', r['detail'])" \
+RUN python3 -c "import importlib.metadata as m; import agent_utilities; import graph_os; import epistemic_graph.numeric; import langfuse_agent; import rdflib; from graph_os.fleet.multiplexer import attach_fleet_loader; from graph_os.fleet.protocol_compat import check_mcp_sdk_floor; r = check_mcp_sdk_floor(); eps = [e for e in m.distribution('graph-os').entry_points if e.group == 'console_scripts' and e.name == 'graph-os']; assert len(eps) == 1 and eps[0].value == 'graph_os.mcp_server.server:mcp_server', eps; assert r['ok'] is True, r['detail']; assert m.version('pydantic-ai-slim') == '2.29.0'; assert m.version('pydantic-ai-harness') == '0.14.0'; print('graph-os authority OK:', eps[0].value); print('mcp_sdk_floor OK:', r['detail'])" \
     && epistemic-graph-server --help >/dev/null \
     && command -v graph-os >/dev/null
 
