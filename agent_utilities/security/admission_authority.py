@@ -91,6 +91,30 @@ class AdmissionAuthority:
         )
 
 
+def signer_entry_key(entry: object) -> str | None:
+    """Return the key held by one signer-registry entry, in either engine shape.
+
+    The engine's registry accepts TWO shapes for a signer entry
+    (`SignerKeySpec`, epistemic-graph/src/server/auth.rs):
+
+    * legacy: ``{"<id>": "<key>"}``
+    * scoped: ``{"<id>": {"key": "...", "allowed_roles": [...], ...}}``
+
+    A scoped entry is what grants the signer any authority at all -- a legacy
+    one maps to ``allowed_roles: []`` and can register nothing -- so every
+    reader must accept both, or a correctly scoped deployment's key becomes
+    invisible (or, read as text, silently wrong).
+    """
+
+    if isinstance(entry, str) and entry:
+        return entry
+    if isinstance(entry, dict):
+        key = entry.get("key")
+        if isinstance(key, str) and key:
+            return key
+    return None
+
+
 def _signer_key_for(principal: str) -> str | None:
     """Return this process's own signer key for ``principal``, if it holds one.
 
@@ -116,21 +140,9 @@ def _signer_key_for(principal: str) -> str | None:
             raise AdmissionAuthorityError(
                 f"{SIGNER_REGISTRY_ENV} must decode to a JSON object"
             )
-        # The engine's registry accepts TWO shapes for a signer entry
-        # (`SignerKeySpec`, epistemic-graph/src/server/auth.rs):
-        #   legacy: {"<id>": "<key>"}
-        #   scoped: {"<id>": {"key": "...", "allowed_roles": [...], ...}}
-        # A scoped entry is what grants the signer any authority at all -- a
-        # legacy one maps to `allowed_roles: []` and can register nothing -- so
-        # reading only the legacy shape means the moment a deployment is
-        # correctly scoped, the key becomes invisible here.
-        entry = registry.get(principal)
-        if isinstance(entry, str) and entry:
-            return entry
-        if isinstance(entry, dict):
-            key = entry.get("key")
-            if isinstance(key, str) and key:
-                return key
+        key = signer_entry_key(registry.get(principal))
+        if key:
+            return key
 
     from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
