@@ -2032,7 +2032,9 @@ def _dead_letter_poison_envelope(
             engine,
             kind="dispatch_poison",
             payload_ref=f"poison:{_poison_delivery_digest(payload)}",
-            tenant="__system__",
+            # The verified request tenant: the engine-native WorkItem verbs
+            # refuse any other tenant, so a reserved literal never commits.
+            tenant="",
             resource_class="agent_dispatch",
             work_item_id=work_item_id,
             idempotency_key=work_item_id,

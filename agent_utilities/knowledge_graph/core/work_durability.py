@@ -118,6 +118,7 @@ __all__ = [
     "claim_loop_work_item",
     "transition_loop_work_item",
     "set_loop_statechart_instance_id",
+    "loop_statechart_instance_id",
     "set_work_item_priority",
     "work_item_view_of_loop",
 ]
@@ -2504,8 +2505,9 @@ def ensure_team_task_work_item(
 ) -> str:
     """Idempotently create/reuse the WorkItem shadowing team ``:TaskNode`` ``task_id``.
 
-    Submitted immediately ``ready`` (team tasks have no dependency graph);
-    ``tenant`` carries the owning ``team_id`` for observability/quota.
+    Submitted immediately ``ready`` (team tasks have no dependency graph).
+    ``tenant`` defaults to the verified request tenant, the only tenant the
+    engine-native WorkItem verbs accept.
     """
     item_id = team_task_work_item_id(task_id)
     return submit_work_item(
@@ -2654,6 +2656,7 @@ def submit_team_work_item(
     from agent_utilities.messaging.bus_privacy import bus_reference
 
     item_id = team_work_item_id(task_id)
+    tenant = _work_tenant(tenant)
     return submit_work_item(
         engine,
         kind="team_assignment",
@@ -2702,20 +2705,54 @@ def loop_work_item_id(loop_id: str) -> str:
 
 def set_loop_statechart_instance_id(
     engine: Any, item_id: str, instance_id: str
-) -> None:
+) -> bool:
     """Attach the Loop's ``eg-statechart`` instance id to its backing WorkItem (W2.5).
 
     ``Method::Statechart::Instantiate`` server-generates ``instance_id`` (no
     caller-supplied id support, unlike ``submit_work_item``'s
     ``work_item_id``), so the returned id is stored here and read back by
     ``research.loops.ensure_loop_statechart_instance`` on every subsequent
-    call. Best-effort metadata, not part of the lease/fencing authority — a
-    plain upsert (mirrors how ``research.loops.submit_loop`` upserts its
-    Concept definition), not a CAS-guarded field.
+    call. It lives in the WorkItem's ``metadata`` and is written through the
+    engine-native ``CasWorkItemMetadata`` verb: a WorkItem row belongs to the
+    native WorkItem authority, which refuses any generic node upsert over it.
+
+    Returns ``True`` once the id is recorded (by this call or a concurrent
+    one); ``False`` if the WorkItem does not exist or a concurrent writer kept
+    winning the race. A missing native verb still raises.
     """
-    _authority(engine).add_node(
-        item_id, _NODE_LABEL, properties={"loop_statechart_instance_id": instance_id}
-    )
+    for _attempt in range(3):
+        item = get_work_item(engine, item_id)
+        if item is None:
+            return False
+        old_metadata = dict(item.get("metadata") or {})
+        if old_metadata.get("loop_statechart_instance_id"):
+            return old_metadata["loop_statechart_instance_id"] == instance_id
+        status = str(item.get("status"))
+        expected_lease = None
+        if status in {"leased", "running"}:
+            expected_lease = {
+                "worker_ref": item.get("lease_owner"),
+                "lease_epoch": item.get("lease_epoch"),
+                "fencing_token": item.get("fencing_token"),
+            }
+        if _cas_work_item_metadata(
+            engine,
+            tenant=str(item.get("tenant") or ""),
+            item_id=item_id,
+            expected_status=[status],
+            now=_now(),
+            expected_lease=expected_lease,
+            expected_metadata=old_metadata,
+            set_metadata={**old_metadata, "loop_statechart_instance_id": instance_id},
+        ):
+            return True
+    return False
+
+
+def loop_statechart_instance_id(item: dict[str, Any]) -> str | None:
+    """The Loop statechart instance id recorded on a WorkItem row, if any."""
+    value = (item.get("metadata") or {}).get("loop_statechart_instance_id")
+    return str(value) if value else None
 
 
 def ensure_loop_work_item(

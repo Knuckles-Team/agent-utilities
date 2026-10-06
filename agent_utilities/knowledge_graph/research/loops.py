@@ -491,16 +491,19 @@ def ensure_loop_statechart_instance(engine: Any, loop_id: str) -> str | None:
     item = _wi.get_work_item(engine, item_id)
     if item is None:
         return None
-    existing = item.get("loop_statechart_instance_id")
+    existing = _wi.loop_statechart_instance_id(item)
     if existing:
-        return str(existing)
+        return existing
     def_id = loop_def_id(engine)
     result = engine.statechart.instantiate(def_id, context={})
     instance_id = result.get("instance_id") if isinstance(result, dict) else None
     if not instance_id:
         return None
-    _wi.set_loop_statechart_instance_id(engine, item_id, str(instance_id))
-    return str(instance_id)
+    if _wi.set_loop_statechart_instance_id(engine, item_id, str(instance_id)):
+        return str(instance_id)
+    # A concurrent caller recorded a different instance first; that one wins.
+    current = _wi.get_work_item(engine, item_id)
+    return _wi.loop_statechart_instance_id(current) if current else None
 
 
 def send_loop_statechart_event(

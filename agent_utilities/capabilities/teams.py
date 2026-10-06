@@ -230,10 +230,11 @@ class TeamCapability(AbstractCapability[Any]):
             from ..knowledge_graph.core import work_durability as _wi
 
             view = _GraphComputeWorkItemView(engine)
+            # The WorkItem tenant is the verified request tenant (the engine
+            # refuses any other); team membership is the BELONGS_TO_TEAM edge.
             work_item_id = _wi.submit_team_work_item(
                 view,
                 task_id,
-                tenant=self.team_id or "",
                 description=content,
                 assigned_to=assigned_to or "",
                 created_by=str(getattr(ctx.deps, "agent_id", "orchestrator")),
@@ -264,7 +265,6 @@ class TeamCapability(AbstractCapability[Any]):
                 _wi.ensure_team_task_work_item(
                     _GraphComputeWorkItemView(engine),
                     task_id,
-                    tenant=self.team_id or "",
                 )
         return task_id
 
@@ -364,14 +364,13 @@ class TeamCapability(AbstractCapability[Any]):
         from ..knowledge_graph.core import work_durability as _wi
 
         view = _GraphComputeWorkItemView(engine)
-        tenant = self.team_id or ""
         item_id = _wi.team_work_item_id(task_id)
         item = _wi.get_work_item(view, item_id)
         if item is None or item.get("kind") != "team_assignment":
             logger.warning("Team WorkItem %s not found", item_id)
             return False
         if transition == "start":
-            if _wi.start_team_work_item(view, task_id, tenant=tenant) is None:
+            if _wi.start_team_work_item(view, task_id) is None:
                 return False
         else:  # "succeed" / "fail" / "cancel"
             claim = _team_work_item_claim_for_commit(view, task_id)
