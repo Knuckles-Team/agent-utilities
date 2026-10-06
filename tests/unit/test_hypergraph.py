@@ -10,7 +10,6 @@ from agent_utilities.knowledge_graph.core.hypergraph import PositionalInteractio
 pytest.importorskip("epistemic_graph.numeric")
 
 
-
 def test_positional_interaction_encoder_initialization():
     """Test that EncPI initializes properly with seeded weights."""
     enc = PositionalInteractionEncoder(pos_dim=16, hidden_dim=32, out_dim=16, seed=42)

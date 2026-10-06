@@ -38,7 +38,9 @@ def sample_ohlcv():
             "High": (close * (1 + pd.Series(rng.uniform(0, 0.02, n)))).tolist(),
             "Low": (close * (1 - pd.Series(rng.uniform(0, 0.02, n)))).tolist(),
             "Close": close.tolist(),
-            "Volume": pd.Series(rng.integers(100_000, 10_000_000, n), dtype=float).tolist(),
+            "Volume": pd.Series(
+                rng.integers(100_000, 10_000_000, n), dtype=float
+            ).tolist(),
         },
         index=dates,
     )

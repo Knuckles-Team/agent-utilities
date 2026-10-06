@@ -182,6 +182,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "engine_consensus",
+        "action": "check_access",
+        "name": "engine_consensus_check_access",
+    },
+    {
+        "tool": "engine_consensus",
         "action": "get_identity",
         "name": "engine_consensus_get_identity",
     },
@@ -362,7 +367,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "empirical_kelly",
         "name": "engine_finance_empirical_kelly",
     },
-    {"tool": "engine_finance", "action": "ewma", "name": "engine_finance_ewma"},
     {
         "tool": "engine_finance",
         "action": "expected_pnl_rate",
@@ -433,6 +437,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "logit_quotes",
         "name": "engine_finance_logit_quotes",
     },
+    {"tool": "engine_finance", "action": "market", "name": "engine_finance_market"},
     {
         "tool": "engine_finance",
         "action": "market_impact",
@@ -536,11 +541,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "engine_finance",
-        "action": "rolling_zscore",
-        "name": "engine_finance_rolling_zscore",
-    },
-    {
-        "tool": "engine_finance",
         "action": "sabr_calibrate",
         "name": "engine_finance_sabr_calibrate",
     },
@@ -558,6 +558,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "engine_finance",
         "action": "signal_decay",
         "name": "engine_finance_signal_decay",
+    },
+    {
+        "tool": "engine_finance",
+        "action": "signal_models",
+        "name": "engine_finance_signal_models",
     },
     {
         "tool": "engine_finance",
@@ -1091,6 +1096,16 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "engine_rdf", "action": "sparql", "name": "engine_rdf_sparql"},
     {
         "tool": "engine_rdf",
+        "action": "sparql_explain",
+        "name": "engine_rdf_sparql_explain",
+    },
+    {
+        "tool": "engine_rdf",
+        "action": "sparql_result",
+        "name": "engine_rdf_sparql_result",
+    },
+    {
+        "tool": "engine_rdf",
         "action": "sparql_virtual",
         "name": "engine_rdf_sparql_virtual",
     },
@@ -1211,6 +1226,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "engine_timeseries",
+        "action": "define_series",
+        "name": "engine_timeseries_define_series",
+    },
+    {
+        "tool": "engine_timeseries",
         "action": "delete_series",
         "name": "engine_timeseries_delete_series",
     },
@@ -1278,14 +1298,10 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "engine_txn", "action": "rollback", "name": "engine_txn_rollback"},
     {
         "tool": "engine_txn",
-        "action": "unified_query",
-        "name": "engine_txn_unified_query",
-    },
-    {
-        "tool": "engine_txn",
         "action": "unified_query_plan",
         "name": "engine_txn_unified_query_plan",
     },
+    {"tool": "engine_txn", "action": "uql", "name": "engine_txn_uql"},
     {
         "tool": "engine_viz",
         "action": "capability_matrix",

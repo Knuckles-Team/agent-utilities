@@ -152,15 +152,19 @@ def test_dim_mismatch_raises():
 
 
 def test_engine_query_fails_closed_without_numeric_kernel():
-    """A cold query import fails clearly when the native kernel is absent.
+    """Without the native kernel, the first numeric use fails clearly.
 
     Runs in a clean subprocess (a shared pytest session already has
     ``agent_utilities.numeric`` cached in ``sys.modules``) so this is a true
     cold-import check. The kernel modules are poisoned to ``None`` in
     ``sys.modules`` before the import, which forces Python's import system to
-    raise ``ImportError`` for them. The AU contract deliberately has no lazy
-    NumPy/module-table fallback: supported deployments install
-    ``epistemic-graph[full]``.
+    raise ``ImportError`` for them.
+
+    Current contract (``agent_utilities/numeric``): importing a module that
+    merely references ``xp`` succeeds, and the kernel's absence is raised as
+    the original ``ImportError`` at the first native call -- there is still no
+    lazy NumPy/module-table fallback. The previous version of this test pinned
+    the retired import-time failure.
     """
     probe = (
         "import sys, json\n"
@@ -169,12 +173,17 @@ def test_engine_query_fails_closed_without_numeric_kernel():
         # in this dev environment.
         "sys.modules['epistemic_graph.numeric'] = None\n"
         "sys.modules['numeric'] = None\n"
+        "import agent_utilities.knowledge_graph.orchestration.engine_query\n"
+        "from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (\n"
+        "    TemporalSemanticIdEncoder,\n"
+        ")\n"
         "try:\n"
-        "    import agent_utilities.knowledge_graph.orchestration.engine_query\n"
-        "except ImportError:\n"
+        "    TemporalSemanticIdEncoder().fit([[1.0, 0.0], [0.0, 1.0]])\n"
+        "except ImportError as exc:\n"
+        "    assert 'epistemic_graph.numeric' in str(exc), exc\n"
         "    print(json.dumps({'ok': True}))\n"
         "else:\n"
-        "    raise AssertionError('query import unexpectedly bypassed the native kernel')\n"
+        "    raise AssertionError('numeric use unexpectedly bypassed the native kernel')\n"
     )
     result = subprocess.run(
         [sys.executable, "-c", probe],

@@ -18,6 +18,9 @@ from agent_utilities.knowledge_graph.retrieval.capability_index import (
     CapabilityIndex,
     Designation,
 )
+from agent_utilities.knowledge_graph.retrieval.capability_projection import (
+    CapabilitySubsumptionProjection,
+)
 from agent_utilities.models.company_brain import DataClassification, NodeACL
 
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
@@ -117,8 +120,19 @@ def test_required_caps_with_no_provider_returns_empty():
     assert idx.designate(_basis(0), required_caps=["math", "web"], k=5) == []
 
 
-def test_default_hierarchy_matches_declared_subtype():
-    idx = CapabilityIndex(dim=DIM, prefer_backend="native")
+def test_injected_hierarchy_matches_declared_subtype():
+    # The index no longer bundles a default hierarchy: only an engine-derived,
+    # GraphSchema-bound projection injected by the caller may widen a match
+    # (capability_index._resolve_capability_hierarchy). Pin that contract with
+    # the projection type OwlReason produces.
+    projection = CapabilitySubsumptionProjection(
+        relations=frozenset({("EncryptedTransport", "TransportCapability")}),
+        direct_relations=frozenset({("EncryptedTransport", "TransportCapability")}),
+        schema_digests=("sha256:test-capability-schema",),
+    )
+    idx = CapabilityIndex(
+        dim=DIM, prefer_backend="native", capability_hierarchy=projection
+    )
     idx.add("mtls_tool", _basis(0), ["EncryptedTransport"])
 
     out = idx.designate(
