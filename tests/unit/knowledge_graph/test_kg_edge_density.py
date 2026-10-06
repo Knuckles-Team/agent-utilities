@@ -286,14 +286,19 @@ def test_inference_never_overwrites_an_asserted_edge(engine_graph):
 
 
 def test_run_inference_has_a_production_caller(engine_graph):
-    """``InferenceEngine`` is reachable from a scheduled tick, not only tests."""
+    """Engine reasoning is reachable from a scheduled tick, not only tests.
+
+    Epistemic Graph is the sole semantic authority: the tick asks the engine
+    for Datalog closure over the committed GraphSchema snapshot and no longer
+    drives the retired Python ``InferenceEngine``/``run_closure`` pair.
+    """
     import inspect
 
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     source = inspect.getsource(IntelligenceGraphEngine._tick_reasoning)
-    assert "run_inference" in source
-    assert "run_closure" in source
+    assert "run_datalog_reasoning" in source
+    assert "run_inference" not in source
 
     from agent_utilities.core.schedule_engine import _MAINTENANCE_REF_ALLOWLIST
 
