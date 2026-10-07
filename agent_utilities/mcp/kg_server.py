@@ -5665,7 +5665,9 @@ def _build_server(
     # condensed surface just registered stays reachable via load_tools (verbose_tools
     # tagged them GATED_TAG); the intent verbs dispatch through the SAME
     # REGISTERED_TOOLS/_execute_tool core.
-    if (tool_profile or tool_mode()) == "intent":
+    from agent_utilities.mcp.verbose_tools import serves_intent_verbs
+
+    if serves_intent_verbs(tool_profile or tool_mode()):
         from agent_utilities.mcp.tools.intent_tools import register_intent_tools
 
         register_intent_tools(mcp)
