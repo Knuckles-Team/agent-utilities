@@ -3549,7 +3549,7 @@ class AgentConfig(BaseSettings):
             validated[domain] = threshold
         return validated
 
-    mcp_tool_mode: Literal["intent", "condensed", "verbose", "both"] = Field(
+    mcp_tool_mode: Literal["intent", "condensed", "verbose", "both", "hybrid"] = Field(
         default="intent", alias="MCP_TOOL_MODE"
     )
     mcp_http_allowed_private_hosts: list[str] = Field(
