@@ -6,14 +6,14 @@ from __future__ import annotations
 
 Every ``graph_etl`` run records a lineage trail in the KG itself so an operator can
 answer impact-analysis questions ("what flows from ServiceNow to LeanIX?", "where did
-this Stardog graph's data originate?"). Reuses the existing provenance ontology — NO
+this graph's data originate?"). Reuses the existing provenance ontology — NO
 new node/edge types:
 
 * a run is a :class:`RegistryNodeType.PROVENANCE_AGENT` node (``kind="etl_run"``) with
   ``source`` / ``sink`` / ``direction`` / ``nodes`` / ``edges`` / ``status`` / ``at`` props;
 * ``source`` and ``sink`` systems are PROVENANCE_AGENT marker nodes
   (``urn:source:<s>`` / ``urn:sink:<s>``, ``kind="system"``) — the same ``urn:source:``
-  scheme the Stardog named-graph partitioning and ``sparql_ingestor`` already use;
+  scheme ``knowledge_graph.core.source_partition`` already uses;
 * :class:`RegistryEdgeType.WAS_DERIVED_FROM` edges chain ``sink → run → source`` so a
   graph walk reconstructs the flow.
 

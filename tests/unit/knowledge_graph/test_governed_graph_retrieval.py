@@ -26,7 +26,12 @@ backends, proving:
 * an unknown graph and a graph whose durable ACL backend rejects the
   hydration query both fail closed as the SAME caller-facing error, never
   distinguishable from one another;
-* a scalar/aggregate-shaped row with no governed id is denied outright.
+* a scalar/aggregate-shaped row with no governed id, returned from a query
+  ``push_down_visibility`` demonstrably scoped, is trusted and kept rather
+  than denying the whole read (b76116143, "fix(kg): push authorization down
+  instead of raising on id-less rows" -- the strict trust_pushdown=False
+  backstop for a row from a query that was NOT demonstrably scoped is unit-
+  tested directly in test_secured_reads.py, not duplicated here).
 """
 
 from __future__ import annotations
@@ -330,7 +335,20 @@ def test_unknown_and_unauthorized_graph_fail_closed_indistinguishably(
     )
 
 
-def test_scalar_row_without_governed_id_is_denied(monkeypatch, brain):
+def test_scalar_row_without_governed_id_is_trusted_when_query_is_scoped(
+    monkeypatch, brain
+):
+    """b76116143 ("fix(kg): push authorization down instead of raising on
+    id-less rows"): ``_run_query``'s plain ``MATCH (n) RETURN n.id AS id, ...``
+    has a bound node variable ``push_down_visibility`` can demonstrably scope,
+    so a row this query returns with no governed id (e.g. an aggregate-shaped
+    row, or a projection that genuinely selected none) is now trusted and
+    kept -- the whole read is no longer denied just because one row cannot be
+    classified post hoc. The strict backstop for a row from a query that was
+    NOT demonstrably scoped is unit-tested directly in
+    test_secured_reads.py's test_filter_rows_drops_denied_and_requires_governed_ids
+    and test_row_without_governed_id_still_raises_with_accelerator_active.
+    """
     active, view_a, _view_b = _build_two_graph_topology()
     monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", active)
     # Overwrite graph-a's content with a scalar/aggregate-shaped row that
@@ -339,9 +357,7 @@ def test_scalar_row_without_governed_id_is_denied(monkeypatch, brain):
 
     actor = _actor()
     session = _session(actor, "graph-a")
-    with pytest.raises(PermissionError) as exc:
-        _run_query(view_a, session)
-    assert str(exc.value) == "Graph row-policy or audit enforcement failed"
+    assert _run_query(view_a, session) == [{"count": 5}]
 
 
 def test_graph_never_accepted_as_a_raw_parameter_only_from_the_session(

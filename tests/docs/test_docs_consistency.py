@@ -24,6 +24,7 @@ AGENTS_MAX_LINES = 240
 AGENTS_HEADINGS = (
     "What this repository owns",
     "Architecture and module map",
+    "Setup",
     "Commands",
     "Quality gates",
     "Development rules",

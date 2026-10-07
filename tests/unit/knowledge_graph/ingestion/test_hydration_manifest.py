@@ -539,7 +539,10 @@ def test_boot_hydration_plan_records_a_signed_manifest(monkeypatch):
         "_ingest_self_tool_surface_at_boot",
         "_ingest_capabilities",
         "_ingest_prompts_at_boot",
-        "_sync_ontologies_at_boot",
+        # No "_sync_ontologies_at_boot" step: 43197d7c6 ("refactor: move
+        # semantic authority to epistemic graph") removed it along with the
+        # AU-local ontology/OWL/SHACL authorities it synced; the current
+        # plan has no ontology-sync step for this test to stub.
         "_hydrate_code_and_configured_connectors",
     ):
         monkeypatch.setattr(kg_server, step, lambda *a, **k: None)

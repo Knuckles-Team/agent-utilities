@@ -465,14 +465,18 @@ def test_profile_summary_contains_only_counts_and_digests() -> None:
 
 
 def test_small_secret_has_no_unkeyed_content_or_field_name_fingerprint() -> None:
+    # The probe column is deliberately NOT named "value": `ColumnProfile` has
+    # its own generic `min_value`/`max_value` fields, so a column literally
+    # named "value" collides with that unrelated schema vocabulary and makes
+    # the substring assertion below fail on a false positive, not a real leak.
     plan = _plan(
-        {"verb": "fill_nulls", "fills": {"value": "one-row-secret"}},
+        {"verb": "fill_nulls", "fills": {"secret_col": "one-row-secret"}},
     )
     pipeline = CleanPipeline(
         plan,
-        model_registry=_registry(_row_model("SecretRow", value=str)),
+        model_registry=_registry(_row_model("SecretRow", secret_col=str)),
     )
-    table = pa.table({"value": pa.array([None], type=pa.string())})
+    table = pa.table({"secret_col": pa.array([None], type=pa.string())})
     profile_dump = json.dumps(pipeline.profile(table).model_dump(), sort_keys=True)
     evidence_dump = json.dumps(
         pipeline.run(table).evidence.model_dump(), sort_keys=True
@@ -480,7 +484,7 @@ def test_small_secret_has_no_unkeyed_content_or_field_name_fingerprint() -> None
 
     for dumped in (profile_dump, evidence_dump):
         assert "one-row-secret" not in dumped
-        assert "value" not in dumped
+        assert "secret_col" not in dumped
         assert "input_digest" not in dumped
         assert "output_digest" not in dumped
         assert "name_digest" not in dumped

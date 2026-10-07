@@ -316,9 +316,14 @@ def _shacl_validate_rows(
     ChangeEnvelope is constructed. Invalid rows are never materialized.
     """
     try:
+        # 43197d7c6 "refactor: move semantic authority to epistemic graph"
+        # relocated the packaged governance shapes from
+        # agent_utilities/knowledge_graph/shapes/ to agent_utilities/ontology/shapes/
+        # (a plain data directory, not its own Python package) without updating
+        # this lookup, so every call here failed closed with FileNotFoundError.
         shapes = (
-            files("agent_utilities.knowledge_graph")
-            .joinpath("shapes", "governance.shapes.ttl")
+            files("agent_utilities")
+            .joinpath("ontology", "shapes", "governance.shapes.ttl")
             .read_text(encoding="utf-8")
         )
         rdf = getattr(client, "rdf", None)
