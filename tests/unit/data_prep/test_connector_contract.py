@@ -273,7 +273,14 @@ def test_mapping_partial_page_cannot_become_verified_empty() -> None:
 
         return ConnectorMapper(artifact=artifact, map_table=map_table)
 
-    preparer, _ = _preparer(_table(), mapper_factory=incomplete_mapper)
+    # "quarantine" validation mode is required for `prepare()` to return a
+    # degraded page instead of raising: the default "fail"/"strict" mode
+    # raises `ConnectorPreparationError` on any mapping-contract diagnostic,
+    # so a page object (and its `.certification`/`.snapshot_complete()`)
+    # would never exist to assert against under the default disposition.
+    preparer, _ = _preparer(
+        _table(), disposition="quarantine", mapper_factory=incomplete_mapper
+    )
     page = preparer.prepare(
         _table(),
         checkpoint=ConnectorCheckpoint(cursor="partial"),
@@ -293,13 +300,21 @@ def test_mapper_cannot_override_deterministic_idempotency() -> None:
         artifact: ConnectorArtifact,
     ) -> ConnectorMapper:
         def map_table(table: pa.Table) -> list:
-            envelope = build_native_change_envelope(
-                table.to_pylist()[0],
-                contract=contract,
-                id_field="id",
-                version_field="updated_at",
-            )
-            return [replace(envelope, idempotency_key="caller-selected")]
+            # Map every row (not just the first) so the per-row idempotency
+            # check is what trips, not the unrelated row-count contract
+            # (`mapped rows must equal input rows`) checked first.
+            return [
+                replace(
+                    build_native_change_envelope(
+                        record,
+                        contract=contract,
+                        id_field="id",
+                        version_field="updated_at",
+                    ),
+                    idempotency_key="caller-selected",
+                )
+                for record in table.to_pylist()
+            ]
 
         return ConnectorMapper(artifact=artifact, map_table=map_table)
 

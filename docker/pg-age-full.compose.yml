@@ -6,7 +6,7 @@
 # set. For AGE/pgvector only (no full-text), use docker/pg-age.compose.yml.
 #
 #   docker compose -f docker/pg-age-full.compose.yml up -d --build
-#   GRAPH_DB_URI is injected from a secret provider before `setup-databases --verify`.
+#   GRAPH_DB_URI is injected from a secret provider before verifying connectivity.
 services:
   pg-age-full:
     init: true

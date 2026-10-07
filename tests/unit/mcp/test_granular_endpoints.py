@@ -12,7 +12,6 @@ from agent_utilities.mcp.kg_server import (
     graph_analyze_causal_endpoint,
     graph_analyze_context_endpoint,
     graph_analyze_endpoint,
-    graph_analyze_evaluate_alpha_endpoint,
     graph_analyze_evaluate_endpoint,
     graph_analyze_evolve_model_endpoint,
     graph_analyze_forecast_endpoint,
@@ -177,11 +176,6 @@ def test_app():
     )
     app.add_route(
         "/graph/analyze/context", graph_analyze_context_endpoint, methods=["POST"]
-    )
-    app.add_route(
-        "/graph/analyze/evaluate-alpha",
-        graph_analyze_evaluate_alpha_endpoint,
-        methods=["POST"],
     )
     app.add_route(
         "/graph/analyze/evaluate", graph_analyze_evaluate_endpoint, methods=["POST"]
