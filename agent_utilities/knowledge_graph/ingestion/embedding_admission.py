@@ -46,11 +46,10 @@ chokepoint was built to prevent").
 
 **What is intentionally NOT here (scope honesty, see this lane's WRAPUP):**
 
-* **Retrieval-telemetry feedback** ("demote never-retrieved classes") has
-  only its design specified here — :data:`ContentClass` values ARE the
-  stable label set that feedback loop would key on (``graph_feedback
-  reads_avoided`` already exists as the signal path per the design doc),
-  but wiring the demotion loop itself is left for a follow-up lane.
+* **Retrieval-telemetry feedback** ("demote never-retrieved classes") is
+  :mod:`.admission_feedback` (AU-CONTEXT-R003): :data:`ContentClass` values are the
+  label EG's per-class retrieval usage is keyed on, and the loop only ever
+  PROPOSES a table change for review -- nothing auto-demotes.
 * **True column cardinality** (distinct-value counts) is a corpus-level
   statistic this per-unit, stateless classifier cannot compute. SQL-column
   admission (:func:`classify_sql_column`) uses name/shape heuristics as a
@@ -89,8 +88,8 @@ __all__ = [
 class ContentClass(StrEnum):
     """The bucket a unit of candidate-embedding text was classified into.
 
-    Values are stable strings on purpose: they are also the label EH-269's
-    (not-yet-built) retrieval-feedback loop would demote by. Renaming a
+    Values are stable strings on purpose: they are also the label EG's
+    per-class retrieval usage and the admission-proposal feedback keys on. Renaming a
     value here silently invalidates any telemetry keyed on the old string —
     add a new member instead of renaming.
     """
