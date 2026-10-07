@@ -130,13 +130,12 @@ read surface that returned bare rows:
   envelope). `FanOutBackend.execute` forwards the flag to its authority backend on
   the read path (honored when the authority itself supports it). Every OTHER
   concrete backend (`AGEBackend`/`PostgreSQLBackend`/`Neo4jBackend`/
-  `FalkorDBBackend`/`LadybugBackend`/`JenaFusekiBackend`/`StardogSparqlBackend`) has
+  `FalkorDBBackend`/`LadybugBackend`) has
   no id-seeded epistemic-envelope primitive, so a `True` request degrades to `[]`
   (never raises, never silently returns plain `dict` rows under a `True` request) —
   the documented ABC contract. Proof:
   `test_kb_currency_epistemic_query_paths.py::test_store_execute_include_epistemic_carries_engine_envelope`
-  (real engine) and `::test_store_execute_include_epistemic_degrades_on_unsupported_backend`
-  (the degrade contract, no engine needed).
+  (real engine).
 * **Typed evidence-span view** — `EpistemicRow.evidence_refs` still carries the
   wire's raw `EvidenceSpanWire` dicts verbatim (never removed, so nothing regresses
   for an existing caller), but a new `EpistemicRow.typed_evidence_refs` property and

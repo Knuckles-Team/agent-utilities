@@ -1733,11 +1733,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_evaluate", "action": "evaluate", "name": "graph_evaluate_evaluate"},
     {
         "tool": "graph_evaluate",
-        "action": "evaluate_alpha",
-        "name": "graph_evaluate_evaluate_alpha",
-    },
-    {
-        "tool": "graph_evaluate",
         "action": "evaluate_harness",
         "name": "graph_evaluate_evaluate_harness",
     },
@@ -1779,11 +1774,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_evaluate",
-        "action": "quant_exchange",
-        "name": "graph_evaluate_quant_exchange",
-    },
-    {
-        "tool": "graph_evaluate",
         "action": "quant_insider",
         "name": "graph_evaluate_quant_insider",
     },
@@ -1796,11 +1786,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "graph_evaluate",
         "action": "quant_regime",
         "name": "graph_evaluate_quant_regime",
-    },
-    {
-        "tool": "graph_evaluate",
-        "action": "quant_strategy",
-        "name": "graph_evaluate_quant_strategy",
     },
     {
         "tool": "graph_evaluate",

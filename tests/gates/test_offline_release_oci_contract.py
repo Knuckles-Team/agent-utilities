@@ -9,7 +9,7 @@ DOCKERFILE = ROOT / "docker" / "Dockerfile"
 DOCKERIGNORE = ROOT / ".dockerignore"
 PYTHON_IMAGE = (
     "python:3.14-slim@sha256:"
-    "cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6"
+    "c3e521df8b2b498a7a682e7e18676771cb80c6b75b8699af886b2d554ce40151"
 )
 
 

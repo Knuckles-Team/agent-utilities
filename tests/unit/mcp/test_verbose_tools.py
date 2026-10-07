@@ -416,6 +416,23 @@ def test_surface_both_adds_verbose(monkeypatch):
     assert "servicenow_get_cmdb_instance" in names  # verbose
 
 
+def _servicenow_surface(monkeypatch, mode):
+    """Register the servicenow fixture surface under ``mode``; return it and
+    the names a session lists."""
+    monkeypatch.setenv("MCP_TOOL_MODE", mode)
+    mcp = FastMCP("t")
+    tags = register_tool_surface(
+        mcp,
+        client_cls=_Api,
+        get_client=_get_client,
+        service="servicenow-api",
+        tools_module=_surface_module(),
+    )
+    assert set(tags) == {"cmdb", "change_management"}
+    names = {t.name for t in _tools_list(mcp)}
+    return mcp, names
+
+
 def test_surface_intent_mode_gates_condensed_tools(monkeypatch):
     """CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse (Seam 8) — MCP_TOOL_MODE=intent still
     registers the condensed tools (nothing lost — REST/_execute_tool reach them
@@ -427,17 +444,7 @@ def test_surface_intent_mode_gates_condensed_tools(monkeypatch):
         gated_tool_names,
     )
 
-    monkeypatch.setenv("MCP_TOOL_MODE", "intent")
-    mcp = FastMCP("t")
-    tags = register_tool_surface(
-        mcp,
-        client_cls=_Api,
-        get_client=_get_client,
-        service="servicenow-api",
-        tools_module=_surface_module(),
-    )
-    assert set(tags) == {"cmdb", "change_management"}
-    names = {t.name for t in _tools_list(mcp)}
+    mcp, names = _servicenow_surface(monkeypatch, "intent")
     # Condensed tools ARE registered (backing surface for the intent verbs +
     # REST/_execute_tool) — just gated from the default session view.
     assert "svc_cmdb" in names
@@ -449,6 +456,26 @@ def test_surface_intent_mode_gates_condensed_tools(monkeypatch):
     assert gated == {"svc_cmdb", "svc_change_management"}
     tool = _get(mcp, "svc_cmdb")
     assert {GATED_TAG, GRANULAR_TAG, "cmdb"} <= set(tool.tags)
+
+
+def test_surface_hybrid_mode_registers_condensed_tools_ungated(monkeypatch):
+    """MCP_TOOL_MODE=hybrid serves the condensed tools in the default session
+    view (no GATED_TAG, no verbose surface) and serves the intent verbs too."""
+    from agent_utilities.mcp.verbose_tools import (
+        GATED_TAG,
+        gated_tool_names,
+        serves_intent_verbs,
+        tool_mode,
+    )
+
+    mcp, names = _servicenow_surface(monkeypatch, "hybrid")
+    assert tool_mode() == "hybrid"
+    assert "svc_cmdb" in names
+    assert "servicenow_get_cmdb_instance" not in names
+    assert gated_tool_names(mcp) == set()
+    assert GATED_TAG not in set(_get(mcp, "svc_cmdb").tags)
+    assert serves_intent_verbs("hybrid") and serves_intent_verbs("intent")
+    assert not any(serves_intent_verbs(m) for m in ("condensed", "verbose", "both"))
 
 
 def test_surface_tool_registry(monkeypatch):

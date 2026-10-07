@@ -215,168 +215,45 @@ def test_graph_configure_preserves_filesystem_policy_denial(
     assert str(denied.value) == "configuration operation denied"
 
 
-def test_stardog_action_rejects_inline_connection_material() -> None:
+@pytest.mark.parametrize(
+    "action",
+    [
+        "push_to_stardog",
+        "pull_from_stardog",
+        "stardog_sparql",
+        "stardog_export_graph",
+        "stardog_import_graph",
+        "setup_databases",
+        "verify_databases",
+    ],
+)
+def test_legacy_sparql_backend_actions_answer_typed_unavailable(action: str) -> None:
+    """The legacy SPARQL backend and database-setup path were retired
+    outright. These action names stay reachable
+    on ``graph_configure`` rather than vanishing into "unknown configuration
+    action", but now answer with a typed, unambiguous refusal — proving a
+    caller that still reaches the removed path never touches credential
+    material or an import error, regardless of what it sends."""
     fake = _FakeMCP()
     analysis_tools.register_analysis_tools(fake)
-
-    result = fake.tools["graph_configure"](
-        action="push_to_stardog",
-        config_key="",
-        config_value=json.dumps(
-            {
-                "endpoint": "https://sensitive.invalid",
-                "password": "synthetic-credential-material",
-            }
-        ),
-    )
-
-    assert "sensitive.invalid" not in result
-    assert "synthetic-credential-material" not in result
-    assert "inline Stardog connection material" in result
-
-
-def test_stardog_export_graph_action_rejects_inline_connection_material() -> None:
-    fake = _FakeMCP()
-    analysis_tools.register_analysis_tools(fake)
-
-    result = fake.tools["graph_configure"](
-        action="stardog_export_graph",
-        config_key="",
-        config_value=json.dumps(
-            {
-                "endpoint": "https://sensitive.invalid",
-                "password": "synthetic-credential-material",
-            }
-        ),
-    )
-
-    assert "sensitive.invalid" not in result
-    assert "synthetic-credential-material" not in result
-    assert "inline Stardog connection material" in result
-
-
-class _FakeTurtleBackend:
-    """A minimal SparqlAdapter-shaped backend for the D-MT-1 export/import actions."""
-
-    def __init__(self) -> None:
-        self.uploaded: list[tuple[str, str | None]] = []
-
-    def download_graph(self, graph_uri: str | None = None) -> str:
-        return f"# turtle for {graph_uri or 'default'}"
-
-    def upload_graph(self, ttl_content: str, graph_uri: str | None = None) -> None:
-        self.uploaded.append((ttl_content, graph_uri))
-
-
-def _register_fake_stardog_connection(monkeypatch, backend) -> None:
-    from agent_utilities.mcp import kg_server
-
-    class _FakeRegistry:
-        def get_engine(self, name):
-            return backend
-
-    monkeypatch.setattr(kg_server, "get_connection_registry", lambda: _FakeRegistry())
-
-
-def test_stardog_export_graph_action_returns_turtle(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake = _FakeMCP()
-    analysis_tools.register_analysis_tools(fake)
-    backend = _FakeTurtleBackend()
-    _register_fake_stardog_connection(monkeypatch, backend)
 
     result = json.loads(
         fake.tools["graph_configure"](
-            action="stardog_export_graph",
-            config_key="stardog-primary",
-            config_value=json.dumps({"graph_uri": "urn:mirror:kg_mirror"}),
-        )
-    )
-
-    assert result["status"] == "ok"
-    assert result["graph_uri"] == "urn:mirror:kg_mirror"
-    assert "urn:mirror:kg_mirror" in result["turtle"]
-
-
-def test_stardog_import_graph_action_requires_turtle_content(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake = _FakeMCP()
-    analysis_tools.register_analysis_tools(fake)
-    backend = _FakeTurtleBackend()
-    _register_fake_stardog_connection(monkeypatch, backend)
-
-    result = json.loads(
-        fake.tools["graph_configure"](
-            action="stardog_import_graph",
-            config_key="stardog-primary",
-            config_value=json.dumps({"graph_uri": "urn:mirror:kg_mirror"}),
-        )
-    )
-
-    assert "error" in result
-    assert "turtle" in result["error"]
-    assert backend.uploaded == []
-
-
-def test_stardog_import_graph_action_uploads_the_turtle_document(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake = _FakeMCP()
-    analysis_tools.register_analysis_tools(fake)
-    backend = _FakeTurtleBackend()
-    _register_fake_stardog_connection(monkeypatch, backend)
-
-    result = json.loads(
-        fake.tools["graph_configure"](
-            action="stardog_import_graph",
+            action=action,
             config_key="stardog-primary",
             config_value=json.dumps(
                 {
-                    "graph_uri": "urn:mirror:kg_mirror",
-                    "turtle": "<urn:s> <urn:p> <urn:o> .",
+                    "endpoint": "https://sensitive.invalid",
+                    "password": "synthetic-credential-material",
                 }
             ),
         )
     )
 
-    assert result["status"] == "ok"
-    assert backend.uploaded == [("<urn:s> <urn:p> <urn:o> .", "urn:mirror:kg_mirror")]
-
-
-def test_stardog_export_graph_action_reports_unsupported_backend(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A registered connection that isn't Turtle-capable (e.g. a Cypher mirror)
-    must fail with a clear error, not an AttributeError."""
-    fake = _FakeMCP()
-    analysis_tools.register_analysis_tools(fake)
-    _register_fake_stardog_connection(monkeypatch, object())
-
-    result = json.loads(
-        fake.tools["graph_configure"](
-            action="stardog_export_graph",
-            config_key="stardog-primary",
-            config_value="",
-        )
-    )
-
-    assert "does not support Turtle graph export/import" in result["error"]
-
-
-def test_database_action_rejects_inline_endpoint() -> None:
-    fake = _FakeMCP()
-    analysis_tools.register_analysis_tools(fake)
-
-    result = fake.tools["graph_configure"](
-        action="verify_databases",
-        config_key="",
-        config_value=json.dumps({"dsn": "postgresql://synthetic.invalid/db"}),
-    )
-
-    assert "synthetic.invalid" not in result
-    assert "inline database endpoints" in result
+    assert result["error_type"] == "LegacyGraphBackendRemovedError"
+    assert "retired" in result["error"]
+    assert "sensitive.invalid" not in json.dumps(result)
+    assert "synthetic-credential-material" not in json.dumps(result)
 
 
 def test_legacy_set_config_cannot_bypass_governed_config_admin(

@@ -430,6 +430,22 @@ def test_module_default_policy_is_conservative():
     assert set(mutating.values()) == {ap.TIER_APPROVAL}
 
 
+def test_connector_pack_import_is_scoped_to_graph_os_semantic_packs():
+    """GraphOS's own two semantic packs import unattended; any other connector
+    keeps the approval_required default (see ``pack_import_authority``)."""
+    policy = ap.ActionPolicy(engine=None, policy_path=None)
+    for connector in ("graph-os", "agent-utilities"):
+        rule, _defaults = policy._match(
+            ap.ActionRequest(kind="connector_pack_import", target=connector)
+        )
+        assert rule.tier == ap.TIER_AUTO_NOTIFY
+    rule, defaults = policy._match(
+        ap.ActionRequest(kind="connector_pack_import", target="other-connector")
+    )
+    assert rule.origin == "default"
+    assert defaults["tier"] == ap.TIER_APPROVAL
+
+
 def test_promote_mined_claim_default_never_auto():
     """SAFETY-CRITICAL (workstream C4, Insight Engine closed loop): a mined KG
     finding (:AssociationRule/:Anomaly/:PredictedEdge) promoted to a verified

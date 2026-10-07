@@ -265,13 +265,6 @@ concepts:
   code_paths:
   - agent_utilities/harness/continuous_evaluation_engine.py
   doc: Multi-Strategy Evaluation
-- id: AU-AHE.evaluation.no-untyped-seam
-  name: a plain
-  pillar: AU-AHE
-  status: live
-  code_paths:
-  - agent_utilities/workflows/epistemic_sync.py
-  doc: a plain
 - id: AU-AHE.evaluation.parity-surpass-scoreboard
   name: validate a
   pillar: AU-AHE
@@ -313,14 +306,13 @@ concepts:
   - agent_utilities/graph/reasoning/benchmark.py
   doc: AU-AHE.evaluation.reasoning-topology-benchmark
 - id: AU-AHE.evaluation.return-none-on-failure
-  name: this used to swallow
+  name: a REAL
   pillar: AU-AHE
   status: live
   code_paths:
-  - agent_utilities/workflows/epistemic_sync.py
   - agent_utilities/workflows/localized_repair.py
   - agent_utilities/workflows/skill_compiler.py
-  doc: this used to swallow
+  doc: a REAL
 - id: AU-AHE.harness.agentic-engineering-patterns
   name: Agentic Engineering Patterns
   pillar: AU-AHE
@@ -2480,16 +2472,15 @@ concepts:
   - agent_utilities/deployment/config_generator.py
   - agent_utilities/knowledge_graph/core/connection_registry.py
   - agent_utilities/knowledge_graph/core/source_catalog.py
-  - agent_utilities/knowledge_graph/setup/database_environment.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: Role-aware multi-database registry plus live config mutation
 - id: AU-KG.backend.continuous-stardog-mirror
-  name: OFF by default
+  name: OFF by
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/core/config.py
-  doc: OFF by default
+  doc: OFF by
 - id: AU-KG.backend.declared-columns-so-schema
   name: Declared columns so schema-backed Kuzu can
   pillar: AU-KG
@@ -2570,7 +2561,6 @@ concepts:
   - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py
   - agent_utilities/knowledge_graph/backends/fanout_backend.py
   - agent_utilities/knowledge_graph/backends/mirror_target.py
-  - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
   - agent_utilities/knowledge_graph/core/engine.py
   - agent_utilities/knowledge_graph/extraction/ontology_grounding.py
   - agent_utilities/knowledge_graph/extraction/readers_media.py
@@ -2606,9 +2596,7 @@ concepts:
   - agent_utilities/knowledge_graph/backends/contrib/neo4j_backend.py
   - agent_utilities/knowledge_graph/backends/mirror_target.py
   - agent_utilities/knowledge_graph/backends/postgresql_backend.py
-  - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
   - agent_utilities/knowledge_graph/core/connection_registry.py
-  - agent_utilities/mcp/tools/analysis_tools.py
   doc: One uniform mirror *target* concept resolved once in the fan-out layer and mapped by each external
     backend onto its native isolation unit
 - id: AU-KG.backend.multi-connection-registry
@@ -2621,7 +2609,6 @@ concepts:
   - agent_utilities/knowledge_graph/backends/base.py
   - agent_utilities/knowledge_graph/backends/fanout_backend.py
   - agent_utilities/knowledge_graph/backends/postgresql_backend.py
-  - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
   - agent_utilities/knowledge_graph/core/connection_registry.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/ontology_tools.py
@@ -3914,8 +3901,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
-  - agent_utilities/knowledge_graph/backends/sparql/source_partition.py
-  - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
+  - agent_utilities/knowledge_graph/core/source_partition.py
   doc: ──
 - id: AU-KG.ingest.deterministic-classifier
   name: a repo is not just code. Run the deterministic
@@ -4547,7 +4533,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
-  - agent_utilities/knowledge_graph/backends/sparql/source_partition.py
+  - agent_utilities/knowledge_graph/core/source_partition.py
   doc: ──
 - id: AU-KG.ingest.source-sync-canonical
   name: ────────────────────────────
@@ -5942,19 +5928,15 @@ concepts:
   - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py
   - agent_utilities/knowledge_graph/backends/cypher_transpiler.py
   - agent_utilities/knowledge_graph/backends/postgresql_backend.py
-  - agent_utilities/knowledge_graph/backends/sparql/base.py
-  - agent_utilities/knowledge_graph/backends/sparql/jena_fuseki_backend.py
-  - agent_utilities/knowledge_graph/backends/sparql/source_partition.py
-  - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
   - agent_utilities/knowledge_graph/core/company_brain.py
   - agent_utilities/knowledge_graph/core/event_backend.py
   - agent_utilities/knowledge_graph/core/kg_versioning.py
+  - agent_utilities/knowledge_graph/core/source_partition.py
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
   - agent_utilities/knowledge_graph/enrichment/execute.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/ingestion/paper_links.py
-  - agent_utilities/knowledge_graph/integrations/stardog_sync.py
   - agent_utilities/knowledge_graph/memory/agent_context.py
   - agent_utilities/knowledge_graph/pipeline/__init__.py
   - agent_utilities/knowledge_graph/pipeline/phases/__init__.py

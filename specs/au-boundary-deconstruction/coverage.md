@@ -106,7 +106,6 @@ How to read it:
 | `agent_utilities/knowledge_graph/search/` | 2,473 | relocate to epistemic-graph | AU-BOUNDARY-R034 | Named wholesale. |
 | `agent_utilities/knowledge_graph/search_synthesis/` | 786 | keep in AU | AU-BOUNDARY-R045 | Search-task synthesis over the graph: question formulation, evidence subgraph, shortcut-risk checks; an adversarial research workspace. `evidence_subgraph.py` must read the epistemic graph through a typed, tenant-scoped client instead of raw unscoped Cypher. |
 | `agent_utilities/knowledge_graph/security/` | 2,462 | relocate to epistemic-graph | AU-BOUNDARY-R028 | Named wholesale. |
-| `agent_utilities/knowledge_graph/setup/` | 685 | delete as duplicate of engine | AU-BOUNDARY-R032 | Legacy external-store setup; the `setup-databases` script goes with it. |
 | `agent_utilities/knowledge_graph/shapes/` | 670 | relocate to epistemic-graph | AU-BOUNDARY-R045 | Eight SHACL shape files in Turtle; no Python. Ontology shape content belongs with the epistemic graph's pack compilation, matching the Turtle shapes already moving under the semantic-authority cut. |
 | `agent_utilities/knowledge_graph/standardization/` | 1,322 | split: relocate to epistemic-graph; `drift.py` to agent-connector-sdk sync and the engine | AU-BOUNDARY-R028, AU-BOUNDARY-R035 | R028 moves everything except drift handling; R035 places drift handling. |
 | `agent_utilities/knowledge_graph/streams/` | 504 | relocate to epistemic-graph | AU-BOUNDARY-R027 | Named wholesale. |
