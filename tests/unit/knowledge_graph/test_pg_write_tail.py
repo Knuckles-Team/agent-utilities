@@ -17,8 +17,6 @@ These tests pin the three fixes without needing a live Postgres:
 
 from __future__ import annotations
 
-import importlib
-
 import pytest
 
 from agent_utilities.knowledge_graph.backends.age_backend import AGEBackend
@@ -107,28 +105,32 @@ def test_age_session_reprepares_a_fresh_connection():
 
 @pytest.mark.concept("AU-KG.backend.authority-write-tail")
 def test_pool_defaults_raised_and_env_tunable(monkeypatch):
+    # Exercise the exact helper the module uses to derive its pool bounds
+    # (``_pg_pool_size``, a pure function reading ``setting()`` live) instead
+    # of ``importlib.reload``-ing the whole ``backends`` package: a reload
+    # rebinds every name in that module to a FRESH object (including
+    # ``LegacyGraphBackendRemovedError``), so any other already-imported
+    # reference to the pre-reload class (e.g. a sibling test's
+    # ``from agent_utilities.knowledge_graph.backends import
+    # LegacyGraphBackendRemovedError``) stops matching ``isinstance``/
+    # ``pytest.raises`` checks for the rest of the session once this test has
+    # run in the same process.
     import agent_utilities.knowledge_graph.backends as backends_pkg
 
     # Default (no env): the ceiling must be well above the old starving 10.
     monkeypatch.delenv("GRAPH_DB_POOL_MAX", raising=False)
     monkeypatch.delenv("GRAPH_DB_POOL_MIN", raising=False)
-    reloaded = importlib.reload(backends_pkg)
-    try:
-        assert reloaded._PG_POOL_MAX >= 32
-        assert reloaded._PG_POOL_MAX > 10
-        assert reloaded._PG_POOL_MIN >= 1
+    pool_max = backends_pkg._pg_pool_size("GRAPH_DB_POOL_MAX", 32)
+    pool_min = backends_pkg._pg_pool_size("GRAPH_DB_POOL_MIN", 4)
+    assert pool_max >= 32
+    assert pool_max > 10
+    assert pool_min >= 1
 
-        # Env override is honored.
-        monkeypatch.setenv("GRAPH_DB_POOL_MAX", "64")
-        monkeypatch.setenv("GRAPH_DB_POOL_MIN", "8")
-        reloaded = importlib.reload(backends_pkg)
-        assert reloaded._PG_POOL_MAX == 64
-        assert reloaded._PG_POOL_MIN == 8
-    finally:
-        # Restore module defaults for other tests in the session.
-        monkeypatch.delenv("GRAPH_DB_POOL_MAX", raising=False)
-        monkeypatch.delenv("GRAPH_DB_POOL_MIN", raising=False)
-        importlib.reload(backends_pkg)
+    # Env override is honored.
+    monkeypatch.setenv("GRAPH_DB_POOL_MAX", "64")
+    monkeypatch.setenv("GRAPH_DB_POOL_MIN", "8")
+    assert backends_pkg._pg_pool_size("GRAPH_DB_POOL_MAX", 32) == 64
+    assert backends_pkg._pg_pool_size("GRAPH_DB_POOL_MIN", 4) == 8
 
 
 # ── 4. Live AGE write path actually runs the resilience policy ───────────────

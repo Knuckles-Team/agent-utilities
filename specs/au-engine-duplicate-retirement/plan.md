@@ -1,4 +1,4 @@
-# EH-338 — Design
+# AU-RETIRE-001 — Design
 
 ## Inventory and migration
 
@@ -10,7 +10,7 @@ GraphOS request → AU application API → verified actor/tenant context → gen
 
 ## Cutover
 
-For each operation, implement and test the EG call, rewire a live caller, then remove the AU duplicate and its tests/imports/dependencies in the same cohesive change. Use the existing [cutover matrix](../au-boundary-deconstruction/cutover-matrix.md) for EH-487, EH-493–EH-510 overlap. The EH-338 audit closes only after every relevant module has an explicit owner outcome and the static owner check covers new additions.
+For each operation, implement and test the EG call, rewire a live caller, then remove the AU duplicate and its tests/imports/dependencies in the same cohesive change. Use the existing [cutover matrix](../au-boundary-deconstruction/cutover-matrix.md) for AU-BOUNDARY-R012, AU-BOUNDARY-R018–AU-BOUNDARY-R035 overlap. The AU-RETIRE-R001 audit closes only after every relevant module has an explicit owner outcome and the static owner check covers new additions.
 
 ## Failure and security
 

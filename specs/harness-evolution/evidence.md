@@ -1,6 +1,6 @@
 # Evidence: harness evolution
 
-**Delivery:** PARTIAL. **Acceptance:** NOT VERIFIED. **EH-350:** DEFERRED by design; no authorization to implement a generative model or autograd in EG.
+**Delivery:** PARTIAL. **Acceptance:** NOT VERIFIED. **AU-HARNESS-R005:** DEFERRED by design; no authorization to implement a generative model or autograd in EG.
 
 | Requirement | Source observation | Required acceptance evidence |
 |---|---|---|

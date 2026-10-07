@@ -6,10 +6,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent_utilities.domains.finance.exchange_bridge import (
-    BinanceExchange,
-    ExchangeBridge,
-)
 from agent_utilities.harness.trace_backend import OTelTraceBackend
 from agent_utilities.knowledge_graph.core.ontological_team_sharing import (
     OntologicalTeamExporter,
@@ -206,26 +202,3 @@ async def test_imessage_inbound_polling():
         pass
     except StopAsyncIteration:
         pass
-
-
-# 6. Test Binance Exchange Execution Mock
-def test_binance_exchange_mock():
-    exchange = BinanceExchange()
-
-    # Submit a market buy order
-    res = exchange.submit_order(
-        symbol="BTC/USDT", side="buy", qty=0.5, order_type="market"
-    )
-
-    assert "binance-mock" in res.order_id
-    assert res.status == "filled"
-    assert res.filled_qty == 0.5
-    assert res.average_price > 0.0
-    assert res.fees > 0.0
-    assert res.exchange == "binance"
-
-    # Route via ExchangeBridge in paper mode
-    bridge = ExchangeBridge(paper_mode=False)
-    res2 = bridge.execute(symbol="BTC/USDT", side="sell", qty=0.2)
-    assert res2.exchange == "binance"
-    assert res2.filled_qty == 0.2

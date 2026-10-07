@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import builtins
 import copy
 import json
 import os
@@ -159,30 +158,6 @@ def test_checked_in_manifest_is_complete_and_current() -> None:
     )
     assert "{repo:provider-fleet}" in commands["au-skill-collisions"].argv
     assert "--strict" in commands["au-skill-collisions"].argv
-
-
-@pytest.mark.parametrize("missing", ["rdflib", "pyshacl", "owlrl"])
-def test_ontology_gate_requires_every_validator(
-    missing: str,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    from scripts import check_ontology
-
-    original_import = builtins.__import__
-
-    def guarded_import(name: str, *args: Any, **kwargs: Any) -> Any:
-        if name.split(".", 1)[0] == missing:
-            raise ImportError("simulated unavailable validator")
-        return original_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", guarded_import)
-
-    assert check_ontology.check() == 1
-    assert capsys.readouterr().out == (
-        "check_ontology: required validation dependencies unavailable; "
-        "failing closed.\n"
-    )
 
 
 def test_canonical_manifest_pin_rejects_semantically_valid_byte_drift(

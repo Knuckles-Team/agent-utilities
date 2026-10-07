@@ -1,6 +1,6 @@
 # Agent security and governed policy — AU-SEC-01
 
-**Owner:** agent-utilities. **Delivery:** partial source implementation; **acceptance:** pending. This status describes the repository as inspected, not a release certification. Source obligations: EH-097, EH-379, EH-401, EH-402, EH-403, EH-405, EH-407, EH-541.
+**Owner:** agent-utilities. **Delivery:** partial source implementation; **acceptance:** pending. This status describes the repository as inspected, not a release certification. Source obligations: AU-SEC-R001, AU-SEC-R002, AU-SEC-R003, AU-SEC-R004, AU-SEC-R005, AU-SEC-R006, AU-SEC-R007, AU-SEC-R008. See [requirements.md](requirements.md) for the definition of every requirement ID (including AU-SEC-R009) and [status.json](status.json) for its delivery state and evidence.
 
 ## Purpose and actors
 
@@ -18,20 +18,22 @@ An operator, service principal, approver, and agent need predictable identity an
 
 | ID | Requirement | Source | Evidence required |
 |---|---|---|---|
-| SEC-01 | Mint a server-owned actor/session only from validated claims, retaining audience, tenant, expiry, scope and policy revision; prohibit request supplied session authority. | EH-097, EH-541 | unit + gateway contract tests |
-| SEC-02 | Restrict local process authority to packaged `tiny` stdio, no external endpoint/identity, and expiry bounded renewal; deny network reuse. | EH-097 | positive/negative profile tests |
-| SEC-03 | Fail closed with typed error on missing control view; never substitute a content graph. | EH-379 | injected backend failure test |
-| SEC-04 | Consume the canonical classed scope registry; regenerate and verify AU projection with exact values. | EH-541 | generator diff + scope parity |
-| SEC-05 | Request, approve, revoke, and expire elevation through typed, tenant scoped operations; enforce two distinct actors and audit every transition. AU orchestrates only, with durable lease and final authorization in the engine. | EH-403, EH-405 | contract + end to end policy tests |
-| SEC-06 | A tool guard denial stays a denial; approval can satisfy only a declared approval requirement and cannot override RBAC or engine policy. | EH-405 | tool execution negative tests |
-| SEC-07 | Evolve guardrail profiles through a governed decision: bounded tightening may auto apply; loosening requires a live approval; reject missing bounds or stale evidence. | EH-407 | decision and replay tests |
-| SEC-08 | Subscribe AU caches to invalidation, bound TTL by declared volatility class, and allow learned change rates to shorten TTL only. | EH-401 | event, loss, and clock tests |
-| SEC-09 | Treat schema drift as a typed, fail-closed result at the SDK/engine seam, quarantine without checkpoint advance, and never load AU-owned SHACL as authority. | EH-402 | connector contract tests |
+| SEC-01 | Mint a server-owned actor/session only from validated claims, retaining audience, tenant, expiry, scope and policy revision; prohibit request supplied session authority. | AU-SEC-R001, AU-SEC-R008 | unit + gateway contract tests |
+| SEC-02 | Restrict local process authority to packaged `tiny` stdio, no external endpoint/identity, and expiry bounded renewal; deny network reuse. | AU-SEC-R001 | positive/negative profile tests |
+| SEC-03 | Fail closed with typed error on missing control view; never substitute a content graph. | AU-SEC-R002 | injected backend failure test |
+| SEC-04 | Consume the canonical classed scope registry; regenerate and verify AU projection with exact values. | AU-SEC-R008 | generator diff + scope parity |
+| SEC-05 | Request, approve, revoke, and expire elevation through typed, tenant scoped operations; enforce two distinct actors and audit every transition. AU orchestrates only, with durable lease and final authorization in the engine. | AU-SEC-R005, AU-SEC-R006 | contract + end to end policy tests |
+| SEC-06 | A tool guard denial stays a denial; approval can satisfy only a declared approval requirement and cannot override RBAC or engine policy. | AU-SEC-R006 | tool execution negative tests |
+| SEC-07 | Evolve guardrail profiles through a governed decision: bounded tightening may auto apply; loosening requires a live approval; reject missing bounds or stale evidence. | AU-SEC-R007 | decision and replay tests |
+| SEC-08 | Subscribe AU caches to invalidation, bound TTL by declared volatility class, and allow learned change rates to shorten TTL only. | AU-SEC-R003 | event, loss, and clock tests |
+| SEC-09 | Treat schema drift as a typed, fail-closed result at the SDK/engine seam, quarantine without checkpoint advance, and never load AU-owned SHACL as authority. | AU-SEC-R004 | connector contract tests |
 
-EH-405 and EH-403 concern public request surfaces owned by graph-os and agent-webui as well as AU's orchestration. EH-402's classifier and durable report belong to SDK and epistemic-graph; this spec covers AU's control decision and failure behavior. These IDs indicate cross-repository obligations, not duplicate implementations.
+AU-SEC-R006 and AU-SEC-R005 concern public request surfaces owned by graph-os and agent-webui as well as AU's orchestration. AU-SEC-R004's classifier and durable report belong to SDK and epistemic-graph; this spec covers AU's control decision and failure behavior. These IDs indicate cross-repository obligations, not duplicate implementations.
 
 ## Edge cases and success criteria
 
 Concurrent approve/revoke, renewal across expiry, replayed requests, mixed human/service claims, unknown registry version, control backend outage, dropped invalidation, malformed drift report, and malformed model proposal must have deterministic denials or safe retry semantics. No grant survives its expiry; no denied call executes; no quarantined batch advances its source checkpoint; a failed control graph never redirects writes. Every requirement has a runnable test and a linkable exact-commit result before **ACCEPTED**.
 
 Out of scope: implementing JWT validation twice, new graph authorization storage in AU, connector transport, browser UI, or a second public gateway.
+
+Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.

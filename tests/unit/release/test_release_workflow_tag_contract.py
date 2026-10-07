@@ -44,6 +44,35 @@ def test_release_triggers_keep_main_and_pull_request_semantics() -> None:
     assert ".github/workflows/release.yml" in pull_request["paths"]
 
 
+def test_build_needs_gates_clone_scanners_and_the_engine_release_order_gate() -> None:
+    """The cross-repo release-order check (`engine-release-order`) moved out
+    of `gates` into its own job so a red result there no longer also hides
+    `gates`' test suite. The release-order protection itself must be
+    unchanged: nothing can reach `build` -- and therefore nothing downstream
+    of it (numeric-runtime-gate, publish-pypi, publish-docker) -- while the
+    epistemic-graph floor is not resolvable on PyPI. `build.needs` is the one
+    place that guarantee lives now; pin it directly so dropping
+    `engine-release-order` from that list fails here instead of silently
+    reopening the gap."""
+    build = _job("build")
+
+    assert set(build["needs"]) == {"gates", "clone-scanners", "engine-release-order"}
+
+    engine_release_order = _job("engine-release-order")
+    assert engine_release_order["name"] == (
+        "epistemic-graph release is resolvable on PyPI"
+    )
+    assert "needs" not in engine_release_order
+
+    source = _run_text(engine_release_order)
+    assert "scripts/release/check_eg_pypi_resolvable.py" in source
+
+    # The gate used to live inside `gates`; it must not have been duplicated
+    # there as well as moved.
+    gates_source = _job_text(_job("gates"))
+    assert "check_eg_pypi_resolvable.py" not in gates_source
+
+
 def test_pypi_publish_is_tag_only_and_uses_the_protected_environment() -> None:
     publish = _job("publish-pypi")
 

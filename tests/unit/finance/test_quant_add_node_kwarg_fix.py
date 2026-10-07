@@ -4,9 +4,8 @@ validation): delegating a quant task (``quant`` MCP tool, ``domain='orchestrate'
 
     IntelligenceGraphEngine.add_node() got an unexpected keyword argument 'id'
 
-Root cause: ``RegimeDetector._persist_to_kg`` / ``DebateEngine._persist_to_kg`` /
-``StrategyEngine.register_strategy`` / ``StrategyEngine.record_backtest`` called
-``self.engine.add_node(id=..., node_type=..., <extra kwargs>...)`` against the
+Root cause: ``RegimeDetector._persist_to_kg`` / ``DebateEngine._persist_to_kg``
+called ``self.engine.add_node(id=..., node_type=..., <extra kwargs>...)`` against the
 REAL ``IntelligenceGraphEngine.add_node(self, node_id, node_type,
 properties=None, ephemeral=False, *, session=None)`` — whose first positional
 param is ``node_id``, not ``id``, and which has no ``**kwargs`` catch-all for
@@ -22,8 +21,6 @@ reimplementation) — the exact method that crashed.
 
 from __future__ import annotations
 
-import asyncio
-
 import pandas as pd
 import pytest
 
@@ -37,12 +34,33 @@ from agent_utilities.domains.finance.debate_engine import (
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
 pytest.importorskip("epistemic_graph.numeric")
 
-from agent_utilities.domains.finance.market_data import DataRegistry, SyntheticProvider
+from agent_utilities.domains.finance.market_data import DataRegistry
 from agent_utilities.domains.finance.regime_detector import RegimeDetector
-from agent_utilities.domains.finance.strategy_engine import (
-    StrategyEngine,
-    StrategyMetrics,
-)
+
+
+class _FakeOHLCVProvider:
+    """A deterministic, in-memory provider used only to keep this regression
+    test hermetic (no network). Test doubles belong under ``tests/``, not in
+    the production market-data module."""
+
+    @property
+    def name(self) -> str:
+        return "fake"
+
+    def supports(self, symbol: str) -> bool:
+        return True
+
+    def fetch(self, symbol, **kwargs):
+        n = 60
+        return pd.DataFrame(
+            {
+                "Close": [100.0 + i * 0.5 for i in range(n)],
+                "Open": [100.0 + i * 0.5 for i in range(n)],
+                "High": [101.0 + i * 0.5 for i in range(n)],
+                "Low": [99.0 + i * 0.5 for i in range(n)],
+                "Volume": [1000.0] * n,
+            }
+        )
 
 
 class _StrictRealSignatureEngine:
@@ -106,8 +124,8 @@ def test_quant_orchestrate_regime_live_path(monkeypatch):
     """The FULL live path: the registered ``quant`` MCP tool, ``domain=
     'orchestrate'``, ``action='regime'`` — exactly the call that crashed
     (``Action 'regime' failed in domain 'orchestrate': ... unexpected keyword
-    argument 'id'``). Data fetch is scoped to the deterministic
-    ``SyntheticProvider`` (no network) so the test is hermetic."""
+    argument 'id'``). Data fetch is scoped to a deterministic local fake
+    provider (no network) so the test is hermetic."""
     from agent_utilities.domains.finance import quant_mcp_tools
 
     class _CollectingMCP:
@@ -128,7 +146,7 @@ def test_quant_orchestrate_regime_live_path(monkeypatch):
     monkeypatch.setattr(
         quant_mcp_tools,
         "DataRegistry",
-        lambda *a, **k: DataRegistry(providers=[SyntheticProvider()]),
+        lambda *a, **k: DataRegistry(providers=[_FakeOHLCVProvider()]),
     )
 
     result = quant(domain="orchestrate", action="regime", ticker="AAPL")
@@ -162,60 +180,3 @@ def test_debate_engine_persists_via_real_add_node_signature():
     assert engine.nodes[1]["node_id"] == "Debate_s1_TSLA_Risk"
     assert engine.nodes[1]["node_type"] == "RiskAssessment"
     assert engine.edges == [("Debate_s1_TSLA", "Debate_s1_TSLA_Risk", "EVALUATED_BY")]
-
-
-# ── StrategyEngine (third live site: graph_analyze(action="quant_strategy")) ─
-def test_strategy_engine_register_persists_via_real_add_node_signature():
-    engine = _StrictRealSignatureEngine()
-    se = StrategyEngine(engine)
-
-    sid = se.register_strategy(
-        name="Momentum V1", code_ref="strategies/momentum.py", author="quant"
-    )
-
-    assert sid == "Strat_Momentum_V1"
-    assert len(engine.nodes) == 1
-    assert engine.nodes[0]["node_id"] == sid
-    assert engine.nodes[0]["node_type"] == "TradingStrategy"
-    assert engine.nodes[0]["properties"]["author"] == "quant"
-
-
-def test_strategy_engine_record_backtest_persists_and_promotes():
-    engine = _StrictRealSignatureEngine()
-    se = StrategyEngine(engine)
-
-    metrics = StrategyMetrics(
-        sharpe=2.5,
-        max_drawdown=-0.10,
-        win_rate=0.55,
-        profit_factor=1.5,
-        total_trades=100,
-    )
-    promotable = se.record_backtest("Strat_X", metrics)
-
-    assert promotable is True
-    assert len(engine.nodes) == 1
-    assert engine.nodes[0]["node_type"] == "BacktestResult"
-    assert engine.edges == [(engine.nodes[0]["node_id"], "Strat_X", "VALIDATES")]
-    # promotion gate fired the status-update Cypher write
-    assert len(engine.cypher_calls) == 1
-
-
-def test_graph_evaluate_quant_strategy_live_path(monkeypatch):
-    """The FULL live path: ``graph_evaluate(action='quant_strategy', ...)`` —
-    exactly the call site in ``mcp/tools/analysis_tools.py`` that hit the same
-    ``add_node(id=...)`` kwarg drift."""
-    from agent_utilities.mcp import kg_server
-
-    kg_server.ensure_tools_registered()
-    engine = _StrictRealSignatureEngine()
-    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
-
-    tool = kg_server.REGISTERED_TOOLS["graph_evaluate"]
-    out = asyncio.run(tool(action="quant_strategy", query="Strat_Y", top_k=10))
-
-    assert not out.next_actions, out
-    payload = out.claims[0]
-    assert payload["strategy_id"] == "Strat_Y"
-    assert len(engine.nodes) == 1
-    assert engine.nodes[0]["node_type"] == "BacktestResult"

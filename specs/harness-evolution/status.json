@@ -1,16 +1,86 @@
 {
   "schema_version": 1,
-  "spec_id": "harness-evolution",
+  "spec_id": "AU-HARNESS-001",
   "owner_repo": "agent-utilities",
   "requirement_ids": [
-    "EH-346",
-    "EH-347",
-    "EH-348",
-    "EH-349",
-    "EH-350",
-    "EH-464"
+    "AU-HARNESS-R001",
+    "AU-HARNESS-R002",
+    "AU-HARNESS-R003",
+    "AU-HARNESS-R004",
+    "AU-HARNESS-R005",
+    "AU-HARNESS-R006"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": []
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "AU-HARNESS-R001",
+      "title": "Capability-gated capture of policy trajectories",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "9cf51e005f1e171806057ebb1a6b6e4e16333691",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/9cf51e005f1e171806057ebb1a6b6e4e16333691",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R002",
+      "title": "External training path supports an optional KLPO method",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "c84b8710fe175e5759dfe25fd0fbfe6b63ab7e77",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c84b8710fe175e5759dfe25fd0fbfe6b63ab7e77",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R003",
+      "title": "Graph-driven work market on Gap and WorkItem contracts",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "f9280a3bae30df17b30e3019d338b82a4b24f59e",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f9280a3bae30df17b30e3019d338b82a4b24f59e",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R004",
+      "title": "AU proposes corrections through the graph, never writes Git directly",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-HARNESS-R005",
+      "title": "Defer generative model work pending evidence-backed need",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-HARNESS-R006",
+      "title": "Statistical scoring head ranks work-market offers",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "bf471cebd77a5c946acd6de99ae4e7f305cbb3c4",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/bf471cebd77a5c946acd6de99ae4e7f305cbb3c4",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    }
+  ]
 }

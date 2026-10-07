@@ -3,24 +3,225 @@
   "spec_id": "AU-INTEGRATION-001",
   "owner_repo": "agent-utilities",
   "requirement_ids": [
-    "EH-103",
-    "EH-187",
-    "EH-202",
-    "EH-203",
-    "EH-204",
-    "EH-205",
-    "EH-207",
-    "EH-208",
-    "EH-209",
-    "EH-210",
-    "EH-321",
-    "EH-344",
-    "EH-365",
-    "EH-467",
-    "EH-651",
-    "EH-657"
+    "AU-INTEGRATION-R001",
+    "AU-INTEGRATION-R002",
+    "AU-INTEGRATION-R003",
+    "AU-INTEGRATION-R004",
+    "AU-INTEGRATION-R005",
+    "AU-INTEGRATION-R006",
+    "AU-INTEGRATION-R007",
+    "AU-INTEGRATION-R008",
+    "AU-INTEGRATION-R009",
+    "AU-INTEGRATION-R010",
+    "AU-INTEGRATION-R011",
+    "AU-INTEGRATION-R012",
+    "AU-INTEGRATION-R013",
+    "AU-INTEGRATION-R014",
+    "AU-INTEGRATION-R015",
+    "AU-INTEGRATION-R016",
+    "AU-INTEGRATION-R017",
+    "AU-INTEGRATION-R018"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": []
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "AU-INTEGRATION-R001",
+      "title": "Clustered mode deliberately refuses local-only agent writes",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-INTEGRATION-R002",
+      "title": "Control graph auto-creation and messaging intake propagation",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "implementation",
+          "result": "passed",
+          "commit": "46da005a6c4c8e760f63e8ad7ebd389410229e1a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/46da005a6c4c8e760f63e8ad7ebd389410229e1a",
+          "description": "Part of the requirement is implemented on the default branch."
+        }
+      ],
+      "remaining": "messaging_intake_enabled threading into InProcessBackend.apply is on main, but __control__ graph auto-creation is not: graph_compute.py's _ensure_local_graph_ready still returns early (does nothing) whenever the local graph is __commons__, so a fresh packaged engine's first WorkItem still has no __c"
+    },
+    {
+      "id": "AU-INTEGRATION-R003",
+      "title": "Reconcile previously tracked fixes against current main",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-INTEGRATION-R004",
+      "title": "Remove the unintended nltk dependency from AU's lock",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "eabd68d558c060922bc28c01e763762d1b1abefd",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/eabd68d558c060922bc28c01e763762d1b1abefd",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-INTEGRATION-R005",
+      "title": "Contract compatibility hook validates against a pinned artifact",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c15d278239d31c2028a7f501f76d709747d8ee61",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c15d278239d31c2028a7f501f76d709747d8ee61",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-INTEGRATION-R006",
+      "title": "epistemic-graph is a core AU dependency",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "eabd68d558c060922bc28c01e763762d1b1abefd",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/eabd68d558c060922bc28c01e763762d1b1abefd",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-INTEGRATION-R007",
+      "title": "Gold-set generation is synthetic, not manually labelled",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-INTEGRATION-R008",
+      "title": "Regression baseline stays green with EG installed",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "ff819b4cc4347370e8801b4d679e62e5dcc39c82",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ff819b4cc4347370e8801b4d679e62e5dcc39c82",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-INTEGRATION-R009",
+      "title": "Resolve expired liveness deferrals with recorded evidence",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c15d278239d31c2028a7f501f76d709747d8ee61",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c15d278239d31c2028a7f501f76d709747d8ee61",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-INTEGRATION-R010",
+      "title": "Kafka enqueue-only-proof contract runs and passes honestly",
+      "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-INTEGRATION-R011",
+      "title": "Prove disposability before pruning a branch checkout",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-INTEGRATION-R012",
+      "title": "External-graph contract check follows relocated docs",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "f82de8b90a2cfb8fc8ff497c23b8686bd79a83d5",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f82de8b90a2cfb8fc8ff497c23b8686bd79a83d5",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-INTEGRATION-R013",
+      "title": "Privacy gate accepts canonical automation author identities",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "d6208d18fb567e0c41a6599744186d37a68a968b",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/d6208d18fb567e0c41a6599744186d37a68a968b",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-INTEGRATION-R014",
+      "title": "Benchmark query-serving improvements against the existing path",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-INTEGRATION-R015",
+      "title": "Remove the unused legacy ontology publisher surface",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "f055b24c487acd5e7782b8458df0f4f6efe82e07",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f055b24c487acd5e7782b8458df0f4f6efe82e07",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-INTEGRATION-R016",
+      "title": "Published ontology-deletion commit matches its source patch",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "43197d7c65a3dff0fb91e0f2eae55e6a6bf8b53e",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/43197d7c65a3dff0fb91e0f2eae55e6a6bf8b53e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-INTEGRATION-R017",
+      "title": "Published source history is an ancestor of main",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "43197d7c65a3dff0fb91e0f2eae55e6a6bf8b53e",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/43197d7c65a3dff0fb91e0f2eae55e6a6bf8b53e",
+          "description": "Implementing commit is reachable from the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-INTEGRATION-R018",
+      "title": "Public docs site passes the full documentation gate suite",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    }
+  ]
 }

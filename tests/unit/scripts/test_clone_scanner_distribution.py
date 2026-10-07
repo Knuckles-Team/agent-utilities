@@ -66,7 +66,7 @@ def test_release_clone_range_is_the_immutable_candidate() -> None:
         encoding="utf-8"
     )
 
-    assert "needs: [gates, clone-scanners]" in workflow
+    assert "needs: [gates, clone-scanners, engine-release-order]" in workflow
     assert "fetch-depth: 0" in workflow
     assert "github.event.pull_request.base.sha" in workflow
     assert "github.event.pull_request.head.sha" in workflow

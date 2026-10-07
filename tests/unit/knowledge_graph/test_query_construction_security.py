@@ -129,16 +129,13 @@ def test_source_sync_existing_disabled_fails_closed_on_query_error() -> None:
     assert _existing_disabled(engine, "tool_demo_thing") is True
 
 
-def test_sparql_iri_and_source_partition_reject_query_breakout() -> None:
-    from agent_utilities.knowledge_graph.backends.sparql.source_partition import (
+def test_source_partition_rejects_query_breakout() -> None:
+    from agent_utilities.knowledge_graph.core.source_partition import (
         graph_uri_for_source,
     )
-    from agent_utilities.knowledge_graph.integrations.stardog_sync import _sparql_iri
 
     assert graph_uri_for_source("System:Instance") == "urn:source:system:instance"
     assert graph_uri_for_source("system> } UNION {") == "urn:source:system-union"
-    with pytest.raises(ValueError, match="IRI"):
-        _sparql_iri("https://example.invalid/> } UNION {")
 
 
 def test_age_sql_wrapper_uses_collision_checked_delimiter_and_safe_graph() -> None:

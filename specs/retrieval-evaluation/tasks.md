@@ -1,4 +1,4 @@
-# EH-652 — Tasks
+# AU-RETRIEVAL-001 — Tasks
 
 - [ ] Publish a synthetic versioned corpus and manifest, with gold spans, splits and visibility labels.
 - [ ] Reuse existing corpus, hierarchy, context and citation components behind one metric scorer.

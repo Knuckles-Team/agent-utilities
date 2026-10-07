@@ -1552,7 +1552,7 @@ def _is_missing_engine_domain_tool_error(exc: BaseException) -> bool:
 
 def _is_engine_unreachable_error(exc: BaseException | None) -> bool:
     """True if ``exc`` (or its cause chain) is the epistemic-graph engine being
-    unavailable in THIS environment -- three distinct signatures:
+    unavailable in THIS environment -- four distinct signatures:
 
     1. Unreachable daemon: the message raised by ``GraphComputeEngine`` / the
        client when no engine daemon answers. Matched by message (the client
@@ -1580,6 +1580,23 @@ def _is_engine_unreachable_error(exc: BaseException | None) -> bool:
        absent-package condition, reached through a
        ``REGISTERED_TOOLS``/``ACTION_TOOL_ROUTES`` lookup instead of a raw
        ``ModuleNotFoundError``.
+
+    Two signatures that USED to live here were removed as over-broad: a
+    plain-message match on ``scripts/gen_graphos_manifest.py``'s "ENGINE_DOMAINS
+    is empty" RuntimeError (an independent review found it skipping a manifest
+    test that genuinely FAILS on main -- a real coverage gap, not an
+    engine-absence signal, since a stale/incomplete checked-in manifest is a
+    real defect regardless of whether an engine is installed), and
+    :class:`agent_utilities.knowledge_graph.retrieval.capability_projection.CapabilityProjectionUnavailable`
+    (raised not only when ``graph.owl_reason`` is absent, but also when a
+    REAL engine's OwlReason call raises for any reason, returns an
+    inconsistent classification, omits schema digests, or returns
+    direct/closure subsumption edges that disagree with each other --
+    genuine correctness bugs this hook must never silently skip past).
+    Callers that need a faithful classification should pass or monkeypatch a
+    real ``owl_reason`` double (see
+    ``tests/unit/knowledge_graph/retrieval/test_capability_projection.py``'s
+    ``_Graph`` fixture) rather than relying on this hook to skip cleanly.
     """
     seen: set[int] = set()
     while exc is not None and id(exc) not in seen:

@@ -2472,7 +2472,7 @@ class IngestionEngine:
         not the per-shard routing key, so all shards of one repo share one source
         partition.
         """
-        from ..backends.sparql.source_partition import make_source_id
+        from ..core.source_partition import make_source_id
         from ..enrichment.pipeline import (
             EnrichmentPipeline,
             make_batch_parse_fn,
@@ -2724,8 +2724,8 @@ class IngestionEngine:
         """
         import asyncio as _asyncio
 
-        from ..backends.sparql.source_partition import make_source_id
         from ..core.engine_tasks import compute_ingest_worker_count
+        from ..core.source_partition import make_source_id
         from .repo_classifier import classify_repo
 
         plan = classify_repo(source_path)
@@ -4389,40 +4389,22 @@ class IngestionEngine:
 
     @adaptor(ContentType.SPARQL)
     async def _ingest_sparql(self, manifest: IngestionManifest) -> IngestionResult:
-        """Ingest entities from a SPARQL endpoint.
+        """External SPARQL ingestion was retired with the legacy backend.
 
-        CONCEPT:AU-KG.query.vendor-agnostic-traversal
-
-        Pulls entities from an external SPARQL endpoint and maps them to
-        native ``RegistryNode`` schema using configurable ontology mappings.
-        ``source_uri`` should be the SPARQL endpoint URL.
+        The federated SPARQL ingestor this adaptor used to delegate to is
+        gone; external SPARQL federation is now owned by the epistemic-graph
+        engine. A caller that still reaches this adaptor (``ContentType.SPARQL``
+        remains a registered, discoverable content type) gets a typed,
+        reachable failure rather than an import error or a silent no-op.
         """
-        try:
-            from ..integrations.sparql_ingestor import FederatedSparqlIngestor
+        from ..backends import LegacyGraphBackendRemovedError
 
-            graph_compute = getattr(self.kg, "graph_compute", None)
-            endpoints = [manifest.source_uri]
-            limit = manifest.metadata.get("limit", 100)
-            mapping = manifest.metadata.get("mapping")
-
-            ingestor = FederatedSparqlIngestor(
-                endpoints=endpoints,
-                engine=graph_compute,
-                mapping_config=mapping,
-            )
-            total = ingestor.ingest_entities(limit=limit)
-
-            return IngestionResult(
-                manifest=manifest,
-                status="success",
-                nodes_created=total,
-                details={
-                    "endpoint": manifest.source_uri,
-                    "entities_ingested": total,
-                },
-            )
-        except Exception as e:
-            return IngestionResult(manifest=manifest, status="failed", error=str(e))
+        return IngestionResult(
+            manifest=manifest,
+            status="failed",
+            error="external SPARQL ingestion was retired; use epistemic-graph federation instead",
+            details={"error_type": LegacyGraphBackendRemovedError.__name__},
+        )
 
     def _materialize_body_chunks(
         self,

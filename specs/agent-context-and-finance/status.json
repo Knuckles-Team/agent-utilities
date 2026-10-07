@@ -3,16 +3,122 @@
   "spec_id": "AU-CONTEXT-001",
   "owner_repo": "agent-utilities",
   "requirement_ids": [
-    "EH-394",
-    "EH-397",
-    "EH-398",
-    "EH-399",
-    "EH-419",
-    "EH-423",
-    "EH-513",
-    "EH-704"
+    "AU-CONTEXT-R001",
+    "AU-CONTEXT-R002",
+    "AU-CONTEXT-R003",
+    "AU-CONTEXT-R004",
+    "AU-CONTEXT-R005",
+    "AU-CONTEXT-R006",
+    "AU-CONTEXT-R007",
+    "AU-CONTEXT-R008"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": []
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "AU-CONTEXT-R001",
+      "title": "RetrievalPath templates feed EG-DECISION-ENGINE-R029 as candidates",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "683965fb4cb76da1af3f784adaf3fc2cbbc52d80",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/683965fb4cb76da1af3f784adaf3fc2cbbc52d80",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-CONTEXT-R002",
+      "title": "Corpus re-embedding uses a governed shadow ANN swap",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "14febbf9e36fd799d26c7de16954e40baa76f80d",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/14febbf9e36fd799d26c7de16954e40baa76f80d",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-CONTEXT-R003",
+      "title": "Embedding admission changes come from reviewed proposals only",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "c906e94598fd3190302e5429f7cd1ec601b31e83",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c906e94598fd3190302e5429f7cd1ec601b31e83",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-CONTEXT-R004",
+      "title": "Context sizing solves a certified multi-resolution knapsack",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "aa02d74fa09efd8fddcdd32ca2f93fb10a21cf54",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/aa02d74fa09efd8fddcdd32ca2f93fb10a21cf54",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-CONTEXT-R005",
+      "title": "Finance scheduling and a sourced flip-explainer agent",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "d06803632541d1d592757138315d9131bf994626",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/d06803632541d1d592757138315d9131bf994626",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-CONTEXT-R006",
+      "title": "Paper trading is isolated; live orders need governed approval",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "f48c0bb765dd19d4ee5bb1c8687c37f4f047554b",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f48c0bb765dd19d4ee5bb1c8687c37f4f047554b",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-CONTEXT-R007",
+      "title": "Finance math and feeds move out of agent-utilities",
+      "delivery_state": "BUILT",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "f48c0bb765dd19d4ee5bb1c8687c37f4f047554b",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f48c0bb765dd19d4ee5bb1c8687c37f4f047554b",
+          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-CONTEXT-R008",
+      "title": "Finance recommendations are calibrated, cited, and informational",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    }
+  ]
 }
