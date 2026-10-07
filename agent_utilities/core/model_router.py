@@ -90,6 +90,27 @@ def pick_adaptive(
         return None
 
 
+def _decided_model(registry: Any, role: str, spec: Any, picked: Any) -> Any:
+    """EG ``Decide`` over the role's eligible models; ``picked`` is the fallback.
+
+    A registry whose ``models`` are not real ``ModelDefinition``-shaped
+    entries (no ``.id``) names no eligible candidate for EG to choose among,
+    so routing is skipped and ``picked`` stands -- the same never-raise
+    contract as the rest of this module's adaptive picking.
+    """
+    from agent_utilities.decide.consumers.routing import route_model
+
+    tags = set(getattr(spec, "tags", None) or ())
+    eligible = [
+        m
+        for m in registry.models
+        if hasattr(m, "id")
+        and hasattr(m, "tier")
+        and tags <= set(getattr(m, "tags", ()) or ())
+    ]
+    return route_model(role, eligible, picked)
+
+
 def pick_adaptive_with_decision(
     registry: Any,
     role: str,
@@ -111,11 +132,16 @@ def pick_adaptive_with_decision(
         spec = registry.resolve_role(role)
         key = route_key(role)
         confidence = route_confidence(key)
-        model = registry.pick_for_task_adaptive(
-            complexity=spec.tier,
-            confidence_signal=confidence,
-            routing_percentile=routing_percentile,
-            required_tags=spec.tags,
+        model = _decided_model(
+            registry,
+            role,
+            spec,
+            registry.pick_for_task_adaptive(
+                complexity=spec.tier,
+                confidence_signal=confidence,
+                routing_percentile=routing_percentile,
+                required_tags=spec.tags,
+            ),
         )
         decision = registry.explain_pick_for_task(
             complexity=spec.tier,
