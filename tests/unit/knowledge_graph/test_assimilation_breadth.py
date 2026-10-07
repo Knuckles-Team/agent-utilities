@@ -13,6 +13,8 @@ from agent_utilities.knowledge_graph.assimilation import (
     run_breadth_ingest,
     run_pilot,
 )
+from tests.unit.fleet_autonomy_fakes import verified_fleet_session
+from tests.unit.work_market_fakes import attach_market
 
 pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 
@@ -262,8 +264,14 @@ def test_pilot_passes_when_built_features_not_reproposed():
             },
         }
     )
-    rep = run_pilot(engine, top_n=10)
+    # Synthesis folds the open feature into ONE canonical Gap through EG's typed
+    # upsert (the harness-evolution work-market requirement), bound to the ambient
+    # verified tenant.
+    market = attach_market(engine)
+    with verified_fleet_session():
+        rep = run_pilot(engine, top_n=10)
     assert rep.already_built == 1
     assert "open1" in {g["feature_id"] for g in rep.ranked_gaps}
     assert rep.reproposed_built == []  # the invariant
     assert rep.passed is True
+    assert {gap_id for _, gap_id in market.gap_rows} == {"gap:research:open1"}

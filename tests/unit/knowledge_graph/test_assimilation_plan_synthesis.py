@@ -12,8 +12,17 @@ from agent_utilities.knowledge_graph.assimilation import (
     synthesize_plans,
 )
 from agent_utilities.knowledge_graph.assimilation.plan_synthesis import _default_synth
+from tests.unit.fleet_autonomy_fakes import verified_fleet_session
+from tests.unit.work_market_fakes import attach_market
 
 pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
+
+
+@pytest.fixture(autouse=True)
+def _verified_session():
+    """Every Gap call binds the ambient verified tenant (EG's rule)."""
+    with verified_fleet_session():
+        yield
 
 
 class _Graph:
@@ -44,6 +53,9 @@ class _Graph:
 class _Engine:
     def __init__(self, nodes):
         self.graph = _Graph(nodes)
+        # The canonical Gap is EG's typed upsert (the harness-evolution work-market
+        # requirement), not a graph node.
+        self.market = attach_market(self)
 
     def add_node(self, nid, node_type, properties=None, ephemeral=False):
         self.graph.add_node(nid, {**(properties or {}), "type": node_type})
@@ -103,8 +115,10 @@ def test_synthesize_folds_into_canonical_gap_and_spec():
     # plan_id is now the persisted :SpecProposal id (title-derived), not plan:f1.
     assert proposal.plan_id == "spec_proposal:t"
     data = dict(engine.graph.nodes(data=True))
-    # A canonical :Gap and a :SpecProposal were persisted; NO sdd_plan node.
-    assert data["gap:research:f1"]["type"] == "Gap"
+    # ONE canonical Gap was upserted through EG's typed Gap surface (the
+    # harness-evolution work-market requirement), a :SpecProposal was persisted, and NO sdd_plan node was written.
+    assert {gap_id for _, gap_id in engine.market.gap_rows} == {"gap:research:f1"}
+    assert "gap:research:f1" not in data
     assert data["spec_proposal:t"]["type"] == "SpecProposal"
     assert "plan:f1" not in data
     assert data["f1"]["status"] == "proposed"
