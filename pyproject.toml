@@ -797,9 +797,6 @@ agent-utilities-messaging = "agent_utilities.messaging.daemon:main"
 agent-utilities-memory = "agent_utilities.knowledge_graph.memory.cli:main"
 agent-utilities = "agent_utilities.cli:main"
 agent-utilities-acp = "agent_utilities.protocols.acp_adapter:main"
-# Provision the database environment (Stardog + pg-age) from credentials; also
-# `python -m agent_utilities.knowledge_graph.setup.cli`.
-setup-databases = "agent_utilities.knowledge_graph.setup.cli:main"
 # Generate/validate/document the FULL deployment config (all AgentConfig options);
 # also `python -m agent_utilities.deployment.cli`.
 setup-config = "agent_utilities.deployment.cli:main"

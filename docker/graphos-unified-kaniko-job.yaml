@@ -16,6 +16,7 @@
 #   export SOURCE_DIR=<agent-utilities checkout to build (the Dockerfile + au source)>
 #   export GRAPH_OS_DIR=<agent-packages/graph-os checkout>
 #   export EG_WHEEL_DIR=<dir holding exactly one staged epistemic_graph-*.whl>
+#   export SIBLING_WHEELS_DIR=<dir holding wheels of unpublished ecosystem siblings, e.g. agent-connector-sdk>
 #   export LANGFUSE_AGENT_DIR=<agent-packages/agents/langfuse-agent checkout>
 #   export REGISTRY_CA_CONFIGMAP=<ConfigMap holding the registry's CA, see below>
 #   export IMAGE_REPO=<registry/repository to push to — default the LAN registry>
@@ -126,6 +127,8 @@ spec:
               mountPath: /workspace
             - name: eg-wheel
               mountPath: /workspace/build-artifacts/eg-wheel
+            - name: sibling-wheels
+              mountPath: /workspace/build-artifacts/sibling-wheels
             - name: graph-os-src
               mountPath: /workspace/build-artifacts/graph-os-src
             - name: langfuse-agent-src
@@ -151,6 +154,10 @@ spec:
         - name: eg-wheel
           hostPath:
             path: ${EG_WHEEL_DIR}
+            type: Directory
+        - name: sibling-wheels
+          hostPath:
+            path: ${SIBLING_WHEELS_DIR}
             type: Directory
         - name: graph-os-src
           hostPath:

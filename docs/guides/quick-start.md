@@ -3,7 +3,7 @@
 From nothing to a running, **verified** agent-utilities in a few minutes. This is the
 fast path; for the full config-complete walkthrough (secrets, profiles, multi-node)
 see the [Self-Setup guide](self-setup.md), and for the database environment see the
-[Stardog + pg-age recipe](../recipes/databases.md).
+[pg-age recipe](../recipes/databases.md).
 
 ## TL;DR — self-contained local GraphOS
 
@@ -65,15 +65,16 @@ authority beyond the validated expiry.
 ## 3. (Optional) Databases — single-node-prod / enterprise
 
 The `tiny` profile needs nothing here. For a durable Postgres tier (Apache AGE +
-pgvector + ParadeDB) and/or Stardog, run:
+pgvector + ParadeDB), run:
 
 ```bash
 docker compose -f docker/pg-age-full.compose.yml up -d --build   # AGE + pgvector + pg_search
-setup-databases --profile dev --connection-profile-ref "secret://graph/mirror-profile"
 ```
 
-Full detail (prod Stardog, dev local SPARQL, backfill into AGE, OpenBao):
-[databases recipe](../recipes/databases.md) / the `database-environment-setup` skill.
+Then register it as a mirror connection and reconcile the existing graph into it —
+see [databases recipe](../recipes/databases.md) for the `graph_configure` calls
+(`add_connection`, `mirror_status`, `reconcile`). External SPARQL triplestore
+federation is owned by the epistemic-graph engine, not this repository.
 
 ## 4. Launch
 
@@ -118,7 +119,6 @@ Installed by the package:
 | Command | What it does |
 |---|---|
 | `setup-config {generate,doctor,reference}` | Generate the complete config.json, validate it, or list every option by subsystem |
-| `setup-databases` | Provision Stardog + pg-age and backfill the graph into Apache AGE |
 | `agent-utilities-doctor` | Holistic deployment health sweep (`--fix`, `--live`, `--json`) |
 | `graph-os` | The Knowledge-Graph MCP server (graph-os) |
 | `graph-os-daemon` | Headless queue, maintenance, and background-work host (`--status`); no HTTP API |
@@ -126,7 +126,7 @@ Installed by the package:
 | `python -m agent_utilities` | Launch the interactive agent (flags: `--provider`, `--model-id`, `--mcp-config`, `--web`, `--port`) |
 
 Each command is also reachable over MCP/REST via the `graph_configure` tool
-(`generate_config`, `config_doctor`, `system_doctor`, `setup_databases`, …).
+(`generate_config`, `config_doctor`, `system_doctor`, …).
 
 ## Where to go next
 

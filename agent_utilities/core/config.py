@@ -3549,7 +3549,7 @@ class AgentConfig(BaseSettings):
             validated[domain] = threshold
         return validated
 
-    mcp_tool_mode: Literal["intent", "condensed", "verbose", "both"] = Field(
+    mcp_tool_mode: Literal["intent", "condensed", "verbose", "both", "hybrid"] = Field(
         default="intent", alias="MCP_TOOL_MODE"
     )
     mcp_http_allowed_private_hosts: list[str] = Field(
@@ -4154,14 +4154,14 @@ class AgentConfig(BaseSettings):
     graph_mirror_targets: list[str] | None = Field(
         default=None, alias="GRAPH_MIRROR_TARGETS"
     )
-    # Continuous Stardog mirroring (CONCEPT:AU-KG.backend.continuous-stardog-mirror). OFF by default:
-    # Stardog is used for EXPLICIT, on-demand per-source push/pull (``stardog_sync``), NOT a
-    # live write mirror. Set this to opt IN to continuous mirroring — the engine authority
-    # then fans every write out to Stardog (as a first-class fanout mirror, via the same
-    # durable outbox + replay machinery), partitioned into ``urn:source:<system>`` named
-    # graphs. A Stardog connection must be configured
-    # (``kg_connections`` ``stardog`` entry / ``STARDOG_*`` env). This is the ONE switch —
-    # no need to also list ``stardog`` in ``GRAPH_MIRROR_TARGETS``.
+    # Continuous Stardog mirroring (CONCEPT:AU-KG.backend.continuous-stardog-mirror). OFF by
+    # default. The Stardog SPARQL data backend this switch targeted was retired outright
+    # (external SPARQL federation is now owned by the epistemic-graph engine): turning this
+    # on still names "stardog" as a fan-out mirror target, but ``create_backend`` now raises
+    # ``LegacyGraphBackendRemovedError`` for that backend type, so the mirror build isolates
+    # the failure and logs it as degraded/skipped (CONCEPT:AU-KG.backend.mirror-health-repair)
+    # rather than connecting. Kept for ``runtime_health.py``'s health probe and characterization
+    # coverage; no production path currently makes it functional.
     continuous_stardog_mirror: bool = Field(
         default=False, alias="CONTINUOUS_STARDOG_MIRROR"
     )
@@ -4567,12 +4567,12 @@ class AgentConfig(BaseSettings):
     )
     """THE canonical Fuseki endpoint (CONCEPT:AU-KG.ontology.authoritative-tbox) — the single field every
     Fuseki reader resolves through: the ontology-publish tick
-    (``engine_tasks._tick_fuseki_publish``), ``publish_ontology_to_fuseki``'s
-    endpoint fallback, the ``fuseki``-kind SPARQL smoke query
-    (``database_environment.py``), and the ``jena_fuseki`` query backend
-    (``backends/sparql/jena_fuseki_backend.py`` via ``create_backend``).
-    Explicit callers may pass an ``endpoint=``/``jena_fuseki_url=`` argument
-    to override this per call."""
+    (``engine_tasks._tick_fuseki_publish``) and ``publish_ontology_to_fuseki``'s
+    endpoint fallback. (The ``jena_fuseki`` query backend and its database-setup
+    smoke query were retired outright; ``create_backend`` now raises
+    ``LegacyGraphBackendRemovedError`` for that backend type — external SPARQL
+    federation is owned by the epistemic-graph engine.) Explicit callers may
+    pass an ``endpoint=`` argument to override this per call."""
     graph_fuseki_dataset: str = Field(default="agent_kg", alias="GRAPH_FUSEKI_DATASET")
     graph_fuseki_user: str | None = Field(default=None, alias="GRAPH_FUSEKI_USER")
     graph_fuseki_password_ref: str | None = Field(

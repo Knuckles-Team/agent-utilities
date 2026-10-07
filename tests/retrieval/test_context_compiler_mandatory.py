@@ -31,19 +31,7 @@ from agent_utilities.knowledge_graph.retrieval.context_compiler import (
 from agent_utilities.models.company_brain import DataClassification, NodeACL
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
-
-
-class _FakeMarkingStore:
-    """Minimal in-memory durable-store stand-in for the mandatory-marking seam.
-
-    ``ContextCompiler.compile`` runs every candidate through the policy
-    ``enforce`` gate (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted), which resolves the
-    mandatory-marking store on every call.
-    """
-
-    @staticmethod
-    def execute(_query, _params):
-        return []
+from tests.retrieval.fakes import _FakeMarkingStore
 
 
 @pytest.fixture(autouse=True)

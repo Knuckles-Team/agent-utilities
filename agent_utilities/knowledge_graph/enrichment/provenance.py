@@ -11,7 +11,7 @@ of which writer persisted it:
 
 * ``source_system`` — the canonical source id, used for provenance and for
   partitioning into ``urn:source:<system>`` named graphs when mirrored/pushed to a
-  SPARQL store (see ``backends/sparql/source_partition``).
+  SPARQL store (see ``knowledge_graph/core/source_partition``).
 * ``domain`` — the federation key the write-back resolver
   (``writeback/core.resolve_external_id``) queries (``MATCH (n) WHERE n.domain = $d``)
   to map a KG node back to its upstream record.
