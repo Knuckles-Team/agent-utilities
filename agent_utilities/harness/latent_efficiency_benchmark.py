@@ -31,6 +31,8 @@ code paths of the two modules), so :func:`run_all` is bit-for-bit reproducible. 
 sibling assimilation-parity suite so the gateway/MCP reporting block is identical.
 """
 
+from typing import TYPE_CHECKING
+
 from agent_utilities.harness.assimilation_benchmark import (
     BenchmarkResult,
     _make_result,
@@ -38,7 +40,18 @@ from agent_utilities.harness.assimilation_benchmark import (
 )
 from agent_utilities.knowledge_graph.core.world_model import WorldModel
 from agent_utilities.knowledge_graph.retrieval.capability_index import CapabilityIndex
-from agent_utilities.numeric import NDArray, xp
+
+if TYPE_CHECKING:
+    # Type-only: with `from __future__ import annotations` above, annotations
+    # are never evaluated at runtime, so this name needs no runtime import.
+    from agent_utilities.numeric import NDArray
+
+# agent_utilities.numeric always imports successfully -- it defers the
+# certified epistemic_graph.numeric kernel's absence to first actual use
+# (agent_utilities/numeric/__init__.py's _require_kernel()), which raises
+# a clear ImportError naming the missing kernel instead of failing this
+# module's own import. No try/except/None-fallback needed here anymore.
+from agent_utilities.numeric import xp
 
 __all__ = [
     "BenchmarkResult",

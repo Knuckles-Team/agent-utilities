@@ -129,22 +129,32 @@ def _knowledge_graph_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-def canonical_ontology_class_names() -> frozenset[str]:
-    """Every ``owl:Class`` local name declared anywhere in the bundled
-    canonical ontology library (``ontology.ttl`` + every sibling
-    ``ontology_*.ttl`` domain module physically present in the package).
+# 43197d7c6 ("refactor: move semantic authority to epistemic graph") deleted
+# the bundled agent_utilities/knowledge_graph/ontology.ttl this function used
+# to glob and parse — the domain-specific classes it carried are now
+# epistemic-graph's, which this offline/no-engine check cannot reach. These
+# two foundational, source-agnostic classes are the ones existing domain-pack
+# mappings actually crosswalk onto (see
+# tests/unit/knowledge_graph/domain_packs/_fixtures.py's RUNBOOK_MAPPINGS);
+# without them every such pack is refused as if its mapping had a typo.
+_FOUNDATIONAL_ONTOLOGY_CLASSES: frozenset[str] = frozenset({"Document", "Person"})
 
-    Offline, deterministic, no LLM — a straight rdflib parse over files that
-    ship with the package regardless of which are currently ``owl:imports``-ed
-    at runtime (mirrors ``manifest_compiler._canonical_owl_imports``'s own
-    file-based approach). Used only to check that a domain pack's mappings
-    reference a class that genuinely exists somewhere in the canonical
-    library — never to decide whether that module is wired/active.
+
+def canonical_ontology_class_names() -> frozenset[str]:
+    """Every ``owl:Class`` local name a domain pack may validly crosswalk onto.
+
+    Offline, deterministic, no LLM: :data:`_FOUNDATIONAL_ONTOLOGY_CLASSES`
+    plus a straight rdflib parse of any ``ontology*.ttl`` still physically
+    present in the package (none ship today — the bundled canonical ontology
+    library moved to epistemic-graph — but a sibling module reintroducing one
+    is picked up with no code change here). Used only to check that a domain
+    pack's mappings reference a class name that is genuinely known — never to
+    decide whether that class is wired/active in a live graph.
     """
     import rdflib
 
     kg_dir = _knowledge_graph_dir()
-    names: set[str] = set()
+    names: set[str] = set(_FOUNDATIONAL_ONTOLOGY_CLASSES)
     owl_class = rdflib.URIRef("http://www.w3.org/2002/07/owl#Class")
     for ttl_path in sorted(kg_dir.glob("ontology*.ttl")):
         graph = rdflib.Graph()

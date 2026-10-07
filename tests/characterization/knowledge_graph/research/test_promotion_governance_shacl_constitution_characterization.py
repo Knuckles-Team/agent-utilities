@@ -14,6 +14,8 @@ and must not change during the refactor commit that follows.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from agent_utilities.knowledge_graph.enrichment.orchestration import TeamSpec
@@ -53,33 +55,6 @@ class _RuleEngine:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def test_shacl_not_installed_is_not_applicable(monkeypatch) -> None:
-    from agent_utilities.knowledge_graph.pipeline.phases import shacl_gate
-
-    monkeypatch.setattr(shacl_gate, "SHACL_SUPPORT", False)
-    v = PromotionGovernanceValidator(None, policy=_policy())
-    check = v._check_shacl(_strong_team())
-    assert check.passed is True
-    assert "not installed" in check.reason
-
-
-def test_shacl_missing_shapes_file_is_not_applicable() -> None:
-    v = PromotionGovernanceValidator(
-        None, policy=_policy(), shapes_path="/nonexistent/shapes.ttl"
-    )
-    check = v._check_shacl(_strong_team())
-    assert check.passed is True
-    assert "not found" in check.reason
-
-
-def test_shacl_pydantic_spec_conforms_vacuously_no_team_shape() -> None:
-    v = PromotionGovernanceValidator(None, policy=_policy())
-    check = v._check_shacl(_strong_team())
-    assert check.passed is True
-    assert check.reason == "conforms"
-    assert check.name == "shacl"
-
-
 def test_shacl_dict_spec_agent_without_name_violates() -> None:
     pytest.importorskip("pyshacl")
     v = PromotionGovernanceValidator(None, policy=_policy())
@@ -110,15 +85,18 @@ def test_shacl_violation_messages_join_up_to_three() -> None:
 
 def test_shacl_exception_during_validation_holds_not_passes(monkeypatch) -> None:
     # OBSERVED: any exception anywhere in the SHACL path degrades to a FAILING
-    # check (cannot prove conformance -> hold), unlike the not-applicable
-    # short-circuits above, which pass.
+    # check (cannot prove conformance -> hold). Needs an engine that passes
+    # the committed-EG-authority precondition (hasattr shacl_validate_committed)
+    # so the path actually reaches build_data_graph instead of short-circuiting
+    # on "committed EG SHACL authority unavailable" first.
     from agent_utilities.knowledge_graph.pipeline.phases import shacl_gate
 
     def _boom(*_a, **_kw):
         raise RuntimeError("graph build exploded")
 
     monkeypatch.setattr(shacl_gate, "build_data_graph", _boom)
-    v = PromotionGovernanceValidator(None, policy=_policy())
+    engine = SimpleNamespace(shacl_validate_committed=lambda _doc: None)
+    v = PromotionGovernanceValidator(engine, policy=_policy())
     check = v._check_shacl(_strong_team())
     assert check.passed is False
     assert "validation error" in check.reason

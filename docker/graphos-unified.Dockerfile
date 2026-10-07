@@ -48,7 +48,7 @@
 # what the original job used — see docker/graphos-unified-langfuse-kaniko-job.yaml for the
 # variant that adds it and pushes the `:langfuse` validation tag.
 
-FROM ubuntu:26.04@sha256:3131b4cc82a783df6c9df078f86e01819a13594b865c2cad47bd1bca2b7063bb
+FROM ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7
 
 ARG HOST=127.0.0.1
 ARG PORT=8000
@@ -94,7 +94,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # uv — fast resolver/installer (same pinned version as docker/Dockerfile, for consistency).
-COPY --from=ghcr.io/astral-sh/uv:0.11.7@sha256:240fb85ab0f263ef12f492d8476aa3a2e4e1e333f7d67fbdd923d00a506a516a /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.12.23@sha256:61d393e44e249f2e4b526b6c7ddcecce245946826e608e11c93ad4f5bba55b21 /uv /uvx /usr/local/bin/
 ENV UV_SYSTEM_PYTHON=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -116,6 +116,10 @@ ENV UV_SYSTEM_PYTHON=1 \
 #    staged wheel makes stale or duplicate artifacts observable to that gate instead of
 #    allowing a fixed filename to hide them.
 COPY build-artifacts/eg-wheel/*.whl /tmp/wheels/
+# Ecosystem siblings that are not on PyPI (agent-connector-sdk), built from their main
+# branches and staged separately: the engine-wheel preflight requires exactly one wheel
+# in /tmp/wheels.
+COPY build-artifacts/sibling-wheels/*.whl /tmp/sibling-wheels/
 COPY scripts/release/check_epistemic_graph_client_preflight.py /tmp/check_epistemic_graph_client_preflight.py
 RUN set -eu; \
     uv pip install --system --break-system-packages \
@@ -216,7 +220,8 @@ RUN uv pip install --system --break-system-packages --no-cache \
         --no-sources \
         --override /tmp/overrides.txt \
         --find-links /tmp/wheels \
-        -e "/opt/agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,owl,logfire,messaging-telegram,messaging-mattermost,postgresql,acp,gateway-widgets]" \
+        --find-links /tmp/sibling-wheels \
+        -e "/opt/agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,rdf,logfire,messaging-telegram,messaging-mattermost,postgresql,acp,gateway-widgets]" \
         "/tmp/langfuse-agent-src" \
         "redis>=5.0.0" \
         "neo4j>=6.2.0" \
@@ -237,7 +242,7 @@ RUN uv pip install --system --break-system-packages --no-cache \
     && uv pip install --system --break-system-packages --no-cache --no-deps \
         -e /opt/graph-os \
     && chmod -R a+rX /opt/agent-utilities /opt/graph-os \
-    && rm -rf /tmp/langfuse-agent-src /tmp/wheels /tmp/overrides.txt \
+    && rm -rf /tmp/langfuse-agent-src /tmp/wheels /tmp/sibling-wheels /tmp/overrides.txt \
         /tmp/check_epistemic_graph_client_preflight.py
 # ^ this pin list matches the exact stack the CURRENT split-image deploy pip-installs at
 #   pod-start (`kubectl get deploy graph-os -n platform -o yaml`) — most of it
@@ -267,7 +272,7 @@ RUN uv pip install --system --break-system-packages --no-cache \
 # tolerant handler at kg_server's attach site is by design (a dead fleet loader must not
 # take graph-os down), but it also meant a version-mismatched image shipped green and only
 # logged the loss of every fleet meta-tool. Failing the BUILD is where that belongs.
-RUN python3 -c "import importlib.metadata as m; import agent_utilities; import graph_os; import epistemic_graph.numeric; import langfuse_agent; import owlready2; import pyshacl; import rdflib; from graph_os.fleet.multiplexer import attach_fleet_loader; from graph_os.fleet.protocol_compat import check_mcp_sdk_floor; r = check_mcp_sdk_floor(); eps = [e for e in m.distribution('graph-os').entry_points if e.group == 'console_scripts' and e.name == 'graph-os']; assert len(eps) == 1 and eps[0].value == 'graph_os.mcp_server.server:mcp_server', eps; assert r['ok'] is True, r['detail']; assert m.version('pydantic-ai-slim') == '2.29.0'; assert m.version('pydantic-ai-harness') == '0.14.0'; print('graph-os authority OK:', eps[0].value); print('mcp_sdk_floor OK:', r['detail'])" \
+RUN python3 -c "import importlib.metadata as m; import agent_utilities; import graph_os; import epistemic_graph.numeric; import langfuse_agent; import rdflib; from graph_os.fleet.multiplexer import attach_fleet_loader; from graph_os.fleet.protocol_compat import check_mcp_sdk_floor; r = check_mcp_sdk_floor(); eps = [e for e in m.distribution('graph-os').entry_points if e.group == 'console_scripts' and e.name == 'graph-os']; assert len(eps) == 1 and eps[0].value == 'graph_os.mcp_server.server:mcp_server', eps; assert r['ok'] is True, r['detail']; assert m.version('pydantic-ai-slim') == '2.29.0'; assert m.version('pydantic-ai-harness') == '0.14.0'; print('graph-os authority OK:', eps[0].value); print('mcp_sdk_floor OK:', r['detail'])" \
     && epistemic-graph-server --help >/dev/null \
     && command -v graph-os >/dev/null
 

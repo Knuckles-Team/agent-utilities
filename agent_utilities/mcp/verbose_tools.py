@@ -53,7 +53,18 @@ from agent_utilities.mcp.context_helpers import ctx_confirm_destructive
 
 logger = logging.getLogger(__name__)
 
-VALID_TOOL_MODES = ("condensed", "verbose", "both", "intent")
+VALID_TOOL_MODES = ("condensed", "verbose", "both", "intent", "hybrid")
+# Modes that serve the ask/find/write/act/manage/why intent verbs. ``hybrid``
+# serves them BESIDE the ungated condensed tools; ``intent`` serves them in
+# place of the condensed tools, which it gates behind ``load_tools``.
+INTENT_VERB_MODES = ("intent", "hybrid")
+
+
+def serves_intent_verbs(mode: str) -> bool:
+    """Whether ``mode`` registers the intent verbs."""
+    return mode in INTENT_VERB_MODES
+
+
 # Default to the collapsed INTENT surface (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse,
 # Seam 8): a small set of intent-verb tools (ask/write/act/find/manage/why) instead
 # of the ~100 granular/condensed tools, which blow past the client tool cap and cost
@@ -126,7 +137,10 @@ def _is_typeable_param(param: dict) -> bool:
 
 
 def tool_mode() -> str:
-    """Return the configured MCP tool surface: ``condensed``|``verbose``|``both``|``intent``.
+    """Return the configured MCP tool surface: ``condensed``|``verbose``|``both``|``intent``|``hybrid``.
+
+    ``hybrid`` registers the condensed action tools UNGATED (in every session's
+    default list, as ``condensed`` does) and also the intent verbs.
 
     Reads ``MCP_TOOL_MODE`` through the shared config layer (so it is driven by
     the one XDG ``config.json``). Defaults to ``intent`` — the collapsed
@@ -957,7 +971,7 @@ def _register_condensed_tools(
     REGISTERED_TOOLS are unaffected — they are the backing surface the intent
     verbs dispatch into) but additionally gates them from the default session
     view (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse)."""
-    if mode not in ("condensed", "both", "intent", "verbose"):
+    if mode not in ("condensed", "both", "intent", "hybrid", "verbose"):
         return []
     toggles: dict[str, str] = getattr(mcp, "_condensed_tool_toggles", {})
     gated: set[str] = getattr(mcp, "_intent_gated_tools", set())

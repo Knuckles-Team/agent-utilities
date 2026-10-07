@@ -4,11 +4,11 @@
 CONCEPT:AU-KG.backend.mirror-target-graph — Mirror Target Graph.
 CONCEPT:AU-KG.backend.mirror-nonempty-default-guard — Non-Empty Default Guard.
 
-These are **wiring** tests, not existence tests: each of the four external
+These are **wiring** tests, not existence tests: each of the three external
 mirror backends is driven against a faithful fake of its own client, and we
 assert the bytes that reach that client — the Neo4j ``session(database=...)``
-option, the FalkorDB ``select_graph`` key, the AGE ``cypher('<graph>', ...)``
-SQL, and the Stardog ``GRAPH <...>`` in the emitted SPARQL. For every backend:
+option, the FalkorDB ``select_graph`` key, and the AGE ``cypher('<graph>', ...)``
+SQL. For every backend:
 
 * (a) a dedicated target actually routes writes there;
 * (b) the instance default is used when explicitly selected;
@@ -17,7 +17,6 @@ SQL, and the Stardog ``GRAPH <...>`` in the emitted SPARQL. For every backend:
 
 from __future__ import annotations
 
-import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -518,159 +517,6 @@ def test_age_guard_treats_an_absent_graph_as_empty(monkeypatch):
     )
     preflight_mirror_target("pg-age", backend)
     assert not any("cypher(" in s for s, _p in server.statements)
-
-
-# ── Stardog: TWO levels — a database AND a named graph ───────────────────────
-
-
-@pytest.fixture()
-def fake_stardog(monkeypatch):
-    conn = MagicMock(name="connection")
-    conn.select.return_value = {"results": {"bindings": []}}
-
-    module = SimpleNamespace()
-    module.Connection = MagicMock(return_value=conn)
-    admin = MagicMock()
-    admin.__enter__ = MagicMock(return_value=admin)
-    admin.__exit__ = MagicMock(return_value=False)
-    admin.databases.return_value = []
-    module.Admin = MagicMock(return_value=admin)
-    module.content = SimpleNamespace(Raw=MagicMock())
-    monkeypatch.setitem(sys.modules, "stardog", module)
-    return SimpleNamespace(module=module, conn=conn, admin=admin)
-
-
-def _stardog(mirror_target, *, database="agent_kg"):
-    from agent_utilities.knowledge_graph.backends.sparql.stardog_backend import (
-        StardogSparqlBackend,
-    )
-
-    return StardogSparqlBackend(
-        endpoint="http://sd:5820",
-        database=database,
-        username="u",
-        password="p",
-        mirror_target=mirror_target,
-    )
-
-
-def _updates(fake) -> str:
-    return "\n".join(call.args[0] for call in fake.conn.update.call_args_list)
-
-
-def test_stardog_dedicated_graph_routes_every_write_into_that_graph(fake_stardog):
-    """The DEFAULT dedicated level: a per-source graph NESTED inside the mirror
-    (D-MT-4) -- everything stays under the ``urn:mirror:kg_mirror`` namespace, so
-    it can never collide with the instance's OWN ``urn:source:*`` graphs, while
-    source structure is preserved as real named-graph structure rather than
-    flattened to a bare property."""
-    backend = _stardog(
-        MirrorTarget(mode=MODE_DEDICATED, name="kg_mirror", level=LEVEL_GRAPH)
-    )
-    backend.execute(
-        "MERGE (n:Application {id: $id}) SET n.`source_system` = $source_system",
-        {"id": "app:1", "source_system": "leanix"},
-    )
-    blob = _updates(fake_stardog)
-    # Nested under the mirror's own namespace -- never the instance's bare
-    # urn:source:leanix, which would collide with a real (non-mirrored) source.
-    assert "GRAPH <urn:mirror:kg_mirror:source:leanix>" in blob
-    assert "GRAPH <urn:source:leanix>" not in blob
-    # ...and the source also stays queryable as a property inside it.
-    assert "source_system" in blob
-    # The database is untouched by a graph-level dedication.
-    assert backend._database == "agent_kg"
-
-
-def test_stardog_dedicated_graph_uses_its_own_root_for_sourceless_data(fake_stardog):
-    """Data with no real source_system (internal/derived nodes) stays in the
-    mirror's own root graph, unchanged from before D-MT-4."""
-    backend = _stardog(
-        MirrorTarget(mode=MODE_DEDICATED, name="kg_mirror", level=LEVEL_GRAPH)
-    )
-    backend.execute("MERGE (n:Claim {id: $id})", {"id": "c1"})
-    blob = _updates(fake_stardog)
-    assert "GRAPH <urn:mirror:kg_mirror>" in blob
-    assert ":source:" not in blob
-
-
-def test_stardog_dedicated_database_isolates_at_the_other_level(fake_stardog):
-    backend = _stardog(
-        MirrorTarget(mode=MODE_DEDICATED, name="kg_mirror", level=LEVEL_DATABASE),
-        database=None,
-    )
-    assert backend._database == "kg_mirror"
-    # No named-graph override at the database level: source partitioning stands.
-    backend.execute(
-        "MERGE (n:Application {id: $id}) SET n.`source_system` = $source_system",
-        {"id": "app:1", "source_system": "leanix"},
-    )
-    assert "GRAPH <urn:source:leanix>" in _updates(fake_stardog)
-
-
-def test_stardog_explicit_default_keeps_todays_routing(fake_stardog):
-    backend = _stardog(
-        MirrorTarget(mode=MODE_DEFAULT_OVERWRITE, name="agent_kg", level=LEVEL_GRAPH)
-    )
-    backend.execute("MERGE (n:Claim {id: $id})", {"id": "c1"})
-    blob = _updates(fake_stardog)
-    assert "GRAPH <" not in blob  # an internal node still lands in the default graph
-    assert backend._database == "agent_kg"
-
-
-def test_stardog_guard_refuses_a_non_empty_default_database(fake_stardog):
-    fake_stardog.conn.select.return_value = {"boolean": True}
-    backend = _stardog(
-        MirrorTarget(mode=MODE_DEFAULT, name="agent_kg", level=LEVEL_GRAPH)
-    )
-    with pytest.raises(MirrorTargetRefused, match="ALREADY CONTAINS DATA"):
-        preflight_mirror_target("stardog", backend)
-    assert not fake_stardog.conn.update.called  # nothing written
-
-
-def test_stardog_guard_passes_on_an_empty_default_database(fake_stardog):
-    fake_stardog.conn.select.return_value = {"boolean": False}
-    backend = _stardog(
-        MirrorTarget(mode=MODE_DEFAULT, name="agent_kg", level=LEVEL_GRAPH)
-    )
-    preflight_mirror_target("stardog", backend)
-
-
-def test_stardog_guard_fails_closed_when_the_probe_errors(fake_stardog):
-    fake_stardog.conn.select.side_effect = RuntimeError("server unreachable")
-    backend = _stardog(
-        MirrorTarget(mode=MODE_DEFAULT, name="agent_kg", level=LEVEL_GRAPH)
-    )
-    with pytest.raises(MirrorTargetRefused, match="could not be determined"):
-        preflight_mirror_target("stardog", backend)
-
-
-def test_stardog_prune_is_scoped_to_the_dedicated_graph(fake_stardog):
-    backend = _stardog(
-        MirrorTarget(mode=MODE_DEDICATED, name="kg_mirror", level=LEVEL_GRAPH)
-    )
-    backend.prune({"min_importance": 0.5})
-    assert "GRAPH <urn:mirror:kg_mirror>" in _updates(fake_stardog)
-
-
-def test_stardog_upload_graph_defaults_to_the_dedicated_graph(fake_stardog):
-    backend = _stardog(
-        MirrorTarget(mode=MODE_DEDICATED, name="kg_mirror", level=LEVEL_GRAPH)
-    )
-    backend.upload_graph("<a> <b> <c> .")
-    assert fake_stardog.conn.add.call_args.kwargs["graph_uri"] == "urn:mirror:kg_mirror"
-
-
-def test_both_stardog_backends_resolve_the_database_identically(fake_stardog):
-    """The OWL reasoning backend must not drift from the SPARQL data backend."""
-    from agent_utilities.knowledge_graph.backends.owl.stardog_backend import (
-        StardogBackend,
-    )
-
-    target = MirrorTarget(mode=MODE_DEDICATED, name="kg_mirror", level=LEVEL_DATABASE)
-    data = _stardog(target, database=None)
-    owl = StardogBackend(endpoint="http://sd:5820", mirror_target=target)
-    assert owl._database == data._database == "kg_mirror"
 
 
 def test_dedicated_graph_iri_is_predictable():

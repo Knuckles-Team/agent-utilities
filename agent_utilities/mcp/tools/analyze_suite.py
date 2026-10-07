@@ -19,10 +19,16 @@ operations/structural surface; it is not a compatibility catch-all.
 from __future__ import annotations
 
 import json
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import Field
 
+from agent_utilities.gateway.schemas.graph_core import (
+    GraphCodeAction,
+    GraphEvaluateAction,
+    GraphExplainAction,
+    GraphResearchAction,
+)
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools._surface_selection import (
     conditional_tool_decorator,
@@ -31,56 +37,6 @@ from agent_utilities.mcp.tools._surface_selection import (
 from agent_utilities.mcp.tools.analysis_tools import execute_focused_analysis
 from agent_utilities.models.evidence_bundle import EvidenceBundle
 from agent_utilities.security.error_surface import public_error_text
-
-GraphCodeAction = Literal[
-    "code_context",
-    "cross_repo_usages",
-    "call_graph",
-    "similar_code",
-    "routes",
-    "change_coupling",
-    "code_evolution",
-    "blast_radius",
-    "code_metrics",
-    "arch_report",
-    "adr",
-]
-GraphResearchAction = Literal[
-    "synthesize",
-    "deep_extract",
-    "background_research",
-    "relevance_sweep",
-    "research_ingest",
-    "evolve_variants",
-    "track_citations",
-    "spawn_background",
-    "night_shift",
-    "contradictions",
-]
-GraphEvaluateAction = Literal[
-    "evaluate",
-    "evaluate_alpha",
-    "evaluate_harness",
-    "guard_corpus",
-    "harness_gate",
-    "check_constraints",
-    "specialize",
-    "world_model_rollout",
-    "latent_efficiency_benchmark",
-    "assimilation_benchmark",
-    "evolve_model",
-    "evolve_code",
-    "forecast",
-    "causal",
-    "invariant",
-    "quant_crypto",
-    "quant_exchange",
-    "quant_microstructure",
-    "quant_strategy",
-    "quant_regime",
-    "quant_insider",
-]
-GraphExplainAction = Literal["explain", "context", "executable_rag", "recommend"]
 
 
 def register_analyze_suite_tools(
@@ -180,7 +136,7 @@ def register_analyze_suite_tools(
         name="graph_evaluate",
         description=(
             "Evaluate agents/harnesses and reason over learned world models. Actions: "
-            "'evaluate' / 'evaluate_alpha' (score outputs), 'evaluate_harness' (run the "
+            "'evaluate' (score outputs), 'evaluate_harness' (run the "
             "harness eval), 'guard_corpus' (reliability/eval corpus gate), 'harness_gate' "
             "(formal concentration/no-regression SHACL gate — AHE-3.53), 'check_constraints', "
             "'specialize' (one SAI specialization cycle + superhuman cert — AHE-3.29), "
@@ -192,15 +148,14 @@ def register_analyze_suite_tools(
             "back deterministically offline — KG-2.92/MLEvolve; query=task description), "
             "'forecast', 'causal', "
             "'invariant', plus the finance evaluation actions 'quant_crypto', "
-            "'quant_exchange', 'quant_microstructure', 'quant_strategy', "
-            "'quant_regime', and 'quant_insider'."
+            "'quant_microstructure', 'quant_regime', and 'quant_insider'."
         ),
         tags=["graph-os", "evaluate"],
     )
     async def graph_evaluate(
         action: GraphEvaluateAction = Field(
             default="evaluate",
-            description="evaluate | evaluate_alpha | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | assimilation_benchmark | evolve_model | evolve_code | forecast | causal | invariant | quant_crypto | quant_exchange | quant_microstructure | quant_strategy | quant_regime | quant_insider",
+            description="evaluate | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | assimilation_benchmark | evolve_model | evolve_code | forecast | causal | invariant | quant_crypto | quant_microstructure | quant_regime | quant_insider",
         ),
         query: str = Field(
             default="",

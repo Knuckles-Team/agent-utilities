@@ -14,15 +14,16 @@ it composes the parts that already exist:
 * **Load (outbound):** dispatch ``sink`` by kind —
   - a **WritebackSink** domain (leanix/servicenow/egeria/…) → ``run_writeback`` (the KG
     pushes intelligence back to the system of record; dry-run-first + ProposalQueue);
-  - a **graph store** (Stardog/Neo4j/AGE/…, passed as a resolved ``sink_backend``) →
-    full-data load: ``stardog_sync.push_to_stardog`` for a SPARQL store (partitioned
-    into ``urn:source:<system>`` named graphs), else ``migration.copy_graph``.
+  - a **graph store** (Neo4j/AGE/…, passed as a resolved ``sink_backend``) →
+    full-data load via ``migration.copy_graph``. A SPARQL-capable sink_backend
+    (the legacy Stardog ETL sink) answers with a typed, reachable refusal —
+    that external store was retired; use epistemic-graph federation instead.
 * **Lineage:** every run is recorded via :mod:`.lineage` for impact analysis.
 
 So ``run_etl(source="servicenow", sink="leanix")`` is ServiceNow → (ontological
-normalization in the KG) → LeanIX; ``source="leanix", sink="stardog"`` mirrors LeanIX
-into Stardog; either side may be omitted for a one-directional run. ``run_etl`` stays
-pure (no MCP/registry import) — the caller resolves ``sink_backend``.
+normalization in the KG) → LeanIX; either side may be omitted for a
+one-directional run. ``run_etl`` stays pure (no MCP/registry import) — the
+caller resolves ``sink_backend``.
 
 The returned manifest is the serialized :class:`.result.EtlResult`
 (CONCEPT:AU-KG.etl.result-contract). Connector-specific output is isolated under
@@ -213,7 +214,7 @@ def run_etl(
         ids: optional record-id filter for the inbound sync.
         sink: a WritebackSink domain OR a graph-store name (for dispatch + lineage).
         sink_backend: a resolved ``GraphBackend`` when ``sink`` is a graph store
-            (Stardog/Neo4j/…); the caller resolves it (registry / create_backend).
+            (Neo4j/AGE/…); the caller resolves it (registry / create_backend).
         sources: subset filter (source systems) for a graph-store push.
         dry_run: writeback dry-run (default True, fail-closed).
         ops: writeback payload (inferences/enrichments/creations/retirements).
@@ -302,11 +303,18 @@ def _run_outbound(
         }
 
     if getattr(sink_backend, "supports_sparql", False):
-        from ..integrations.stardog_sync import push_to_stardog
+        # The Stardog ETL sink (``stardog_sync.push_to_stardog``) was retired
+        # with the rest of the legacy SPARQL backend; a caller that still
+        # resolves a SPARQL-capable sink_backend gets a typed, reachable
+        # refusal instead of an import error or a silent no-op.
+        from ..backends import LegacyGraphBackendRemovedError
 
-        res = push_to_stardog(engine, sink_backend, sources=sources)
-        res.setdefault("sink", sink)
-        return res
+        return {
+            "status": "error",
+            "sink": sink,
+            "error": "external SPARQL sinks were retired; use epistemic-graph federation instead",
+            "error_type": LegacyGraphBackendRemovedError.__name__,
+        }
 
     # Cypher-capable graph store → full cross-backend migration.
     from ..migration import copy_graph
