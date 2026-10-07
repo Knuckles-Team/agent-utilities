@@ -12,5 +12,5 @@
 #   when = engine  -> needed only when the native engine is built from source
 #                     (`scripts/bootstrap.sh --engine`); every other sync passes
 #                     `--no-install-package epistemic-graph`.
-agent-connector-sdk  https://github.com/Knuckles-Team/agent-connector-sdk  50d0ba5360407c2f6395a39bc5e8608d42fc365b  always
+agent-connector-sdk  https://github.com/Knuckles-Team/agent-connector-sdk  a0d3aa8baf9aef1dc1542d6b63ca2ce8777c2c49  always
 epistemic-graph      https://github.com/Knuckles-Team/epistemic-graph      6a795577dff539da06c52f467220422bf23e0b03  engine

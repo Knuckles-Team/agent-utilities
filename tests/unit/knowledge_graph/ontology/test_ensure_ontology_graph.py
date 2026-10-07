@@ -1,70 +1,99 @@
-"""U-96: `_ensure_ontology_graph` must provision the dedicated per-tenant
-ontology graph as the engine's supported `Global` lifecycle type, not the
-semantic content label `"Ontology"`.
+"""GraphSchema owns ontology attachment on the selected graph.
 
-`"Ontology"` is not a member of the engine's closed `GraphType` wire enum
-(`crates/eg-types/src/protocol.rs`: `Agent | Team | Global | Commons`; its own
-canonical ontology fixture creates `global:ontology` as `GraphType::Global`).
-Sending it used to fail server-side deserialization, which surfaced as a
-multi-minute connection timeout instead of an immediate error (the caller
-fell back to non-durable process-local ontology state) -- fixed separately in
-epistemic-graph's transport/decode-error path and in that client's
-`tenants.create` allowlist. This test pins the ONE place in agent-utilities
-that must never regress back to the unsupported value.
+The former ``_ensure_ontology_graph`` tests provisioned a separate Global
+ontology graph. That registry lifecycle is retired: AU now forwards the source
+to GraphSchema without listing or creating tenants, or caching attachment state.
 """
 
 from __future__ import annotations
 
-from agent_utilities.knowledge_graph.ontology import lifecycle
+from types import SimpleNamespace
+from unittest.mock import Mock, call
+
+import pytest
+
+from agent_utilities.knowledge_graph.ontology.lifecycle import OntologyLifecycle
 
 
-class _RecordingTenants:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
-        self._graphs: set[str] = set()
-
-    def list(self):
-        return [{"name": g} for g in self._graphs]
-
-    def create(self, name: str, graph_type: str) -> None:
-        self.calls.append((name, graph_type))
-        self._graphs.add(name)
-
-
-class _FakeClient:
-    def __init__(self, tenants: _RecordingTenants) -> None:
-        self.tenants = tenants
-
-
-class _FakeGraphComputeEngine:
-    def __init__(self, client: _FakeClient) -> None:
-        self.client = client
+@pytest.fixture
+def graph_schema():
+    schema = Mock(
+        spec_set=["graph_schema_attach", "graph_schema_detach", "graph_schema_list"]
+    )
+    receipt = Mock(spec_set=["model_dump"])
+    receipt.model_dump.return_value = {
+        "schema_version": 2,
+        "graph": "tenant__acme",
+        "composed_digest": "digest:2",
+        "graph_version": 4,
+        "changed": True,
+    }
+    schema.graph_schema_attach.return_value = receipt
+    return schema
 
 
-def setup_function() -> None:
-    lifecycle.reset_registry()
+@pytest.mark.parametrize("wrapped", [False, True], ids=["compute", "engine"])
+@pytest.mark.parametrize("graph_name", [None, "tenant__acme"])
+def test_load_attaches_to_current_or_selected_graph(graph_schema, wrapped, graph_name):
+    compute = Mock(spec_set=["for_graph"])
+    compute.for_graph.return_value = graph_schema
+    target = compute if graph_name else graph_schema
+    engine = SimpleNamespace(graph_compute=target) if wrapped else target
+    lifecycle = OntologyLifecycle(engine, tenant="acme", graph_name=graph_name)
+    body = "<urn:acme:Class> a <http://www.w3.org/2002/07/owl#Class> ."
+
+    result = lifecycle.load(body, source_type="text", iri="urn:acme", version="1")
+
+    if graph_name:
+        compute.for_graph.assert_called_once_with(graph_name)
+    else:
+        compute.for_graph.assert_not_called()
+    graph_schema.graph_schema_attach.assert_called_once_with(
+        result["source_id"], ontology_ttl=body
+    )
+    assert result["source_id"].startswith("admin:ontology:")
+    assert result == {
+        "action": "attach",
+        "iri": "urn:acme",
+        "version": "1",
+        "source_id": result["source_id"],
+        **graph_schema.graph_schema_attach.return_value.model_dump.return_value,
+    }
+    graph_schema.graph_schema_attach.return_value.model_dump.assert_called_once_with(
+        mode="json"
+    )
+    graph_schema.graph_schema_list.assert_not_called()
+    graph_schema.graph_schema_detach.assert_not_called()
 
 
-def teardown_function() -> None:
-    lifecycle.reset_registry()
+def test_repeated_load_uses_engine_receipt_instead_of_local_noop(graph_schema):
+    lifecycle = OntologyLifecycle(graph_schema)
+    body = "<urn:a> <urn:p> <urn:b> ."
+    receipt = graph_schema.graph_schema_attach.return_value
+    first = lifecycle.load(body, source_type="text", iri="urn:acme", version="1")
+    receipt.model_dump.return_value = {
+        **receipt.model_dump.return_value,
+        "changed": False,
+        "schema_version": 7,
+        "composed_digest": "digest:7",
+        "graph_version": 9,
+    }
 
+    second = lifecycle.load(body, source_type="text", iri="urn:acme", version="1")
 
-def test_ensure_ontology_graph_provisions_the_supported_global_type():
-    tenants = _RecordingTenants()
-    gc = _FakeGraphComputeEngine(_FakeClient(tenants))
-
-    lifecycle._ensure_ontology_graph(gc, "tenant__local__ontology")
-
-    assert tenants.calls == [("tenant__local__ontology", "Global")]
-    assert "tenant__local__ontology" in lifecycle._KNOWN_ONTOLOGY_GRAPHS
-
-
-def test_ensure_ontology_graph_is_a_noop_when_already_listed():
-    tenants = _RecordingTenants()
-    tenants._graphs.add("tenant__local__ontology")
-    gc = _FakeGraphComputeEngine(_FakeClient(tenants))
-
-    lifecycle._ensure_ontology_graph(gc, "tenant__local__ontology")
-
-    # Already present -> no create call at all (not even with the right type).
-    assert tenants.calls == []
+    assert second["source_id"] == first["source_id"]
+    assert first["changed"] is True
+    assert second == {
+        **first,
+        "changed": False,
+        "schema_version": 7,
+        "composed_digest": "digest:7",
+        "graph_version": 9,
+    }
+    assert graph_schema.graph_schema_attach.call_args_list == [
+        call(first["source_id"], ontology_ttl=body),
+        call(first["source_id"], ontology_ttl=body),
+    ]
+    assert receipt.model_dump.call_args_list == [call(mode="json"), call(mode="json")]
+    graph_schema.graph_schema_list.assert_not_called()
+    graph_schema.graph_schema_detach.assert_not_called()

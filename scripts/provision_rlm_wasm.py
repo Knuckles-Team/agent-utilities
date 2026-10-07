@@ -28,6 +28,10 @@ from urllib.parse import urlsplit
 
 import platformdirs
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts.validate_mcp_config import _tls_context
+
 # VMware wasm-language-runtimes CPython-3.12 WASI build (stdlib embedded; single file).
 _PAYLOAD_URL = (
     "https://github.com/vmware-labs/webassembly-language-runtimes/releases/download/"
@@ -69,12 +73,6 @@ class _ValidatedRedirects(urllib.request.HTTPRedirectHandler):
             raise RuntimeError("payload download exceeded its redirect boundary")
         _validate_download_url(newurl)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
-def _tls_context() -> ssl.SSLContext:
-    cafile = os.environ.get("SSL_CERT_FILE") or os.environ.get("REQUESTS_CA_BUNDLE")
-    capath = os.environ.get("SSL_CERT_DIR")
-    return ssl.create_default_context(cafile=cafile or None, capath=capath or None)
 
 
 def _download_verified(target: Path) -> None:

@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any
 
 from agent_utilities.core.config import setting
 from agent_utilities.core.event_loop import run_blocking_ordered
+from agent_utilities.decide.learning.run_scope import run_scoped
 from agent_utilities.orchestration.execution_contract import (
     ExecutionMode,
     missing_required_tools,
@@ -697,6 +698,7 @@ def _prepare_spawn_delegation(
     return delegation
 
 
+@run_scoped
 async def run_agent(
     agent_name: str,
     task: str,
