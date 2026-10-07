@@ -165,7 +165,7 @@ def test_publication_preserves_runtime_and_artifact_proof() -> None:
     assert "check_numeric_runtime.py" in smokes[0]["run"]
     assert "persistence_privacy" in smokes[1]["run"]
     build = _job("build")
-    assert build["needs"] == ["gates", "clone-scanners"]
+    assert set(build["needs"]) == {"gates", "clone-scanners", "engine-release-order"}
     assert "release_wheel_reproducibility=passed" in _run_text(build)
     assert "check_wheel_privacy.py" in _run_text(build)
     assert _job("docker-publish-approval")["environment"] == "docker-publish"
