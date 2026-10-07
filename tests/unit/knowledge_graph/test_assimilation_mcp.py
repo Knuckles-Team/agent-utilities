@@ -11,66 +11,11 @@ import pytest
 from agent_utilities.knowledge_graph.research.loop_controller import (
     run_assimilation_pass,
 )
+from tests.unit.assimilation_graph_fakes import market_engine as _Engine
+from tests.unit.assimilation_graph_fakes import two_open_features as _nodes
 from tests.unit.fleet_autonomy_fakes import verified_fleet_session
-from tests.unit.work_market_fakes import attach_market
 
 pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
-
-
-class _Graph:
-    def __init__(self, nodes):
-        self._n = dict(nodes)
-        self._out: dict = {}
-        self._in: dict = {}
-
-    def nodes(self, data=False):
-        return list(self._n.items()) if data else list(self._n)
-
-    def add_node(self, nid, attrs):
-        self._n[nid] = attrs
-
-    def add_edge(self, src, dst, props):
-        self._out.setdefault(src, []).append((src, dst, props))
-        self._in.setdefault(dst, []).append((src, dst, props))
-
-    def out_edges(self, nid, data=False):
-        e = self._out.get(nid, [])
-        return e if data else [(s, t) for s, t, _ in e]
-
-    def in_edges(self, nid, data=False):
-        e = self._in.get(nid, [])
-        return e if data else [(s, t) for s, t, _ in e]
-
-
-class _Engine:
-    def __init__(self, nodes):
-        self.graph = _Graph(nodes)
-        self.backend = None
-
-    def add_node(self, nid, node_type, properties=None, ephemeral=False):
-        self.graph.add_node(nid, {**(properties or {}), "type": node_type})
-
-    def link_nodes(self, src, dst, rel_type, properties=None, ephemeral=False):
-        self.graph.add_edge(src, dst, properties or {})
-
-
-def _nodes():
-    return {
-        "f1": {
-            "type": "capability",
-            "name": "exec-rag planner",
-            "concept_ids": ["AU-KG.retrieval.memory-first-retrieval"],
-            "research_sources": ["arxiv:pyrag"],
-            "status": "open",
-        },
-        "f2": {
-            "type": "capability",
-            "name": "social swarm",
-            "concept_ids": ["AU-ORCH.dispatch.kg-governed-agent-swarm"],
-            "research_sources": ["arxiv:mass"],
-            "status": "open",
-        },
-    }
 
 
 def test_run_assimilation_pass_without_synthesis():
@@ -82,7 +27,7 @@ def test_run_assimilation_pass_without_synthesis():
 
 def test_run_assimilation_pass_with_synthesis():
     engine = _Engine(_nodes())
-    market = attach_market(engine)
+    market = engine.market
     with verified_fleet_session():
         rep = run_assimilation_pass(engine, synthesize=True, top_n=5)
     assert {p["feature_id"] for p in rep["proposed_plans"]} == {"f1", "f2"}
