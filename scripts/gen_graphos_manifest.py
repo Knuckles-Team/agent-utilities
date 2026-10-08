@@ -30,8 +30,10 @@ import inspect
 import json
 import subprocess
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Literal, get_args, get_origin, get_type_hints
+from typing import Any, Literal, get_args, get_origin, get_type_hints
 
 # Resolve ``agent_utilities`` from THIS repo (the script's own tree), not the
 # editable-installed copy that ``sys.path[0]`` would otherwise prefer when the
@@ -588,8 +590,30 @@ def _validate_operations(ops: list[dict]) -> None:
             )
 
 
-def build_manifest() -> list[dict]:
+@contextmanager
+def canonical_surface() -> Iterator[Any]:
+    """Build the canonical action-routed surface in isolation; yield ``kg_server``.
+
+    The global tool registries are restored on exit.
+    """
     from agent_utilities.mcp import kg_server
+
+    registered_before = dict(kg_server.REGISTERED_TOOLS)
+    routes_before = dict(kg_server.ACTION_TOOL_ROUTES)
+    try:
+        kg_server.REGISTERED_TOOLS.clear()
+        kg_server.ACTION_TOOL_ROUTES.clear()
+        kg_server.ACTION_TOOL_ROUTES.update(kg_server.BASE_ACTION_TOOL_ROUTES)
+        kg_server._build_server(bootstrap=False, canonical_surface=True)
+        yield kg_server
+    finally:
+        kg_server.REGISTERED_TOOLS.clear()
+        kg_server.REGISTERED_TOOLS.update(registered_before)
+        kg_server.ACTION_TOOL_ROUTES.clear()
+        kg_server.ACTION_TOOL_ROUTES.update(routes_before)
+
+
+def build_manifest() -> list[dict]:
     from agent_utilities.mcp.optional_tool_features import OPTIONAL_TOOL_ACTIONS
 
     # The low-level engine_<domain> tools (CONCEPT:AU-ECO.mcp.full-api-mcp-surface) are generic
@@ -617,17 +641,7 @@ def build_manifest() -> list[dict]:
         f"engine_{domain}": set(methods) for domain, methods in ENGINE_DOMAINS.items()
     }
 
-    registered_before = dict(kg_server.REGISTERED_TOOLS)
-    routes_before = dict(kg_server.ACTION_TOOL_ROUTES)
-    try:
-        kg_server.REGISTERED_TOOLS.clear()
-        kg_server.ACTION_TOOL_ROUTES.clear()
-        kg_server.ACTION_TOOL_ROUTES.update(kg_server.BASE_ACTION_TOOL_ROUTES)
-        kg_server._build_server(
-            bootstrap=False,
-            canonical_surface=True,
-        )
-
+    with canonical_surface() as kg_server:
         ops: list[dict] = []
         for tool in sorted(kg_server.ACTION_TOOL_ROUTES):
             func = kg_server.REGISTERED_TOOLS.get(tool)
@@ -670,11 +684,6 @@ def build_manifest() -> list[dict]:
                 )
         _validate_operations(ops)
         return sorted(ops, key=lambda entry: entry["name"])
-    finally:
-        kg_server.REGISTERED_TOOLS.clear()
-        kg_server.REGISTERED_TOOLS.update(registered_before)
-        kg_server.ACTION_TOOL_ROUTES.clear()
-        kg_server.ACTION_TOOL_ROUTES.update(routes_before)
 
 
 def _format_in_place(path: Path) -> None:

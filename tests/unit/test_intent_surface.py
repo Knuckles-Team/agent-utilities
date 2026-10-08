@@ -26,6 +26,18 @@ _NEEDS_ENGINE_DOMAINS = pytest.mark.skipif(
 )
 
 
+def _reset_intent_caches() -> None:
+    """Drop every process-global router cache so the next call rebuilds it."""
+    intent_tools._CANDIDATES_CACHE = None
+    intent_tools._ACTIONS_BY_TOOL_CACHE = None
+    intent_tools._OUTCOME_ROUTER = None
+    intent_tools._REWARD_EPOCH = 0
+    intent_tools._RESOLUTION_CACHE.clear()
+    intent_tools._PREVIEW_PLAN_CACHE.clear()
+    intent_tools._APPROVALS.clear()
+    intent_tools._OPERATION_VERBS_CACHE = None
+
+
 @pytest.fixture(autouse=True)
 def _fresh_candidate_cache():
     """Force the candidate table to rebuild against whatever REGISTERED_TOOLS
@@ -39,21 +51,9 @@ def _fresh_candidate_cache():
     in the process did).
     """
     kg_server.ensure_tools_registered()
-    intent_tools._CANDIDATES_CACHE = None
-    intent_tools._ACTIONS_BY_TOOL_CACHE = None
-    intent_tools._OUTCOME_ROUTER = None
-    intent_tools._REWARD_EPOCH = 0
-    intent_tools._RESOLUTION_CACHE.clear()
-    intent_tools._PREVIEW_PLAN_CACHE.clear()
-    intent_tools._APPROVALS.clear()
+    _reset_intent_caches()
     yield
-    intent_tools._CANDIDATES_CACHE = None
-    intent_tools._ACTIONS_BY_TOOL_CACHE = None
-    intent_tools._OUTCOME_ROUTER = None
-    intent_tools._REWARD_EPOCH = 0
-    intent_tools._RESOLUTION_CACHE.clear()
-    intent_tools._PREVIEW_PLAN_CACHE.clear()
-    intent_tools._APPROVALS.clear()
+    _reset_intent_caches()
 
 
 def _install_test_capability(

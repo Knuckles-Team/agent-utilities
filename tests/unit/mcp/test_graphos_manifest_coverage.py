@@ -37,28 +37,15 @@ def _manifest_tool_families() -> set[str]:
 
 
 def _live_condensed_tool_families() -> set[str]:
-    """Rebuild the condensed/canonical action-routed tool surface in isolation
-    (mirrors ``scripts/gen_graphos_manifest.py::build_manifest``) and return
-    every tool family name it registers, restoring global registries after.
-    """
-    from agent_utilities.mcp import kg_server
+    """Every tool family the canonical action-routed surface registers.
 
-    registered_before = dict(kg_server.REGISTERED_TOOLS)
-    routes_before = dict(kg_server.ACTION_TOOL_ROUTES)
-    try:
-        kg_server.REGISTERED_TOOLS.clear()
-        kg_server.ACTION_TOOL_ROUTES.clear()
-        kg_server.ACTION_TOOL_ROUTES.update(kg_server.BASE_ACTION_TOOL_ROUTES)
-        kg_server._build_server(
-            bootstrap=False,
-            canonical_surface=True,
-        )
+    Reuses ``scripts/gen_graphos_manifest.py::canonical_surface``, the exact
+    isolated build the generator walks.
+    """
+    from scripts.gen_graphos_manifest import canonical_surface
+
+    with canonical_surface() as kg_server:
         return set(kg_server.ACTION_TOOL_ROUTES)
-    finally:
-        kg_server.REGISTERED_TOOLS.clear()
-        kg_server.REGISTERED_TOOLS.update(registered_before)
-        kg_server.ACTION_TOOL_ROUTES.clear()
-        kg_server.ACTION_TOOL_ROUTES.update(routes_before)
 
 
 def test_every_registered_tool_family_is_in_the_generated_manifest():

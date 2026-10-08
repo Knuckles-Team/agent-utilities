@@ -8,6 +8,15 @@ import os
 from agent_utilities.core import config
 
 
+def _use_xdg_config(tmp_path, monkeypatch, values: dict) -> None:
+    """Point the real (non-hermetic) loader at a temporary XDG config.json."""
+    cfg_dir = tmp_path / "agent-utilities"
+    cfg_dir.mkdir()
+    (cfg_dir / "config.json").write_text(json.dumps(values))
+    monkeypatch.delenv("AGENT_UTILITIES_TESTING", raising=False)
+    monkeypatch.setenv("AGENT_UTILITIES_CONFIG_DIR", str(cfg_dir))
+
+
 def test_load_config_is_public_and_callable():
     assert callable(config.load_config)
 
@@ -18,11 +27,7 @@ def test_load_config_injects_xdg_json(tmp_path, monkeypatch):
     An explicit AGENT_UTILITIES_CONFIG_DIR override bypasses the hermetic
     pytest/TESTING skip (integration-style), exercising the real injection path.
     """
-    cfg_dir = tmp_path / "agent-utilities"
-    cfg_dir.mkdir()
-    (cfg_dir / "config.json").write_text(json.dumps({"reactions": "verbose"}))
-    monkeypatch.delenv("AGENT_UTILITIES_TESTING", raising=False)
-    monkeypatch.setenv("AGENT_UTILITIES_CONFIG_DIR", str(cfg_dir))
+    _use_xdg_config(tmp_path, monkeypatch, {"reactions": "verbose"})
     monkeypatch.delenv("REACTIONS", raising=False)
 
     config.load_config(reload=True)
@@ -40,11 +45,7 @@ def test_load_config_idempotent(monkeypatch):
 
 
 def test_real_env_wins_over_config_json(tmp_path, monkeypatch):
-    cfg_dir = tmp_path / "agent-utilities"
-    cfg_dir.mkdir()
-    (cfg_dir / "config.json").write_text(json.dumps({"reactions": "verbose"}))
-    monkeypatch.delenv("AGENT_UTILITIES_TESTING", raising=False)
-    monkeypatch.setenv("AGENT_UTILITIES_CONFIG_DIR", str(cfg_dir))
+    _use_xdg_config(tmp_path, monkeypatch, {"reactions": "verbose"})
     monkeypatch.setenv("REACTIONS", "both")  # real env set first
 
     config.load_config(reload=True)

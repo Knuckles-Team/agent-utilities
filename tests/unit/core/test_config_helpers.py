@@ -14,7 +14,6 @@ import logging
 import os
 import re
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock
 
@@ -23,6 +22,7 @@ from pydantic import ValidationError
 
 from agent_utilities.core import config as ch
 from agent_utilities.models.mcp import MCPAgentRegistryModel, MCPToolInfo
+from tests.unit.fstat_support import fstat_changing_on_second_call
 
 
 def _prompt_blueprint(body: str, *, task: str = "router") -> dict[str, Any]:
@@ -242,25 +242,7 @@ def test_configuration_reader_rejects_oversize_and_unstable_sources(
         ch._read_configuration_mapping(source, source_type="xdg", strict=True)
 
     source.write_text('{"REACTIONS":"intent"}', encoding="utf-8")
-    real_fstat = os.fstat
-    calls = 0
-
-    def changed_fstat(descriptor: int):
-        nonlocal calls
-        calls += 1
-        metadata = real_fstat(descriptor)
-        if calls != 2:
-            return metadata
-        return SimpleNamespace(
-            st_mode=metadata.st_mode,
-            st_size=metadata.st_size,
-            st_uid=metadata.st_uid,
-            st_dev=metadata.st_dev,
-            st_ino=metadata.st_ino,
-            st_mtime_ns=metadata.st_mtime_ns + 1,
-        )
-
-    monkeypatch.setattr(ch.os, "fstat", changed_fstat)
+    monkeypatch.setattr(ch.os, "fstat", fstat_changing_on_second_call())
     with pytest.raises(ch.ConfigurationSourceError, match="PermissionError"):
         ch._read_configuration_mapping(source, source_type="xdg", strict=True)
 

@@ -18,6 +18,31 @@ def _make_pkg(tmp_path: Path, *, env_example: str, mcp_config: dict, code: str) 
     return root
 
 
+def _demo_compose_pkg(tmp_path: Path) -> Path:
+    """A package that reads ``DEMO_BASE_URL``, with an empty ``docker/`` folder."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
+        code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
+    )
+    (root / "docker").mkdir()
+    return root
+
+
+def _write_widening_fixtures(root: Path) -> None:
+    """A scripts/ read and a compose image substitution: the widened read surface."""
+    (root / "scripts").mkdir()
+    (root / "scripts" / "gate.py").write_text(
+        'import os\nos.environ.get("SCRIPT_ONLY_VAR")\n', encoding="utf-8"
+    )
+    (root / "docker").mkdir()
+    (root / "docker" / "mcp.compose.yml").write_text(
+        "services:\n  demo:\n    image: ${DEMO_MCP_IMAGE:?set-image}\n",
+        encoding="utf-8",
+    )
+
+
 def _types(report: dict, kind: str) -> set[str]:
     return {f["var"] for f in report["findings"] if f["type"] == kind}
 
@@ -463,13 +488,7 @@ def test_compose_command_and_entrypoint_substitution_suppresses_dead(
 def test_compose_image_substitution_flags_undocumented(tmp_path: Path) -> None:
     """A compose image:/command:/entrypoint:/args: substitution var that is genuinely
     undeclared anywhere is UNDOCUMENTED, not silently accepted."""
-    root = _make_pkg(
-        tmp_path,
-        env_example="DEMO_BASE_URL=http://x\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
-        code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
-    )
-    (root / "docker").mkdir()
+    root = _demo_compose_pkg(tmp_path)
     (root / "docker" / "mcp.compose.yml").write_text(
         "services:\n"
         "  demo:\n"
@@ -486,13 +505,7 @@ def test_compose_environment_block_still_not_treated_as_subst_read(
     """The new image:/command:/entrypoint:/args: substitution scan must not change the
     pre-existing environment: block handling (a LHS key there is a DECLARATION source,
     like .env.example — see test_dead_var_flagged — not folded into the read surface)."""
-    root = _make_pkg(
-        tmp_path,
-        env_example="DEMO_BASE_URL=http://x\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
-        code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
-    )
-    (root / "docker").mkdir()
+    root = _demo_compose_pkg(tmp_path)
     (root / "docker" / "mcp.compose.yml").write_text(
         "services:\n"
         "  demo:\n"
@@ -521,15 +534,7 @@ def test_known_bad_dead_var_still_caught_after_widening(tmp_path: Path) -> None:
             'resolve_tls_profile(service="mealie")\n'
         ),
     )
-    (root / "scripts").mkdir()
-    (root / "scripts" / "gate.py").write_text(
-        'import os\nos.environ.get("SCRIPT_ONLY_VAR")\n', encoding="utf-8"
-    )
-    (root / "docker").mkdir()
-    (root / "docker" / "mcp.compose.yml").write_text(
-        "services:\n  demo:\n    image: ${DEMO_MCP_IMAGE:?set-image}\n",
-        encoding="utf-8",
-    )
+    _write_widening_fixtures(root)
     report = drift.analyze(root)
     assert "TOTALLY_ORPHANED_VAR" in _types(report, "DEAD")
 
@@ -551,15 +556,7 @@ def test_known_bad_undocumented_var_still_caught_after_widening(tmp_path: Path) 
             'resolve_tls_profile(service="mealie")\n'
         ),
     )
-    (root / "scripts").mkdir()
-    (root / "scripts" / "gate.py").write_text(
-        'import os\nos.environ.get("SCRIPT_ONLY_VAR")\n', encoding="utf-8"
-    )
-    (root / "docker").mkdir()
-    (root / "docker" / "mcp.compose.yml").write_text(
-        "services:\n  demo:\n    image: ${DEMO_MCP_IMAGE:?set-image}\n",
-        encoding="utf-8",
-    )
+    _write_widening_fixtures(root)
     report = drift.analyze(root)
     assert "BRAND_NEW_UNDOCUMENTED_VAR" in _types(report, "UNDOCUMENTED")
     # and the fixes correctly keep the others quiet/clean alongside it

@@ -17,7 +17,10 @@ import pytest
 
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools import intent_tools
-from tests.unit.test_intent_surface import _install_test_capability
+from tests.unit.test_intent_surface import (
+    _install_test_capability,
+    _reset_intent_caches,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -27,21 +30,9 @@ def _fresh_candidate_cache():
     rebuilds its candidate table against the hermetic fixture rather than a
     stale cross-test cache."""
     kg_server.ensure_tools_registered()
-    intent_tools._CANDIDATES_CACHE = None
-    intent_tools._ACTIONS_BY_TOOL_CACHE = None
-    intent_tools._OUTCOME_ROUTER = None
-    intent_tools._REWARD_EPOCH = 0
-    intent_tools._RESOLUTION_CACHE.clear()
-    intent_tools._PREVIEW_PLAN_CACHE.clear()
-    intent_tools._APPROVALS.clear()
+    _reset_intent_caches()
     yield
-    intent_tools._CANDIDATES_CACHE = None
-    intent_tools._ACTIONS_BY_TOOL_CACHE = None
-    intent_tools._OUTCOME_ROUTER = None
-    intent_tools._REWARD_EPOCH = 0
-    intent_tools._RESOLUTION_CACHE.clear()
-    intent_tools._PREVIEW_PLAN_CACHE.clear()
-    intent_tools._APPROVALS.clear()
+    _reset_intent_caches()
 
 
 # ── `manage(action="lakehouse_status")` — CA-28's read-only status surface ──
