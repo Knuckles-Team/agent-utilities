@@ -18,7 +18,9 @@ These tests pin the contract from both sides:
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -66,9 +68,14 @@ def lean_root_conftest(monkeypatch):
     for name in _ENGINE_MODULES:
         monkeypatch.delitem(sys.modules, name, raising=False)
     name = "_lean_profile_root_conftest"
-    module = _load_module(CONFTEST_PATH, name)
-    yield module
-    sys.modules.pop(name, None)
+    # Importing the root conftest installs a new process-wide Git guard.
+    # Register the incoming guard for restoration, including failed imports.
+    monkeypatch.setattr(subprocess.Popen, "__init__", subprocess.Popen.__init__)
+    try:
+        module = _load_module(CONFTEST_PATH, name)
+        yield module
+    finally:
+        sys.modules.pop(name, None)
 
 
 def test_kernel_free_engine_fallback_supports_every_member_the_fixtures_call(
@@ -130,3 +137,35 @@ def test_optional_rebinds_are_filtered_not_assumed():
         unit_conftest.CANONICAL_EMBEDDING_FACTORY
         not in unit_conftest.OPTIONAL_EMBEDDING_FACTORY_REBINDS
     )
+
+
+@pytest.mark.parametrize("fail_import", [False, True])
+def test_lean_profile_restores_the_session_git_guard(
+    monkeypatch, tmp_path, fail_import
+):
+    """A temporary conftest must not leak its distinct guard exception class."""
+    from tests import conftest as root_conftest
+
+    incoming_guard = subprocess.Popen.__init__
+    load_module = _load_module
+
+    def load_then_fail(path, name):
+        load_module(path, name)
+        raise ImportError("failure after guard installation")
+
+    if fail_import:
+        monkeypatch.setattr(sys.modules[__name__], "_load_module", load_then_fail)
+    fixture_context = contextmanager(lean_root_conftest.__wrapped__)
+    with pytest.MonkeyPatch.context() as patch:
+        if fail_import:
+            with pytest.raises(ImportError, match="failure after guard installation"):
+                with fixture_context(patch):
+                    pytest.fail("import should fail before yielding")
+        else:
+            with fixture_context(patch) as loaded:
+                assert subprocess.Popen.__init__ is loaded._guarded_popen_init
+    assert "_lean_profile_root_conftest" not in sys.modules
+    assert subprocess.Popen.__init__ is incoming_guard
+    monkeypatch.setenv("GIT_DIR", str(tmp_path / "decoy.git"))
+    with pytest.raises(root_conftest.LeakedGitPointerEnvError):
+        subprocess.run(["git", "status"], check=True)
