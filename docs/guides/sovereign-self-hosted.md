@@ -101,7 +101,7 @@ python3 scripts/bench_gate.py   # p50 + recall@k gate
 The fleet ships connector agents for common self-hosted services — real MCP
 servers, not stubs — that map naturally onto a homelab: `home-assistant-agent`,
 `jellyfin-mcp`, `mealie-mcp`, `nextcloud-agent` (all under
-`agent-packages/agents/`). The `agent-os-genesis` skill's reference material
+`agent-packages/agents/`). The graph-os repo's `graphos-genesis` skill's reference material
 covers homelab-specific patterns beyond the app layer — Keycloak realm
 consolidation, FreshRSS+SSO, Arr-stack VPN hardening — for operators running
 the whole stack, not just the KG.

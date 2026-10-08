@@ -26,7 +26,7 @@
 > Raft-clustered) `epistemic-graph` engine served to **N independent graph-os client
 > pods**, scaled with a k8s `HorizontalPodAutoscaler` (the "hyperscaling" shape in
 > `reports/unified-binary-program.md` and the genesis skill reference
-> [`agent-os-genesis/references/engine-topology-and-hyperscaling.md`](../../agent_utilities/skills/workflows/agent-os-genesis/references/engine-topology-and-hyperscaling.md)
+> [`graphos-genesis/references/engine-topology-and-hyperscaling.md`](https://github.com/Knuckles-Team/graph-os/blob/main/graph_os/skills/graphos-genesis/references/engine-topology-and-hyperscaling.md)
 > §"Shape 2"). It does **not** apply to the self-contained `unified-in-process` default
 > (nothing to horizontally scale there — see
 > [`graphos-self-hosting-cutover.md`](graphos-self-hosting-cutover.md), which is about

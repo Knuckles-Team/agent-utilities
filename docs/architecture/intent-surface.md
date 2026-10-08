@@ -283,7 +283,7 @@ per-capability wrapper):
   reference gained a top-of-file note pointing at this doc.
 - `agent_utilities/skills/skill_graphs/agent-utilities/SKILL.md` — the one-line tool list now
   notes the `intent` profile alternative.
-- `agent_utilities/skills/workflows/agent-os-genesis/SKILL.md` — the env-var canon section
+- the graph-os repo's `graph_os/skills/graphos-genesis/SKILL.md` — the env-var canon section
   (the retired tool-mode switch enum) now lists `intent` as a 4th valid value with a one-line explanation, so
   a genesis-provisioned deployment's drift-guard/docs stay accurate. (No code change needed —
   `check_env_var_drift.py` only checks for the KEY's presence, not an enum of values.)
