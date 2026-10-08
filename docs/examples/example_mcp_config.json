@@ -7,7 +7,6 @@
         "WORKSPACE_PATH": "${WORKSPACE_ROOT}",
         "AGENT_UTILITIES_CONFIG_DIR": "~/.config/agent-utilities",
         "GRAPH_PERSISTENCE_PATH": "~/.local/share/agent-utilities/graph_state",
-        "MCP_TOOL_MODE": "intent",
         "LLM_API_KEY": "llama"
       },
       "disabled": false

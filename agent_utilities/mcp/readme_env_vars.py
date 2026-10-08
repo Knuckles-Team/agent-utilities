@@ -49,10 +49,6 @@ INHERITED_ENV: dict[str, tuple[str, str]] = {
         "Loopback bind host (set an authenticated ingress explicitly)",
     ),
     "PORT": ("8000", "Bind port (HTTP transports)"),
-    "MCP_TOOL_MODE": (
-        "intent",
-        "Tool surface: `intent` | `condensed` | `verbose` | `both`",
-    ),
     "MCP_ENABLED_TOOLS": ("", "Comma-separated tool allow-list"),
     "MCP_DISABLED_TOOLS": ("", "Comma-separated tool deny-list"),
     "MCP_ENABLED_TAGS": ("", "Comma-separated tag allow-list"),

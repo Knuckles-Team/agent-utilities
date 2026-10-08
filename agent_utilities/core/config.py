@@ -3577,9 +3577,6 @@ class AgentConfig(BaseSettings):
     ``best_effort`` lets an interactive assistant answer while the evidence index
     is sparse; each degraded call still carries the degraded-evidence marker."""
 
-    mcp_tool_mode: Literal["intent", "condensed", "verbose", "both", "hybrid"] = Field(
-        default="intent", alias="MCP_TOOL_MODE"
-    )
     mcp_http_allowed_private_hosts: list[str] = Field(
         default_factory=list, alias="MCP_HTTP_ALLOWED_PRIVATE_HOSTS"
     )

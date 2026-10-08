@@ -25,6 +25,21 @@
 > find its current skill home via graph-os's `graph-runtime-and-governance` skill's "Coverage
 > governance" section or the mapping in §5.
 
+> **Retirement note (current).** The retired tool-mode profile switch described in §2-§3 below
+> (`condensed`/`verbose`/`both`/`intent`) has since been retired. There is now exactly **one**
+> MCP tool contract, unconditionally: graph-os serves only the intent tools (`ask`, `find`,
+> `write`, `act`, `manage`, `why`, plus the two MCP Apps launchers), each taking `action` +
+> `params` (+ optional natural-language `intent`) — not the `hints_json` shape this doc
+> describes below. The ~95 granular action-routed tools this doc calls the "condensed" surface
+> still register fully on a private backing FastMCP server and dispatch through the same
+> `_execute_tool`/`REGISTERED_TOOLS` core; they are simply never listed, reached instead via
+> `act(action="<tool>.<op>")` or `find(action="describe")`. There is no gating tag, no
+> per-deployment mode, and no `load_tools`/`unload_tools` escape hatch on graph-os itself (that
+> session-visibility mechanism lives on in the standalone `mcp-multiplexer` gateway for fleet
+> tools). See `agent_utilities/mcp/intent_contract.py` and
+> `agent_utilities/mcp/graphos_surface.py` for the current, authoritative contract; the rest of
+> this document is retained as the historical design record of how the collapse was built.
+
 ## 1. Problem
 
 graph-os's condensed (default) MCP surface is already ~95 tools. Past a point, more tools
@@ -32,42 +47,41 @@ graph-os's condensed (default) MCP surface is already ~95 tools. Past a point, m
 granular tools (and every REST route) must stay exactly as capable as today; only the
 **LLM-facing tool list** needed a smaller, additional front door.
 
-## 2. What this ships
+## 2. What this ships (historical — see the retirement note above for the current contract)
 
 ```mermaid
 flowchart TD
-    subgraph Default["MCP_TOOL_MODE=condensed (default, unchanged)"]
-        C1["~95 graph_*/engine_*/ontology_*/object_*/source_* tools"]
-    end
-
-    subgraph Intent["MCP_TOOL_MODE=intent (opt-in, small/cheap-LLM profile)"]
+    subgraph Intent["graph-os — the one tool contract (always on)"]
         V["6 intent verbs\nask · find · write · act · manage · why"]
         R["Resolver\n(intent_tools.resolve_intent)"]
-        G["Granular tools\n(SAME ~95 — GATED_TAG,\nheld back from default view)"]
-        LT["load_tools / unload_tools\n(escape hatch, both directions)"]
+        G["Granular backing tools\n(~95 operations, registered but never\nlisted in tools/list)"]
 
         V --> R
         R -->|"ranked capability + why"| G
-        LT -.->|reveal one exactly| G
-        G -.->|retract when done| LT
     end
 
     X["_execute_tool core\n(REGISTERED_TOOLS)"]
     REST["REST gateway\n(ACTION_TOOL_ROUTES)"]
 
-    C1 --> X
     G --> X
     X --> REST
 
-    style Default fill:#eef,stroke:#88a
     style Intent fill:#efe,stroke:#8a8
 ```
 
+*(Historical note: the kickoff design below shipped this as an opt-in the retired `intent` tool mode
+profile alongside a default `condensed` mode and a `load_tools`/`unload_tools` escape hatch on
+graph-os itself. Both the mode switch and the local gate were later retired — the diagram above
+reflects the current, unconditional contract; see the retirement note at the top of this
+document.)*
+
 1. **Six intent-verb tools** (`agent_utilities/mcp/tools/intent_tools.py`) — `ask` (NL/UQL
    read), `find` (capability discovery), `write`, `act`, `manage`, `why`. Each takes
-   `intent: str` + optional `hints_json` (structured args, or `{"tool": "..."}` to pin an exact
-   tool) + `execute: bool`. Small, fixed schema regardless of how many granular tools exist
-   behind it.
+   `action: str` (an operation id `"<tool>.<op>"`, or `"describe"`) + `params: dict` (structured
+   args) + optional `intent: str` (natural language, routed when `action` is empty) +
+   `execute: bool`. Small, fixed schema regardless of how many granular tools exist behind it.
+   (The kickoff design below originally shaped this as `intent` + `hints_json`; the condensed
+   `action`/`params` shape superseded it — see the retirement note above.)
 2. **The resolver** (`resolve_intent`/`dispatch_intent`) — ranks every `REGISTERED_TOOLS` entry
    tagged for that verb (`TOOL_VERBS`) with a dependency-free lexical scorer (token overlap +
    a name-coverage tie-breaker). Focused action facades publish `Literal[...]` action
@@ -79,28 +93,29 @@ flowchart TD
    — `routing` carries the chosen tool/action, matched terms, alternatives considered, and a
    plain-English "why". `ask` additionally falls back to `nl_query` (the engine's own NL
    planner) when the winning candidate needs structured args the caller didn't supply.
-3. **The profile switch** — `MCP_TOOL_MODE` gains a 4th value, `intent` (alongside
-   `condensed`/`verbose`/`both`, `mcp/verbose_tools.py`). In `intent` mode the condensed tools
-   still register fully (REST + `_execute_tool` + `REGISTERED_TOOLS` — nothing lost) but are
-   additionally tagged `GATED_TAG` (+ the mode-independent `GRANULAR_TAG`, usable with the
-   pre-existing `MCP_DISABLED_TAGS`/`DynamicVisibilityTransform` knob for a static per-deployment
-   cut too) and held back from a session's default tool list. `condensed` (the default) is
-   completely unaffected — this is opt-in.
-4. **The escape hatch, both directions** — the fleet `load_tools`/`unload_tools` meta-tools
-   (`mcp/multiplexer.py`) already manage session-visibility for *external* fleet tools
-   (`MCPMultiplexer._exposed`); this extends the SAME mechanism to graph-os's own gated tools
-   (`_local_gated`) — `load_tools(tools=["graph_query"])` reveals an exact granular tool with no
-   mounting needed (it is already registered, just hidden), and `unload_tools` retracts it again
-   by exact name, by whole server (`servers=["graph-os"]`), or by tag/toolset
-   (`toolsets=["query"]`).
-5. **Responsible tool usage — the load→use→unload lifecycle** (`CONCEPT:AU-ECO.mcp.intent-surface-tool-lifecycle`).
-   `load_tools(..., auto_unload=true)` marks a tool for automatic retraction the moment it is
-   next called — a one-shot pull-in for a single task that doesn't linger in a long session's
-   tool list. `SessionVisibilityMiddleware.on_call_tool` performs the retraction right after a
-   successful call. Nothing is destroyed — `load_tools` brings it straight back. The `manage`
-   intent verb exposes the same lifecycle core directly (`hints_json={"action": "unload", ...}`
-   / `{"action": "load", ..., "auto_unload": true}`) — reclaiming context is a **manage**
-   concern, not a 7th verb.
+3. **(Retired) the profile switch** — the kickoff design gave the retired tool-mode switch a 4th value,
+   `intent`, alongside `condensed`/`verbose`/`both` (`mcp/verbose_tools.py`). In `intent` mode the
+   condensed tools still registered fully (REST + `_execute_tool` + `REGISTERED_TOOLS` — nothing
+   lost) but were additionally tagged `GATED_TAG` (+ the mode-independent `GRANULAR_TAG`) and
+   held back from a session's default tool list, while `condensed` (the default) stayed
+   unaffected. The whole mode switch has since been retired: graph-os now serves only the intent
+   contract, unconditionally, with no per-deployment toggle.
+4. **(Retired) the escape hatch, both directions** — the fleet `load_tools`/`unload_tools`
+   meta-tools (`mcp/multiplexer.py`) manage session-visibility for *external* fleet tools
+   (`MCPMultiplexer._exposed`); the kickoff design extended the SAME mechanism to graph-os's own
+   gated tools (`_local_gated`) so `load_tools(tools=["graph_query"])` could reveal an exact
+   granular tool with no mounting needed, and `unload_tools` retract it again. graph-os no longer
+   gates its own tools this way — the granular backing tools are simply always reachable via
+   `act`/`find(action="describe")`, with no local-gate state to load/unload. The
+   `load_tools`/`unload_tools` mechanism itself lives on, unchanged, for the standalone
+   `mcp-multiplexer` gateway's *fleet* tools.
+5. **(Retired) responsible tool usage — the load→use→unload lifecycle**
+   (`CONCEPT:AU-ECO.mcp.intent-surface-tool-lifecycle`). `load_tools(..., auto_unload=true)`
+   marked a tool for automatic retraction the moment it was next called, and the `manage` intent
+   verb exposed the same lifecycle core directly. With graph-os's own gating retired, this
+   lifecycle no longer applies to graph-os's granular tools — reclaiming context there is now
+   moot, since they were never individually listed in the first place. It remains the live
+   mechanism for fleet tools mounted through `mcp-multiplexer`.
 
 ## 3. Resolver design — CPD-backed, with a graceful pre-CPD fallback
 
@@ -163,7 +178,7 @@ follow-up (§7). All four landed together on `feat/au-seam8-complete`:
 **Scope:** agent-utilities' own skills only (`agent_utilities/skills/**`), not the 785-skill
 fleet. **Principle:** zero functionality lost — every `kg-*` skill still documents its exact
 granular tool(s) unchanged; each one now ALSO explains how to reach that tool when
-`MCP_TOOL_MODE=intent` is active.
+the retired `intent` tool mode is active.
 
 **What changed, uniformly, in all 53 verb-wrapping `kg-*`/`kg-modality-*` skills** (tier `core`
 or `modality` — computed from `skill_coverage.discover_skills()`, the SAME machinery the
@@ -181,12 +196,12 @@ heading (frontmatter, `## Invoke`, and every other section untouched).
 > skill documents a given tool today.
 
 > **Condensed intent-surface note (Seam 8).** Under the small/cheap-LLM profile
-> (`MCP_TOOL_MODE=intent`), `<tool(s)>` is/are held back from the default tool list (nothing
+> (the retired `intent` tool mode), `<tool(s)>` is/are held back from the default tool list (nothing
 > removed — REST + `_execute_tool` still reach it/them exactly as documented below). Two ways to
 > use this skill unchanged: (1) `load_tools(tools=["<tool>"])` once per session (as below), then
 > proceed exactly as documented; or (2) call the `<verb>` intent verb with the same
 > natural-language request — the resolver routes to `<tool>` for you and returns the result plus
-> a routing justification. The default `MCP_TOOL_MODE=condensed` is completely unaffected.
+> a routing justification. The retired default `condensed` tool mode was completely unaffected.
 
 | Skill | Wrapped tool(s) | Verb |
 |---|---|---|
@@ -262,21 +277,21 @@ to graph-os's own skill pack and are deleted from agent-utilities — plus, from
 `agent-webui` package (not part of this collapse), `kg-webui-admin`, `kg-webui-dashboards`,
 `kg-webui-extraction`, `kg-webui-graphviz`, `kg-webui-ontology-operator`, `kg-webui-swe`.
 
-**Higher-level docs also updated** (mention tool names/`MCP_TOOL_MODE` in prose, not a
+**Higher-level docs also updated** (mention tool names/the retired tool-mode switch in prose, not a
 per-capability wrapper):
 - `agent_utilities/skills/skill_graphs/agent-utilities/tools/SKILL.md` — the platform's own tool
   reference gained a top-of-file note pointing at this doc.
 - `agent_utilities/skills/skill_graphs/agent-utilities/SKILL.md` — the one-line tool list now
   notes the `intent` profile alternative.
 - `agent_utilities/skills/workflows/agent-os-genesis/SKILL.md` — the env-var canon section
-  (`MCP_TOOL_MODE` enum) now lists `intent` as a 4th valid value with a one-line explanation, so
+  (the retired tool-mode switch enum) now lists `intent` as a 4th valid value with a one-line explanation, so
   a genesis-provisioned deployment's drift-guard/docs stay accurate. (No code change needed —
   `check_env_var_drift.py` only checks for the KEY's presence, not an enum of values.)
 
 **Verified NOT needed:** `agent-utilities-self-evolution`, `agent-utilities-deployment`,
 `agent-utilities-source-integration`, `autonomous-contribution` skills reference graph-os tool
 names only as illustrative examples of existing behavior (e.g. `graph_write` + `graph_query` in
-a smoke test) that remains equally true under any `MCP_TOOL_MODE` — nothing in them assumes a
+a smoke test) that remains equally true under any retired tool mode — nothing in them assumes a
 specific tool-visibility default, so no edit was needed to keep them accurate. (The latter two
 have since moved to graph-os's own skill pack and are deleted from agent-utilities.)
 
@@ -289,7 +304,7 @@ have since moved to graph-os's own skill pack and are deleted from agent-utiliti
   that `graph_query` — the tool `graph-query-and-explanation` documents (now graph-os's own
   skill) — still resolves under `ask` (no functionality lost).
 - `tests/unit/test_intent_surface_build_server.py` — builds the REAL graph-os server
-  (`bootstrap=False`, no live engine) under `MCP_TOOL_MODE=intent`: verbs + REST twins register,
+  (`bootstrap=False`, no live engine) under the retired `intent` tool mode: verbs + REST twins register,
   the granular surface (`graph_query`, `graph_write`, `nl_query`, …) stays fully registered, and
   the default `condensed` mode is unaffected (regression guard).
 - `tests/test_intent_surface_gating.py` — the local-gate + lifecycle mechanism against a real
@@ -306,7 +321,7 @@ have since moved to graph-os's own skill pack and are deleted from agent-utiliti
   REST wiring was needed.
 - `tests/conftest.py`'s `_isolate_registered_tools` fixture was extended to ALSO snapshot/restore
   `ACTION_TOOL_ROUTES` (previously only `REGISTERED_TOOLS`) — a test that builds the server under
-  `MCP_TOOL_MODE=intent` was otherwise the first thing in the whole suite to add a
+  the retired `intent` tool mode was otherwise the first thing in the whole suite to add a
   *conditionally*-registered `ACTION_TOOL_ROUTES` entry, which leaked into later tests as a false
   "phantom route" (every existing dynamic entry, e.g. `nl_query`, is added unconditionally on
   every build, so this gap never surfaced before).

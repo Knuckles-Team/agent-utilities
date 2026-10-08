@@ -27,7 +27,6 @@ _RUNTIME_IMAGE = re.compile(r"^[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}$")
 _REQUIRED_POLICY = {
     "APP_PROFILE": "production",
     "AUTH_TYPE": "jwt",
-    "MCP_TOOL_MODE": "intent",
     "MCP_CLIENT_AUTH": "oidc-client-credentials",
 }
 _REQUIRED_ENGINE_POLICY = {

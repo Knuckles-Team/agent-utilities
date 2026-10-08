@@ -28,8 +28,8 @@ host-side chokepoint that must forward this ``Tool.meta`` is the tool
 Of the original "apps worth shipping" list (trace waterfall, workflow viewer,
 evaluation scorecard, task progress, ontology diff, approval form), two now ship:
 task progress (first, because it needed nothing new on the server -- it polls the
-exact ``graph_jobs`` tool the Tasks↔WorkItem bridge (CONCEPT:AU-ECO.mcp.tasks-workitem-bridge)
-already exposes) and trace waterfall (D-25-1 -- it polls the new
+exact ``graph_jobs`` operation the Tasks↔WorkItem bridge (CONCEPT:AU-ECO.mcp.tasks-workitem-bridge)
+already exposes, through ``ask(action="graph_jobs.status")``) and trace waterfall (D-25-1 -- it polls the new
 ``graph_traces action='waterfall'`` action added alongside it, which flattens one
 trace's Span/Generation subgraph from the always-on KG-native
 ``harness.tracing.get_kg_trace_sink()`` sink). The remaining three (workflow viewer,
@@ -149,11 +149,20 @@ _TASK_PROGRESS_HTML = """<!DOCTYPE html>
     }
   }
 
+  // graph-os serves one intent contract: operations are reached through the
+  // intent tools (ask reads; act previews, then executes with its plan_ref).
+  function unwrap(result) {
+    var outer = typeof result === "string" ? JSON.parse(result) : result;
+    if (outer && outer.error) throw new Error(outer.error);
+    var inner = outer && outer.result !== undefined ? outer.result : outer;
+    return typeof inner === "string" ? JSON.parse(inner) : inner;
+  }
+
   function poll() {
     if (!jobId) return;
-    callTool("graph_jobs", { action: "status", job_id: jobId })
+    callTool("ask", { action: "graph_jobs.status", params: { job_id: jobId } })
       .then(function (result) {
-        var parsed = typeof result === "string" ? JSON.parse(result) : result;
+        var parsed = unwrap(result);
         render(parsed);
         if (parsed.status !== "succeeded" && parsed.status !== "failed" &&
             parsed.status !== "cancelled" && parsed.status !== "dead_letter") {
@@ -165,12 +174,18 @@ _TASK_PROGRESS_HTML = """<!DOCTYPE html>
 
   function respond(approved) {
     if (!jobId) return;
-    callTool("graph_jobs", {
-      action: "input",
+    var params = {
       job_id: jobId,
       input_responses: JSON.stringify({ approved: approved }),
-    })
-      .then(function () { poll(); })
+    };
+    var op = { action: "graph_jobs.input", params: params, execute: false };
+    callTool("act", op)
+      .then(function (preview) {
+        var plan = JSON.parse(preview).routing.plan;
+        params.plan_ref = plan.plan_ref;
+        return callTool("act", { action: op.action, params: params, execute: true });
+      })
+      .then(function (result) { unwrap(result); poll(); })
       .catch(function (err) { showError(String(err && err.message || err)); });
   }
 
@@ -337,9 +352,12 @@ _TRACE_WATERFALL_HTML = """<!DOCTYPE html>
   function load() {
     if (!traceId) return;
     showError("");
-    callTool("graph_traces", { action: "waterfall", trace_id: traceId })
+    callTool("ask", { action: "graph_traces.waterfall", params: { trace_id: traceId } })
       .then(function (result) {
-        var parsed = typeof result === "string" ? JSON.parse(result) : result;
+        // The intent tool wraps the operation's own payload in ``result``.
+        var outer = typeof result === "string" ? JSON.parse(result) : result;
+        if (outer.error) { showError(outer.error); return; }
+        var parsed = typeof outer.result === "string" ? JSON.parse(outer.result) : outer.result;
         if (parsed.error) { showError(parsed.error); return; }
         if (parsed.degraded) { showError(parsed.error || "trace sink unavailable"); return; }
         render(parsed.result || parsed);
@@ -365,10 +383,8 @@ def register_mcp_apps_tools(mcp: Any) -> None:
     @mcp.tool(
         name="graph_task_progress_app",
         description=(
-            "Launch a live task-progress MCP App for a durable job (an "
-            "'orch-<id>' handle from graph_jobs dispatch). Polls status "
-            "through the host-mediated graph_jobs tool and, if the task "
-            "reaches input_required, lets the user approve or deny."
+            "Launch the live task-progress MCP App for a durable job id; "
+            "the user can approve or deny when it needs input."
         ),
         tags=["graph-os", "jobs", "mcp-apps"],
         app=AppConfig(
@@ -379,7 +395,7 @@ def register_mcp_apps_tools(mcp: Any) -> None:
         ),
     )
     async def graph_task_progress_app(
-        job_id: str = Field(description="Durable job handle from graph_jobs dispatch."),
+        job_id: str = Field(description="Durable job id ('orch-<id>')."),
     ) -> dict[str, Any]:
         return {"jobId": job_id}
 
@@ -394,7 +410,7 @@ def register_mcp_apps_tools(mcp: Any) -> None:
         @resource(
             uri=TASK_PROGRESS_RESOURCE_URI,
             name="Task Progress",
-            description="Live task-progress viewer, polling graph_jobs status.",
+            description="Live task-progress viewer, polling ask(graph_jobs.status).",
             mime_type="text/html",
         )
         async def task_progress_resource() -> str:
@@ -403,12 +419,8 @@ def register_mcp_apps_tools(mcp: Any) -> None:
     @mcp.tool(
         name="graph_trace_waterfall_app",
         description=(
-            "Launch a trace-waterfall MCP App (D-25-1) for one trace id. Renders "
-            "the trace's Span/Generation subgraph as a nested-duration waterfall "
-            "(each node's own latency relative to the trace total, nested by "
-            "parent span) through the host-mediated "
-            "'graph_traces action=waterfall' tool -- the fastest way to see where "
-            "a run's time and cost went."
+            "Launch the trace-waterfall MCP App for one trace id: where a run's "
+            "time and cost went, span by span."
         ),
         tags=["graph-os", "observability", "traces", "mcp-apps"],
         app=AppConfig(
@@ -419,7 +431,7 @@ def register_mcp_apps_tools(mcp: Any) -> None:
         ),
     )
     async def graph_trace_waterfall_app(
-        trace_id: str = Field(description="Trace id, e.g. from a RunTrace/ToolCall."),
+        trace_id: str = Field(description="Trace id (RunTrace/ToolCall)."),
     ) -> dict[str, Any]:
         return {"traceId": trace_id}
 
@@ -430,7 +442,7 @@ def register_mcp_apps_tools(mcp: Any) -> None:
             name="Trace Waterfall",
             description=(
                 "Nested-duration waterfall for one trace, polling "
-                "graph_traces action=waterfall."
+                "ask(graph_traces.waterfall)."
             ),
             mime_type="text/html",
         )
