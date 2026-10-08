@@ -3569,6 +3569,14 @@ class AgentConfig(BaseSettings):
             validated[domain] = threshold
         return validated
 
+    grounding_policy_default: Literal["required", "best_effort", "none"] = Field(
+        default="required", alias="AGENT_GROUNDING_POLICY"
+    )
+    """Grounding policy for model calls outside an explicit grounding scope.
+
+    ``best_effort`` lets an interactive assistant answer while the evidence index
+    is sparse; each degraded call still carries the degraded-evidence marker."""
+
     mcp_tool_mode: Literal["intent", "condensed", "verbose", "both", "hybrid"] = Field(
         default="intent", alias="MCP_TOOL_MODE"
     )

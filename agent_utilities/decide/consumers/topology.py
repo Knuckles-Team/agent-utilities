@@ -188,6 +188,12 @@ def install_topology(
     _INSTALLED[0] = (assembler, run, templates)
 
 
+def installed_templates() -> Templates | None:
+    """The published template refs :func:`install_topology` bound, if any."""
+    installed = _INSTALLED[0]
+    return None if installed is None else installed[2]
+
+
 def planned_topology(shape: TaskShape) -> tuple[Mapping[str, Any], str] | None:
     """``(plan, record_id)`` EG decided for ``shape``, or ``None`` (no asker,
     abstention or unavailable engine: the caller's tree is the fallback)."""
@@ -223,6 +229,7 @@ __all__ = [
     "decided_topology",
     "family_of",
     "install_topology",
+    "installed_templates",
     "plan_of",
     "planned_topology",
     "topology_request",

@@ -637,9 +637,9 @@ def _wire_graph_routes(
     """Add the explicit dispatcher, joiner, and lifecycle graph routes."""
     dispatcher_route = graph_builder.decision(node_id="dispatcher_route")
     dispatcher_route.branches.append(
-        graph_builder.match(Literal["parallel_batch_processor"]).to(
+        graph_builder.match(Literal["parallel_batch_processor"]).to(  # type: ignore[arg-type]
             nodes_registry["parallel_batch_processor"]
-        )  # type: ignore[arg-type]
+        )
     )
     sequential_routes = [
         "researcher",

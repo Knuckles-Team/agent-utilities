@@ -195,13 +195,20 @@ class OpenSearchClient:
         collapsed into "treat as absent" — the caller's ordering check must
         never mistake an unreachable cluster for a fresh node.
         """
+        # Import the MODULE, not the name: mypy treats a name bound via
+        # `from X import Y` as fixed and flags any later conditional
+        # reassignment to a different class as "Cannot assign to a type".
+        # A plain local variable (never bound through `from...import`) has
+        # no such special case and just takes the declared `type[BaseException]`.
         try:
-            from opensearchpy.exceptions import NotFoundError
+            import opensearchpy.exceptions as _opensearch_exceptions
+
+            not_found_error: type[BaseException] = _opensearch_exceptions.NotFoundError
         except ImportError:  # pragma: no cover - optional dep
-            NotFoundError = OpenSearchNotFoundError  # type: ignore[assignment]
+            not_found_error = OpenSearchNotFoundError
         try:
             result = self.raw.get(index=index, id=doc_id)
-        except NotFoundError:
+        except not_found_error:
             return None
         except Exception as exc:  # noqa: BLE001 - re-raise as our own 404 only when it truly is one
             if _looks_like_not_found(exc):
@@ -213,14 +220,21 @@ class OpenSearchClient:
         """Delete one document. Returns True if it existed and was deleted,
         False if it was already absent (idempotent — never raises on a
         redelivered tombstone for an already-deleted node)."""
+        # Import the MODULE, not the name: mypy treats a name bound via
+        # `from X import Y` as fixed and flags any later conditional
+        # reassignment to a different class as "Cannot assign to a type".
+        # A plain local variable (never bound through `from...import`) has
+        # no such special case and just takes the declared `type[BaseException]`.
         try:
-            from opensearchpy.exceptions import NotFoundError
+            import opensearchpy.exceptions as _opensearch_exceptions
+
+            not_found_error: type[BaseException] = _opensearch_exceptions.NotFoundError
         except ImportError:  # pragma: no cover - optional dep
-            NotFoundError = OpenSearchNotFoundError  # type: ignore[assignment]
+            not_found_error = OpenSearchNotFoundError
         try:
             self.raw.delete(index=index, id=doc_id)
             return True
-        except NotFoundError:
+        except not_found_error:
             return False
         except Exception as exc:  # noqa: BLE001
             if _looks_like_not_found(exc):

@@ -45,19 +45,10 @@ _SOURCE_FREEZE_REPOSITORY_TOKEN = re.compile(
 _COMPONENT_BUILD_TYPE = "https://graphos.invalid/build/exact-local/v1"
 _COMPONENT_BUILDER_ID = "https://graphos.invalid/builders/exact-local/v1"
 _SKILL_NAMES = (
-    "contribution",
     "deployment",
     "development",
-    "engine",
     "evolution",
-    "ingestion",
-    "modeling",
-    "orchestration",
-    "query",
-    "research",
-    "runtime",
     "self-evolution",
-    "source-integration",
 )
 _SKILL_CASE_IDS = tuple(
     f"{skill}-{mode}" for skill in _SKILL_NAMES for mode in ("delegated", "direct")
@@ -108,8 +99,8 @@ _CURRENT_COMPONENT_VERSIONS = {
     "index-migrations": "1",
 }
 _CURRENT_CONNECTOR_ENTRIES = 74
-_CURRENT_PREBUNDLED_SKILL_ENTRIES = 13
-_CURRENT_PREBUNDLED_SKILL_CASES = 26
+_CURRENT_PREBUNDLED_SKILL_ENTRIES = 4
+_CURRENT_PREBUNDLED_SKILL_CASES = 8
 _CURRENT_RUNTIME_CONTRACT = {
     "pythonVersion": "3.12",
     "baseImage": (

@@ -9,7 +9,8 @@
     "AU-QUAL-R004",
     "AU-QUAL-R005",
     "AU-QUAL-R006",
-    "AU-QUAL-R007"
+    "AU-QUAL-R007",
+    "AU-QUAL-R008"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -96,6 +97,12 @@
           "description": "Implemented on the default branch; exercised by tests/gates/test_liveness_analyzer_compat.py::test_docstring_prose_is_not_a_placeholder_finding"
         }
       ]
+    },
+    {
+      "id": "AU-QUAL-R008",
+      "title": "Liveness reconciler rescues exact service-registry targets",
+      "delivery_state": "BUILDING",
+      "evidence": []
     }
   ]
 }

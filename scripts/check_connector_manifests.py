@@ -1,26 +1,24 @@
 #!/usr/bin/env python3
-"""Connector Ontology Manifest gate (CONCEPT:AU-KG.ontology.connector-manifest-gate).
+"""Source integrity gate for connector manifests.
 
-Drives every ``agents/*/connector_manifest.yml`` (or a single ``--manifest``) to:
+CONCEPT:AU-KG.ontology.connector-manifest-gate.
 
-  1. **Compiles cleanly** — ``compile_manifest`` + ``export_manifest_ttl`` succeed and
-     the result parses as valid Turtle.
-  2. **Integrity matches** — the recomputed canonical hash equals
-     ``provenance.integrity.hash`` (catches a hand-edited manifest post-signing).
-  3. **No un-imported top-level ttl** — the connector's ontology IRI is either already
-     ``owl:imports``-ed by the canonical ``ontology.ttl`` or a registered federated
-     module (the anti-sprawl invariant ``manifest_compiler.apply_manifest`` enforces).
-  4. **Signature/release pin verifies** — the complete manifest (not only its
-     compiled ontology graph) must match its trusted signed release pin, or verify
-     cryptographically against a configured trusted signer. There is no unsigned
-     development bypass on this gate.
+Validate manifest schemas, compile their declared ontology, and compare its
+canonical hash with provenance.integrity.hash using the shared manifest gate.
+The optional --check-actions also checks declared mutating tools.
+
+This source-only result does not establish full-document attestation, semantic
+admission, or runtime attachment. Publication signatures and runtime release
+pins remain enforced by their owning gates. Epistemic Graph owns ontology and
+SHACL semantic validation and committed GraphSchema attachment; this command
+never substitutes a local registry for that authority.
 
 Usage:
-  python3 scripts/check_connector_manifests.py --agents-root <path>   # sweep the fleet
-  python3 scripts/check_connector_manifests.py --manifest <path>      # one manifest
+  python3 scripts/check_connector_manifests.py --agents-root <path>
+  python3 scripts/check_connector_manifests.py --manifest <path>
 
-Exit 0 = all manifests compile, hash-match, are wired, and sign-verify.
-Exit 1 = one or more violations.
+Exit 0 = the selected source integrity checks pass (or no manifests selected).
+Exit 1 = one or more source integrity violations.
 """
 
 from __future__ import annotations
@@ -33,22 +31,9 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agent_utilities.knowledge_graph.ontology.connector_manifest import (
-    ConnectorManifest,  # noqa: E402
-)
 from agent_utilities.knowledge_graph.ontology.connector_manifest_gate import (  # noqa: E402
     check_manifest_bytes,
 )
-from agent_utilities.knowledge_graph.ontology.manifest_compiler import (  # noqa: E402
-    is_wired,
-)
-
-
-def _load(path: Path) -> ConnectorManifest:
-    import yaml
-
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    return ConnectorManifest.model_validate(data)
 
 
 def check_one(
@@ -59,7 +44,6 @@ def check_one(
     agents_root: Path | None = None,
 ) -> list[str]:
     del verbose
-    label = f"{path.parent.name}/connector_manifest.yml"
     # In-repo artifacts are no longer signature-verified (see the
     # `refactor(release): drop a2a.json and the in-repo signature duplication`
     # commit): a connector manifest never crosses a trust boundary here -- it
@@ -84,29 +68,12 @@ def check_one(
     # pre-existing gap; closing it is a fleet-wide sweep out of THIS lane's
     # scope. `--check-actions` makes the rule runnable today for anyone
     # auditing the fleet (or CA-40..46's own CI, which starts clean).
-    violations = check_manifest_bytes(
+    return check_manifest_bytes(
         path,
         require_signature=False,
         require_declared_actions=check_actions,
         agents_root=agents_root,
     )
-
-    try:
-        manifest = _load(path)
-    except Exception as exc:  # noqa: BLE001
-        if violations:
-            return violations
-        return [f"[schema] {label}: does not validate ({type(exc).__name__})"]
-
-    source = manifest.resolved_ontology_source
-    if not is_wired(source):
-        violations.append(
-            f"[anti-sprawl] {label}: <http://knuckles.team/kg/{source}> is "
-            "not owl:imports-ed by the canonical ontology.ttl and is not a registered "
-            "federated module — add the one owl:imports line before this manifest may "
-            "be applied (never introduce an un-imported top-level ttl)."
-        )
-    return violations
 
 
 def main() -> int:
@@ -162,7 +129,9 @@ def main() -> int:
             print(f"  ✗ {v}")
         return 1
     print(
-        f"check_connector_manifests: OK — {len(paths)} manifest(s) compile, hash-match, wired."
+        f"check_connector_manifests: SOURCE INTEGRITY OK — {len(paths)} manifest(s) "
+        "compile and hash-match; attestation, semantic admission, and attachment "
+        "are not checked by this command."
     )
     return 0
 

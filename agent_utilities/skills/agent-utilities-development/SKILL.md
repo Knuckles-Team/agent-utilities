@@ -257,7 +257,7 @@ labels, reconstructed fragments, or a repository-local exception list.
   run *Before you add anything* above; it is the shortest path to the owner.
 - Preserve unrelated changes in a dirty worktree.
 
-Use `graph-query-and-explanation` for code context and impact when the code graph
+Use graph-os's own `graph-query-and-explanation` for code context and impact when the code graph
 is available. Fall back to repository search when it is not.
 
 ### 2. Isolate and scope

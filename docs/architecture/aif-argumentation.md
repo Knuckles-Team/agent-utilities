@@ -173,8 +173,9 @@ best-effort, tag-filtered node+edge scan (mirrors the established
   factory in `kg_server._build_server` dispatches through the SAME
   `_execute_tool` core every other action-routed tool uses; no bespoke
   handler.
-- **Skill:** `graph-runtime-and-governance` (`agent_utilities/skills/graph-runtime-and-governance/SKILL.md`,
-  "Argument evaluation (AIF)" section).
+- **Skill:** `graph-runtime-and-governance` ("Argument evaluation (AIF)" section),
+  now served from graph-os's own skill pack (`graph_os/skills/graph-runtime-and-governance/SKILL.md`;
+  taken over in graph-os commit 704ce45).
 
 ## What this deliberately does NOT do
 
