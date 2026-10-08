@@ -27,10 +27,13 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from agent_utilities.core.config import setting
 from agent_utilities.knowledge_graph.core.bitemporal import stamp_bitemporal
+
+if TYPE_CHECKING:
+    from .governed import GovernedOutcome, SinkGrant
 
 logger = logging.getLogger(__name__)
 
@@ -135,22 +138,28 @@ class WritebackContext:
         add_node = getattr(self.engine, "add_node", None)
         if add_node is None:
             return False
-        label = node_type or "ConfigurationItem"
+        return _upsert_stamp(add_node, node_id, node_type or "ConfigurationItem", props)
+
+
+def _upsert_stamp(
+    add_node: Callable[..., Any], node_id: str, label: str, props: dict[str, Any]
+) -> bool:
+    """Merge-upsert stamp props with either engine ``add_node`` signature."""
+    try:
+        # IntelligenceGraphEngine.add_node(node_id, node_type, properties) — merge-upsert.
+        add_node(node_id, label, props)
+        return True
+    except TypeError:
         try:
-            # IntelligenceGraphEngine.add_node(node_id, node_type, properties) — merge-upsert.
-            add_node(node_id, label, props)
+            # Alternate signature: add_node(node_id, label="", **properties).
+            add_node(node_id, label=label, **props)
             return True
-        except TypeError:
-            try:
-                # Alternate signature: add_node(node_id, label="", **properties).
-                add_node(node_id, label=label, **props)
-                return True
-            except Exception:  # noqa: BLE001 - stamping is best-effort
-                logger.debug("stamp_external_id fallback failed", exc_info=True)
-                return False
-        except Exception:  # noqa: BLE001 - stamping is best-effort
-            logger.debug("stamp_external_id failed for %s", node_id, exc_info=True)
+        except Exception:  # stamping is best-effort
+            logger.debug("stamp_external_id fallback failed", exc_info=True)
             return False
+    except Exception:  # stamping is best-effort
+        logger.debug("stamp_external_id failed for %s", node_id, exc_info=True)
+        return False
 
 
 @dataclass(frozen=True)
@@ -365,17 +374,41 @@ def run_writeback(
         }
     ctx = WritebackContext(backend=backend, engine=engine, as_of=as_of)
 
-    # CA-22/P11 (DEC-CA-07): every write path -- both the 31 `_DELTA_HANDLERS`
-    # entries (source_sync._apply_with_preflight) and this outbound writeback
-    # path -- calls evaluate_backfeed_preflight before committing, positioned
-    # ahead of the high-stakes branch below so a preflight rejection blocks
-    # even before a ProposalQueue entry is created. Additive: a caller that
-    # supplies none of `_sync_conflict`/`expected_source_version` (every
-    # existing caller today) gets `None` back and proceeds byte-identically
-    # to pre-CA-22 behavior -- these are opt-in signals a future typed-Action
-    # dispatch runner (CA-40..46) supplies, not something this lane invents
-    # per-sink. A sink may declare its own `backfeed` capability
-    # (:class:`~..ontology.sync_conflict.BackfeedCapabilitySpec`); none do yet.
+    # CA-22/P11 (DEC-CA-07): every write path calls evaluate_backfeed_preflight
+    # before committing, ahead of the high-stakes branch, so a preflight
+    # rejection blocks even before a ProposalQueue entry is created.
+    blocked = _backfeed_preflight(target, sink, ops)
+    if blocked is not None:
+        return blocked
+
+    # Per the AU boundary deconstruction spec, every sink call below runs through the SDK governed
+    # write-back contract (canonical change set, audit reservation, ledger).
+    from .governed import SinkGrant
+
+    grant = SinkGrant(
+        target=sink.domain,
+        enable_flag=sink.enable_flag,
+        write_enabled=write_enabled,
+        risk_tier=getattr(sink, "risk_tier", "standard"),
+        approved=bool(ops.get("_approved")),
+    )
+    # High-stakes sinks NEVER auto-execute: a live request (enabled, not dry-run,
+    # not carrying an approval token) is previewed and queued for approval instead.
+    if grant.risk_tier == "high_stakes" and not dry_run and not grant.approved:
+        return _queue_high_stakes(target, sink, ctx, ops, grant, backend=backend)
+    return _governed_manifest(target, sink, ctx, ops, grant, dry_run=dry_run)
+
+
+def _backfeed_preflight(
+    target: str, sink: WritebackSink, ops: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Return a refusal/queued manifest when the backfeed preflight blocks.
+
+    Additive: a caller that supplies none of ``_sync_conflict`` /
+    ``expected_source_version`` gets ``None`` back and proceeds unchanged.
+    A sink may declare its own ``backfeed`` capability
+    (:class:`~..ontology.sync_conflict.BackfeedCapabilitySpec`).
+    """
     from ...ontology.sync_conflict import (
         BackfeedCapabilitySpec,
         BackfeedProposal,
@@ -384,70 +417,115 @@ def run_writeback(
         evaluate_backfeed_preflight,
     )
 
-    _sync_conflict = ops.get("_sync_conflict")
-    _sink_backfeed = getattr(sink, "backfeed", None)
-    _preflight = evaluate_backfeed_preflight(
+    conflict = ops.get("_sync_conflict")
+    backfeed = getattr(sink, "backfeed", None)
+    preflight = evaluate_backfeed_preflight(
         connector=target,
         node_id=str(ops.get("node_id") or ops.get("id") or ""),
-        conflict=_sync_conflict if isinstance(_sync_conflict, SyncConflict) else None,
-        backfeed=_sink_backfeed
-        if isinstance(_sink_backfeed, BackfeedCapabilitySpec)
-        else None,
+        conflict=conflict if isinstance(conflict, SyncConflict) else None,
+        backfeed=backfeed if isinstance(backfeed, BackfeedCapabilitySpec) else None,
         expected_source_version=ops.get("expected_source_version"),
         current_source_version=ops.get("current_source_version"),
     )
-    if isinstance(_preflight, PreflightRejection):
+    if isinstance(preflight, PreflightRejection):
         return {
             "status": "refused",
             "target": target,
-            "reason": f"backfeed preflight blocked: {_preflight.reason}",
-            "detail": _preflight.detail,
+            "reason": f"backfeed preflight blocked: {preflight.reason}",
+            "detail": preflight.detail,
         }
-    if isinstance(_preflight, BackfeedProposal):
+    if isinstance(preflight, BackfeedProposal):
         return {
             "status": "queued",
             "target": target,
             "reason": "backfeed preflight raised a governed proposal instead of a live write",
-            "proposal": _preflight.as_dict(),
+            "proposal": preflight.as_dict(),
         }
+    return None
 
-    # High-stakes sinks NEVER auto-execute: a live request (enabled, not dry-run,
-    # not carrying an approval token) is previewed and queued for approval instead.
-    risk_tier = getattr(sink, "risk_tier", "standard")
-    if risk_tier == "high_stakes" and not dry_run and not ops.get("_approved"):
-        try:
-            preview = sink.run(ctx, ops, dry_run=True)
-        except Exception as e:  # noqa: BLE001
-            logger.debug("writeback sink %s preview failed", target, exc_info=True)
-            return {"status": "error", "target": target, "error": str(e)}
-        from .approval import ProposalQueue
 
-        preview.proposals = _stamp_proposals_as_of(preview.proposals, as_of)
-        pid = ProposalQueue(backend=backend).enqueue(target, ops, preview.proposals)
-        out = preview.as_dict()
-        out.update(
-            {
-                "status": "queued",
-                "target": target,
-                "risk_tier": risk_tier,
-                "proposal_id": pid,
-                "as_of": as_of,
-                "hint": "high-stakes write queued; approve via graph_writeback action=approve",
-            }
-        )
-        return out
+def _governed_call(
+    target: str,
+    sink: WritebackSink,
+    ctx: WritebackContext,
+    ops: dict[str, Any],
+    grant: SinkGrant,
+    *,
+    dry_run: bool,
+) -> GovernedOutcome | dict[str, Any]:
+    """Run one sink call through the SDK; return its outcome or a failure manifest."""
+    from agent_connector_sdk.writeback.errors import WriteBackError
+
+    from .governed import execute_governed
 
     try:
-        result = sink.run(ctx, ops, dry_run=dry_run)
-    except Exception as e:  # noqa: BLE001 - never let one sink crash the surface
+        return execute_governed(sink, ctx, ops, grant=grant, dry_run=dry_run)
+    except WriteBackError as e:
+        logger.debug("governed write-back refused for %s", target, exc_info=True)
+        return {
+            "status": "refused",
+            "target": target,
+            "reason": f"governed write-back refused: {e}",
+        }
+    except Exception as e:  # never let one sink crash the surface
         logger.debug("writeback sink %s failed", target, exc_info=True)
         return {"status": "error", "target": target, "error": str(e)}
-    result.proposals = _stamp_proposals_as_of(result.proposals, as_of)
+
+
+def _queue_high_stakes(
+    target: str,
+    sink: WritebackSink,
+    ctx: WritebackContext,
+    ops: dict[str, Any],
+    grant: SinkGrant,
+    *,
+    backend: Any,
+) -> dict[str, Any]:
+    """Preview a high-stakes write through the SDK and queue it for approval."""
+    outcome = _governed_call(target, sink, ctx, ops, grant, dry_run=True)
+    if isinstance(outcome, dict):
+        return outcome
+    from .approval import ProposalQueue
+
+    preview = outcome.result
+    preview.proposals = _stamp_proposals_as_of(preview.proposals, ctx.as_of)
+    pid = ProposalQueue(backend=backend).enqueue(target, ops, preview.proposals)
+    out = preview.as_dict()
+    out.update(
+        {
+            "status": "queued",
+            "target": target,
+            "risk_tier": grant.risk_tier,
+            "proposal_id": pid,
+            "as_of": ctx.as_of,
+            "governed_writeback": outcome.evidence(),
+            "hint": "high-stakes write queued; approve via graph_writeback action=approve",
+        }
+    )
+    return out
+
+
+def _governed_manifest(
+    target: str,
+    sink: WritebackSink,
+    ctx: WritebackContext,
+    ops: dict[str, Any],
+    grant: SinkGrant,
+    *,
+    dry_run: bool,
+) -> dict[str, Any]:
+    """Run the sink through the SDK and return the uniform write-back manifest."""
+    outcome = _governed_call(target, sink, ctx, ops, grant, dry_run=dry_run)
+    if isinstance(outcome, dict):
+        return outcome
+    result = outcome.result
+    result.proposals = _stamp_proposals_as_of(result.proposals, ctx.as_of)
     out = result.as_dict()
     out["status"] = "completed"
     out["target"] = target
     out["dry_run"] = dry_run
-    out["write_enabled"] = write_enabled
-    out["risk_tier"] = risk_tier
+    out["write_enabled"] = grant.write_enabled
+    out["risk_tier"] = grant.risk_tier
     out["as_of"] = ctx.as_of
+    out["governed_writeback"] = outcome.evidence()
     return out

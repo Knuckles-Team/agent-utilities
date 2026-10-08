@@ -16,6 +16,8 @@
 | File-level owners for partly covered packages | AU-BOUNDARY-R046 | TODO | no tracked file without an owner; no requirement by description only |
 | Engine-facing adapters and caches | AU-BOUNDARY-R047 | TODO | differential tests against the engine; no second store or kernel |
 | Domain models, shapes, assets and skill content | AU-BOUNDARY-R048 | TODO | each directory placed; pack or skill validation in the receiving repository |
+| Governed write-back execution | AU-BOUNDARY-R049 | IN PROGRESS | `run_writeback` calls every sink through the SDK `DurableWritableConnector`; the governed and existing write-back suites pass at the merged head |
+| Governed write-back on the EG ledger | AU-BOUNDARY-R049 | TODO | live applies use `EpistemicGraphWriteBackLedger` once graph-os serves the EG `WriteBack` operation; a restart test proves receipt replay |
 | Permanent owner guard | AU-BOUNDARY-R038 | TODO | generated manifest, CI gate and exact-head check |
 | Quality gates and evidence | all of the above | TODO | CCCC, KISS, Dupehound, jscpd, language linters and the full test suite pass at the merged head and the result is recorded in [evidence.md](evidence.md) |
 

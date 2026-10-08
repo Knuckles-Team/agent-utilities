@@ -46,5 +46,6 @@ Each row is a separately reviewable deliverable. The owner named after the arrow
 | AU-BOUNDARY-R039 | Move frontends off AU internals to AU API, graph-os and EG client | Import census and end-to-end user route |
 | AU-BOUNDARY-R040 | Move durable agent memory, learning and media store to EG | Trusted migration/quarantine, scoped read and restart |
 | AU-BOUNDARY-R041 | Remove the finance modules that produced fabricated data | Import census: no listed module and no caller remains |
+| AU-BOUNDARY-R049 | Run every AU write-back sink through the SDK governed write-back contract | Canonical change set, audit reservation, ledger receipt and SDK refusal before the sink |
 
 Every requirement ID in this table is defined in [requirements.md](requirements.md) and its delivery state is recorded in [status.json](status.json). A row is delivered only by a commit merged to the default branch; an unmerged implementation branch does not prove landing or acceptance.
