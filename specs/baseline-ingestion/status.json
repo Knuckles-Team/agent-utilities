@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "spec_id": "AU-BASELINE-001",
+  "owner_repo": "agent-utilities",
+  "requirement_ids": [
+    "AU-BASELINE-R001",
+    "AU-BASELINE-R002",
+    "AU-BASELINE-R003",
+    "AU-BASELINE-R004",
+    "AU-BASELINE-R005"
+  ],
+  "delivery_state": "BUILDING",
+  "acceptance_state": "NOT_AUDITED",
+  "evidence": [],
+  "requirements": [
+    {
+      "id": "AU-BASELINE-R001",
+      "title": "The daemon role starts baseline ingestion in the background after boot",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "AU-BASELINE-R002",
+      "title": "The baseline covers grounding content only",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "AU-BASELINE-R003",
+      "title": "Baseline ingestion is idempotent and isolated per item",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "AU-BASELINE-R004",
+      "title": "AU orders ingestion by the EG stage sequence",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "AU-BASELINE-R005",
+      "title": "Factory-built fleet servers serve ontology providers as MCP resources",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    }
+  ]
+}

@@ -3171,6 +3171,26 @@ class AgentConfig(BaseSettings):
     # per-daemon KG_*_DAEMON env toggles (CONCEPT:EG-KG.storage.nonblocking-checkpoint, config discipline).
     kg_dev_mode: bool = Field(default=False, alias="KG_DEV_MODE")
 
+    # Baseline ingest after daemon boot (spec: baseline-ingestion). The daemon role
+    # enqueues the core skills, the prompt library and the workspace code as
+    # durable background WorkItems, so a fresh store grounds chat without a
+    # manual source_sync. KG_DEV_MODE silences it with the other daemons.
+    kg_baseline_ingest: bool = Field(default=True, alias="KG_BASELINE_INGEST")
+    # Skill providers whose corpora are baseline content (comma-separated names
+    # of ``agent_utilities.skill_providers`` entry points).
+    kg_baseline_skill_providers: str = Field(
+        default="agent-utilities,graph-os,universal-skills",
+        alias="KG_BASELINE_SKILL_PROVIDERS",
+    )
+    # Workspace code scope: ``core`` (agent-packages top level plus skills),
+    # ``all`` (every agent-packages repository), ``none``, or a comma-separated
+    # list of repository names from workspace.yml.
+    kg_baseline_codebases: str = Field(default="core", alias="KG_BASELINE_CODEBASES")
+    # Upper bound on codebase WorkItems one boot enqueues.
+    kg_baseline_max_codebases: int = Field(
+        default=32, ge=0, le=512, alias="KG_BASELINE_MAX_CODEBASES"
+    )
+
     # --- Observability / usage analytics (CONCEPT:AU-OS.observability.usage-analytics-store / ECO-4.40 / OS-5.31) ---
     # Backend for the usage/cost/session fact store. Zero-config default is a
     # per-host SQLite+FTS5 file (no external deps); "postgres" / "duckdb" promote
