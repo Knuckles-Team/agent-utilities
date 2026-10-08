@@ -3074,7 +3074,7 @@ class AgentConfig(BaseSettings):
         default="2.5", alias="MESSAGING_BURST_WINDOW_S"
     )
     messaging_burst_max_s: str = Field(default="12", alias="MESSAGING_BURST_MAX_S")
-    # Direct/chat-turn reply budget in seconds (AU-INTEGRATION-R019): one grounding compile
+    # Direct/chat-turn reply budget in seconds (direct-reply budget spec): one grounding compile
     # plus one full local-model answer. A turn past it is delivered as a follow-up.
     messaging_direct_reply_budget_s: str = Field(
         default="60.0", alias="MESSAGING_DIRECT_REPLY_BUDGET_S"

@@ -686,7 +686,7 @@ async def create_planner_handler(
                 "image_parts": image_parts,
                 "budget": shape.reply_budget_s,
                 "shape": shape,
-                # AU-INTEGRATION-R019 — a run past its budget lands as a follow-up message.
+                # direct-reply budget spec — a run past its budget lands as a follow-up message.
                 "on_late_reply": functools.partial(_send, threaded=False),
             }
             if checklist is not None:
@@ -1728,7 +1728,7 @@ async def _graph_agent_reply(
                 progress_sink=progress_sink,
             )
         )
-        # AU-INTEGRATION-R019 — shield the run so the budget wall does not cancel it; the
+        # direct-reply budget spec — shield the run so the budget wall does not cancel it; the
         # overrun branch below decides between follow-up delivery and cancellation.
         out = await asyncio.wait_for(asyncio.shield(run_task), timeout=reply_timeout)
         text = str(out).strip() if out else ""
@@ -1786,7 +1786,7 @@ async def _graph_agent_reply(
     return _with_transparency(reply, fallback_summary)
 
 
-# AU-INTEGRATION-R019 — the reply-budget wall no longer discards the turn on a transport
+# direct-reply budget spec — the reply-budget wall no longer discards the turn on a transport
 # that can post a follow-up: the run keeps going and its answer arrives as a new message.
 _LATE_REPLY_MESSAGE = (
     "The assistant backend is taking longer than usual. I am still working on "
@@ -1799,7 +1799,7 @@ def _defer_overrun_reply(
     on_late_reply: Callable[[str], Awaitable[Any]],
     reply_timeout: float,
 ) -> str:
-    """Keep an over-budget run alive and schedule its follow-up delivery (AU-INTEGRATION-R019)."""
+    """Keep an over-budget run alive and schedule its follow-up delivery (direct-reply budget spec)."""
     logger.warning(
         "[CONCEPT:AU-ORCH.routing.chat-budget-routing] universal agent passed the %ss reply "
         "budget — keeping the run alive and delivering its reply as a follow-up.",
@@ -1813,7 +1813,7 @@ async def _deliver_late_reply(
     run_task: asyncio.Future[Any],
     on_late_reply: Callable[[str], Awaitable[Any]],
 ) -> None:
-    """Await an over-budget run and send its final reply exactly once (AU-INTEGRATION-R019)."""
+    """Await an over-budget run and send its final reply exactly once (direct-reply budget spec)."""
     try:
         out = await run_task
     except Exception as exc:  # a late failure is logged; no follow-up is sent

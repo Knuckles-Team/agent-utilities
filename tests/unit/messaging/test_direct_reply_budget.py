@@ -1,4 +1,4 @@
-"""AU-INTEGRATION-R019: configured direct-turn reply budget and follow-up delivery."""
+"""Direct-turn reply budget and follow-up delivery (au-integration-reliability spec, direct reply budget requirement)."""
 
 from __future__ import annotations
 

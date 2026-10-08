@@ -187,7 +187,7 @@ _DEFAULT_DIRECT_REPLY_BUDGET_S = 60.0
 
 
 def _direct_reply_budget() -> float:
-    """The configured direct/chat-turn reply budget (AU-INTEGRATION-R019), default 60 s.
+    """The configured direct/chat-turn reply budget (direct-reply budget spec), default 60 s.
 
     A plain chat turn runs one grounding compile plus one full local-model answer. A
     hard-coded 25 s wall cut that turn off on a slow local backend.
