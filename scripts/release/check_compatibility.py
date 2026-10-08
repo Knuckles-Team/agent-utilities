@@ -45,19 +45,10 @@ _SOURCE_FREEZE_REPOSITORY_TOKEN = re.compile(
 _COMPONENT_BUILD_TYPE = "https://graphos.invalid/build/exact-local/v1"
 _COMPONENT_BUILDER_ID = "https://graphos.invalid/builders/exact-local/v1"
 _SKILL_NAMES = (
-    "contribution",
     "deployment",
     "development",
-    "engine",
     "evolution",
-    "ingestion",
-    "modeling",
-    "orchestration",
-    "query",
-    "research",
-    "runtime",
     "self-evolution",
-    "source-integration",
 )
 _SKILL_CASE_IDS = tuple(
     f"{skill}-{mode}" for skill in _SKILL_NAMES for mode in ("delegated", "direct")
