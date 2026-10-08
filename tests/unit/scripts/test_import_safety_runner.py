@@ -44,7 +44,6 @@ def test_import_hook_uses_repository_interpreter_without_workspace_rebinding():
         "mcp.middlewares",
         "mcp.multiplexer",
         "mcp.shared_multiplexer",
-        "mcp.kg_coordinator",
     ]
     assert argv[5:] == [
         part for name in excludes for part in ("--exclude", "agent_utilities." + name)

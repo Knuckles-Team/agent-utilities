@@ -10,7 +10,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-import check_liveness_source as liveness
+if __package__:
+    from . import check_liveness_source as liveness
+else:
+    import check_liveness_source as liveness
 
 
 def install(repo: Path) -> None:

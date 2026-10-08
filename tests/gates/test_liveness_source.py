@@ -2,6 +2,7 @@
 
 import importlib.util
 import subprocess
+import sys
 from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
@@ -484,3 +485,14 @@ def test_native_hook_install_is_idempotent_and_preserves_generated_driver(
 def test_native_push_ref_input_fails_closed(comparison, push_adapter, payload):
     with pytest.raises(gate.CannotRun):
         push_adapter.check_refs(comparison[0], "origin", payload)
+
+
+def test_push_adapter_supports_package_import():
+    result = subprocess.run(
+        [sys.executable, "-c", "import scripts.pre_push"],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr

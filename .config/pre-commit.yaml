@@ -240,7 +240,6 @@ repos:
       --exclude agent_utilities.mcp.middlewares
       --exclude agent_utilities.mcp.multiplexer
       --exclude agent_utilities.mcp.shared_multiplexer
-      --exclude agent_utilities.mcp.kg_coordinator
     language: system
     pass_filenames: false
     # NOT `types: [python]` (this repo's own top-level `exclude: ^scripts/`,
