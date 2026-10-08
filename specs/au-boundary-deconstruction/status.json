@@ -50,7 +50,8 @@
     "AU-BOUNDARY-R045",
     "AU-BOUNDARY-R046",
     "AU-BOUNDARY-R047",
-    "AU-BOUNDARY-R048"
+    "AU-BOUNDARY-R048",
+    "AU-BOUNDARY-R049"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -496,6 +497,12 @@
       "id": "AU-BOUNDARY-R048",
       "title": "Domain models, shapes, assets and skill content are placed",
       "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R049",
+      "title": "Every AU write-back sink runs through the SDK governed write-back contract",
+      "delivery_state": "BUILDING",
       "evidence": []
     }
   ]
