@@ -1,9 +1,9 @@
-"""Auto-generate the MCP tools table in an agent package's README (CONCEPT:AU-ECO.mcp.tool-mode-standardization).
+"""Auto-generate the MCP tools table in an agent package's README (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse).
 
 Every fleet connector exposes its surface through ``get_mcp_instance()`` and the
 shared ``register_tool_surface`` wiring, so the live server is the single source of
-truth for which tools exist, their per-domain ``<TAG>TOOL`` toggles, and their
-descriptions. This module renders that into a Markdown table and writes it into
+truth for the served intent tools, the operations they route to, their per-domain
+``<TAG>TOOL`` toggles, and their descriptions. This module renders that into a Markdown table and writes it into
 README.md between marker comments, so the docs never drift from the code.
 
 Usage (from an agent repo root, with agent-utilities installed):
@@ -31,7 +31,7 @@ from typing import Any
 
 START = "<!-- MCP-TOOLS-TABLE:START -->"
 END = "<!-- MCP-TOOLS-TABLE:END -->"
-_STRUCTURAL_TOOL_TAGS = frozenset({"gated", "granular", "verbose"})
+_STRUCTURAL_TOOL_TAGS = frozenset({"granular", "verbose"})
 
 
 def _toggle_env(tags: set[str]) -> str:
@@ -65,70 +65,75 @@ async def _list_tools(mcp: Any) -> list[Any]:
     raise RuntimeError("Cannot list tools from this FastMCP instance")
 
 
-def _table(rows: list[tuple[str, str, str]]) -> list[str]:
-    """Render ``(name, toggle, desc)`` rows as a Markdown table body."""
+def _table(rows: list[tuple[str, str, str]], first: str, second: str) -> list[str]:
+    """Render 3-column rows as a Markdown table body."""
     out = [
-        "| MCP Tool | Toggle Env Var | Description |",
-        "|----------|----------------|-------------|",
+        f"| {first} | {second} | Description |",
+        "|" + "-" * (len(first) + 2) + "|" + "-" * (len(second) + 2) + "|-------------|",
     ]
-    for name, toggle, desc in rows:
-        out.append(f"| `{name}` | {toggle} | {desc} |")
+    for name, middle, desc in rows:
+        out.append(f"| `{name}` | {middle} | {desc} |")
     return out
 
 
 def render_tools_table(mcp: Any) -> str:
-    """Render the FULL live tool surface — both the **condensed** action-routed
-    tools and the **verbose** 1:1 API-mapped tools — as two clearly-labelled
-    Markdown tables, so the README shows every tool, not just the default surface.
+    """Render the served intent tools and every operation they route to.
 
-    The server is built in ``MCP_TOOL_MODE=both`` for generation (see
-    :func:`_load_mcp_instance`) so both surfaces are registered; tools tagged
-    ``"verbose"`` are the 1:1 per-operation surface, the rest are condensed.
+    The intent tools are what a client lists; each takes ``action`` (an
+    operation id from the second table) + ``params``. Operations are grouped by
+    their backing action-routed tool, with the ``<DOMAIN>TOOL`` toggle that
+    enables it.
     """
+    from agent_utilities.mcp.connector_surface import connector_operations
+    from agent_utilities.mcp.verbose_tools import _provider_tools
+
     tools = asyncio.run(_list_tools(mcp))
-    # Exact tool->toggle map recorded by register_tool_surface (authoritative — it is
-    # the env var that actually gates the tool). Falls back to tag-derivation only
-    # for tools registered outside the central wiring.
-    toggles = getattr(mcp, "_condensed_tool_toggles", None) or {}
-    condensed: list[tuple[str, str, str]] = []
-    verbose: list[tuple[str, str, str]] = []
-    for tool in tools:
-        tags = set(getattr(tool, "tags", None) or [])
-        name = getattr(tool, "name", "?")
-        env = toggles.get(name)
-        toggle = f"`{env}`" if env else _toggle_env(tags)
-        row = (name, toggle, _first_line(getattr(tool, "description", "")))
-        (verbose if "verbose" in tags else condensed).append(row)
-    condensed.sort(key=lambda r: r[0])
-    verbose.sort(key=lambda r: r[0])
+    intent_rows = sorted(
+        (
+            getattr(tool, "name", "?"),
+            "intent",
+            _first_line(getattr(tool, "description", "")),
+        )
+        for tool in tools
+    )
+    backing = getattr(mcp, "_intent_backing", None)
+    operations = connector_operations(backing) if backing is not None else {}
+    toggles = getattr(backing, "_condensed_tool_toggles", None) or {}
+    backing_tags = {
+        name: set(getattr(tool, "tags", None) or [])
+        for name, tool in (_provider_tools(backing) if backing is not None else {}).items()
+    }
+    op_rows: list[tuple[str, str, str]] = []
+    for op in sorted(operations.values(), key=lambda o: o.id):
+        env = toggles.get(op.tool)
+        toggle = f"`{env}`" if env else _toggle_env(backing_tags.get(op.tool, set()))
+        verb = "ask, act" if op.reads else "act"
+        op_rows.append((op.id, f"{verb} · {toggle}", op.description.replace("|", "\\|")))
 
     lines = [START, ""]
-    lines.append("#### Condensed action-routed tools (`MCP_TOOL_MODE=condensed`)")
+    lines.append("#### Intent tools")
     lines.append("")
-    lines += _table(condensed)
+    lines += _table(intent_rows, "MCP Tool", "Kind")
     lines.append("")
-    if verbose:
-        # The verbose 1:1 surface can be large — keep it collapsed but complete.
-        lines.append(
-            "#### Verbose 1:1 API-mapped tools (`MCP_TOOL_MODE=verbose` or `both`)"
-        )
+    if op_rows:
+        lines.append("#### Operations (`action` values)")
         lines.append("")
         lines.append("<details>")
         lines.append(
-            f"<summary>{len(verbose)} per-operation tools — one per public API "
-            "method (click to expand)</summary>"
+            f"<summary>{len(op_rows)} operations — call them through the intent "
+            "tools (click to expand)</summary>"
         )
         lines.append("")
-        lines += _table(verbose)
+        lines += _table(op_rows, "Operation", "Intent tools · Toggle")
         lines.append("")
         lines.append("</details>")
         lines.append("")
     lines.append(
-        f"_{len(condensed)} action-routed tool(s) · {len(verbose)} verbose "
-        "1:1 tool(s). Each is enabled unless its `<DOMAIN>TOOL` toggle is set false; "
-        "`MCP_TOOL_MODE` selects the surface (**`intent` default** — the six "
-        "verb-tools, granular set loaded on demand · `condensed` action-routed · "
-        "`verbose` 1:1 · `both`). Auto-generated — do not edit._"
+        f"_{len(intent_rows)} intent tool(s) · {len(op_rows)} operation(s). Call "
+        "an operation as `act(action='<operation>', params={...})` (`ask` for "
+        "reads); `find(action='describe', params={'action': '<operation>'})` "
+        "returns its arguments. An operation is enabled unless its `<DOMAIN>TOOL` "
+        "toggle is set false. Auto-generated — do not edit._"
     )
     lines.append(END)
     return "\n".join(lines)
@@ -166,16 +171,7 @@ def sync_readme(mcp: Any, readme_path: Path, *, check: bool = False) -> bool:
 
 
 def _load_mcp_instance() -> Any:
-    """Auto-detect the local agent package and return its built FastMCP instance.
-
-    Forces ``MCP_TOOL_MODE=both`` so the built server registers BOTH the condensed
-    and the verbose 1:1 surfaces — the generator documents the full tool set, not
-    just the default intent surface. (Env *write* to drive the build is sanctioned;
-    reads still go through the config layer.)
-    """
-    import os
-
-    os.environ["MCP_TOOL_MODE"] = "both"
+    """Auto-detect the local agent package and return its built FastMCP instance."""
     from agent_utilities.mcp.server_factory import create_mcp_server  # noqa: F401
 
     module_path = _detect_mcp_module()

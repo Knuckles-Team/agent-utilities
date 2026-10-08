@@ -62,7 +62,6 @@ graphos:
   config:
     APP_PROFILE: production
     AUTH_TYPE: jwt
-    MCP_TOOL_MODE: intent
     KG_DAEMON_ROLE: client
     # graph-os serves the agent-webui dashboard itself, as a supervised
     # co-service in the same process, over `webUiPort` below. The dashboard is

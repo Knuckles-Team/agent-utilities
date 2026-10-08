@@ -625,7 +625,6 @@ def build_manifest() -> list[dict]:
         kg_server.ACTION_TOOL_ROUTES.update(kg_server.BASE_ACTION_TOOL_ROUTES)
         kg_server._build_server(
             bootstrap=False,
-            tool_profile="intent",
             canonical_surface=True,
         )
 

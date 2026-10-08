@@ -458,24 +458,16 @@ def test_surface_intent_mode_gates_condensed_tools(monkeypatch):
     assert {GATED_TAG, GRANULAR_TAG, "cmdb"} <= set(tool.tags)
 
 
-def test_surface_hybrid_mode_registers_condensed_tools_ungated(monkeypatch):
-    """MCP_TOOL_MODE=hybrid serves the condensed tools in the default session
-    view (no GATED_TAG, no verbose surface) and serves the intent verbs too."""
-    from agent_utilities.mcp.verbose_tools import (
-        GATED_TAG,
-        gated_tool_names,
-        serves_intent_verbs,
-        tool_mode,
-    )
+def test_hybrid_mode_is_retired(monkeypatch):
+    """``hybrid`` is not a surface: graph-os serves one fixed tool model
+    (``graphos_surface``), so the knob falls back to the default."""
+    from agent_utilities.mcp.verbose_tools import VALID_TOOL_MODES, tool_mode
 
-    mcp, names = _servicenow_surface(monkeypatch, "hybrid")
-    assert tool_mode() == "hybrid"
-    assert "svc_cmdb" in names
-    assert "servicenow_get_cmdb_instance" not in names
-    assert gated_tool_names(mcp) == set()
-    assert GATED_TAG not in set(_get(mcp, "svc_cmdb").tags)
-    assert serves_intent_verbs("hybrid") and serves_intent_verbs("intent")
-    assert not any(serves_intent_verbs(m) for m in ("condensed", "verbose", "both"))
+    assert "hybrid" not in VALID_TOOL_MODES
+    monkeypatch.setattr(
+        "agent_utilities.core.config.setting", lambda key, default=None: "hybrid"
+    )
+    assert tool_mode() == "intent"
 
 
 def test_surface_tool_registry(monkeypatch):
