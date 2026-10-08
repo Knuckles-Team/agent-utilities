@@ -1628,3 +1628,21 @@ def test_resolution_cache_hits_repeat_intent_misses_a_different_one(monkeypatch)
     intent_tools.resolve_intent("ask", "an entirely unrelated intent phrase", top_k=5)
     size_after_third = len(intent_tools._RESOLUTION_CACHE)
     assert size_after_third == size_after_scope_change + 1
+
+
+@pytest.mark.parametrize(
+    ("tool", "action"),
+    [
+        ("graph_explain", "explain"),
+        ("graph_explain", "context"),
+        ("graph_explain", "executable_rag"),
+        ("graph_explain", "recommend"),
+        ("graph_observe", "trace_rootcause"),
+        ("graph_observe", "prompt_regression"),
+        ("graph_observe", "failure_cluster"),
+        ("graph_observe", "error_detail"),
+    ],
+)
+def test_why_tool_actions_are_classified_read_only(tool: str, action: str) -> None:
+    """``why`` refuses any route whose mutation class is not exactly False."""
+    assert intent_tools._resolve_mutates("why", tool, action, None, False) is False
