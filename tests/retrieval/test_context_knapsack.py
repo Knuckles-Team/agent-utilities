@@ -128,3 +128,24 @@ def test_a_tokenizer_counter_counts_with_the_model_encoding() -> None:
     counter = ck.TiktokenCounter(_Encoding(), "tiktoken:fake-bpe")
     assert counter.count(["ab c", ""]) == [3, 0]
     assert ck.tiktoken_counter("no-such-model-anywhere") is None
+
+
+
+def test_explicit_zero_caller_budget_is_not_an_unbounded_default() -> None:
+    cap = ck.Capacity(window=8000, reserved_output=1000)
+    assert cap.tokens(caller_budget=0) == 0
+    assert cap.tokens(caller_budget=None) == 7000
+    assert cap.tokens(caller_budget=2) == 2
+
+
+def test_scoped_context_fit_abstains_when_caller_budget_is_zero() -> None:
+    records = [{"nid": "a", "composite": 1.0, "node": {"content": "one two"}}]
+    sizer = ck.ContextSizer(_Words(), ck.Capacity(window=8000))
+    with ck.sizing_scope(sizer):
+        result = ck.fit_to_budget(
+            records, 0, text_of=lambda record: record["node"].get("content", "")
+        )
+    assert result.kept == []
+    assert result.dropped == 1
+    assert result.tokens_used == 0
+    assert result.token_budget == 0
