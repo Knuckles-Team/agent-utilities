@@ -248,11 +248,10 @@ The normative lifecycle schema is
 
 The validator receives release, GraphOS, engine, configuration, profile, and model
 registry digests only from the already verified deployment. Its signed subject
-binds the exact four-skill catalog, canonical test catalog, all eight case digests,
+binds the exact one-skill catalog, canonical test catalog, both case digests,
 direct/delegated execution, configured model class, exact skill body, one
 metadata-only Langfuse lookup, and one governed parent-graph trace readback per
-case. Passing evidence requires eight cases and four complete direct/delegated
-pairs.
+case. Passing evidence requires two cases, one complete direct/delegated pair.
 
 The two development cases additionally bind one externally supplied, digest-bound
 RF-021 candidate identity. Their retained `architecture` evidence contains exactly

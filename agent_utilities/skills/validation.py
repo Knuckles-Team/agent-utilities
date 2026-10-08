@@ -26,11 +26,12 @@ EXPERT_PROMPT = PACKAGE_ROOT / "prompts" / "agent-utilities-expert.json"
 
 EXPECTED_SKILLS = frozenset(BUNDLED_SKILLS)
 
-_REQUIRED_WORKFLOW_TERMS: dict[str, frozenset[str]] = {
-    "agent-utilities-deployment": frozenset(
-        {"migration", "persisted-format", "upgrade"}
-    ),
-}
+# The skills these keyed terms/routes once covered (agent-utilities-deployment,
+# graph-engine-and-modalities, graph-runtime-and-governance) moved to graph-os
+# on 2026-10-03, leaving only agent-utilities-development in EXPECTED_SKILLS,
+# which has no entry here; kept empty (rather than deleted) so a future
+# retained skill can add its own without re-deriving this contract's shape.
+_REQUIRED_WORKFLOW_TERMS: dict[str, frozenset[str]] = {}
 _REQUIRED_WORKFLOW_ROUTES: dict[str, frozenset[str]] = {}
 
 _PRIVATE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -593,8 +594,8 @@ def _forward_matrix_domain_wraps() -> tuple[dict[str, set[str]], set[str]]:
 
     The seven ``graph-*`` domain skills that used to live locally here (and
     whose sidecars this function used to read directly off ``SKILLS_ROOT``)
-    moved to graph-os's own skill pack; the four skills this package retains
-    are all ``tier: platform`` and claim no verbs of their own. ``verb_universe()``
+    moved to graph-os's own skill pack; the one skill this package retains
+    is ``tier: platform`` and claims no verbs of its own. ``verb_universe()``
     is this package's own static canonical ToolSpec registry — it needs no
     sidecar or installed package to exist and so validates correctly whether
     or not graph-os happens to be installed alongside agent-utilities (it is
@@ -1112,8 +1113,11 @@ def _validate_skill_inventory() -> tuple[set[str], list[str]]:
         path.parent.name for path in SKILLS_ROOT.glob("*/SKILL.md") if path.is_file()
     }
     errors: list[str] = []
-    if len(EXPECTED_SKILLS) != 4:
-        errors.append("canonical taxonomy must contain exactly 4 workflow skills")
+    if len(EXPECTED_SKILLS) != len(BUNDLED_SKILLS):
+        errors.append(
+            f"canonical taxonomy must contain exactly {len(BUNDLED_SKILLS)} "
+            "workflow skill(s)"
+        )
     if actual != EXPECTED_SKILLS:
         errors.append(
             "skill inventory mismatch: "

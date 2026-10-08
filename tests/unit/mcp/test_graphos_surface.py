@@ -50,7 +50,7 @@ from agent_utilities.mcp.intent_contract import (
 )
 from agent_utilities.mcp.optional_tool_features import OPTIONAL_TOOL_FEATURES
 from agent_utilities.mcp.tool_specs import INTENT_VERBS
-from agent_utilities.mcp.tools import intent_tools
+from agent_utilities.mcp.tools import engine_tools, intent_tools
 
 #: No single listed tool may exceed this (spec: "no tool > ~500 tokens").
 MAX_TOOL_TOKENS = 500
@@ -108,12 +108,29 @@ def test_every_manifest_family_has_exactly_one_routing_group():
     assert set(owners) <= families, "routing table names a family the manifest lacks"
 
 
+def _engine_client_absent_families(registry) -> set[str]:
+    """``engine_<domain>`` families that cannot register without the engine client.
+
+    ``engine_tools`` discovers its domains from the ``epistemic_graph`` client.
+    A test environment without that wheel registers none of them.
+    """
+    if engine_tools.ENGINE_DOMAINS:
+        return set()
+    return {
+        tool
+        for tool, _ in manifest_operations().values()
+        if tool.startswith("engine_") and tool not in registry
+    }
+
+
 def test_the_dispatch_core_holds_every_served_manifest_family(served):
     """Registered is not listed: the backing tools populate ``REGISTERED_TOOLS``
     (the REST gateway's and the router's dispatch table) while only the intent
     tools are listed."""
     mcp, _listed, registry = served
-    families = {tool for tool, _ in manifest_operations().values()}
+    families = {
+        tool for tool, _ in manifest_operations().values()
+    } - _engine_client_absent_families(registry)
     unserved = families - set(registry) - set(OPTIONAL_TOOL_FEATURES)
     assert not unserved, sorted(unserved)
     assert set(INTENT_VERBS) <= set(registry)
@@ -129,9 +146,12 @@ def test_every_manifest_operation_is_reachable_through_the_intent_router(served)
     mcp, _listed, registry = served
     verbs_by_op = intent_tools.operation_verbs()
     unreachable: dict[str, str] = {}
+    absent = _engine_client_absent_families(registry)
 
     async def _probe() -> None:
         for op_id, (tool, action) in manifest_operations().items():
+            if tool in absent:
+                continue
             verbs = verbs_by_op.get(op_id) or ()
             if not verbs:
                 unreachable[op_id] = "no verb accepts it"

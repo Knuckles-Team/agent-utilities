@@ -145,24 +145,15 @@ def test_retired_legacy_tool_fanout_is_not_mounted():
 # retained workflow skill's ``agents/graph-os.yaml`` sidecar. The contract lives
 # in ``agent_utilities.mcp.skill_coverage`` and has no slug inference or waivers.
 #
-# ``test_every_verb_has_explicit_domain_skill_coverage`` and
-# ``test_graphos_external_rlm_dependency_is_explicitly_skill_covered`` were
-# retired here: the seven ``graph-*`` domain skills that used to carry the
-# ``agents/graph-os.yaml`` sidecars those tests walked moved to graph-os's own
-# skill pack (taken over in graph-os commit 704ce45) and are deleted from
-# agent-utilities. ``skill_coverage.discover_skills()`` finds sidecars across
-# every package installed alongside this one (``core.providers.
-# resolve_skill_provider_dirs()``), so in a dev sandbox that happens to have
-# graph-os installed too, those tests still pass by discovering graph-os's
-# copy — but agent-utilities' own CI does not depend on graph-os (it is not
-# an agent-utilities dependency), so there the fleet-wide 110-verb coverage
-# invariant these two tests asserted is no longer something this package's
-# hermetic unit suite can verify by itself. The invariant itself still holds
-# and is graph-os's own test suite's to carry now that it owns the sidecars.
-# ``test_domain_skill_sidecars_are_valid_and_have_no_orphans`` below is kept:
-# it only asserts about whatever sidecars ARE discovered (orphans/duplicates/
-# invalid shape), which is meaningful (and trivially empty) with zero local
-# sidecars too.
+# Every domain-tier skill (the ones that claimed verb coverage) moved to
+# graph-os on 2026-10-03; agent-utilities now bundles only the platform-tier
+# agent-utilities-development skill. Full fleet-wide coverage completeness
+# can only be verified where the covering skills actually live -- graph-os's
+# own test suite, which bundles them and depends on agent-utilities (the
+# reverse is not true) -- so the exact completeness assertion that used to
+# run here moved there. ``test_domain_skill_sidecars_are_valid_and_have_no_orphans``
+# stays: it is still meaningful (vacuously or not) for whatever domain skill
+# agent-utilities bundles in the future.
 
 
 def test_domain_skill_sidecars_are_valid_and_have_no_orphans():
@@ -181,3 +172,17 @@ def test_domain_skill_sidecars_are_valid_and_have_no_orphans():
         "Invalid agents/graph-os.yaml sidecars: "
         f"{report.invalid_sidecars}. Follow the closed version-2 schema."
     )
+
+
+def test_graphos_external_rlm_dependency_is_declared() -> None:
+    """``graph_rlm`` stays a declared external GraphOS dependency.
+
+    Its owning domain skill, ``graph-research-and-analysis``, moved to
+    graph-os on 2026-10-03 along with every other domain-tier skill, so the
+    "is it claimed by that skill's sidecar" half of this contract now lives
+    in graph-os's own test suite; this half (the name itself is still the
+    one agreed external-dependency marker) stays here.
+    """
+    from agent_utilities.mcp.skill_coverage import EXTERNAL_GRAPHOS_TOOL_NAMES
+
+    assert EXTERNAL_GRAPHOS_TOOL_NAMES == {"graph_rlm"}

@@ -1297,6 +1297,50 @@ def _changed_enforce_paths(base_ref: str, config: CloneScannerConfig) -> list[st
     return sorted(set(paths))
 
 
+def _tree_changed_paths(base_sha: str, merged_tree: str) -> frozenset[str]:
+    """Paths whose content differs between the base tree and the merged tree."""
+
+    raw = _git(["diff", "--no-renames", "--name-only", "-z", base_sha, merged_tree])
+    return frozenset(path for path in raw.split("\0") if path)
+
+
+def _split_new_pairs(
+    candidate_pairs: set[tuple], changed_tree_paths: frozenset[str]
+) -> tuple[set[tuple], set[tuple]]:
+    """Separate duplication this change introduced from re-reported old pairs.
+
+    jscpd reports each later occurrence of a fragment against the first one it
+    saw. Deleting that first occurrence makes the surviving copies pair with
+    each other, so a pair between two files the change never touched appears
+    in the after-state without any new duplicated content. Both files are
+    byte-identical before and after, so that duplication pre-existed. A pair is
+    attributed to the change only when at least one side's content changed.
+    """
+
+    introduced: set[tuple] = set()
+    repaired: set[tuple] = set()
+    for key in candidate_pairs:
+        _fmt, _digest, locations = key
+        paths = {_clone_location_parts(location)[0] for location in locations}
+        if paths & changed_tree_paths:
+            introduced.add(key)
+        else:
+            repaired.add(key)
+    return introduced, repaired
+
+
+def _print_repaired_pairs(repaired_pairs: set[tuple]) -> None:
+    if not repaired_pairs:
+        return
+    print(
+        f"jscpd gate [enforce]: {len(repaired_pairs)} pre-existing clone "
+        "pair(s) re-reported between files this change did not touch "
+        "(an occurrence jscpd paired them through was removed):"
+    )
+    for fmt, digest, locations in sorted(repaired_pairs, key=lambda k: str(k[2])):
+        print(f"    [{fmt}] {_format_clone_pair(locations)}  (fragment {digest[:12]})")
+
+
 def cmd_enforce(base_ref: str) -> int:
     config = _config()
     changed_paths = _changed_enforce_paths(base_ref, config)
@@ -1353,13 +1397,17 @@ def cmd_enforce(base_ref: str) -> int:
     finally:
         _cleanup_throwaway_worktrees((before_wt, after_wt))
 
-    new_pairs = after_keys - before_keys
+    changed_tree_paths = _tree_changed_paths(base_sha, merged_tree)
+    new_pairs, repaired_pairs = _split_new_pairs(
+        after_keys - before_keys, changed_tree_paths
+    )
     gone_pairs = before_keys - after_keys
     print(
         f"\njscpd gate [enforce]: {len(before_keys)} pre-existing clone "
         f"pair(s), {len(after_keys)} clone pair(s) after this change, "
         f"{len(new_pairs)} NEW, {len(gone_pairs)} resolved."
     )
+    _print_repaired_pairs(repaired_pairs)
 
     if not new_pairs:
         print(
