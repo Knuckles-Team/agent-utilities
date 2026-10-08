@@ -57,7 +57,7 @@ def _looks_like_config_key_or_path(body: str, match: re.Match[str]) -> bool:
     ``object_*``) is also just... common English/technical vocabulary, so
     prose legitimately uses it for other things: a redb storage-volume name
     (``epistemic-graph-migrations``), a genesis run-plan YAML field
-    (``agent-os-genesis``'s ``engine_topology``/``ontology_host``). Rather than a
+    (``graphos-genesis``'s ``engine_topology``/``ontology_host``). Rather than a
     hardcoded ignore-list of those specific strings (which would silently
     stop covering the NEXT tool-shaped config key or path fragment some other
     skill introduces), this checks the syntax immediately around the match

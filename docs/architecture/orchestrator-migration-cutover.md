@@ -6,7 +6,7 @@
 > was paid for in a live cutover; each is written generically so ANY future migration
 > avoids the same trap. The step-by-step operator runbook that executes these rules is
 > the genesis skill reference
-> [`agent-os-genesis/references/orchestrator-migration-cutover.md`](../../agent_utilities/skills/workflows/agent-os-genesis/references/orchestrator-migration-cutover.md);
+> [`graphos-genesis/references/orchestrator-migration-cutover.md`](https://github.com/Knuckles-Team/graph-os/blob/main/graph_os/skills/graphos-genesis/references/orchestrator-migration-cutover.md);
 > this page is the *why* and the diagnosis catalog.
 
 The recurring theme: **preserve every externally observable contract** — the service
@@ -269,9 +269,9 @@ the data copy was a point-in-time snapshot, and the old datadir is untouched.
 ## Related
 
 - Operator runbook (the *how*):
-  [`agent-os-genesis/references/orchestrator-migration-cutover.md`](../../agent_utilities/skills/workflows/agent-os-genesis/references/orchestrator-migration-cutover.md)
+  [`graphos-genesis/references/orchestrator-migration-cutover.md`](https://github.com/Knuckles-Team/graph-os/blob/main/graph_os/skills/graphos-genesis/references/orchestrator-migration-cutover.md)
 - Gateway auth wiring (inbound + outbound, in-cluster pinning):
-  [`agent-os-genesis/references/graph-os-fleet-gateway-auth.md`](../../agent_utilities/skills/workflows/agent-os-genesis/references/graph-os-fleet-gateway-auth.md)
+  [`graphos-genesis/references/graph-os-fleet-gateway-auth.md`](https://github.com/Knuckles-Team/graph-os/blob/main/graph_os/skills/graphos-genesis/references/graph-os-fleet-gateway-auth.md)
 - [Containerized Deployment](containerized-deployment.md) — the platform-as-microservices target shape.
 - [Troubleshooting](troubleshooting.md) — cross-layer diagnosis.
 </content>
