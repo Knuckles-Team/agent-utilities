@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-574 typed fields · 370 runtime-only call-site inputs.
+575 typed fields · 366 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -233,6 +233,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `MCP_CONFIG` | `str \| None` | `unset` |
 | `MCP_FLEET_SECRET_REFS` | `dict` | `{}` |
 | `INGESTION_CONFIDENCE_THRESHOLDS` | `dict` | `{}` |
+| `AGENT_GROUNDING_POLICY` | `Literal` | `required` |
 | `MCP_TOOL_MODE` | `Literal` | `intent` |
 | `MCP_HTTP_ALLOWED_PRIVATE_HOSTS` | `list` | `[]` |
 | `FASTMCP_SERVER_AUTH_STATIC_TOKENS_REF` | `str \| None` | `unset` |
@@ -1052,11 +1053,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `SLACK_APP_TOKEN` | 1 |
 | `SOURCE_CREDENTIALS` | 1 |
 | `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE` | 1 |
-| `STARDOG_DATABASE` | 1 |
-| `STARDOG_ENDPOINT` | 2 |
-| `STARDOG_PASSWORD` | 1 |
-| `STARDOG_PASSWORD_REF` | 1 |
-| `STARDOG_USER` | 1 |
+| `STARDOG_ENDPOINT` | 1 |
 | `SWE_TOOLS` | 1 |
 | `SYNOLOGY_CHAT_WEBHOOK_URL_REF` | 2 |
 | `TECHNITIUM_TOKEN` | 1 |

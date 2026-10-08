@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1196
+total_concepts: 1194
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -230,7 +230,6 @@ concepts:
   code_paths:
   - agent_utilities/capabilities/teams.py
   - agent_utilities/graph/routing/strategies/team_reuse.py
-  - agent_utilities/graph/subagent_patterns.py
   - agent_utilities/graph/verification.py
   - agent_utilities/harness/continuous_evaluation_engine.py
   - agent_utilities/harness/imodel_evolver.py
@@ -4981,7 +4980,6 @@ concepts:
   - agent_utilities/graph/routing/enrichers/self_model.py
   - agent_utilities/graph/routing/strategies/fast_path.py
   - agent_utilities/graph/routing/strategies/workflow_context.py
-  - agent_utilities/graph/subagent_patterns.py
   - agent_utilities/graph/workspace_attention.py
   - agent_utilities/harness/__init__.py
   - agent_utilities/harness/agentic_evolution_engine.py
@@ -5094,13 +5092,12 @@ concepts:
   - agent_utilities/data_prep/connector_activation.py
   doc: AU-KG.ontology.activation-fails-closed
 - id: AU-KG.ontology.authoritative-tbox
-  name: Fuseki publish daemon tick
+  name: opt-in daemon tick that
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/core/config.py
-  - agent_utilities/knowledge_graph/core/ontology_publisher.py
-  doc: Fuseki publish daemon tick
+  doc: opt-in daemon tick that
 - id: AU-KG.ontology.batch-actions-executor
   name: it sets a review annotation on a
   pillar: AU-KG
@@ -5303,13 +5300,6 @@ concepts:
   code_paths:
   - agent_utilities/models/knowledge_graph.py
   doc: SQL DDL extraction
-- id: AU-KG.ontology.enterprise-ontology-distribution
-  name: Enterprise Ontology Distribution
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/core/ontology_publisher.py
-  doc: Enterprise Ontology Distribution
 - id: AU-KG.ontology.evolution-governed-loop
   name: AU-KG.ontology.evolution-governed-loop
   pillar: AU-KG
@@ -5636,13 +5626,6 @@ concepts:
   - agent_utilities/gateway/ontology_api.py
   - agent_utilities/knowledge_graph/extraction/schema_discovery.py
   doc: skips the live-ontology/synonym
-- id: AU-KG.ontology.stardog-catalog-overwrite
-  name: AU-KG.ontology.stardog-catalog-overwrite
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/core/ontology_publisher.py
-  doc: AU-KG.ontology.stardog-catalog-overwrite
 - id: AU-KG.ontology.style-lint
   name: flags interface/property naming-convention
   pillar: AU-KG
@@ -6075,7 +6058,6 @@ concepts:
   - agent_utilities/domains/finance/cross_market_arb.py
   - agent_utilities/domains/finance/crypto_connector.py
   - agent_utilities/domains/finance/debate_engine.py
-  - agent_utilities/domains/finance/exchange_bridge.py
   - agent_utilities/domains/finance/filing_diff.py
   - agent_utilities/domains/finance/forensic_screener.py
   - agent_utilities/domains/finance/insider_equilibrium.py
@@ -6093,7 +6075,6 @@ concepts:
   - agent_utilities/domains/finance/research_autopilot.py
   - agent_utilities/domains/finance/risk_manager.py
   - agent_utilities/domains/finance/signal_fusion.py
-  - agent_utilities/domains/finance/strategy_engine.py
   - agent_utilities/domains/finance/strategy_export.py
   - agent_utilities/domains/finance/strategy_sharing.py
   - agent_utilities/domains/finance/streaming.py
@@ -7036,12 +7017,12 @@ concepts:
   - agent_utilities/models/execution_manifest.py
   doc: model the wave as a Multi-Agent Social System and
 - id: AU-ORCH.dispatch.kg-team-composition
-  name: Promoted composition to TeamConfig
+  name: KG-Driven Team Composition
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/graph/team_composer.py
-  doc: Promoted composition to TeamConfig
+  doc: KG-Driven Team Composition
 - id: AU-ORCH.dispatch.laned-sweep-fanout
   name: fan the sweep out as LANED
   pillar: AU-ORCH
@@ -7100,12 +7081,12 @@ concepts:
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
   doc: TWO independently-sized worker POOLS over the
 - id: AU-ORCH.dispatch.warm-skills-share
-  name: warm-share the SkillsToolset across the fan-out cohort
+  name: warm-share the skills capability across the fan-out cohort
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/agent/factory.py
-  doc: warm-share the SkillsToolset across the fan-out cohort
+  doc: warm-share the skills capability across the fan-out cohort
 - id: AU-ORCH.dispatch.worker-scheduling
   name: gate the claim through the
   pillar: AU-ORCH
