@@ -62,7 +62,7 @@ async def test_create_mcp_server_serves_skill_resources(
     from agent_utilities.mcp.server_factory import create_mcp_server
 
     _args, mcp, _middlewares = create_mcp_server(
-        "Skills Live Path Test", command_args=[]
+        "Skills Live Path Test", command_args=[], skill_owner="au-live-provider"
     )
 
     resources = await mcp.list_resources()
