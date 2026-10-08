@@ -58,6 +58,40 @@ class CapabilityCandidate(_StrictModel):
     source: str = Field(min_length=1, max_length=128)
 
 
+#: EG's native task IRIs a free-text task can be classified against.
+TaskIri = Literal[
+    "eg:task/research",
+    "eg:task/implement",
+    "eg:task/review",
+    "eg:task/operate",
+    "eg:task/communicate",
+]
+
+#: Evidence classes a Decide-layer-facing claim can carry. Only ``"claim"``
+#: exists here: AU never asserts ``"proof"`` for a classification it derived
+#: itself.
+EvidenceClass = Literal["claim"]
+
+
+class TaskClassificationClaim(_StrictModel):
+    """A free-text task's proposed mapping onto one of EG's native task
+    IRIs -- ALWAYS a labelled claim, never a proof (AU-CONTROL-R008).
+
+    Deterministic and LLM-free (lexical keyword overlap against each IRI's
+    own ontology labels, see :mod:`agent_utilities.api.task_classification`);
+    never carries the raw task text, only a digest, so the claim can be
+    logged/persisted without duplicating the (already screened/redacted)
+    task string elsewhere.
+    """
+
+    task_iri: TaskIri
+    confidence: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    method: Literal["lexical_keyword_overlap"]
+    matched_keywords: tuple[str, ...] = Field(max_length=32)
+    text_digest: str = Field(min_length=64, max_length=64)
+    evidence_class: EvidenceClass = "claim"
+
+
 class CapabilityResolution(_StrictModel):
     """Selected capability and bounded alternatives for an agent task."""
 

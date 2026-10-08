@@ -43,7 +43,10 @@ time (:mod:`scripts.gen_capability_power` is the generator;
   surface and EG's raw ``Method`` enum are maintained in two different repos
   with no existing 1:1 crosswalk. Every match records its own confidence and
   the exact tokens that matched; an action with no confident match is left
-  unmatched with an honest note, NEVER guessed.
+  unmatched with an honest note, NEVER guessed. The reviewed AU-owned
+  ``usage_query.traces`` and ``graph_analyze.readiness`` reads are classified
+  directly from their handlers without fabricating an EG Method or an
+  authorization grant.
 * **Cost / latency / reliability** — a small table of numbers TRANSCRIBED
   (not estimated) from EG's measured benchmark docs
   (``docs/benchmarks.md`` / ``docs/benchmarks-soak.md``), keyed by the exact
@@ -470,35 +473,63 @@ def match_action_to_method(
 # ---------------------------------------------------------------------------
 
 
+def _ledger_does_item(
+    tool_name: str, action: str, ledger: dict[str, LedgerRow]
+) -> dict[str, Any]:
+    """Build one action from its ledger match, preserving unmatched evidence."""
+    row, score, tokens = match_action_to_method(tool_name, action, ledger)
+    item: dict[str, Any] = {"action": action}
+    if row is not None:
+        item["eg_method"] = row.method
+        item["match_confidence"] = score
+        item["matched_tokens"] = tokens
+        item["mutates"] = row.mutates
+        item["durability"] = row.durability
+        item["authz_action"] = row.authz_action
+        item["idempotent"] = row.idempotent
+        item["audited"] = row.audited
+        item["emits_cdc"] = row.emits_cdc
+        item["txn_participation"] = row.txn_participation
+        if row.note:
+            item["eg_note"] = row.note
+    else:
+        item["eg_method"] = None
+        item["note"] = (
+            "no confident EG-P0-1 ledger match by name — likely an AU-level "
+            "orchestration action with no 1:1 raw engine Method, not a gap in "
+            "matching effort"
+        )
+    return item
+
+
 def build_does_items(
     tool_name: str, actions: list[str], ledger: dict[str, LedgerRow]
 ) -> list[dict[str, Any]]:
-    """One ``does[]`` entry per action, each carrying its own EG ledger match (if any)."""
+    """Assemble action effects from exact reviewed reads or engine ledger matches."""
+    reviewed_reads = {
+        ("usage_query", "traces"): (
+            "Reviewed AU read: write_ingest_tools.usage_query traces; "
+            "verified tenant-scoped runtime session references."
+        ),
+        ("graph_analyze", "readiness"): (
+            "Reviewed AU read: analysis_tools._analysis_action_readiness; "
+            "collect_readiness_snapshot probes with existing session context."
+        ),
+    }
     items: list[dict[str, Any]] = []
     for action in actions:
-        row, score, tokens = match_action_to_method(tool_name, action, ledger)
-        item: dict[str, Any] = {"action": action}
-        if row is not None:
-            item["eg_method"] = row.method
-            item["match_confidence"] = score
-            item["matched_tokens"] = tokens
-            item["mutates"] = row.mutates
-            item["durability"] = row.durability
-            item["authz_action"] = row.authz_action
-            item["idempotent"] = row.idempotent
-            item["audited"] = row.audited
-            item["emits_cdc"] = row.emits_cdc
-            item["txn_participation"] = row.txn_participation
-            if row.note:
-                item["eg_note"] = row.note
-        else:
-            item["eg_method"] = None
-            item["note"] = (
-                "no confident EG-P0-1 ledger match by name — likely an AU-level "
-                "orchestration action with no 1:1 raw engine Method, not a gap in "
-                "matching effort"
+        if note := reviewed_reads.get((tool_name, action)):
+            items.append(
+                {
+                    "action": action,
+                    "eg_method": None,
+                    "mutates": "false",
+                    "idempotent": "true",
+                    "note": note,
+                }
             )
-        items.append(item)
+        else:
+            items.append(_ledger_does_item(tool_name, action, ledger))
     return items
 
 

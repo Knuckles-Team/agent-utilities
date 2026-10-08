@@ -98,8 +98,8 @@ _bound_tool_grounding: ContextVar[bool] = ContextVar(
 # record a degraded run as a plain success for reward/learning purposes.
 GroundingPolicy = Literal["required", "best_effort", "none"]
 
-_grounding_policy: ContextVar[str] = ContextVar(
-    "agent_utilities_grounding_policy", default="required"
+_grounding_policy: ContextVar[str | None] = ContextVar(
+    "agent_utilities_grounding_policy", default=None
 )
 # Aggregate, run-scoped outcome: was ANY model call in the current grounding_scope
 # degraded, and why (the FIRST reason is kept — the earliest/root cause).
@@ -517,7 +517,7 @@ class GroundingUnavailableError(ContextCompilationError):
 
 
 @contextmanager
-def use_grounding_policy(policy: GroundingPolicy = "required") -> Iterator[None]:
+def use_grounding_policy(policy: GroundingPolicy | None = None) -> Iterator[None]:
     """Scope the grounding policy (and its outcome tracking) for one delegated run.
 
     CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract. ``"required"`` (the
@@ -535,6 +535,7 @@ def use_grounding_policy(policy: GroundingPolicy = "required") -> Iterator[None]
     run sharing the same task/context.
     """
 
+    # ``None`` defers to the deployment default (AGENT_GROUNDING_POLICY).
     policy_token = _grounding_policy.set(policy)
     # A FRESH dict per scope (see :data:`_grounding_outcome`) — nesting therefore
     # still gets clean per-run tracking, while every child task/thread spawned
@@ -548,9 +549,16 @@ def use_grounding_policy(policy: GroundingPolicy = "required") -> Iterator[None]
 
 
 def current_grounding_policy() -> str:
-    """The ambient :data:`GroundingPolicy` for the current scope (default ``"required"``)."""
+    """The ambient :data:`GroundingPolicy` for the current scope.
 
-    return _grounding_policy.get()
+    Outside a :func:`use_grounding_policy` scope, the deployment default
+    ``AGENT_GROUNDING_POLICY`` applies (``"required"`` unless configured).
+    """
+
+    scoped = _grounding_policy.get()
+    if scoped is not None:
+        return scoped
+    return str(setting("AGENT_GROUNDING_POLICY", "required") or "required")
 
 
 def grounding_snapshot() -> tuple[bool, str]:
@@ -751,12 +759,29 @@ def compile_model_context(
 ) -> ContextBundle:
     """Compile the sole evidence bundle allowed to reach a model invocation."""
 
-    from agent_utilities.knowledge_graph.retrieval.context_compiler import (
-        ContextCompiler,
+    from agent_utilities.knowledge_graph.retrieval.context_knapsack import (
+        sizer_for_model,
+        sizing_scope,
     )
 
     authority = resolve_session(session, required_scope="kg:read")
     source = _resolve_evidence_source(engine)
+    # AU-CONTEXT-R004: the invoked model's certified knapsack sizing (greedy when none).
+    with sizing_scope(sizer_for_model(str(model_version or ""))):
+        return _compile(source, query, authority, model_version, snapshot)
+
+
+def _compile(
+    source: Any,
+    query: str,
+    authority: GraphSession,
+    model_version: str,
+    snapshot: str,
+) -> ContextBundle:
+    from agent_utilities.knowledge_graph.retrieval.context_compiler import (
+        ContextCompiler,
+    )
+
     return ContextCompiler(source).compile(
         str(query or ""),
         authority,
@@ -999,7 +1024,7 @@ def _degrade_for_policy(
     traceback and the ``__cause__`` behind it, which is precisely what made a
     grounding failure undiagnosable from the caller's side.
     """
-    policy = _grounding_policy.get()
+    policy = current_grounding_policy()
     _mark_grounding_degraded(reason)
     if policy == "required":
         raise GroundingUnavailableError(

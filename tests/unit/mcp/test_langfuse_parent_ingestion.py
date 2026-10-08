@@ -150,13 +150,18 @@ def test_parent_ingestion_uses_verified_write_session(monkeypatch) -> None:
     assert calls == [("trace_list", {"data": [{"id": "synthetic-trace"}]})]
 
 
-@pytest.fixture
-def isolated_ingest_session(monkeypatch) -> GraphSession:
+@pytest.fixture(params=[None, 6], ids=["current-cache", "prior-write-cache"])
+def isolated_ingest_session(monkeypatch, request) -> GraphSession:
     """Give the fresh fake client matching OCC state; restore the prior scope."""
     import agent_utilities.knowledge_graph.ingestion.envelope_ingest as envelope_ingest
 
     session = _session("kg:write")
     scope = (str(session.tenant), str(session.graph))
+    if request.param is not None:
+        # Retain the real order-leak trigger from an earlier successful writer.
+        monkeypatch.setitem(
+            envelope_ingest._NATIVE_GRAPH_VERSIONS, scope, request.param
+        )
     monkeypatch.setitem(envelope_ingest._NATIVE_GRAPH_VERSIONS, scope, 0)
     monkeypatch.setitem(envelope_ingest._NATIVE_LOCKS, scope, threading.RLock())
     return session

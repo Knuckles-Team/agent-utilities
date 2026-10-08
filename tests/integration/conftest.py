@@ -150,7 +150,7 @@ def ephemeral_fuseki() -> Iterator[dict[str, Any]]:
         .with_exposed_ports(3030)
         .with_env("ADMIN_PASSWORD", "admin")
         # The stain entrypoint forwards args to fuseki-server: create an in-memory
-        # dataset so the JenaFusekiBackend has a target without manual provisioning.
+        # dataset so the ontology publisher has a target without manual provisioning.
         .with_command(f"--mem /{dataset}")
     )
     container.start()

@@ -30,7 +30,7 @@ defect class above is closed — a **synthetic query canary** that runs the SAME
 (:mod:`agent_utilities.knowledge_graph.retrieval.code_context`,
 :mod:`agent_utilities.mcp.tools.analysis_tools`) — the same live route, never a
 substitute for it: a broken/degraded engine flows through the real ``EngineReadDegraded``
-path and a genuinely empty index flows through the real "zero citations" path,
+path and insufficient grounding flows through the real "zero citations" path,
 and this module reports each honestly (``unavailable`` / ``degraded``) rather
 than folding either into a false "ready".
 
@@ -381,6 +381,18 @@ def _run_with_deadline(fn: Any, deadline_s: float) -> tuple[Any, str | None]:
         return None, f"synthetic_query_error:{type(exc).__name__}"
 
 
+def _synthetic_retrieval_detail(result: dict[str, Any]) -> dict[str, Any]:
+    """Report retrieval observations without certifying grounding or coverage."""
+    documents = (result.get("sections") or {}).get("docs") or []
+    return {
+        "retrieval_status": result.get("status"),
+        "retrieved_document_count": len(documents),
+        "documents_with_source_count": sum(
+            bool(doc.get("source")) for doc in documents
+        ),
+    }
+
+
 def _check_synthetic_query(
     engine: Any, *, query: str, node_id: str, deadline_s: float
 ) -> ReadinessCheckDict:
@@ -415,6 +427,7 @@ def _check_synthetic_query(
     status = result.get("status")
     error = result.get("error") or {}
     citations = result.get("citations") or []
+    retrieval_detail = _synthetic_retrieval_detail(result)
 
     if status == "degraded":
         # BUG-004: the engine itself was unreachable — this is NOT evidence
@@ -435,12 +448,14 @@ def _check_synthetic_query(
             route="graph_code_context",
             evidence_count=0,
             reason="evidence_coverage_zero",
+            detail=retrieval_detail,
             latency_ms=latency_ms,
         )
     return _check(
         "ready",
         route="graph_code_context",
         evidence_count=len(citations),
+        detail=retrieval_detail,
         capability_id=result.get("capability_id") or None,
         latency_ms=latency_ms,
     )
@@ -449,24 +464,21 @@ def _check_synthetic_query(
 def _check_sparse_index(
     synthetic_query_check: ReadinessCheckDict,
 ) -> ReadinessCheckDict:
-    """Sparse/lexical index signal — a thin projection of the synthetic-query
-    canary's own evidence count, not a second index-scanning subsystem
-    (no dedicated sparse-index coverage API exists yet in this codebase; see
-    the module docstring). ``engine_degraded``/timeout carries no evidence
-    about the index at all (BUG-004) and is reported ``not_configured`` here
-    rather than a false ``0.0%`` empty-index verdict.
+    """The query canary does not measure sparse-index coverage.
+
+    Zero citations can coexist with retrieved documents; a cited answer also
+    supplies no index-wide denominator. Keep the canary observation visible,
+    but leave coverage unknown until an authoritative index metric exists.
     """
-    state = synthetic_query_check.get("state")
-    reason = synthetic_query_check.get("reason")
-    if state == "unavailable" and reason not in {"evidence_coverage_zero"}:
-        return _check(
-            "not_configured",
-            reason="synthetic query could not run; sparse-index coverage is unknown",
-        )
-    evidence_count = int(synthetic_query_check.get("evidence_count") or 0)
-    if evidence_count <= 0:
-        return _check("unavailable", coverage_pct=0.0, reason="compiled_index_empty")
-    return _check("ready", coverage_pct=100.0)
+    return _check(
+        "not_configured",
+        reason="sparse_index_coverage_unmeasured",
+        detail={
+            "source": "synthetic_query",
+            "synthetic_query_state": synthetic_query_check.get("state"),
+            "citation_count": int(synthetic_query_check.get("evidence_count") or 0),
+        },
+    )
 
 
 # --------------------------------------------------------------------------- #

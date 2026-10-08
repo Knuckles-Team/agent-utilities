@@ -64,10 +64,24 @@ class FakeControlGraph:
         ]
 
 
+def _service_session():
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+
+    return GraphSession(
+        actor=_admin(),
+        tenant="acme",
+        scopes=frozenset({"kg:read"}),
+        graph="__control__",
+        policy_version="test-policy",
+        audience="test-audience",
+    )
+
+
 @pytest.fixture
 def store(monkeypatch):
     fake = FakeControlGraph()
     monkeypatch.setattr(tr, "_control_backend", lambda: fake)
+    monkeypatch.setattr(tr, "_registry_read_session", _service_session)
     tr.invalidate_cache()
     yield fake
     tr.invalidate_cache()
