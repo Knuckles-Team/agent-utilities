@@ -50,7 +50,8 @@
     "AU-BOUNDARY-R045",
     "AU-BOUNDARY-R046",
     "AU-BOUNDARY-R047",
-    "AU-BOUNDARY-R048"
+    "AU-BOUNDARY-R048",
+    "AU-BOUNDARY-R049"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -512,6 +513,12 @@
           "description": "Destination: moved/merged skill content received into graph_os/skills/. Published on a branch in the graph-os repository; not yet merged to its default branch."
         }
       ]
+    },
+    {
+      "id": "AU-BOUNDARY-R049",
+      "title": "Every AU write-back sink runs through the SDK governed write-back contract",
+      "delivery_state": "BUILDING",
+      "evidence": []
     }
   ]
 }

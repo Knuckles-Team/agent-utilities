@@ -186,7 +186,7 @@ def resolve_admission_authority() -> AdmissionAuthority:
             f"credential. Provision {principal!r} into {SIGNER_REGISTRY_ENV} "
             f"for both this process and the engine, or route the admission "
             f"through a component that already holds one. Full procedure: "
-            f"agent_utilities/skills/workflows/agent-os-genesis/references/"
+            f"the graph-os repo's graph_os/skills/graphos-genesis/references/"
             f"engine-identity-admission.md"
         )
 
