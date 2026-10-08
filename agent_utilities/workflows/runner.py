@@ -1112,7 +1112,7 @@ class WorkflowRunner:
         engine: IntelligenceGraphEngine,
         trace_session: str | None = None,
         task: str | None = None,
-        grounding: GroundingPolicy = "required",
+        grounding: GroundingPolicy | None = None,
     ) -> WorkflowResult:
         """Load a stored workflow by name from the KG and execute its step-DAG.
 
@@ -1153,7 +1153,7 @@ class WorkflowRunner:
         engine: IntelligenceGraphEngine,
         session_id: str,
         task: str | None = None,
-        grounding: GroundingPolicy = "required",
+        grounding: GroundingPolicy | None = None,
     ) -> WorkflowResult:
         """Resume a run that :meth:`_execute_plan_via_agents` SUSPENDED on a gate.
 
@@ -1219,7 +1219,7 @@ class WorkflowRunner:
         failed_step: str,
         task: str | None = None,
         prior_result: WorkflowResult | None = None,
-        grounding: GroundingPolicy = "required",
+        grounding: GroundingPolicy | None = None,
     ) -> WorkflowResult:
         """Resume a run after a STEP FAILURE (not a gate), re-executing ONLY the
         region ``failed_step`` actually invalidates — Atomic Task Graph paper
@@ -1724,7 +1724,7 @@ class WorkflowRunner:
         trace_session: str | None = None,
         task: str | None = None,
         resume_state: dict[str, Any] | None = None,
-        grounding: GroundingPolicy = "required",
+        grounding: GroundingPolicy | None = None,
     ) -> WorkflowResult:
         """Run a stored plan's steps via :func:`run_agent`, respecting dependencies.
 

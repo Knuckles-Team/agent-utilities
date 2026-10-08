@@ -11,7 +11,8 @@
     "AU-SEC-R006",
     "AU-SEC-R007",
     "AU-SEC-R008",
-    "AU-SEC-R009"
+    "AU-SEC-R009",
+    "AU-SEC-R010"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -133,6 +134,12 @@
       "id": "AU-SEC-R009",
       "title": "Learned scores never grant security authority",
       "delivery_state": "UNKNOWN",
+      "evidence": []
+    },
+    {
+      "id": "AU-SEC-R010",
+      "title": "The shared tenant hierarchy reads as the service identity",
+      "delivery_state": "BUILDING",
       "evidence": []
     }
   ]
