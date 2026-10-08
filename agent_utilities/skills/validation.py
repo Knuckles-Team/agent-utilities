@@ -1133,9 +1133,9 @@ def _validate_skill_tree(actual: set[str]) -> list[str]:
     # of EXPECTED_SKILLS would be a real violation (that skill must be a flat
     # <name>/SKILL.md directory), but agent_utilities/skills/ also legitimately
     # hosts other, differently-shaped content outside this taxonomy — the
-    # agent-os-genesis workflow skill (skills/workflows/) and the agent-utilities
-    # skill-graph package (skills/skill_graphs/) — which this validator does not
-    # own and must not flag.
+    # agent-utilities skill-graph package (skills/skill_graphs/) — which this
+    # validator does not own and must not flag. The agent-os-genesis workflow
+    # skill (formerly skills/workflows/) moved to graph-os as graphos-genesis.
     nested = [
         path
         for path in SKILLS_ROOT.rglob("SKILL.md")
