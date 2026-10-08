@@ -490,6 +490,53 @@ def _repo_tooling_imported_definitions() -> set[str]:
     return found
 
 
+def _service_registry_definitions() -> set[str]:
+    """Exact effective targets of the canonical lazy service registry.
+
+    ServiceRegistry.initialize keys descriptors by capability; later rows
+    replace earlier ones. Mirror that selection, without importing services.
+    Arbitrary dictionaries and nonliteral registries are not evidence.
+    """
+    path = SRC_DIR / "core" / "registry" / "service_adapter.py"
+    tree = _parse(path)
+    if tree is None:
+        return set()
+    value = None
+    for node in tree.body:
+        if isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        elif isinstance(node, ast.Assign):
+            targets = node.targets
+        else:
+            continue
+        if any(
+            isinstance(t, ast.Name) and t.id == "_SERVICE_DEFINITIONS" for t in targets
+        ):
+            value = node.value
+    try:
+        rows = ast.literal_eval(value) if value is not None else None
+    except (ValueError, TypeError, SyntaxError):
+        return set()
+    if not isinstance(rows, list):
+        return set()
+    effective: dict[str, str] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            return set()
+        module, entry, capability = (
+            row.get(key) for key in ("module", "entry", "capability")
+        )
+        if not all(isinstance(item, str) for item in (module, entry, capability)):
+            return set()
+        # Invalid/out-of-package targets still replace a prior capability.
+        effective[capability] = (
+            f"{module.removeprefix('agent_utilities.')}:{entry}"
+            if _ABSOLUTE_MODULE_RE.fullmatch(module) and _BARE_IDENT_RE.fullmatch(entry)
+            else ""
+        )
+    return set(effective.values()) - {""}
+
+
 # --- composition -----------------------------------------------------------
 
 
@@ -502,6 +549,7 @@ def reconcile(details: dict[str, list[str]]) -> dict[str, Any]:
     orphan_raw = list(details.get("orphan_modules", []))
     dead_raw = list(details.get("dead_definitions", []))
     tooling_definitions = _repo_tooling_imported_definitions()
+    service_definitions = _service_registry_definitions()
 
     resolved_imports = _resolved_import_targets()
     ep_modules, ep_symbols = _entry_points()
@@ -551,6 +599,8 @@ def reconcile(details: dict[str, list[str]]) -> dict[str, Any]:
             mechanism = "getattr-registry"
         elif entry in tooling_definitions:
             mechanism = "repo-tooling-exact-import"
+        elif entry in service_definitions:
+            mechanism = "service-registry-exact-target"
         if mechanism:
             dead_rescued.append({"definition": entry, "mechanism": mechanism})
         else:
