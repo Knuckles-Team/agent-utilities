@@ -15,6 +15,9 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.fleet_autonomy_fakes import verified_fleet_session
+from tests.unit.work_market_fakes import attach_market
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fleet_autonomy_fakes import FakeEngine  # noqa: E402
@@ -35,10 +38,23 @@ from agent_utilities.knowledge_graph.research.spec_proposals import (  # noqa: E
 pytestmark = pytest.mark.concept("AU-AHE.harness.canonical-gap-lifecycle")
 
 
+@pytest.fixture(autouse=True)
+def _verified_session():
+    """Every Gap call binds the ambient verified tenant (EG's rule)."""
+    with verified_fleet_session():
+        yield
+
+
 class LifecycleEngine(FakeEngine):
-    """FakeEngine + add_edge + the id-lookup / label-scan / edge-walk cyphers the
-    Wave-6 lifecycle uses. Backend-agnostic reads work against this in-memory double.
+    """FakeEngine + add_edge + the id-lookup / label-scan cyphers the SpecProposal side
+    of the canonical-gap lifecycle uses, plus the typed EG Gap/work-market surfaces
+    (``engine.client.gaps`` ...) the canonical Gap now lives behind (the harness-evolution
+    spec's graph-driven work-market requirement).
     """
+
+    def __init__(self):
+        super().__init__()
+        self.market = attach_market(self)
 
     def add_edge(self, src, dst, rel_type, properties=None):  # noqa: D401
         self.edges.append((src, dst, rel_type))
@@ -74,16 +90,6 @@ class LifecycleEngine(FakeEngine):
                 for v in self.nodes.values()
                 if v.get("type") == lbl
             ]
-        # RESOLVES edge walk: (l)-[:RESOLVES]->(g:Gap) WHERE l.id = $id RETURN g.id
-        if "[:RESOLVES]->" in query:
-            lid = params.get("id")
-            return [
-                {"id": dst}
-                for (s, dst, r) in self.edges
-                if s == lid
-                and r == "RESOLVES"
-                and self.nodes.get(dst, {}).get("type") == gaps.GAP_LABEL
-            ]
         return super().query_cypher(query, params)
 
 
@@ -116,9 +122,9 @@ def test_submit_gap_persists_canonical_gap_and_lease():
     assert node["status"] == gaps.STATUS_OPEN
     assert node["severity"] == 0.9
     # High severity → expedited bucket 0.
-    assert gaps.severity_to_bucket(0.9) == 0
-    # Given a WorkItem/lease (goal_loop) so it is schedulable, not a transient dict.
-    assert any(n.get("type") == "WorkItem" for n in eng.nodes.values())
+    assert node["priority_bucket"] == 0
+    # EG admitted its WorkItem in the same transaction, so it is schedulable.
+    assert eng.market.items[node["work_item_id"]]["status"] == "ready"
 
 
 def test_production_failure_track_folds_into_canonical_gap():
@@ -252,7 +258,7 @@ def test_audit_scan_is_opt_in_and_off_by_default(monkeypatch):
     monkeypatch.setattr(config, "kg_loop_audit", False, raising=False)
     assert run_audit_gap_scan(eng)["skipped"] is True
     # Nothing filed when off — a non-opted-in deployment is unaffected.
-    assert not [g for g in eng.nodes.values() if g.get("type") == "Gap"]
+    assert not eng.market.gap_rows
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +271,7 @@ def test_persist_spec_proposal_threads_gap_specified_by():
     gap = submit_gap(eng, source="research", signature="feat-x", statement="add x")
     sid = persist_spec_proposal(eng, _Draft("Add X"), gap_id=gap["id"])
     assert sid == "spec_proposal:add-x"
-    assert (gap["id"], sid, "SPECIFIED_BY") in eng.edges
+    assert get_gap(eng, gap["id"])["spec_refs"] == [sid]
     # The gap is now 'specified' (a spec is in flight).
     assert get_gap(eng, gap["id"])["status"] == gaps.STATUS_SPECIFIED
     # The spec carries gap_id so the develop step can close the origin gap.
@@ -273,29 +279,29 @@ def test_persist_spec_proposal_threads_gap_specified_by():
 
 
 # ---------------------------------------------------------------------------
-# W6.5 — close the loop: RESOLVES edge + gap resolved on publish
+# W6.5 — close the loop: the develop-Loop carries its origin gap, resolved on publish
 # ---------------------------------------------------------------------------
 
 
-def test_approve_binds_develop_loop_with_resolves_edge():
+def test_approve_binds_develop_loop_carrying_its_origin_gap():
     eng = LifecycleEngine()
     gap = submit_gap(eng, source="research", signature="feat-y", statement="add y")
     sid = persist_spec_proposal(eng, _Draft("Add Y"), gap_id=gap["id"])
     out = review_spec(eng, sid, "approve")
     loop_id = out["develop_loop"]["id"]
     assert loop_id == f"loop:develop:{sid}"
-    # (develop-Loop)-[:RESOLVES]->(:Gap) written, and gap_id stamped on the loop.
-    assert (loop_id, gap["id"], "RESOLVES") in eng.edges
+    # The origin gap_id is stamped on the loop -- the whole link (no RESOLVES edge).
     assert eng.nodes[loop_id]["gap_id"] == gap["id"]
+    assert not [e for e in eng.edges if e[2] == "RESOLVES"]
 
 
-def test_resolve_gaps_for_loop_walks_edge_and_closes_gap():
+def test_resolve_gaps_for_loop_closes_the_loops_origin_gap():
     eng = LifecycleEngine()
     gap = submit_gap(eng, source="research", signature="feat-z", statement="add z")
     sid = persist_spec_proposal(eng, _Draft("Add Z"), gap_id=gap["id"])
     out = review_spec(eng, sid, "approve")
     loop_id = out["develop_loop"]["id"]
-    resolved = resolve_gaps_for_loop(eng, loop_id)
+    resolved = resolve_gaps_for_loop(eng, eng.nodes[loop_id])
     assert resolved == [gap["id"]]
     assert get_gap(eng, gap["id"])["status"] == gaps.STATUS_RESOLVED
     # A resolved gap drops out of the open backlog.
