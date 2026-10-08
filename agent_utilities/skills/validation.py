@@ -12,7 +12,11 @@ from typing import Any
 
 import yaml
 
-from agent_utilities.mcp.skill_coverage import discover_skills, parse_graph_os_sidecar
+from agent_utilities.mcp.skill_coverage import (
+    discover_skills,
+    parse_graph_os_sidecar,
+    verb_universe,
+)
 from agent_utilities.skills import BUNDLED_SKILLS
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -585,24 +589,28 @@ def _validate_skill(skill_dir: Path) -> list[str]:
 
 def _forward_matrix_domain_wraps() -> tuple[dict[str, set[str]], set[str]]:
     """Known Graph-OS verbs a delegated platform case may name in
-    ``allowed_tools``, sourced from every fleet-installed domain skill's
-    sidecar — not just this package's own ``agent_utilities/skills/``.
+    ``allowed_tools``.
 
-    The seven ``graph-*`` domain skills that used to live locally here
-    (and whose sidecars this function used to read directly off
-    ``SKILLS_ROOT``) moved to graph-os's own skill pack; the four skills
-    this package retains are all ``tier: platform`` and claim no verbs of
-    their own, so a local-only scan would always find an empty set and fail
-    every delegated case that legitimately names a Graph-OS verb owned by a
-    graph-os domain skill. ``discover_skills()`` (the same cross-package
-    unified-resolver discovery ``skill_coverage.compute_coverage()`` uses)
-    finds those fleet-installed sidecars instead.
+    The seven ``graph-*`` domain skills that used to live locally here (and
+    whose sidecars this function used to read directly off ``SKILLS_ROOT``)
+    moved to graph-os's own skill pack; the four skills this package retains
+    are all ``tier: platform`` and claim no verbs of their own. ``verb_universe()``
+    is this package's own static canonical ToolSpec registry — it needs no
+    sidecar or installed package to exist and so validates correctly whether
+    or not graph-os happens to be installed alongside agent-utilities (it is
+    not an agent-utilities dependency, so CI never has it; a dev sandbox
+    might). ``discover_skills()`` (the cross-package unified-resolver
+    discovery ``skill_coverage.compute_coverage()`` uses) is kept as a
+    supplementary source for ``domain_wraps`` — the per-skill mapping below,
+    used only for a DIRECT case's ``expected_routes`` check against a
+    locally-tiered-domain skill, which is legitimately empty when none is
+    installed.
     """
     domain_wraps: dict[str, set[str]] = {}
     for meta in discover_skills():
         if meta.tier == "domain" and not meta.errors:
             domain_wraps[meta.name] = set(meta.wraps)
-    all_domain_wraps = set().union(*domain_wraps.values()) if domain_wraps else set()
+    all_domain_wraps = verb_universe()
     return domain_wraps, all_domain_wraps
 
 
