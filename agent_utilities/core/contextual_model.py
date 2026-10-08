@@ -517,7 +517,7 @@ class GroundingUnavailableError(ContextCompilationError):
 
 
 @contextmanager
-def use_grounding_policy(policy: GroundingPolicy = "required") -> Iterator[None]:
+def use_grounding_policy(policy: GroundingPolicy | None = None) -> Iterator[None]:
     """Scope the grounding policy (and its outcome tracking) for one delegated run.
 
     CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract. ``"required"`` (the
@@ -535,6 +535,7 @@ def use_grounding_policy(policy: GroundingPolicy = "required") -> Iterator[None]
     run sharing the same task/context.
     """
 
+    # ``None`` defers to the deployment default (AGENT_GROUNDING_POLICY).
     policy_token = _grounding_policy.set(policy)
     # A FRESH dict per scope (see :data:`_grounding_outcome`) — nesting therefore
     # still gets clean per-run tracking, while every child task/thread spawned
