@@ -1,4 +1,4 @@
-"""AU-CONTROL-R029: the ontology selects the sources; the report reads them live.
+"""Spec agent-control-plane (cross-source report): the ontology selects the sources; the report reads them live.
 
 Two fake sources stand in for live systems: a supply-chain MCP server that
 exposes suppliers and components, and a CMDB GraphQL API that exposes
