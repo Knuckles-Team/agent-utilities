@@ -270,3 +270,19 @@ def test_a_lagging_feed_stops_serving_event_bounded_entries(
         cache.lookup(_key(), "the statute", policy=policy).outcome
         == "refused_freshness"
     ), "an immutable class is bounded only by events; unread events mean no hit"
+
+
+@pytest.mark.parametrize("response", [None, {"epoch": "invalid"}])
+def test_malformed_feed_drops_previously_cacheable_entries(response: Any) -> None:
+    hub, target = _hub(_Clock()), _Target()
+    hub.attach(target)
+    hub.apply_feed(_feed([]))
+    assert hub.ttl_for({"Doc"}) == 600.0
+
+    async def malformed(method: str, params: dict[str, Any], graph: str) -> Any:
+        return response
+
+    with pytest.raises((TypeError, ValueError)):
+        asyncio.run(poll_engine(hub, malformed))
+    assert target.graph_calls == 1
+    assert hub.ttl_for({"Doc"}) is None

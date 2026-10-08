@@ -23,7 +23,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from .candidate import APPROVED_SOURCE_PREFIX, approved_candidate_digest
+from .candidate import APPROVED_SOURCE_PREFIX, approved_candidate_digest, record_contract
 from .contract_store import ApprovedContract, ContractStoreUnavailable, save_contract
 from .eg_port import SchemaRepairPort
 from .repair import PROPOSAL_LABEL
@@ -94,10 +94,20 @@ def _stored_contract(row: Mapping[str, Any]) -> dict[str, Any] | None:
 def _intact(source: str, row: Mapping[str, Any]) -> bool:
     """The stored contract still hashes to the digest that was approved."""
     contract = _stored_contract(row)
+    if contract is None:
+        return False
+    try:
+        stored_shape = json.loads(str(row.get("shape") or ""))
+    except ValueError:
+        return False
+    if not isinstance(stored_shape, Mapping):
+        return False
+    # The AU projection must describe the exact contract the operator approved,
+    # not independent mutable proposal data that could widen the next ingest.
+    if record_contract(RecordShape.from_json(stored_shape)) != contract:
+        return False
     source_id = f"{APPROVED_SOURCE_PREFIX}{source}"
-    return contract is not None and approved_candidate_digest(
-        source_id, contract
-    ) == row.get("digest")
+    return approved_candidate_digest(source_id, contract) == row.get("digest")
 
 
 def _close(port: SchemaRepairPort, tenant: str, lease: Mapping[str, Any]) -> bool:

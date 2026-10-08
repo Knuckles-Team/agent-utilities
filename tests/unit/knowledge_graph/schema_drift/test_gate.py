@@ -222,3 +222,16 @@ def test_the_fleet_drain_never_actuates_a_schema_repair_approval() -> None:
         "a": {"id": "action_approval:x", "kind": "schema_repair", "status": "consumed"}
     }
     assert FleetReconciler._approval_candidate_props(row) is None
+
+
+def test_approved_contract_cannot_activate_a_tampered_projection(harness: Harness) -> None:
+    lease_id = harness.sync(V2).detail["repair"]["approval_lease_id"]
+    harness.port.decide(lease_id, "consumed")
+    (proposal,) = harness.engine.labelled("SchemaRepairProposal").values()
+    widened = [{**record, "unapproved": True} for record in V2]
+    proposal["shape"] = json.dumps(infer_shape(widened).to_json())
+    result = harness.sync(widened)
+    assert not result.proceed
+    assert not [item for item in harness.port.attached if item[0] == "live"]
+    (contract,) = harness.engine.labelled("SourceRecordContract").values()
+    assert contract["approved_by"] == "bootstrap"

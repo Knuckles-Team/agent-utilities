@@ -315,12 +315,13 @@ async def poll_engine(hub: FreshnessHub, send: FeedSend) -> int:
     read = False
     try:
         raw = await send(FEED_METHOD, hub.feed_request(), hub.graph)
+        dropped = hub.apply_feed(feed_mapping(raw))
         read = True
+        return dropped
     finally:
         if not read:
             logger.warning("freshness feed read failed for graph %s", hub.graph)
             hub.mark_unreachable()
-    return hub.apply_feed(feed_mapping(raw))
 
 
 def feed_mapping(raw: Any) -> Mapping[str, Any]:
