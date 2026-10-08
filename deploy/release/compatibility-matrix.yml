@@ -89,7 +89,7 @@ components:
     artifactKind: catalog
     dependsOn:
       agent-utilities: "==2.5.0"
-    exactEntries: 13
+    exactEntries: 4
     requiredCapabilities:
       - graph-os-delegation-validated
       - epistemic-engine-validated

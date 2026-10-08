@@ -12,7 +12,7 @@ from typing import Any
 
 import yaml
 
-from agent_utilities.mcp.skill_coverage import parse_graph_os_sidecar
+from agent_utilities.mcp.skill_coverage import discover_skills, parse_graph_os_sidecar
 from agent_utilities.skills import BUNDLED_SKILLS
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -26,32 +26,8 @@ _REQUIRED_WORKFLOW_TERMS: dict[str, frozenset[str]] = {
     "agent-utilities-deployment": frozenset(
         {"migration", "persisted-format", "upgrade"}
     ),
-    "graph-engine-and-modalities": frozenset(
-        {
-            "sql",
-            "sparql",
-            "reasoning",
-            "consensus",
-            "tenancy",
-            "rbac",
-            "administration",
-        }
-    ),
-    "graph-runtime-and-governance": frozenset({"troubleshoot"}),
 }
-_REQUIRED_WORKFLOW_ROUTES: dict[str, frozenset[str]] = {
-    "graph-engine-and-modalities": frozenset(
-        {
-            "engine_admin",
-            "engine_consensus",
-            "engine_query",
-            "engine_rbac",
-            "engine_rdf",
-            "engine_reasoning",
-            "engine_tenants",
-        }
-    )
-}
+_REQUIRED_WORKFLOW_ROUTES: dict[str, frozenset[str]] = {}
 
 _PRIVATE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -608,13 +584,24 @@ def _validate_skill(skill_dir: Path) -> list[str]:
 
 
 def _forward_matrix_domain_wraps() -> tuple[dict[str, set[str]], set[str]]:
+    """Known Graph-OS verbs a delegated platform case may name in
+    ``allowed_tools``, sourced from every fleet-installed domain skill's
+    sidecar — not just this package's own ``agent_utilities/skills/``.
+
+    The seven ``graph-*`` domain skills that used to live locally here
+    (and whose sidecars this function used to read directly off
+    ``SKILLS_ROOT``) moved to graph-os's own skill pack; the four skills
+    this package retains are all ``tier: platform`` and claim no verbs of
+    their own, so a local-only scan would always find an empty set and fail
+    every delegated case that legitimately names a Graph-OS verb owned by a
+    graph-os domain skill. ``discover_skills()`` (the same cross-package
+    unified-resolver discovery ``skill_coverage.compute_coverage()`` uses)
+    finds those fleet-installed sidecars instead.
+    """
     domain_wraps: dict[str, set[str]] = {}
-    for skill in EXPECTED_SKILLS:
-        meta = parse_graph_os_sidecar(
-            SKILLS_ROOT / skill / "agents" / "graph-os.yaml", skill_name=skill
-        )
+    for meta in discover_skills():
         if meta.tier == "domain" and not meta.errors:
-            domain_wraps[skill] = set(meta.wraps)
+            domain_wraps[meta.name] = set(meta.wraps)
     all_domain_wraps = set().union(*domain_wraps.values()) if domain_wraps else set()
     return domain_wraps, all_domain_wraps
 
@@ -1117,8 +1104,8 @@ def _validate_skill_inventory() -> tuple[set[str], list[str]]:
         path.parent.name for path in SKILLS_ROOT.glob("*/SKILL.md") if path.is_file()
     }
     errors: list[str] = []
-    if len(EXPECTED_SKILLS) != 13:
-        errors.append("canonical taxonomy must contain exactly 13 workflow skills")
+    if len(EXPECTED_SKILLS) != 4:
+        errors.append("canonical taxonomy must contain exactly 4 workflow skills")
     if actual != EXPECTED_SKILLS:
         errors.append(
             "skill inventory mismatch: "
@@ -1130,7 +1117,7 @@ def _validate_skill_inventory() -> tuple[set[str], list[str]]:
 
 def _validate_skill_tree(actual: set[str]) -> list[str]:
     errors: list[str] = []
-    # Scoped to the canonical 13-skill subtree only: a SKILL.md nested under one
+    # Scoped to the canonical 4-skill subtree only: a SKILL.md nested under one
     # of EXPECTED_SKILLS would be a real violation (that skill must be a flat
     # <name>/SKILL.md directory), but agent_utilities/skills/ also legitimately
     # hosts other, differently-shaped content outside this taxonomy — the

@@ -25,7 +25,7 @@ Start from the failed exit gate and preserve the trace/evidence bundle.
 | An object-store/filer pod crash-loops forever immediately after deploy, never stabilizing | the probe's `initialDelaySeconds` against the process's real bind-time, not just "is it eventually up" | measure how long the process takes to bind its port cold and set both readiness and liveness `initialDelaySeconds` comfortably past that, not a generic default |
 | A new object-store deploy is being planned around MinIO | whether MinIO community edition is still receiving images | MinIO CE is archived (no images since ~Oct 2025 as of this writing) — do not select it for a new deploy; use the operator-approved replacement |
 
-For runtime-only Graph-OS incidents after a healthy deployment, use the
+For runtime-only Graph-OS incidents after a healthy deployment, use graph-os's own
 `graph-runtime-and-governance` or `epistemic-graph-troubleshooting` skill. Use Genesis
 only when the fix changes the substrate contract.
 
