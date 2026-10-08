@@ -85,13 +85,13 @@ a run needed a retry:
   record does not read the field yet (D-W15-13).
 - **Budget exhaustion is never retried** (`on_run_error`): `UsageLimitExceeded`
   mid-output or an upstream `ContentFilterError` refusal is recorded but
-  always propagated — repairing a budget violation would only spend more of
+  always propagated — repairing a budget violation will only spend more of
   the budget that already tripped.
 
 Wired default-ON (`capabilities/composition.py`), it also bumps the
 underlying Agent's `retries={"output": max_repairs}` so pydantic-ai's own
 retry budget never preempts this module's classified exhaustion path
-(`output_repair_retries`). It is a pure no-op for the many agents whose
+(`output_repair_retries`). It is a pure no-op for the multiple agents whose
 `output_type` is plain text — the underlying hooks never fire for
 unstructured output.
 
@@ -124,7 +124,7 @@ Detects when an agent is repeating the same actions without progress:
 
 - **Repetition detection**: Identifies duplicate tool calls or responses
 - **Escalation**: After N repeated patterns, forces a strategy change
-- **Circuit breaker**: Terminates the loop after configurable max retries **(HSM Concept: Guard Condition)**
+- **Circuit breaker**: Stop the loop after configurable max retries **(HSM Concept: Guard Condition)**
 
 ### Teams (`capabilities/teams.py`)
 
@@ -138,7 +138,7 @@ Detects when an agent is repeating the same actions without progress:
 
 ## AgentCapability Type System (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
 
-> See also: [First Principles Architecture](first-principles.md) for the complete CONCEPT:AU-ORCH.adapter.hot-cache-invalidation deep-dive.
+> See also: [First Principles Architecture](first-principles.md) for the complete CONCEPT:AU-ORCH.adapter.hot-cache-invalidation detailed review.
 
 The AgentCapability system extends the static tool-binding model with dynamic, condition-based capability activation. Capabilities are modeled as first-class Knowledge Graph nodes (`AgentCapabilityNode`) with trigger conditions that are evaluated at execution time.
 
@@ -160,7 +160,7 @@ The AgentCapability system extends the static tool-binding model with dynamic, c
 
 ## Registry Hot Cache (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
 
-> See also: [Registry Cache Deep-Dive](registry-cache.md) for the complete architecture.
+> See also: [Registry Cache Detailed review](registry-cache.md) for the complete architecture.
 
 The Registry Hot Cache provides session-scoped O(1) specialist lookups, replacing the previous O(N) full-registry scan on every routing call. Key features:
 
@@ -173,5 +173,5 @@ The Registry Hot Cache provides session-scoped O(1) specialist lookups, replacin
 The router uses `get_relevant_specialists(query, engine)` instead of the full registry, ensuring:
 
 1. The LLM sees fewer, more relevant specialist descriptions
-2. Routing accuracy improves due to reduced prompt noise
+2. Routing accuracy improves because reduced prompt noise
 3. Latency decreases from eliminated registry scans

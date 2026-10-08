@@ -1,6 +1,6 @@
 # Gap Analysis & Maturity Scorecard
 
-> Where we stand across 12 Company Brain dimensions.
+> Where this repository stand across 12 Company Brain dimensions.
 
 ---
 
@@ -52,8 +52,8 @@
 
 ## Strategic Advantages
 
-1. **Ontology-First** — We start with OWL and bolt storage underneath, not the reverse
+1. **Ontology-First** — This repository start with OWL and bolt storage underneath, not the reverse
 2. **Memory Is Infrastructure** — SynthesisEngine + temporal decay = self-maintaining state
 3. **Mixin Architecture** — New capabilities are additive, not rewrites
-4. **One authority + optional mirrors** — `epistemic-graph` is the one authority (system of record) via the `GraphBackend` abstraction; Postgres (pg-age), Neo4j, FalkorDB, LadybugDB are optional write-only mirrors (the latter three under `backends/contrib/`)
+4. **One authority + optional mirrors** — `epistemic-graph` is the one authority (system of record) via the `GraphBackend` abstraction. Postgres (pg-age), Neo4j, FalkorDB, LadybugDB are optional write-only mirrors (the latter three under `backends/contrib/`)
 5. **5-Pillar Ecosystem** — Only architecture where the substrate integrates orchestration, self-improvement, ecosystem sensors, and governance

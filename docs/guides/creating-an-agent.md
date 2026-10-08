@@ -1,6 +1,6 @@
 # Creating an Agent with Python
 
-This guide walks you through creating a production-ready AI agent using
+This guide walks the operator through creating a production-ready AI agent using
 `agent-utilities`. The repository-local [reference agent](https://github.com/Knuckles-Team/agent-utilities/blob/main/examples/reference_agent/README.md)
 provides a runnable companion implementation.
 
@@ -28,7 +28,7 @@ my-agent/
 
 ## Step 1: Create `main_agent.json`
 
-This JSON file defines your agent's identity. It is loaded by `load_identity()`:
+This JSON file defines the operator's agent's identity. It is loaded by `load_identity()`:
 
 ```json
 {
@@ -43,7 +43,7 @@ This JSON file defines your agent's identity. It is loaded by `load_identity()`:
 
 ## Step 2: Create `agent_server.py`
 
-This is the heart of your agent. Here is the reference pattern used by all ecosystem agents:
+This is the heart of the operator's agent. Here is the reference pattern used by all ecosystem agents:
 
 ```python
 #!/usr/bin/python
@@ -127,7 +127,7 @@ if __name__ == "__main__":
 |---|---|
 | `initialize_workspace()` | Discovers and sets the workspace root directory |
 | `load_identity()` | Loads `main_agent.json` from the package directory |
-| `build_system_prompt_from_workspace()` | Constructs a system prompt from `AGENTS.md`, README, etc. |
+| `build_system_prompt_from_workspace()` | Builds a system prompt from `AGENTS.md`, README, etc. |
 | `create_agent_parser()` | Creates a standardized CLI argument parser with provider, model, host, port, MCP config, etc. |
 | `create_agent_server()` | Bootstraps the full graph agent server with ACP, A2A, AG-UI endpoints, knowledge graph, and MCP tool loading |
 
@@ -135,7 +135,7 @@ if __name__ == "__main__":
 
 Register the already-installed GraphOS command. Configure its JWT validation
 policy and exactly one of `KG_AUTH_TOKEN_REF` or `KG_IDENTITY_OAUTH2` in the XDG
-AgentConfig before launch; no credential, endpoint, or machine path belongs in
+AgentConfig before start; no credential, endpoint, or machine path belongs in
 this tracked client file:
 
 ```json
@@ -168,7 +168,7 @@ my-agent = "my_agent.agent_server:agent_server"
 my-agent-mcp = "my_agent.mcp_server:mcp_server"
 ```
 
-## Step 5: Run Your Agent
+## Step 5: Run The operator's Agent
 
 ```bash
 # Development (uses the default entry in the configured model registry)
@@ -211,9 +211,9 @@ memory before the existing agent factory is called.
 
 ## Next Steps
 
-- Add MCP tools to your agent: see [Building MCP Servers](building-mcp-servers.md)
+- Add MCP tools to the operator's agent: see [Building MCP Servers](building-mcp-servers.md)
 - Add custom skills: place `.md` files in a directory and pass `--custom-skills-directory`
-- Deploy with Docker: see your agent's `Dockerfile` and `compose.yaml`
+- Deploy with Docker: see the operator's agent's `Dockerfile` and `compose.yaml`
 - Learn about the graph orchestration pipeline: see [Architecture](architecture.md)
 
 

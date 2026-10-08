@@ -1,12 +1,12 @@
 # Multi-Tenancy
 
-> **The Question**: How do you let 50 teams share a single Company Brain without any team seeing another team's confidential data?
+> **The Question**: How do the operator let 50 teams share a single Company Brain without any team seeing another team's confidential data?
 
 ---
 
 ## Why Multi-Tenancy Matters
 
-An organizational brain serves many teams, departments, and stakeholders. Without tenant isolation:
+An organizational brain serves multiple teams, departments, and stakeholders. Without tenant isolation:
 - Engineering can see HR's compensation data
 - The trading desk can see compliance's investigation notes
 - A contractor AI agent can access internal strategy documents
@@ -144,7 +144,7 @@ brain.tenancy.add_member("team:carol+code-reviewer", ActorType.HYBRID_TEAM,
 
 | Role | Capabilities |
 |:-----|:-------------|
-| `admin` | Full read/write/delete, can add/remove members, manage child tenants |
+| `admin` | Full read/write/remove, can add/remove members, manage child tenants |
 | `member` | Read/write within tenant scope |
 | `viewer` | Read-only within tenant scope |
 | `service` | Automated read/write (for CI/CD, monitoring agents) |

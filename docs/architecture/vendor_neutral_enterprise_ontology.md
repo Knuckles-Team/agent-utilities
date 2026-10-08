@@ -12,7 +12,7 @@ business does is the same — the tools are interchangeable implementation detai
 
 This layer makes the *reasoning* vendor-neutral. Every system maps to **one
 canonical ArchiMate-aligned upper ontology**, so a single query answers a business
-question regardless of which product produced the data:
+question in either case of which product produced the data:
 
 ```sparql
 # "Show every IT service event, whoever's tool raised it."
@@ -48,11 +48,11 @@ layer. The ontology is the single source of truth; the tools are pluggable.
 The thesis in practice: every enterprise **capability** maps to one canonical concept
 set, and each capability has **both a first-party (proprietary) adapter and an
 open-source adapter**. Both emit the same canonical nodes, so reasoning is identical
-regardless of which a deployment runs — you swap the *adapter*, never the *reasoning*.
+in either case of which a deployment runs — the operator swap the *adapter*, never the *reasoning*.
 Self-hosted deployments may run the open-source column; managed deployments may run the first-party
 column; the federation supports both side-by-side and reconciles them by GUID/key.
 
-A capability is often served by **several products at once** (e.g. ERPNext is the ERP
+A capability is often served by **multiple products at once** (e.g. ERPNext is the ERP
 *and* the open-source ITSM *and* a project tracker) — each maps to the canonical
 concept for that role, tagged with a `capability` property.
 
@@ -178,7 +178,7 @@ After reasoning, an individual typed `:Incident` (from ServiceNow) and one typed
 `:ErpNextIssue` (from ERPNext) **both gain inferred `rdf:type :ApplicationEvent`**.
 
 > **Design note.** A literal RML/Morph-KGC engine was deliberately *not* added — it
-> would mean a new mapping language and a second materialization path. The existing
+> will mean a new mapping language and a second materialization path. The existing
 > self-registering extractors already emit uniform nodes, and the OWL crosswalk +
 > reasoner already exist. A thin RML adapter remains a documented future option for
 > spreadsheet/CSV-like sources where a declarative mapping file beats Python.
@@ -204,7 +204,7 @@ source touches **no shared hub file**.
 | Camunda | `extractors/camunda.py` | `BusinessProcess`, `BusinessTask`, `Incident` |
 | LeanIX | `extractors/leanix.py` | `BusinessCapability`, `Application`, `ITComponent` |
 
-Every extractor is duck-typed (`config["client"]`), performs **no network I/O
+Every extractor is duck-typed (`config["client"]`), performs **no network `I/O`
 itself**, and tolerates missing fields and Camunda 7 vs 8 client differences. The
 API clients themselves are the existing MCP packages (`camunda-mcp`,
 `servicenow-api`, `erpnext-agent`, `leanix-agent`, `archimate-mcp`).
@@ -226,7 +226,7 @@ into the same `:ApplicationEvent` crosswalk as ServiceNow and ERPNext.
 
 The epistemic-graph Rust engine parses code into `SYMBOL`/`FILE` nodes and clusters
 them into **features**. `realizes.py` bridges those features to ArchiMate
-`BusinessCapability` nodes, emitting `REALIZES` edges — so you can ask
+`BusinessCapability` nodes, emitting `REALIZES` edges — so the operator can ask
 "show all code that implements the Order Fulfillment capability" even when names
 don't match. It stays in Python; the Rust engine remains purely syntactic.
 

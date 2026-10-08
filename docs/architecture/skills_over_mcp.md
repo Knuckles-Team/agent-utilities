@@ -58,7 +58,7 @@ directory logs a `WARNING` and is skipped — it does not sink the others.
 > builds a real server through `create_mcp_server` and reads
 > `skill://{name}/SKILL.md` back off it — the isolation tests in
 > `tests/unit/mcp/test_skill_provider_wiring.py` use a `MagicMock` server and a
-> fake `SkillProvider`, so they alone could not tell a live path from a dead one.
+> fake `SkillProvider`, so they alone can not tell a live path from a dead one.
 
 This is why the strategy works at all: a fastmcp-3 (or plain `mcp`) client can
 already read a fastmcp-4 server's `skill://` resources — so upgrading
@@ -125,7 +125,7 @@ merge logic was needed there. `Orchestrator.resolve_capability`'s
 `_search_hit_kind` now also classifies a bare `:Tool` hybrid-search hit
 (previously silently dropped), carrying its owning `server` forward.
 
-**Binding.** `Orchestrator.execute_capability` computes one binding regardless
+**Binding.** `Orchestrator.execute_capability` computes one binding in either case
 of resolved kind: a `workflow` still dispatches through `execute_workflow`
 (a genuinely different execution engine, not a naming difference); every other
 kind — including a bare `tool` resolution with no caller-supplied

@@ -32,7 +32,7 @@ written for the person who will actually run this, not as design narrative.
 
 | Piece | Path |
 |---|---|
-| The controlled-release orchestrator (freeze → regenerate → sign → verify) | `scripts/release/regenerate_and_sign_connector_manifests.py` |
+| The controlled-release orchestrator (freeze → regenerate → sign → check) | `scripts/release/regenerate_and_sign_connector_manifests.py` |
 | The Kubernetes Job template that holds the real key via OpenBao workload identity | `deploy/release/connector-manifest-signing-job.yaml` |
 | The keyless diff/freeze report job (GitHub Actions, `workflow_dispatch`-only) | `.github/workflows/advisory.yml` → `connector-manifest-diff` |
 | Source-only input/output custody contract (synthetic fixture + static gate) | `tests/fixtures/release/connector-manifest-signing-inputs.yml`, `tests/unit/release/test_connector_manifest_signing_job_contract.py` |
@@ -57,11 +57,11 @@ Everything below is infrastructure the operator applies directly against the liv
 
 ### 0. The signing key itself — mint it and store it under a version
 
-**Verify first; this step is not always needed.** As of 2026-08-20 it *is*: a cluster-wide
+**Check first; this step is not always needed.** As of 2026-08-20 it *is*: a cluster-wide
 sweep found `ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY` in no `ExternalSecret` and no `Secret`,
 so the reference `vault://agent-utilities#ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY@2` that
 `deploy/release/connector-manifest-signing-job.yaml` resolves does not exist yet and the
-Job would fail closed at startup. Re-check before assuming:
+Job will fail closed at startup. Re-check before assuming:
 
 ```bash
 kubectl get externalsecrets,secrets -A -o json \
@@ -75,7 +75,7 @@ signing key is not. `ontology_integrity.py` refuses an `env://` reference by des
 version the Job reads, which is what makes a rotation observable instead of silent.
 
 The private key is ed25519, stored as base64 of the 32-byte seed. Generate it **off the
-cluster**, on a host you trust, and never let it transit an agent session or a shell
+cluster**, on a host the operator trust, and never let it transit an agent session or a shell
 history file:
 
 ```bash
@@ -96,7 +96,7 @@ EOF
 ```
 
 Write it to the `apps/agent-utilities` secret **without disturbing the other keys already
-there** (`bao kv patch`, never `put` — `put` replaces the whole secret and would silently
+there** (`bao kv patch`, never `put` — `put` replaces the whole secret and will silently
 drop every co-resident value):
 
 ```bash
@@ -156,7 +156,7 @@ reviewed release input bundle. It contains `release-inputs.sha256` with relative
 entries, the exact built wheel under `wheels/`, the frozen provider fleet under
 `agents/`, and the repository-manager workspace manifest at its normal package path.
 
-The Job verifies the attestation file digest, then verifies every listed input before
+The Job checks the attestation file digest, then checks every listed input before
 copying the fleet into its bounded disposable `/work` staging volume. The operator
 substitutes the attestation digest and wheel digest in the Job template; the image is
 also required to be pinned as `image@sha256:<digest>`. Create a separate durable
@@ -200,7 +200,7 @@ complain."
 signing (`DURABLE_SECRET_SCHEMES = ("vault://", "secret://")`) — so the design deliberately
 does **not** follow the common `ExternalSecret` → k8s `Secret` → `envFrom` pattern this
 workspace uses elsewhere (e.g. `inventory/k8s-migration/cutover/apptier/github-runner.yaml`).
-Materializing the key into a k8s `Secret` object would (a) require a second custody surface
+Materializing the key into a k8s `Secret` object will (a) require a second custody surface
 (the `Secret`) that this workspace's own documented trap warns is silently reverted if
 hand-patched via `kubectl patch` rather than written through OpenBao, and (b) persist the
 key at rest in etcd for the Secret's lifetime instead of only holding it in memory for the
@@ -225,7 +225,7 @@ the following is refused with a bounded diagnostic — never a silent pass, neve
 | Schema change (a field mapping changes post-signing) | `_check_manifest_bytes` integrity/signature check | `[integrity]` / `[signature]` |
 | Alias change (a sync preset's `server` changes post-signing) | `_signature_violations` | `[signature]` |
 
-`scripts/release/regenerate_and_sign_connector_manifests.py` additionally refuses to
+`scripts/release/regenerate_and_sign_connector_manifests.py` also refuses to
 proceed (`verify_freeze`) on a dirty working tree, a commit SHA mismatch, or (with
 `--require-built-artifact`) an editable/source-tree-only install — the "built-wheel vs
 source-tree mismatch" case GOC-84 names explicitly.

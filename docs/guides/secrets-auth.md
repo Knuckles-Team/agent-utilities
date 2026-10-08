@@ -96,7 +96,7 @@ secret-manager delete gitlab/token
 
 ### Engine-encrypted `__secrets__` store (Default everywhere)
 
-- **Zero config** — works out of the box; durable across restart
+- **Zero config** — works by default; durable across restart
 - Secrets are `:Secret` nodes in a dedicated `__secrets__` engine graph
 - The secret **value** is an encrypted node property (engine encryption-at-rest,
   ChaCha20-Poly1305, keyed by `EPISTEMIC_GRAPH_ENCRYPTION_KEY`/KMS); the key
@@ -109,9 +109,9 @@ secret-manager delete gitlab/token
 - Requires `pip install agent-utilities[vault]` (installs `hvac`)
 - Uses KV v2 secrets engine
 - Best for: production, multi-tenant, corporate deployments
-- **OpenBao Support**: OpenBao (an open-source fork of HashiCorp Vault initiated at Vault 1.14.7) is **fully compatible out-of-the-box**. Because OpenBao maintains complete API compatibility with HashiCorp Vault, the `hvac` Python client and all authentication methods (Static Token, AppRole, Kubernetes, OIDC/JWT) work seamlessly. No code or configuration changes are needed.
+- **OpenBao Support**: OpenBao (an open-source fork of HashiCorp Vault start at Vault 1.14.7) is **fully compatible out-of-the-box**. Because OpenBao maintains complete API compatibility with HashiCorp Vault, the `hvac` Python client and all authentication methods (Static Token, AppRole, Kubernetes, OIDC/JWT) work smoothly. No code or configuration changes are needed.
 
-To configure your agent to use Vault or OpenBao, export:
+To configure the operator's agent to use Vault or OpenBao, export:
 
 ```bash
 export SECRETS_BACKEND=vault
@@ -127,7 +127,7 @@ Prefer workload identity. If token authentication is required, inject
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
 | `SECRETS_BACKEND` | `engine` | `engine` → the durable engine-encrypted `__secrets__` store (default everywhere); `vault` → enterprise OpenBao/Vault |
-| `EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF` | *(tiny non-production local mode generates a stable private key; otherwise required)* | External `env://` or `vault://` bootstrap reference for the packaged local engine data key. `secret://` is rejected because it would create a circular dependency on the engine-backed store. |
+| `EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF` | *(tiny non-production local mode generates a stable private key; otherwise required)* | External `env://` or `vault://` bootstrap reference for the packaged local engine data key. `secret://` is rejected because it will create a circular dependency on the engine-backed store. |
 | `SECRETS_VAULT_URL` | `http://127.0.0.1:8200` | Vault server URL |
 | `SECRETS_VAULT_MOUNT` | `secret` | Vault KV v2 mount point |
 
@@ -173,7 +173,7 @@ when non-empty in durable XDG configuration. Nested models use `api_key_ref` and
 must contain one bounded JSON object and is validated against header injection and
 hop-by-hop header rules before client construction.
 
-AgentConfig never searches a repository or launch directory for a dotenv file.
+AgentConfig never searches a repository or start directory for a dotenv file.
 The XDG runtime-secret filename is fixed and cannot be configured in `config.json`.
 On POSIX it must be owned by the current user or root and have mode `0600` or
 `0400`. It contains one JSON object whose keys are environment-variable names.
@@ -253,7 +253,7 @@ The ecosystem supports OAuth2 token delegation for MCP servers:
 1. **`UserTokenMiddleware`** accepts only the token and claims exposed by the
    configured FastMCP authentication provider, then binds them to
    request-scoped context variables.
-2. MCP servers retrieve that verified request authority through
+2. MCP servers retrieve that checked request authority through
    `agent_utilities.mcp.delegated_auth.get_user_token()` and
    `get_user_claims()`.
 3. The token is exchanged via RFC 8693 (Token Exchange) for a scoped service token
@@ -293,7 +293,7 @@ rejected.
 | `AUTH_JWT_JWKS_URI` | JWKS endpoint for token verification |
 | `AUTH_JWT_ISSUER` | Expected `iss` claim |
 | `AUTH_JWT_AUDIENCE` | Expected `aud` claim |
-| `KG_POLICY_VERSION` | Immutable policy revision stamped into verified graph sessions |
+| `KG_POLICY_VERSION` | Immutable policy revision stamped into checked graph sessions |
 
 ### OIDC Flows by Client Type
 
@@ -387,7 +387,7 @@ secret-manager list
 
 ### Architecture
 
-The authentication flow utilizes the OAuth 2.0 Authorization Code Flow with Proof Key for Code Exchange (PKCE) (RFC 7636).
+The authentication flow use the OAuth 2.0 Authorization Code Flow with Proof Key for Code Exchange (PKCE) (RFC 7636).
 
 ```
 ┌──────────────┐          1. Click link          ┌──────────────┐
@@ -411,7 +411,7 @@ The authentication flow utilizes the OAuth 2.0 Authorization Code Flow with Proo
 
 ### Flow Options
 
-1. **Auto-Callback Server**: Launches a temporary local web server (defaults to `http://localhost:8000`) to catch the callback and automatically parse the authorization code.
+1. **Auto-Callback Server**: Starts a temporary local web server (defaults to `http://localhost:8000`) to catch the callback and automatically parse the authorization code.
 2. **Manual CLI Fallback**: If a port is occupied or a server cannot be started, prints the authorization URL to the terminal and prompts the user to paste the callback URL or code directly.
 
 ### Usage in Python
@@ -442,14 +442,14 @@ valid_token = manager.resolve_credentials(auto_login=True)
 
 1. **How Loopback Works Remotely**
    The OIDC callback server runs inside the workspace environment at `http://127.0.0.1:56121/callback`.
-   Because `graph-os` runs as an MCP server, standard standard-input prompts (`input()`) cannot be used (since the IDE uses standard input/output for JSON-RPC communication, reading from stdin would hang the MCP server).
+   Because `graph-os` runs as an MCP server, standard standard-input prompts (`input()`) cannot be used (since the IDE uses standard input/output for JSON-RPC communication, reading from stdin will hang the MCP server).
    Therefore, the callback server is the exclusive way to exchange tokens without crashing the MCP channel.
 
 2. **How to Authenticate in a Headless/Remote Environment**
-   To authenticate using your local browser while the MCP server runs on the remote container/VM:
-   * **Forward the Callback Port**: Set up a local port forward for port `56121` in your IDE (or via SSH using `ssh -L 56121:127.0.0.1:56121`).
-   * **Authorize**: Click the xAI auth link in your browser and log in.
-   * **Seamless Redirect**: When the browser redirects to `http://127.0.0.1:56121/callback`, the traffic will be forwarded back to your remote workspace. The OIDC loopback server will instantly capture the authorization code, exchange it, and save the token securely—completing the setup automatically with zero manual copy-pasting!
+   To authenticate using the operator's local browser while the MCP server runs on the remote container/VM:
+   * **Forward the Callback Port**: Set up a local port forward for port `56121` in the operator's IDE (or via SSH using `ssh -L 56121:127.0.0.1:56121`).
+   * **Authorize**: Click the xAI auth link in the operator's browser and log in.
+   * **Smooth Redirect**: When the browser redirects to `http://127.0.0.1:56121/callback`, the traffic will be forwarded back to the operator's remote workspace. The OIDC loopback server will instantly capture the authorization code, exchange it, and save the token securely—completing the setup automatically with zero manual copy-pasting!
 
 ### Configuration
 

@@ -1,13 +1,13 @@
-# Your First UQL Pipeline
+# The operator's First UQL Pipeline
 
 In the [previous lesson](../ontology-model-101/01-interfaces-object-types-and-links.md)
-you learned the *shape* of the graph — interfaces, object types, and links.
-This lesson teaches you to **ask it questions** using UQL, the engine's native
+the operator learned the *shape* of the graph — interfaces, object types, and links.
+This lesson teaches the operator to **ask it questions** using UQL, the engine's native
 cross-modal query language.
 
 ## What UQL is
 
-Most graph databases give you one lens: a graph-traversal language, or a
+Most graph databases give the operator one lens: a graph-traversal language, or a
 vector search, or full-text — pick one. UQL composes graph traversal, vector
 similarity, lexical (BM25) search, bi-temporal time travel, federation across
 external sources, and epistemic belief/evidence reasoning **in a single
@@ -38,11 +38,11 @@ MATCH (:Label) [WHERE ...]
 `REASON`, `FOREIGN`, `AS OF`, `TEXT`, `RANK BY`, and every other stage keyword
 can only appear *after* `|>`, never as the very first token. (There's a subtle
 executor-level rule where a stage fed an *empty* row set effectively re-seeds
-itself — which is how you'll sometimes see `REASON` or `AS OF` acting
+itself — which is how the operator'll sometimes see `REASON` or `AS OF` acting
 source-like right after a `MATCH` that matched nothing on purpose — but the
 text always opens with `MATCH`.)
 
-## Your first query: MATCH + WHERE
+## The operator's first query: MATCH + WHERE
 
 The simplest possible query selects everything of one type:
 
@@ -105,16 +105,16 @@ MATCH (:Claim) |> EVIDENCE FOR "c1" |> BELIEF AS OF @1700000000 |> LIMIT 10
 ## Where to go from here
 
 - Run a UQL query for real via `engine_query(action='uql', text='MATCH (:Document) |> LIMIT 5')`
-  — note the keyword is `text`, not `query`. An unsupported clause in your
+  — note the keyword is `text`, not `query`. An unsupported clause in the operator's
   build returns a clean `{"error": ...}`, never a silently wrong answer.
 - Don't want to hand-write UQL yet? `graph_ask`/`nl_query` translate a plain
-  natural-language question into a query (Cypher, SQL, or UQL) for you, and
-  return the generated query alongside the answer so you can learn from it.
+  natural-language question into a query (Cypher, SQL, or UQL) for the operator, and
+  return the generated query alongside the answer so the operator can learn from it.
 - The full grammar — every clause, every `Op`, and ~20 more worked examples —
   lives in `references/uql-reference.md` in graph-os's own `graph-query-and-explanation`
   skill.
 - SPARQL and SHACL are separate, standards-based surfaces for RDF/OWL data —
-  see the web UI's **SPARQL & SHACL** view if you'd rather query the ontology
+  see the web UI's **SPARQL & SHACL** view if the operator'd rather query the ontology
   itself that way.
 
 That's the whole mental model: pick a `MATCH`, pipe it through stages with

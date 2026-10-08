@@ -1,7 +1,7 @@
 # Start Here — What agent-utilities Is & How to Use It
 
-> The single page to read first. If you are an AI agent or a developer who just
-> wants to *use* this, everything you need is below or one click away.
+> The single page to read first. If the operator are an AI agent or a developer who just
+> wants to *use* this, everything the operator need is below or one click away.
 
 > 🧰 **Install the skills first — they unlock how to use everything else.** After
 > `pip install "agent-utilities[serving]"`, run **`agent-utilities install`**. It installs
@@ -16,9 +16,9 @@
 **agent-utilities is a batteries-included harness for building Pydantic-AI agents
 that come with a knowledge graph, orchestration, memory, and tools out of the
 box.** The heavy graph compute runs in a separate Rust engine
-([`epistemic-graph`](ecosystem.md)) reached out-of-process over a socket — but you
+([`epistemic-graph`](ecosystem.md)) reached out-of-process over a socket — but the operator
 don't need Rust, Postgres, or a separately managed server to start: **GraphOS
-supervises the packaged engine over a private local transport by default.** You
+supervises the packaged engine over a private local transport by default.** The operator
 can consume it three ways:
 import it as a **library**, run it as an **MCP server** (`graph-os`), or call its
 **REST gateway**.
@@ -39,7 +39,7 @@ tool and `POST /api/research/*`. See [OWL/RDF Layer](architecture/owl_rdf_layer.
 
 ## The 5 pillars (what's inside)
 
-| Pillar | What it gives you | Deep dive |
+| Pillar | What it gives the operator | Detailed review |
 |---|---|---|
 | **1. Graph Orchestration** | A router→planner→dispatcher that turns a goal into a coordinated team/swarm of agents at runtime | [pillar 1](pillars/1_graph_orchestration.md) |
 | **2. Epistemic Knowledge Graph** | A temporal, OWL-aware KG with ingestion, hybrid search, and a Palantir-parity ontology — the agent's memory and world model | [pillar 2](pillars/2_epistemic_knowledge_graph.md) |
@@ -58,7 +58,7 @@ with `DEPLOYMENT_PROFILE=tiny`, no `GRAPH_SERVICE_ENDPOINTS`, and no
 bootstrap JWT and key in memory as a one-time proof, validates the token through
 the normal verifier, destroys both, and returns a process-lifetime session
 without persisting personal, host, endpoint, filesystem, token, or proof data.
-Run `agent-utilities-doctor --only graph_identity auth` before launch.
+Run `agent-utilities-doctor --only graph_identity auth` before start.
 Every network transport, non-tiny profile, explicit engine endpoint, and other
 entry point requires exactly one external process identity plus its validation
 policy; acquisition or validation failure never falls back locally. External
@@ -66,11 +66,11 @@ stdio authority is bounded by a renewable shared expiry lease: identity drift is
 rejected, failed renewal never extends the lease, and graph work fails closed at
 expiry.
 
-| You want to… | Use | One-liner |
+| The operator want to… | Use | One-liner |
 |---|---|---|
 | Build a standalone agent in Python | **Library** | `from agent_utilities import create_agent` |
-| Give an existing agent (Claude Code, Cursor, your own) KG + tools | **MCP `graph-os`** | `graph-os` (stdio) |
-| Share one KG/agent backend across many clients/containers | **MCP over HTTP** or **REST gateway** | `graph-os --transport streamable-http` / `python -m agent_utilities` (REST, default port 9000) |
+| Give an existing agent (Claude Code, Cursor, the operator's own) KG + tools | **MCP `graph-os`** | `graph-os` (stdio) |
+| Share one KG/agent backend across multiple clients/containers | **MCP over HTTP** or **REST gateway** | `graph-os --transport streamable-http` / `python -m agent_utilities` (REST, default port 9000) |
 
 ### 1. As a library (standalone agent)
 
@@ -97,25 +97,25 @@ client's native registration mechanism for the same command and arguments.
 The agent now has `graph_query`, `graph_search`, `graph_ingest`, `graph_orchestrate`,
 `ontology_*`, and more — see [Capabilities](capabilities.md).
 
-### 3. As a REST gateway (one backend, many clients)
+### 3. As a REST gateway (one backend, multiple clients)
 
 Start the default REST gateway with `python -m agent_utilities`, then send graph queries
 to `localhost:9000/api/graph/query`.
 
 ## The knowledge graph is free and native
 
-You do **not** need a database to use the KG. The default backend is
+The operator do **not** need a database to use the KG. The default backend is
 `epistemic_graph`: the Rust engine is the one authority — compute, cache,
 semantic, and durable persistence in a single store. Zero separately managed
 servers, zero connector config:
 
 Epistemic-graph is always the authority, so no backend selector is required.
 
-When you want optional projections, point `GRAPH_MIRROR_TARGETS` at
+When the operator want optional projections, point `GRAPH_MIRROR_TARGETS` at
 Postgres/pg-age (or other) mirror connections; the
 engine stays the authority and fans writes out to the mirrors. See
 [Deployment Recipes](recipes/tiny.md) for tiny → single-node → enterprise, and
-[Stardog + pg-age databases](recipes/databases.md) to push your ontology to
+[Stardog + pg-age databases](recipes/databases.md) to push the operator's ontology to
 Stardog (or a local SPARQL endpoint) and backfill relationships into Apache AGE
 through runtime connection-profile references in one command. For a config-complete, end-to-end install (the
 path Claude follows to set itself up), see the [Self-Setup guide](guides/self-setup.md)

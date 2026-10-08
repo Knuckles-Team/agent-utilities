@@ -1,6 +1,6 @@
 # Drift-proof release & versioning
 
-> **Design principle (operator):** *"We prefer to design systems that cannot drift at all."*
+> **Design principle (operator):** *"This repository prefer to design systems that cannot drift at all."*
 > Prevention over detection, detection over repair.
 
 Every value that appears in two places will eventually appear differently in those two
@@ -22,7 +22,7 @@ mechanism now prevents it and what class that mechanism reaches.
 `.bumpversion.cfg` rewrote on every bump, compared for *exact string equality* by the
 admission gate. On 2026-07-28 the commit "Bump 2.1.0 → 2.1.1" rewrote the floor to
 `>=2.1.1,<3` and invalidated all 68 provider attestations — 22 minutes after the only
-key that could re-sign them was believed lost. **Every patch release did this.**
+key that can re-sign them was believed lost. **Every patch release did this.**
 
 Now:
 
@@ -88,7 +88,7 @@ and it moves *all* of them, which is exactly the fastmcp-4 case (au 2.x → 3.0.
 invalidates every `agent-utilities>=2.0.0,<3.0.0` ceiling). The planner reports that as
 `severity: major` with an explicit `breaking_notes` entry.
 
-Dry-run is the default; `--apply` writes files and verifies each replacement target still
+Dry-run is the default; `--apply` writes files and checks each replacement target still
 matches before writing (fail closed on concurrent modification). It never runs git — each
 provider is its own repository and committing/pushing is a separate, deliberate act.
 
@@ -135,7 +135,7 @@ plausible here and only one is correct:
   for others to use) and holds zero capability on `apps/data/*` or `apps/metadata/*` — it 403s on
   both `apps/data/agent-utilities` and `apps/metadata/agent-utilities` by design, not by bug (see
   `services/openbao/k8s/bootstrap-policies.sh` and the openbao-mcp `secret-vault-manager` skill's
-  `rotation-operational-facts.md` fact 8). If you need a fresh scoped credential instead of the
+  `rotation-operational-facts.md` fact 8). If the operator need a fresh scoped credential instead of the
   shared `OPENBAO_TOKEN`, mint one FROM `OPENBAO_ADMIN_TOKEN` first
   (`POST auth/token/create {"policies":"agent-apps-rw","ttl":"..."}` — `policies` must be a plain
   string, not a JSON list) and use *that* minted token as `VAULT_TOKEN`; never grant
@@ -152,7 +152,7 @@ gains a new entry) rather than track "latest" implicitly.
 
 **Agreement.** The mismatch was only discovered at *admission* time, long after artifacts
 had been produced. `assert_signing_key_matches_locks()` performs the same comparison at
-**signing** time, before a single byte is written, and refuses when the seed that would
+**signing** time, before a single byte is written, and refuses when the seed that will
 sign is not a seed `ontology.lock` pins. `scripts/update_ontology_lock.py` no longer adds
 the ambient runtime key to its trusted set — trust comes from declared sources only.
 

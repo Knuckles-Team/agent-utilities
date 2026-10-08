@@ -142,7 +142,7 @@ workflows:
         depends_on: [0]  # Runs after step 0
 ```
 
-## 4. Executing Workflows
+## 4. Running Workflows
 
 ### Programmatic Execution
 
@@ -188,7 +188,7 @@ graph_workflows(action="export", workflow="container_health_check", export_forma
 
 ## 5. Dynamic Agent Execution (`run_agent`)
 
-Once ingested, you can dynamically route queries to specialized MCP servers or agent logic using `run_agent()`. The router automatically discovers the best server to satisfy the task.
+Once ingested, the operator can dynamically route queries to specialized MCP servers or agent logic using `run_agent()`. The router automatically discovers the best server to satisfy the task.
 
 ```python
 from agent_utilities.orchestration.agent_runner import run_agent

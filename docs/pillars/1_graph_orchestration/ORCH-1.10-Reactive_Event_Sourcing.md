@@ -2,11 +2,11 @@
 
 ## Overview
 
-The `Reactive Event Sourcing` framework introduces fully decoupled, reactive event-driven step execution to the `agent-utilities` orchestrator. Instead of executing steps in a strictly pre-wired linear sequence, components can dynamically publish occurrences to an append-only, graph-native `EventLedger`, while other independent specialists or decorators subscribe reactively to specific topics.
+The `Reactive Event Sourcing` framework introduces fully decoupled, reactive event-driven step execution to the `agent-utilities` orchestrator. Instead of running steps in a strictly pre-wired linear sequence, components can dynamically publish occurrences to an append-only, graph-native `EventLedger`, while other independent specialists or decorators subscribe reactively to specific topics.
 
 This reactive loop unlocks four critical advanced capabilities:
 1. **Dynamic Extensibility (Zero-Modification Scaling)**: New agents or observation nodes can join an ongoing workflow and react to existing event topics without modifying any prior step orchestration pipelines.
-2. **Time-Travel Debugging & Replays**: The append-only ledger allows executing historical replays up to any specific event ceiling (`fork_run`), supporting offline optimization and regression tracing.
+2. **Time-Travel Debugging & Replays**: The append-only ledger allows running historical replays up to any specific event ceiling (`fork_run`), supporting offline optimization and regression tracing.
 3. **Self-Assembling Workflows & Swarm Parallelism**: Workflows assemble dynamically based on the reactive matching of inputs, outputs, and event topics, encouraging massive parallel swarm execution.
 4. **Resilient Self-Healing**: Behaviors can react to error topics (e.g., `event.error`, `budget.tripped`) to trigger alternative reasoning branches or rollbacks dynamically.
 
@@ -14,11 +14,11 @@ This reactive loop unlocks four critical advanced capabilities:
 
 ## Architectural Synergy: Graph & OWL Integration
 
-To achieve a fully unified, DB-agnostic memory design, the Event Sourcing framework dual-writes all events directly into our canonical **Knowledge Graph (LPG)** utilizing standard `EventNode` models via `KGMapper`.
+To achieve a fully unified, DB-agnostic memory design, the Event Sourcing framework dual-writes all events directly into this repository's canonical **Knowledge Graph (LPG)** use standard `EventNode` models via `KGMapper`.
 
 ### OWL Ontological Mapping
 
-Because the `EventNode` type is registered inside our `OWLBridge` promotable set, all events and relationships are automatically promoted to standard RDF OWL classes and reasoned over using Description Logic (HermiT/Stardog).
+Because the `EventNode` type is registered inside this repository's `OWLBridge` promotable set, all events and relationships are automatically promoted to standard RDF OWL classes and reasoned over using Description Logic (HermiT/Stardog).
 
 ```mermaid
 graph TD

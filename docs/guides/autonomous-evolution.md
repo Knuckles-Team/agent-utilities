@@ -7,7 +7,7 @@ flags default to `False` in code. That is deliberate — turning a fleet
 autonomous is an explicit XDG AgentConfig deployment decision, never a library
 default or repository-local setting.
 
-This guide describes the safety chain you get when you turn the loops on, and
+This guide describes the safety chain the operator get when the operator turn the loops on, and
 exactly which flags do what.
 
 ## The safety chain
@@ -30,7 +30,7 @@ flowchart LR
    PerformanceAnomaly consumer (`AU-AHE.optimization.performance-anomaly-consumer`) and fleet-event triage
    (`AU-OS.config.fleet-event-ingress`) only ever *write proposals*: `failure_gap` Concept topics, spec
    drafts under `.specify/`, and `TeamSpec`/`AgentSpec` proposal nodes. No
-   code executes, nothing is promoted.
+   code runs, nothing is promoted.
 2. **Governed validation.** `GovernedAutoMerger` now constructs the
    *production* `PromotionGovernanceValidator` by default
    (`knowledge_graph/research/promotion_governance.py`). A promotion candidate
@@ -77,7 +77,7 @@ Two modules under `knowledge_graph/research/` implement the bridge:
     change set, validated through the tiered RLM sandbox (`ORCH-1.38`):
     per-file syntax compile + best-effort import. Proposed test targets
     (`tests` / `tests_json`) are treated as data and may only run through an
-    injected governed sandbox runner. The publisher never executes
+    injected governed sandbox runner. The publisher never runs
     proposal-selected host commands. Sandbox-invalid change sets are never
     published.
   * a prose-only proposal (most SpecDrafts/TeamSpecs) becomes a
@@ -98,7 +98,7 @@ Two modules under `knowledge_graph/research/` implement the bridge:
 
 ### The human workflow (approve → publish → merge)
 
-1. A proposal merges through the governed chain (or you decide to publish a
+1. A proposal merges through the governed chain (or the operator decide to publish a
    promoted one). With the shipped policy the merger's own promotion consult
    has already **queued the `merge_promotion` approval**; the bridge consults
    the ActionPolicy again and dedups to that same approval — visible in
@@ -165,7 +165,7 @@ runtime references.
 | `KG_FAILURE_EVOLUTION` | `auto` | Pull Langfuse failures → `failure_gap` topics → regression-gated remediation when both Langfuse credential refs are configured; explicit `false` opts out. |
 | `KG_FAILURE_EVOLUTION_INTERVAL` / `KG_FAILURE_EVOLUTION_WINDOW` | `3600` / `86400` | Tick cadence and telemetry look-back. |
 | `KG_ANOMALY_CONSUMER` | `true` | Consume unconsumed `PerformanceAnomaly` nodes into `failure_gap` topics (cheap, LLM-free, propose-only — on by default). |
-| `KG_GOLDEN_AUTO_MERGE` | `false` | Allow governed proposal→active promotion. Keep `false` until you trust the proposal stream. |
+| `KG_GOLDEN_AUTO_MERGE` | `false` | Allow governed proposal→active promotion. Keep `false` until the operator trust the proposal stream. |
 | `KG_GOLDEN_MERGE_THRESHOLD` | `0.85` | Minimum proposal quality score for auto-merge eligibility. |
 | `EVOLUTION_WORKTREE_ROOT` | `data_dir()/evolution_worktrees` | Where the `AHE-3.21` bridge creates fresh git worktrees when publishing a promoted proposal as a local branch. |
 | `FLEET_EVENTS_TOKEN_REF` | unset | Secret-provider reference for the `POST /api/fleet/events` monitoring-webhook ingress (`AU-OS.config.fleet-event-ingress`). |
@@ -177,27 +177,27 @@ runtime references.
 1. Configure both Langfuse credential refs, leave content capture and auto-merge
    off, and enable `KG_LOOP=true`. Failure evolution engages automatically unless
    explicitly disabled. Watch the proposal stream (`EvolutionCycle` nodes,
-   `failure_gap` Concepts, audit log) for a few cycles. Nothing merges.
+   `failure_gap` Concepts, audit log) for a small number of cycles. Nothing merges.
 2. Point Alertmanager / Uptime Kuma at `POST /api/fleet/events` (set
    `FLEET_EVENTS_TOKEN_REF`) so production incidents also feed the loop. Critical
    events now dispatch the `AU-OS.host.remediation-playbooks` remediation playbooks — with the shipped
    action policy every mutating step lands in `GET /api/fleet/approvals`
-   instead of executing.
+   instead of running.
 3. Only once the proposals are consistently sane, consider
    `KG_GOLDEN_AUTO_MERGE=true`. Every promotion remains gated by the
    `AU-AHE.harness.promotion-governance-validator` validator + regression gate and is fully audited; rejected
    proposals stay proposal-only for human review.
-4. With auto-merge on, merged proposals additionally queue a
+4. With auto-merge on, merged proposals also queue a
    `merge_promotion` approval (`AHE-3.21`). Work the approve → publish →
-   merge loop above; only relax the tier to `auto` once you trust the
+   merge loop above; only relax the tier to `auto` once the operator trust the
    published branches — even then nothing is pushed without a human.
 
-## Closing the loop: generate, verify, ratchet (AHE-3.22 / AHE-3.23 / AU-AHE.evaluation.capability-benchmark-regression-ratchet)
+## Closing the loop: generate, check, ratchet (AHE-3.22 / AHE-3.23 / AU-AHE.evaluation.capability-benchmark-regression-ratchet)
 
-Through `AHE-3.21` the loop could *branch* a code change, but nothing on the live
+Through `AHE-3.21` the loop can *branch* a code change, but nothing on the live
 path ever **generated** the diff — every real proposal fell back to the prose SDD
 skeleton and a human wrote the code. These three concepts close that gap; together
-they turn "branch a change" into "branch a **verified, capability-ratcheted**
+they turn "branch a change" into "branch a **checked, capability-ratcheted**
 change". All three sit inside the existing `governed_publish` flow, so the OS-5.24
 `merge_promotion` ActionPolicy gate (default: human approval queue) still fronts
 everything — nothing here can auto-merge or push.
@@ -222,7 +222,7 @@ everything — nothing here can auto-merge or push.
   never blocks. The recorded `CapabilityRatchetResult` is consulted by the `AU-AHE.harness.promotion-governance-validator`
   promotion-governance gate as an additional predicate.
 
-- **AHE-3.23 — verified apply→verify→rollback**. The keep/abandon decision is the
+- **AHE-3.23 — checked apply→check→rollback**. The keep/abandon decision is the
   authoritative recommendation from the existing `ManifestVerifier`
   (`confirm` / `partial_revert` / `full_revert`, derived from the measured benchmark
   delta), fed the ratchet's before/after scores. On a `*_revert` recommendation — or

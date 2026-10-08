@@ -107,7 +107,7 @@ over graph-os as a delegated MCP run.
 
 - **Streaming surfaces still don't emit per-tool `:ToolCall` nodes.** `run_agent` persists each tool
   call (`_persist_tool_calls`, KG-2.296); the streaming path records the run-level `:RunTrace` +
-  memento (ORCH-1.104) but not yet per-call nodes (the `iter_graph` event stream would need to
+  memento (ORCH-1.104) but not yet per-call nodes (the `iter_graph` event stream will must
   surface tool-call deltas). Low priority — run-level provenance + memory parity is in place.
 - **Discord is implemented as a backend** (`messaging/backends/discord.py`) and flows through the
   same `InboundRouter`; whether it is *live* is a deployment/config matter (token + `listen`), not a

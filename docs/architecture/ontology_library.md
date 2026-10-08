@@ -44,7 +44,7 @@ reports an inconsistent ontology, or uses the ad-hoc validation mode.
 2. Register the exact resource with that component's `ConnectorContent` provider.
 3. Add byte, digest, RDF-semantic, and package-data tests in the owning package.
 4. Provision the provider through the SDK and attach its pack through GraphOS.
-5. Verify `GraphSchemaList`, reasoning receipts, and validation receipts against
+5. Check `GraphSchemaList`, reasoning receipts, and validation receipts against
    the target graph.
 
 Do not add ontology files under `agent_utilities/knowledge_graph`, introduce a

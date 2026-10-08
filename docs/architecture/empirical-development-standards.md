@@ -4,7 +4,7 @@ The rules this page backs live in [`AGENTS.md`](../../AGENTS.md) — in *Working
 Discipline* (evidence), the *Quality Bar* (never silence a failure), *Wire-First*
 (measure with the right instrument), *Fail closed* (the failure-mode family), and
 *Concurrent development* (long-running lanes). **AGENTS.md holds the rule; this page
-holds the evidence.** Read it when you want to know *why* a rule exists, or when you
+holds the evidence.** Read it when the operator want to know *why* a rule exists, or when the operator
 are tempted to argue one away — every rule below cost us something concrete, and a
 rule stripped of its cost is the first one to get rationalised away.
 
@@ -31,7 +31,7 @@ The *Quality Bar* has always forbidden silencing a **check** (`# noqa`,
 - adding `@pytest.mark.xfail` to a test that started failing,
 - adding `@pytest.mark.skip` / a `skipif` whose condition is always true in CI,
 - loosening an assertion (`assert x == 4` → `assert x >= 0`) so it stops discriminating,
-- deleting the failing case outright and describing it as "removing a flaky test".
+- removing the failing case outright and describing it as "removing a flaky test".
 
 The reasoning that produces all four is the same: *this failure is not mine, it is in
 my way, and my change is otherwise correct.* The reasoning is wrong at the second
@@ -42,10 +42,10 @@ was not running. Silencing it converts a discovery back into an unknown, and doe
 in the one place (a green suite) where nobody will look again.
 
 **The rule:** attribute the failure to its cause and fix it, or stop and report it
-with the attribution you have. Both are acceptable outcomes. A green suite that got
+with the attribution the operator have. Both are acceptable outcomes. A green suite that got
 there by narrowing what it checks is not.
 
-### 1.2 Verify the premise before acting on a stale item
+### 1.2 Check the premise before acting on a stale item
 
 Deferred items, TODOs, issue bodies, and hand-off notes record a **claim about the
 world at the moment they were written**. The world moves. Roughly eight items in one
@@ -55,21 +55,21 @@ day were picked up and worked whose stated blocker had since become false:
 |---|---|
 | "the engine exposes no endpoint for this" | the endpoint had been merged to `main` and was live |
 | "36 repos have drifted from the template" | 33 had; the count came from a superseded scan |
-| "the manifest generator deletes 2,367 lines" | the generator *reformats*; the diff was a formatting churn, not a deletion |
-| "we are pinned to `fastmcp==3.3.1`" | the repo was already on `4.0.0b1` |
+| "the manifest generator removes 2,367 lines" | the generator *reformats*; the diff was a formatting churn, not a deletion |
+| "this repository are pinned to `fastmcp==3.3.1`" | the repo was already on `4.0.0b1` |
 
 Note what these have in common: **each was true when written.** Nobody lied and
 nothing was sloppy. The item simply outlived its premise. Two of the four sent a lane
 down a multi-hour path that ended in "nothing to do here."
 
-**The rule:** before acting on any item you did not just write yourself, re-verify its
+**The rule:** before acting on any item the operator did not just write the operator, re-check its
 premise against the current tree — one command, usually. If the premise is false,
 close the item with that finding; that *is* the work.
 
-### 1.3 Measure with the instrument you are making a claim about
+### 1.3 Measure with the instrument the operator are making a claim about
 
 A verdict ("this is broken", "the environment is blocked", "the gate is red") is only
-ever a statement about the interpreter, checkout, branch and profile you actually ran.
+ever a statement about the interpreter, checkout, branch and profile the operator actually ran.
 Two incidents:
 
 - **47 false "environment-blocked" verdicts** — lanes ran `python3`/`pytest` from the
@@ -79,7 +79,7 @@ Two incidents:
   (canonical, mid-merge) rather than the lane's own worktree. The gate was green on the
   branch the claim was about.
 
-**The rule:** run the repo `.venv`, in the worktree your claim is about, before you
+**The rule:** run the repo `.venv`, in the worktree the operator's claim is about, before the operator
 attribute a failure to infrastructure. "Environment-blocked" is a conclusion that
 requires the same evidence standard as any other.
 
@@ -91,7 +91,7 @@ finding-shaped turns up, and then reporting that instead — which produces conf
 reports about incidental details while the actual answer (*no defect here*) goes
 unrecorded and the next session repeats the search.
 
-**The rule:** report the refutation, with what you checked and what would have shown
+**The rule:** report the refutation, with what the operator checked and what will have shown
 the opposite. Then stop.
 
 ### 1.5 Never manufacture a closure
@@ -103,9 +103,9 @@ that did not happen must now re-check all of them.
 
 Three closures are legitimate and one is not:
 
-- **Done** — the work happened and you can point at it.
+- **Done** — the work happened and the operator can point at it.
 - **`ACCEPTED-RISK`** — with the reasoning, and the named person or policy accepting it.
-- **Open, with a named blocker** — the blocker stated concretely enough to be re-verified
+- **Open, with a named blocker** — the blocker stated concretely enough to be re-checked
   later (see §1.2).
 - ~~**Done, because the item is old / small / probably fine**~~ — never.
 
@@ -131,7 +131,7 @@ found". Every caller written against the healthy meaning then reads a degraded
 dependency as a clean bill of health.
 
 Five independent safety gates were found doing exactly this, all reading the same
-knowledge graph, all of which would therefore **stand down simultaneously at precisely
+knowledge graph, all of which will therefore **stand down simultaneously at precisely
 the moment the KG was degraded** — the moment they exist for:
 
 | Gate | Degraded read | What it concluded |
@@ -142,7 +142,7 @@ the moment the KG was degraded** — the moment they exist for:
 | CI retry cap | prior-attempt count → `0` | first attempt, retry |
 | prompt-scanner preflight | policy list → `[]` | no policies to enforce, pass |
 
-The correlation is the sharp part: these are not five independent risks that might
+The correlation is the sharp part: these are not five independent risks that may
 each fire on a bad day. They share a dependency, so they fail **together**, and only
 when it matters.
 
@@ -151,7 +151,7 @@ caller **deny, defer, or escalate** on it, explicitly. An empty list must be all
 mean "empty", and nothing else.
 
 A useful test: for each `except: return []` in a reader, ask *"if this dependency were
-down right now, what would each caller do?"* If any answer is "proceed", the reader is
+down right now, what will each caller do?"* If any answer is "proceed", the reader is
 the bug, not the caller.
 
 ### 2.2 Never advance state on an unverified write
@@ -171,10 +171,10 @@ for record in pending:
     store.save(record)
 ```
 
-`consumed` / `processed` / a cursor / a status enum is set *regardless of whether the
+`consumed` / `processed` / a cursor / a status enum is set *in either case of whether the
 operation it guards succeeded*. The next run filters on that flag, so the record is now
 **invisible forever**. This is worse than a crash: a crash retries, and this
-permanently forecloses the retry while reporting success. Several live instances were
+permanently forecloses the retry while reporting success. Multiple live instances were
 found, in queue drains, ingestion cursors and reconciliation passes.
 
 ```python
@@ -186,7 +186,7 @@ for record in pending:
 ```
 
 **The rule:** the state advance is a *consequence* of the confirmed write, ordered
-after it and derived from its result. If you cannot confirm, do not advance — leave the
+after it and derived from its result. If the operator cannot confirm, do not advance — leave the
 record for the next run.
 
 ### 2.3 One rule, one message
@@ -203,7 +203,7 @@ message, one register entry.
 ### 2.4 A tool whose cost makes people avoid it is broken
 
 Avoidance and breakage are **indistinguishable in the outcome**: in both cases the tool
-does not run and the thing it would have caught ships. A tool that is correct but
+does not run and the thing it will have caught ships. A tool that is correct but
 unaffordable is therefore a defect, and "the tool works fine, people just don't run it"
 is a bug report, not a defence.
 
@@ -238,18 +238,18 @@ batch lost minutes. The ones holding a large uncommitted working tree lost hours
 
 **The rule:** commit after each meaningful batch, not when the task is finished. A
 commit is the only artifact a reset, a sibling's global tree mutation, or a dead
-harness cannot take. Report the branch head SHA when you report progress — it makes
-your work recoverable by someone who is not you.
+harness cannot take. Report the branch head SHA when the operator report progress — it makes
+the operator's work recoverable by someone who is not the operator.
 
-### 3.2 Do not re-launch a long hook in a loop
+### 3.2 Do not re-start a long hook in a loop
 
 One lane restarted `pre-commit run --config .config/pre-commit.yaml --all-files` three times, each time discarding a run
 that was minutes from completing, and finished with less information than a single
-uninterrupted run would have produced. The retry instinct is calibrated for cheap
+uninterrupted run will have produced. The retry instinct is calibrated for cheap
 operations and mis-fires badly on expensive ones.
 
 **The rule:** start a multi-minute gate **once**. If it appears to stall, do not kill
-and relaunch — commit what you have and report which hooks completed. A partial run
+and relaunch — commit what the operator have and report which hooks completed. A partial run
 reported honestly is more useful than a third abandoned full run.
 
 ### 3.3 `ps -p <pid>` is ground truth

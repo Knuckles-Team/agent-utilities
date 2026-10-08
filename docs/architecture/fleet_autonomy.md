@@ -331,7 +331,7 @@ consecutive-sample count again.
 `ActionRequest` (`source: autoscaler`, params carry
 `replicas/from_replicas/direction/signal/value/target`) through ActionPolicy
 — `approval_required` under the shipped default policy, so enabling
-`FLEET_AUTOSCALER` out of the box only *queues* scale proposals for a human.
+`FLEET_AUTOSCALER` by default only *queues* scale proposals for a human.
 Allowed actions run through the FleetActuator seam (dry-run, Docker, optional
 Kubernetes, or an injected deployment actuator); a successful scale-up
 schedules an AU-OS.config.health-gated-deploy-rollback deploy watch, and scale-downs do too when the policy
@@ -372,7 +372,7 @@ flowchart LR
 ## Strangled: `capabilities/auto_healing.py`
 
 The dormant `AutoHealingEngine` shell (disabled by default, never-wired
-`skill_evolver`/`fallback_router` hooks, no production caller) is deleted.
+`skill_evolver`/`fallback_router` hooks, no production caller) is removed.
 Its one useful bit — threshold-counted repeated-failure escalation — is
 absorbed into `graph/parallel_engine.py`
 (`_escalate_repeated_failure`), which now files a `failure_gap` Concept
@@ -413,7 +413,7 @@ set_scaling_signal_provider(MyLgtmProvider()) # richer load signals (optional)
 set_default_notifier(MySlackNotifier())       # real escalation channel
 ```
 
-For autoscaling without a custom provider, point the built-in at your
+For autoscaling without a custom provider, point the built-in at the operator's
 Prometheus (`SCALING_PROMETHEUS_URL=http://prometheus:9090`), declare
 `scaling:` bounds in the `FLEET_DESIRED_STATE_PATH` override, and set
 `FLEET_AUTOSCALER=1`.

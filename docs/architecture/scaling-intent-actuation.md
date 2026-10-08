@@ -5,7 +5,7 @@
 This document defines the AU-side seam between a durable `ScaleIntentRecord`
 and a deployment-specific actuator.  It is deliberately independent of
 Kubernetes, Swarm, Docker, and any other runtime.  A runtime adapter implements
-the typed `ScaleActuator` protocol; the adapter must make the supplied
+the typed `ScaleActuator` protocol; the adapter must make the provided
 `execution_key` idempotent.
 
 ## Identity and authority

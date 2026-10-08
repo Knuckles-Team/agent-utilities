@@ -1,7 +1,7 @@
 # The delegation-first operating model — local LLM + graph-os do the work; the harness orchestrates + resolves exceptions
 
 > The architecture-doc form of the canonical `AGENTS.md` discipline
-> *"Delegate to the KG + graph-os — you are the orchestrator + exception-resolver"*.
+> *"Delegate to the KG + graph-os — the operator are the orchestrator + exception-resolver"*.
 > Concepts: KG-2.296 (`:ToolCall` / `RunTrace` provenance) · AU-ORCH.scheduling.resource-priority-edict/1.99
 > (resource-priority edict) · AU-ECO.mcp.full-api-mcp-surface (full engine MCP/REST surface) · ORCH-1.95/96/97
 > (the execution seam) · ORCH-1.100/1.101 (the `agent-utilities-expert`) · AU-KG.retrieval.kg-4
@@ -21,19 +21,19 @@ provider, the engine surface, the resource-priority edict — exists to make del
 **capable** (the local model can actually run the work against real tools) and **safe**
 (every run is fully visible, steerable, and non-starving).
 
-Your job as the harness becomes two things:
+The operator's job as the harness becomes two things:
 
 1. **Orchestrate** — decompose a goal, dispatch it to graph-os / the local LLM, and
    **steer** it (query live `EvolutionState`, the `:ToolCall` / `RunTrace` provenance,
    reprioritize, approve/veto).
 2. **Resolve exceptions** — when a delegated run fails, returns a wrong or ungrounded
-   answer, or the system couldn't self-troubleshoot, **that** is your job: read the
+   answer, or the system couldn't self-troubleshoot, **that** is the operator's job: read the
    `RunTrace` / `:ToolCall` to see exactly what the local LLM did, find **why**, fix the
    gap, and re-delegate.
 
 ## The three delegation routes
 
-Before doing anything yourself, route it to one of three delegation paths.
+Before doing anything the operator, route it to one of three delegation paths.
 
 ### 1. Understand code → the KG, never grep first
 
@@ -47,7 +47,7 @@ graph_code action=code_context  query="<area/symbol/question>"  target=how|usage
 (REST `POST /graph/code`, CONCEPT:AU-KG.retrieval.synthesized-cited-answer.) `how` returns a definition +
 what it calls + owning CONCEPT + docs + routes; `usage` returns callers (`file:line`) +
 near-clones + the cross-repo usage view (AU-KG.retrieval.every-usage-published-symbol); `impact` returns transitive callers
-(blast radius) + git change-coupling. Read only the few `file:line`s you must **edit**,
+(blast radius) + git change-coupling. Read only the few `file:line`s the operator must **edit**,
 not to understand — then close the loop with `graph_feedback correction_type=reads_avoided`
 (AU-AHE.evaluation.reads-avoided-feedback) so the retriever learns which answers replace a read. If an area is uningested,
 `source_sync source=all mode=delta` first, then fall back to grep. (See
@@ -134,7 +134,7 @@ A delegate (or the harness) reaches it through the multiplexer like any other to
   the resident model context.
 
 This is why the delegation-first model can push **heavy compute to the engine** (vector
-similarity, ANN, graph algorithms, ML math, finance) instead of writing an O(N) loop in
+similarity, ANN, graph algorithms, ML math, finance) instead of writing an O(N) include
 Python: the full engine is one MCP call away. Python orchestrates; the engine computes.
 
 ## What makes delegation safe and non-starving
@@ -153,12 +153,12 @@ called and correlate opaque payload digests without disclosing durable raw paylo
 
 ### The resource-priority edict (AU-ORCH.scheduling.resource-priority-edict/1.99)
 
-Interactive / orchestration work **outranks** background ingestion, so your orchestration
+Interactive / orchestration work **outranks** background ingestion, so the operator's orchestration
 is never starved by the system's own ingestion. The engine keeps a **reserved interactive
 read lane** so orchestration reads aren't blocked under a write-storm, and admission tags
 delegated runs ORCHESTRATION/INTERACTIVE so they are never stuck behind ingestion
 enrichment. See [`resource-priority-edict.md`](resource-priority-edict.md). Without this,
-"delegate everything" would let a re-ingest sweep starve the very control plane you
+"delegate everything" will let a re-ingest sweep starve the very control plane the operator
 orchestrate through; with it, delegation scales.
 
 ## The exception-resolution loop
@@ -179,11 +179,11 @@ When a delegated run fails, is ungrounded, or the system couldn't self-troublesh
    data/ingestion — fix the one thing that made the local LLM fail.
 4. **Re-delegate**, and **harden** so the system self-handles that case next time: add the
    skill, fix the tool binding, harden the prompt, capture the gotcha via `graph_feedback`
-   — the AU-AHE.optimization.telemetry-optimization hardening loop. Every exception you resolve should make the autonomous
+   — the AU-AHE.optimization.telemetry-optimization hardening loop. Every exception the operator resolve should make the autonomous
    system one step more autonomous.
 
 The goal is to orchestrate **completely off the harness**: the local LLM + graph-os handle
-the work, you handle the shrinking set of exceptions, and each exception you resolve
+the work, the operator handle the shrinking set of exceptions, and each exception the operator resolve
 shrinks that set further.
 
 ## Delegation probe ownership and migration
@@ -206,7 +206,7 @@ functional operation distinctly. The bounded measurement still uses
 `wait_for(to_thread(...))`; its known non-cancelling worker/shutdown-tail limitation is
 D-CDX-22 and is intentionally not changed by this efficiency behavior.
 
-The toolset stage is a catalog-only exact binding check: it verifies the configured
+The toolset stage is a catalog-only exact binding check: it checks the configured
 endpoint and the durable server-to-tool declaration, but does not open an MCP transport.
 The delegated execution owns the one refresh-capable `MCPToolset` session, including live
 schema/list-changed behavior, cancellation, and teardown. A missing or empty catalog fails

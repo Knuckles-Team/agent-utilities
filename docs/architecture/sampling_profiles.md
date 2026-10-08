@@ -158,7 +158,7 @@ in `gateway/ontology_api.py`):
 |---|---|
 | `list` | every effective task-class profile (curated ∪ learned) |
 | `describe` | the profile served for one task class |
-| `resolve` | the profile that would be picked for a prompt / role (inspection) |
+| `resolve` | the profile that will be picked for a prompt / role (inspection) |
 | `set` | write a profile (rejected if `sampling_profile_violations` is non-empty) |
 | `evolve` | run one mutate→score→promote round for a task class |
 | `owl` | the OWL projection of models + profiles |

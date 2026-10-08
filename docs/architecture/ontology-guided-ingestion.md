@@ -1,6 +1,6 @@
 # Ontology-Guided Ingestion & Entity Resolution
 
-> Exceeds the `sift-kg` document→knowledge-graph pipeline while synergizing with our
+> Exceeds the `sift-kg` document→knowledge-graph pipeline while synergizing with this repository's
 > OWL/RDF ontology. Concepts: **AU-KG.retrieval.mmr-diversification** (ontology-guided extraction), **AU-KG.enrichment.direction-repair**
 > (direction repair), **AU-KG.ingest.observability-queries-opik-cannot** (confidence/support-count weighting), **AU-AHE.assimilation.transliteration-singularization-extend-ahe**
 > (dedup-ladder extensions + variant split), **AU-KG.enrichment.community-reports** (community summarization),
@@ -122,7 +122,7 @@ break); it emits a *proposal* with `RESERVE-PENDING` placeholders for the evolut
 
 ## Why this exceeds sift-kg
 
-- **Schema source.** sift-kg injects a flat YAML schema; we inject the **formal OWL TBox**
+- **Schema source.** sift-kg injects a flat YAML schema; this repository inject the **formal OWL TBox**
   (`owl:Class` + `rdfs:domain/range` + skos labels) and keep OWL reasoning + post-hoc
   grounding downstream — generation-time guidance *and* reasoning.
 - **Direction repair** reuses `reasoning.rs infer_domain_range` (no new engine op) and routes

@@ -10,7 +10,7 @@ Agent Utilities is the Python **agent control plane and harness**. It owns:
 
 - agent construction, model selection, skills, and tool binding;
 - goal planning, routing, teams, workflows, loops, and execution policy;
-- verified session context, budgets, approvals, and safety decisions;
+- checked session context, budgets, approvals, and safety decisions;
 - evaluation, replay, reward signals, outcome capture, and governed improvement;
 - harness health, telemetry, operator workflows, and runtime configuration.
 
@@ -44,7 +44,7 @@ hand:
    evidence is insufficient. Report corrections through graph feedback when the
    graph supplied an incomplete answer.
 
-The model proposes and executes work; epistemic-graph records authoritative
+The model proposes and runs work; epistemic-graph records authoritative
 state; GraphOS admits and exposes operations; Agent Utilities applies control
 policy.
 
@@ -180,7 +180,7 @@ interactive local upload.
 - Persist secret references, never resolved credentials. Do not commit `.env`
   files, tokens, private endpoints, host inventories, certificates, or local
   paths. All network and authorization failures fail closed.
-- Treat caller identity and scope as server-verified context. Payloads may not
+- Treat caller identity and scope as server-checked context. Payloads may not
   mint authority, choose tenants, or bypass action policy.
 - Keep repository root content to declared source, tests, documentation, and
   configuration. Scratch output, logs, caches, databases, and reports belong in

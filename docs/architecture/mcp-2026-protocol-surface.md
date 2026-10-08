@@ -22,7 +22,7 @@ reached through a second Ingress/Service (`graph-os-mcp-v2.arpa`). Its own
 module docstring gave the reason: "It is copied into a separate Python
 environment where the official `mcp` 2.x SDK is installed" — at the time,
 GraphOS's own FastMCP environment pinned `mcp<2`, so a process that wanted
-to speak the 2026-07-28 wire format literally could not be the same process
+to speak the 2026-07-28 wire format literally can not be the same process
 that served GraphOS's tools.
 
 That premise no longer holds, and the gap is not narrow — it is a full
@@ -100,7 +100,7 @@ every protocol version graph-os serves — not a second, sidecar-only policy.
 
 ## What BUG-069 actually did
 
-1. Verified the above (isolation premise expired; almost all translation
+1. Checked the above (isolation premise expired; almost all translation
    logic superseded by the installed SDK or already ported).
 2. Retired `mcp_v2_gateway/` (`gateway.py`, `tracing.py`, `__main__.py`,
    `pyproject.toml`) and its Dockerfile/compose file — dead code and a dead

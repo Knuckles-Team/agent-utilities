@@ -1,6 +1,6 @@
 # Quick Start
 
-From nothing to a running, **verified** agent-utilities in a few minutes. This is the
+From nothing to a running, **verified** agent-utilities in a small number of minutes. This is the
 fast path; for the full config-complete walkthrough (secrets, profiles, multi-node)
 see the [Self-Setup guide](self-setup.md), and for the database environment see the
 [pg-age recipe](../recipes/databases.md).
@@ -30,7 +30,7 @@ pip install "agent-utilities[serving]"             # supported GraphOS runtime
 pip install "agent-utilities[serving,owl,postgresql,stardog]"
 ```
 
-## 2. Generate your config (all options)
+## 2. Generate the operator's config (all options)
 
 Don't hand-write `config.json` — generate a complete, profile-seeded one that covers
 **every** option at a sensible default:
@@ -76,7 +76,7 @@ see [databases recipe](../recipes/databases.md) for the `graph_configure` calls
 (`add_connection`, `mirror_status`, `reconcile`). External SPARQL triplestore
 federation is owned by the epistemic-graph engine, not this repository.
 
-## 4. Launch
+## 4. Start
 
 ```bash
 graph-os                       # MCP server; choose this for MCP clients
@@ -94,7 +94,7 @@ agent-utilities-doctor          # human-readable; --json for machines, --fix for
 ```
 
 A `HEALTHY` (or `WARNINGS`) verdict + a `graph_write`/`graph_query` round-trip means
-you're up.
+the operator're up.
 
 ---
 
@@ -123,7 +123,7 @@ Installed by the package:
 | `graph-os` | The Knowledge-Graph MCP server (graph-os) |
 | `graph-os-daemon` | Headless queue, maintenance, and background-work host (`--status`); no HTTP API |
 | `agent-utilities-memory` | Memory store CLI |
-| `python -m agent_utilities` | Launch the interactive agent (flags: `--provider`, `--model-id`, `--mcp-config`, `--web`, `--port`) |
+| `python -m agent_utilities` | Start the interactive agent (flags: `--provider`, `--model-id`, `--mcp-config`, `--web`, `--port`) |
 
 Each command is also reachable over MCP/REST via the `graph_configure` tool
 (`generate_config`, `config_doctor`, `system_doctor`, …).

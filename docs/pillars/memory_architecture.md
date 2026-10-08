@@ -25,7 +25,7 @@ retention is disabled by default; the only supported opt-in requires the version
 ciphertext rather than plaintext. Reads accept only opaque source references and the current
 authenticated encrypted-block schema; all other persisted shapes fail closed.
 
-## Agent-native memory — the four modules, mapped to our stack
+## Agent-native memory — the four modules, mapped to this repository's stack
 
 The agent-native-memory literature decomposes any memory system into four
 modules: **representation/storage**, **extraction**, **retrieval/routing**, and
@@ -73,7 +73,7 @@ utility carried across a regime change leaves the search anchored by stale,
 potentially reward-hacked evidence. RQGM's answer is **selective erasure** at an
 epoch boundary — discard only the utility records tied to the displaced
 evaluator, preserve everything unrelated, and let the router re-climb under the
-new regime. We adopt exactly that primitive on the memory router's utility
+new regime. This repository adopt exactly that primitive on the memory router's utility
 records, in two wired forms:
 
 - **Native, auto-detected (the upsert path).** `CapabilityIndex.add()` already
@@ -93,7 +93,7 @@ records, in two wired forms:
 > **Scope honesty.** arXiv:2606.26294 is a *self-improving-agents / co-evolving-evaluator*
 > paper, not a memory paper; most of its mechanism (controlled utility evolution,
 > ground-truth-anchored challenger promotion, the multi-agent workspace tree)
-> already lives in our AU-AHE.optimization.telemetry-optimization self-improvement spine (the capability reward-EMA
+> already lives in this repository's AU-AHE.optimization.telemetry-optimization self-improvement spine (the capability reward-EMA
 > router, the eval/preference corpus, the GEPA held-out split, the MemoryData
 > router-vs-best bake-off). Selective erasure is the **one** mechanism that filled
 > a genuine memory-maintenance gap. See

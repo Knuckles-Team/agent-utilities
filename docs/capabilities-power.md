@@ -8,7 +8,7 @@
 
 | Capability | Intent verbs | One-line power | Actions | REST |
 |---|---|---|---:|---|
-| [`act`](#capability-act) | act | Run work, an operation or a fleet tool; previews first, then execute with plan_ref. | 1 | `/intent/act` |
+| [`act`](#capability-act) | act | Run work, an operation or a fleet tool; previews first, then run with plan_ref. | 1 | `/intent/act` |
 | [`agent_library`](#capability-agent_library) | manage, find, ask | The Agent Library of built agents (system prompt, tools, skills, model profile, context policy, | 4 | `/graph/agent-library` |
 | [`ask`](#capability-ask) | ask | Read or answer from the Knowledge Graph. action='<tool>.<op>' (see action='describe'), or leave it | 1 | `/intent/ask` |
 | [`ask_data`](#capability-ask_data) | ask | answer a DATA question over the Knowledge Graph with a DB-GPT-style, multi-step data-analysis agent | 1 | `/graph/ask-data` |
@@ -42,11 +42,11 @@
 | [`engine_txn`](#capability-engine_txn) | act | Low-level epistemic-graph engine surface for the 'txn' domain (server-side OCC ACID transactions). | 18 | `/engine/txn` |
 | [`engine_viz`](#capability-engine_viz) | act, ask | Low-level epistemic-graph engine surface for the 'viz' domain (D-VZ-1 native visualization: | 2 | `/engine/viz` |
 | [`find`](#capability-find) | find | Discover capabilities, operations, fleet tools and the fleet catalog. | 1 | `/intent/find` |
-| [`graph_agents`](#capability-graph_agents) | act | Execute graph-grounded agent collectives. | 5 | `/graph/agents` |
+| [`graph_agents`](#capability-graph_agents) | act | Run graph-grounded agent collectives. | 5 | `/graph/agents` |
 | [`graph_analyze`](#capability-graph_analyze) | ask, why | Structural and operational KG analysis. | 8 | `/graph/analyze` |
 | [`graph_argument`](#capability-graph_argument) | why, write, ask | AIF (Argument Interchange Format) argument maps: I-nodes (claims) linked through S-nodes — RA | 4 | `/graph/argument` |
 | [`graph_ask`](#capability-graph_ask) | ask | ask the Knowledge Graph in plain English. | 1 | `/graph/ask` |
-| [`graph_audit`](#capability-graph_audit) | why, ask | Tamper-evident audit ledger (G23): verifies the engine's hash-chained durable-mutation audit log | 3 | `/audit` |
+| [`graph_audit`](#capability-graph_audit) | why, ask | Tamper-evident audit ledger (G23): checks the engine's hash-chained durable-mutation audit log | 3 | `/audit` |
 | [`graph_broker`](#capability-graph_broker) | act | the epistemic-graph engine message broker (AMQP-style exchanges + queues + streams), distinct from | 1 | `/graph/broker` |
 | [`graph_bus`](#capability-graph_bus) | act | the agent-to-agent communication bus: let this session talk to other Claude/LLM sessions (any | 1 | `/graph/bus` |
 | [`graph_candidate_claims`](#capability-graph_candidate_claims) | act, write | Track 4/5 of the universal-ingestion program: propose model-backed candidate claims from raw text, | 2 | `/graph/candidate-claims` |
@@ -88,11 +88,11 @@
 | [`graph_message`](#capability-graph_message) | act | bidirectional, cross-process, ordered message channel between an invoking agent and a spawned | 5 | `/graph/message` |
 | [`graph_observe`](#capability-graph_observe) | why, ask | Reason over the KG-native observability subgraph — traces, online-scores, assertion verdicts, | 4 | `/graph/observe` |
 | [`graph_ontology`](#capability-graph_ontology) | write, ask, manage | GraphSchema lifecycle control plane. load/update attach an explicit iri+version Turtle document | 5 | `/graph/ontology` |
-| [`graph_orchestrate`](#capability-graph_orchestrate) | act | Resolve an ingested skill/workflow for a task and execute it on the local vLLM through the governed | 1 | `/graph/orchestrate` |
+| [`graph_orchestrate`](#capability-graph_orchestrate) | act | Resolve an ingested skill/workflow for a task and run it on the local vLLM through the governed | 1 | `/graph/orchestrate` |
 | [`graph_pipeline`](#capability-graph_pipeline) | act, ask | a composable train→eval→serve→predict ML pipeline over a VERSIONED ':Model' artifact that | 1 | `/pipeline/train` |
-| [`graph_projection`](#capability-graph_projection) | ask | run the SAME query `graph_query` would and project the result into a stable node-link JSON shape: | 1 | `/graph/projection` |
+| [`graph_projection`](#capability-graph_projection) | ask | run the SAME query `graph_query` will and project the result into a stable node-link JSON shape: | 1 | `/graph/projection` |
 | [`graph_promql`](#capability-graph_promql) | ask | query the engine's observability metrics with PromQL. action='instant' (a single evaluation at | 2 | `/graph/promql` |
-| [`graph_query`](#capability-graph_query) | ask | Execute a read-only Cypher, bounded UQL, SQL, SPARQL, or federated graph query and return the sole | 1 | `/graph/query` |
+| [`graph_query`](#capability-graph_query) | ask | Run a read-only Cypher, bounded UQL, SQL, SPARQL, or federated graph query and return the sole | 1 | `/graph/query` |
 | [`graph_reach`](#capability-graph_reach) | act | reach the user over a messaging backend (Telegram, Slack, Discord, ...). | 5 | `/graph/reach` |
 | [`graph_runvcs`](#capability-graph_runvcs) | act | Agent-native run version-control (CONCEPT:AU-ORCH.runvcs.run-commit): fork, revert and review a | 11 | `/graph/runvcs` |
 | [`graph_sandbox`](#capability-graph_sandbox) | act | Inspect and control the native warm-fork sandbox runtime | 3 | `/graph/sandbox` |
@@ -100,7 +100,7 @@
 | [`graph_search`](#capability-graph_search) | ask | Search the Knowledge Graph using multiple strategies (hybrid, concept, analogy, memory, discover, | 1 | `/graph/search` |
 | [`graph_search_synthesis`](#capability-graph_search_synthesis) | ask | Synthesize a shortcut-resistant deep-search task from the evidence graph, or diagnose realized | 2 | `/graph/search-synthesis` |
 | [`graph_secret`](#capability-graph_secret) | manage | Manage secrets (CONCEPT:AU-OS.identity.encrypted-secret-store) in the durable, engine-encrypted | 4 | `/graph/secret` |
-| [`graph_sessions`](#capability-graph_sessions) | manage, ask | Manage durable sessions (action in 'list', 'get', 'delete', 'reply', 'cancel', 'health', | 7 | `/graph/sessions` |
+| [`graph_sessions`](#capability-graph_sessions) | manage, ask | Manage durable sessions (action in 'list', 'get', 'remove', 'reply', 'cancel', 'health', | 7 | `/graph/sessions` |
 | [`graph_share`](#capability-graph_share) | write, manage | Share a private node (CONCEPT:AU-KG.compute.data-is-private-its). | 7 | `/graph/share` |
 | [`graph_table`](#capability-graph_table) | ask, write | mirror data into native engine SQL tables (DataFusion + pg-wire) and manage them. | 6 | `/graph/table` |
 | [`graph_traces`](#capability-graph_traces) | ask, why | search or fetch distributed traces. action='search' (filter by 'service'/'operation'/free-form | 3 | `/graph/traces` |
@@ -109,7 +109,7 @@
 | [`graph_write`](#capability-graph_write) | write | Write nodes, relationships, or register external graphs to the Knowledge Graph. | 14 | `/graph/write` |
 | [`graph_writeback`](#capability-graph_writeback) | write | Backfeed KG-derived knowledge into an external system-of-record | 1 | `/graph/writeback` |
 | [`ingest_sessions`](#capability-ingest_sessions) | write | Ingest AI agent chat/session history into the usage store + KG | 3 | `/usage/ingest-sessions` |
-| [`manage`](#capability-manage) | manage | Configure and govern graph-os and fleet loading; previews first, then execute with plan_ref. | 1 | `/intent/manage` |
+| [`manage`](#capability-manage) | manage | Configure and govern graph-os and fleet loading; previews first, then run with plan_ref. | 1 | `/intent/manage` |
 | [`nl_query`](#capability-nl_query) | ask | ask the Knowledge Graph in plain English, planned by agent-utilities' OWN configured fleet LLM (the | 1 | `/graph/nl-query` |
 | [`object_edits`](#capability-object_edits) | write | Durable object-edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback): record a structured edit | 4 | `/object/edits` |
 | [`object_index`](#capability-object_index) | ask, find | Object Index Lifecycle / Object Data Funnel (CONCEPT:AU-KG.ontology.batch-incremental-sync-live): | 3 | `/object/index` |
@@ -120,7 +120,7 @@
 | [`ontology_function`](#capability-ontology_function) | act, write | Typed, versioned ontology functions: list or invoke through the governed runtime | 2 | `/ontology/function` |
 | [`ontology_interface`](#capability-ontology_interface) | manage, ask | Ontology interfaces: resolve implementers (targeting), check conformance, or emit OWL | 8 | `/ontology/interface` |
 | [`ontology_leanix_sync`](#capability-ontology_leanix_sync) | write | Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerates | 1 | `/ontology/leanix-sync` |
-| [`ontology_link_materialize`](#capability-ontology_link_materialize) | write | Reify a many-to-many ontology link as a (junction_node, edge_a, edge_b) triple and write it | 1 | `/ontology/link-materialize` |
+| [`ontology_link_materialize`](#capability-ontology_link_materialize) | write | Reify a multiple-to-multiple ontology link as a (junction_node, edge_a, edge_b) triple and write it | 1 | `/ontology/link-materialize` |
 | [`ontology_model_profile`](#capability-ontology_model_profile) | manage, ask | Model profiles as first-class graph resources | 4 | `/ontology/model-profiles` |
 | [`ontology_property_types`](#capability-ontology_property_types) | manage, ask | List the ontology property-type registry and resolve/validate a Palantir-style type ref | 4 | `/ontology/property-types` |
 | [`ontology_repository_provenance`](#capability-ontology_repository_provenance) | write | Git identity and history anchors (U-47, CONCEPT:AU-KG.ontology.repository-provenance-snapshot), | 4 | `/ontology/repository-provenance` |
@@ -133,10 +133,10 @@
 | [`source_drain`](#capability-source_drain) | write | Watch a chunked async drain started by source_sync(mode='full') on a LARGE corpus | 1 | `/source/drain` |
 | [`source_sync`](#capability-source_sync) | write | THE canonical connector→KG ingestion tool (CONCEPT:AU-KG.ingest.enterprise-source-extractor) — one | 1 | `/source/sync` |
 | [`spec_ticket`](#capability-spec_ticket) | write, ask | Link a KG SDD spec/feature to a Plane/Jira work item and make agents assignable | 1 | `/spec/ticket` |
-| [`tabular_query`](#capability-tabular_query) | ask | Execute a read-only SQL projection through the governed tabular query service and return its typed | 1 | `/query/tabular` |
+| [`tabular_query`](#capability-tabular_query) | ask | Run a read-only SQL projection through the governed tabular query service and return its typed | 1 | `/query/tabular` |
 | [`usage_query`](#capability-usage_query) | ask | Query usage/cost/observability analytics (CONCEPT:AU-ECO.mcp.usage-cost-observability-surface): | 12 | `/usage/query` |
 | [`why`](#capability-why) | why | Explain beliefs, decisions, provenance and changes. action='<tool>.<op>' (see action='describe'), | 1 | `/intent/why` |
-| [`write`](#capability-write) | write | Create or change graph data; previews first, then execute with plan_ref. action='<tool>.<op>' (see | 1 | `/intent/write` |
+| [`write`](#capability-write) | write | Create or change graph data; previews first, then run with plan_ref. action='<tool>.<op>' (see | 1 | `/intent/write` |
 
 ## Capabilities
 
@@ -144,7 +144,7 @@
 
 **act**
 
-Run work, an operation or a fleet tool; previews first, then execute with plan_ref. action='<tool>.<op>' (see action='describe'), or leave it empty to route `intent`.
+Run work, an operation or a fleet tool. Previews first, then run with plan_ref. action='<tool>.<op>' (see action='describe'), or leave it empty to route `intent`.
 
 - **Intent verbs:** act
 - **REST route:** `/intent/act`
@@ -968,7 +968,7 @@ Low-level epistemic-graph engine surface for the 'mining' domain (association-ru
 
 **engine modalities**
 
-Low-level epistemic-graph engine surface for the 'modalities' domain (native document/image/audio/video ingest, typed region/window query, lifecycle (cold/restore/delete/tombstone), and events (B-12)).
+Low-level epistemic-graph engine surface for the 'modalities' domain (native document/image/audio/video ingest, typed region/window query, lifecycle (cold/restore/remove/tombstone), and events (B-12)).
 
 - **Intent verbs:** write, ask
 - **REST route:** `/engine/modalities`
@@ -1347,7 +1347,7 @@ Low-level epistemic-graph engine surface for the 'streaming' domain (CDC / conti
 
 **engine tenants**
 
-Low-level epistemic-graph engine surface for the 'tenants' domain (multi-tenant graph create/delete/list).
+Low-level epistemic-graph engine surface for the 'tenants' domain (multi-tenant graph create/remove/list).
 
 - **Intent verbs:** manage
 - **REST route:** `/engine/tenants`
@@ -1533,7 +1533,7 @@ Discover capabilities, operations, fleet tools and the fleet catalog.
 
 **graph agents**
 
-Execute graph-grounded agent collectives.
+Run graph-grounded agent collectives.
 
 - **Intent verbs:** act
 - **REST route:** `/graph/agents`
@@ -1694,7 +1694,7 @@ ask the Knowledge Graph in plain English.
 
 **graph audit**
 
-Tamper-evident audit ledger (G23): verifies the engine's hash-chained durable-mutation audit log (Rust `epistemic-graph/src/audit.rs`, SHA-256 per (graph, seq)) and reconstructs 'what happened to entity X' from the KG's own :ToolCall provenance.
+Tamper-evident audit ledger (G23): checks the engine's hash-chained durable-mutation audit log (Rust `epistemic-graph/src/audit.rs`, SHA-256 per (graph, seq)) and reconstructs 'what happened to entity X' from the KG's own :ToolCall provenance.
 
 - **Intent verbs:** why, ask
 - **REST route:** `/audit`
@@ -1711,7 +1711,7 @@ Tamper-evident audit ledger (G23): verifies the engine's hash-chained durable-mu
 
 **Typed input:**
 
-- `action` (string): verify | for_target | lineage
+- `action` (string): check | for_target | lineage
 - `target_id` (string): Entity id to reverse-index tool-call provenance for (required for for_target).
 - `fragment_id` (string): Cited fragment id to resolve lineage for (required for lineage).
 - `claim` (string): The claim/fact text this lineage is for (lineage only, carried through verbatim).
@@ -1813,7 +1813,7 @@ the agent-to-agent communication bus: let this session talk to other Claude/LLM 
 
 **graph candidate claims**
 
-Track 4/5 of the universal-ingestion program: propose model-backed candidate claims from raw text, and/or resolve entity-identity candidates across records — NEITHER action ever writes a fact or an identity assertion (structurally no write authority; see the module docstring). 'propose' (text, source_id, fragments_json, rounds, dedup) runs CandidateClaimExtractor.propose — a schema-constrained extraction pass citing EXACT evidence spans against the supplied fragments, with an honest (never fabricated) model_confidence and a review_bucket (accepted|needs_review|rejected|quarantined). 'resolve_identities' (records_json, min_confidence, persist) runs resolve_identity_candidates — compares every record pair and returns AMBIGUITY-PRESERVING candidates (never a merge); persist=true additionally writes each as a POSSIBLE_SAME_AS hint edge (write_candidate), the one ungated write this pipeline makes.
+Track 4/5 of the universal-ingestion program: propose model-backed candidate claims from raw text, and/or resolve entity-identity candidates across records — NEITHER action ever writes a fact or an identity assertion (structurally no write authority. See the module docstring). 'propose' (text, source_id, fragments_json, rounds, dedup) runs CandidateClaimExtractor.propose — a schema-constrained extraction pass citing EXACT evidence spans against the provided fragments, with an honest (never fabricated) model_confidence and a review_bucket (accepted|needs_review|rejected|quarantined). 'resolve_identities' (records_json, min_confidence, persist) runs resolve_identity_candidates — compares every record pair and returns AMBIGUITY-PRESERVING candidates (never a merge); persist=true also writes each as a POSSIBLE_SAME_AS hint edge (write_candidate), the one ungated write this pipeline makes.
 
 - **Intent verbs:** act, write
 - **REST route:** `/graph/candidate-claims`
@@ -1867,7 +1867,7 @@ one capability-shaped call across every KG modality (graphs, sql, kv, vector, on
 
 **Typed input:**
 
-- `action` (string): 'list' (default) returns modality and provider catalogues; 'preview_sync' validates one source_sync request without executing it.
+- `action` (string): 'list' (default) returns modality and provider catalogues; 'preview_sync' validates one source_sync request without running it.
 - `source` (string): For preview_sync: exactly one neutral source identifier.
 - `mode` (string): For preview_sync: 'delta', 'full', or 'reconcile'.
 - `ids_json` (string): For preview_sync: JSON list of bounded source record ids.
@@ -1886,7 +1886,7 @@ one capability-shaped call across every KG modality (graphs, sql, kv, vector, on
 
 **graph claims**
 
-Drive the X-3 epistemic mining flywheel's governed claim lifecycle (CONCEPT:AU-KG.evolution.mining-flywheel) directly: proposed -> validated -> accepted -> deprecated -> retracted (any pre-terminal state may also be retracted directly; RETRACTED is TERMINAL and STICKY — 'propose' refuses to reopen a retracted claim).
+Drive the X-3 epistemic mining flywheel's governed claim lifecycle (CONCEPT:AU-KG.evolution.mining-flywheel) directly: proposed -> validated -> accepted -> deprecated -> retracted (any pre-terminal state may also be retracted directly. RETRACTED is TERMINAL and STICKY — 'propose' refuses to reopen a retracted claim).
 
 - **Intent verbs:** manage, act
 - **REST route:** `/graph/claims`
@@ -2135,7 +2135,7 @@ Manage backend configurations, system credentials, and tool registration within 
 
 **Typed input:**
 
-- `action` (string): Configuration operation. Core actions: set_secret, vault_sync, frontend_contributions, register_mcp, install_hooks, uninstall_hooks, harness_fence, schema_pack, schema_candidates, add_connection, remove_connection, list_connections, mirror_status, reconcile, generate_config, config_doctor, config_reference, get_config, list_config, system_doctor, health, preflight, and doctor (hook-installer self-check; distinct from config_doctor/system_doctor). set_role_routing persists a role's model registry routing entry (config_value is the JSON RoleSpec payload). Universal external-source lifecycle actions are discover_connection_schema, propose_connection_mapping, approve_connection_mapping, connection_mapping_status, external_graph_doctor, profile_connection, and ingest_connection. Durable connection declarations accept neutral aliases and runtime secret references only; endpoint, credential, identity, query, TLS material, and local-path literals are rejected. GraphQL sources use a read-only runtime adapter; their connection, mapping, auth, TLS, and variables documents remain separate refs, and every ingest rechecks the approved schema and mapping-policy digests. push_to_stardog, pull_from_stardog, stardog_sparql, stardog_export_graph, stardog_import_graph, setup_databases, and verify_databases were retired with the legacy SPARQL backend and database-setup path; each name stays reachable and answers with a typed unavailable error.
+- `action` (string): Configuration operation. Core actions: set_secret, vault_sync, frontend_contributions, register_mcp, install_hooks, uninstall_hooks, harness_fence, schema_pack, schema_candidates, add_connection, remove_connection, list_connections, mirror_status, reconcile, generate_config, config_doctor, config_reference, get_config, list_config, system_doctor, health, preflight, and doctor (hook-installer self-check; distinct from config_doctor/system_doctor). set_role_routing persists a role's model registry routing entry (config_value is the JSON RoleSpec payload). Universal external-source lifecycle actions are discover_connection_schema, propose_connection_mapping, approve_connection_mapping, connection_mapping_status, external_graph_doctor, profile_connection, and ingest_connection. Durable connection declarations accept neutral aliases and runtime secret references only; endpoint, credential, identity, query, TLS material, and local-path literals are rejected. GraphQL sources use a read-only runtime adapter; their connection, mapping, auth, TLS, and variables documents remain separate refs, and every ingest rechecks the approved schema and mapping-policy digests. push_to_stardog, pull_from_stardog, stardog_sparql, stardog_export_graph, stardog_import_graph, setup_databases, and check_databases were retired with the legacy SPARQL backend and database-setup path; each name stays reachable and answers with a typed unavailable error.
 - `config_key` (string): The key or ID of the configuration/secret (for 'schema_pack', the pack name e.g. 'research-state'; for connection actions, the connection name).
 - `config_value` (string): JSON string containing the payload or secret value.
 
@@ -2221,7 +2221,7 @@ Governed Arrow data preparation over the NE-108 kernel.
 
 **graph document tree**
 
-Reasoning-tree (vectorless) document retrieval over a per-document section tree (CONCEPT:AU-KG.retrieval.section-tree/tree-navigation; distills PageIndex). action: 'build' (build + optionally persist the section tree from text or a stored document), 'structure' (return the text-free table-of-contents map = get_document_structure), 'content' (fetch section bodies for cited char ranges like '96..208,300..420' = get_page_content), 'retrieve' (walk the tree by relevance and return sections with cited start..end ranges), 'fragments' (the addressable evidence spine — every citable Fragment of an artifact/document with its stable address + content hash; CONCEPT:AU-KG.ingest.stable-fragment-address), 'cite' (resolve a stored citation against the current artifact and report current | stale | moved | lost).
+Reasoning-tree (vectorless) document retrieval over a per-document section tree (CONCEPT:AU-KG.retrieval.section-tree/tree-navigation. Distills PageIndex). action: 'build' (build + optionally persist the section tree from text or a stored document), 'structure' (return the text-free table-of-contents map = get_document_structure), 'content' (fetch section bodies for cited char ranges like '96..208,300..420' = get_page_content), 'fetch' (walk the tree by relevance and return sections with cited start..end ranges), 'fragments' (the addressable evidence spine — every citable Fragment of an artifact/document with its stable address + content hash; CONCEPT:AU-KG.ingest.stable-fragment-address), 'cite' (resolve a stored citation against the current artifact and report current | stale | moved | lost).
 
 - **Intent verbs:** ask, write
 - **REST route:** `/graph/document-tree`
@@ -2241,16 +2241,16 @@ Reasoning-tree (vectorless) document retrieval over a per-document section tree 
 
 **Typed input:**
 
-- `action` (string, required): build | structure | content | retrieve | fragments | cite
-- `document_id` (string): Target Document id (structure/content, and build/retrieve when loading from the graph).
-- `text` (string): action=build/retrieve — inline document text (markdown) to build the tree from, instead of loading a stored document.
-- `query` (string): action=retrieve — the natural-language query to navigate the tree with.
+- `action` (string, required): build | structure | content | fetch | fragments | cite
+- `document_id` (string): Target Document id (structure/content, and build/fetch when loading from the graph).
+- `text` (string): action=build/fetch — inline document text (markdown) to build the tree from, instead of loading a stored document.
+- `query` (string): action=fetch — the natural-language query to navigate the tree with.
 - `ranges` (string): action=content — char ranges to fetch, e.g. '96..208,300..420'.
-- `top_k` (integer): action=retrieve — max sections to return.
+- `top_k` (integer): action=fetch — max sections to return.
 - `persist` (boolean): action=build — write the Section nodes/edges to the graph (requires document_id).
 - `thin` (boolean): action=build — collapse tiny sections into their parent (token-budget thinning).
 - `summarize` (boolean): action=build — compute per-node summaries for a text-free structure map.
-- `use_llm` (boolean): action=retrieve — try LLM tree navigation before the lexical walk.
+- `use_llm` (boolean): action=fetch — try LLM tree navigation before the lexical walk.
 - `artifact_id` (string): action=fragments/cite — the source Artifact to read the evidence spine of (alternative to document_id).
 - `fragment_id` (string): action=cite — the stable fragment address the citation stored.
 - `content_hash` (string): action=cite — the 'sha256:<hex>' content hash the citation stored, used to detect staleness and to relocate a moved fragment.
@@ -2376,7 +2376,7 @@ GraphRAG-style Graph Engineering surface: entity-neighborhood local search, comm
 - `depth` (integer): local_search neighborhood hops (bounded).
 - `top_k` (integer): local_search result cap.
 - `level` (integer): global_search community-report level: 0 = per-community reports, 1 = the single global rollup report.
-- `max_communities` (integer): global_search MAP-step fan-out bound, and build_community_reports' max communities to summarize (there default 50 when left at 8 has no special meaning -- pass explicitly for build_community_reports if you want a different cap).
+- `max_communities` (integer): global_search MAP-step fan-out bound, and build_community_reports' max communities to summarize (there default 50 when left at 8 has no special meaning -- pass explicitly for build_community_reports if the operator want a different cap).
 - `token_budget` (integer): ContextCompiler token budget. 0 (default) uses each action's own default (2000 for local_search, 4000 for global_search).
 - `resolution` (number): build_community_reports: Louvain resolution parameter.
 - `min_size` (integer): build_community_reports: minimum community size to summarize.
@@ -2395,7 +2395,7 @@ GraphRAG-style Graph Engineering surface: entity-neighborhood local search, comm
 
 **graph epistemic**
 
-Purpose-named epistemic-answer surface over the engine's belief/provenance primitives (CONCEPT:AU-KB-CURRENCY) — 'why do we believe this', 'why NOT', 'what would change my mind', 'what changed between two points in time', 'resolve this contradiction'.
+Purpose-named epistemic-answer surface over the engine's belief/provenance primitives (CONCEPT:AU-KB-CURRENCY) — 'why do this repository believe this', 'why NOT', 'what will change my mind', 'what changed between two points in time', 'resolve this contradiction'.
 
 - **Intent verbs:** why, ask
 - **REST route:** `/epistemic`
@@ -2414,8 +2414,8 @@ Purpose-named epistemic-answer surface over the engine's belief/provenance primi
 
 **Typed input:**
 
-- `action` (string): status | why | why_not | what_would_invalidate | what_changed | resolve_conflict
-- `node_id` (string): Claim/node id (status, why, why_not, what_would_invalidate).
+- `action` (string): status | why | why_not | what_will_invalidate | what_changed | resolve_conflict
+- `node_id` (string): Claim/node id (status, why, why_not, what_will_invalidate).
 - `node_ids` (string): JSON array of contradicting node ids (resolve_conflict).
 - `disclosure_level` (string): Full | Skeleton | ExistenceOnly — policy-aware redaction (why). Empty = engine default (full disclosure).
 - `tx_from` (integer): Lower transaction-time bound (what_changed).
@@ -2566,7 +2566,7 @@ Improve the graph and its executable knowledge.
 
 **graph explain**
 
-The UNIVERSAL context plane (CONCEPT:AU-KG.retrieval.route-question-its-domain): route a question to its domain provider and return ONE grounded, cited answer. action='explain' with target='domain:intent' (e.g. 'ops:why', 'code:usage', 'deploy:status', 'entity:health') — or a bare intent with the domain inferred, or target='domains' to list providers. action='context' returns a synthesized context bundle; action='executable_rag' runs the grounded multi-hop retriever.
+The UNIVERSAL context plane (CONCEPT:AU-KG.retrieval.route-question-its-domain): route a question to its domain provider and return ONE grounded, cited answer. action='explain' with target='domain:intent' (e.g. 'ops:why', 'code:usage', 'deploy:status', 'entity:health') — or a bare intent with the domain inferred, or target='domains' to list providers. action='context' returns a synthesized context bundle. Action='executable_rag' runs the grounded multi-hop retriever.
 
 - **Intent verbs:** why
 - **REST route:** `/graph/explain`
@@ -2691,7 +2691,7 @@ Manage the unified RSS/Atom feed registry (CONCEPT:AU-KG.ingest.rss-feed-connect
 
 - `action` (string): list|add|remove|sync
 - `url` (string): Feed URL (single add/remove).
-- `urls` (string): BULK add/remove: many feed URLs in ONE call — a JSON array ('["https://a/feed","https://b/rss"]') or a comma/newline-separated string. Combined with `url` and deduped.
+- `urls` (string): BULK add/remove: multiple feed URLs in ONE call — a JSON array ('["https://a/feed","https://b/rss"]') or a comma/newline-separated string. Combined with `url` and deduped.
 - `mode` (string): delta|full (sync).
 
 **Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
@@ -2726,7 +2726,7 @@ warm-fork fan-out over the ORCH-1.86..93 warm-fork primitive (LMCache KV / copy-
 - `branches_json` (string): JSON list of per-branch code snippets; overrides code/n.
 - `vars_json` (string): JSON object seeding the namespace forked into every branch.
 - `sandbox` (string): Preferred warm-fork rung name (empty ⇒ cheapest available).
-- `context_query` (string): Optional: retrieve an engine cross-modal candidate set (vector+graph+text) for this query ONCE and fork it into every branch (reused, no recompute).
+- `context_query` (string): Optional: fetch an engine cross-modal candidate set (vector+graph+text) for this query ONCE and fork it into every branch (reused, no recompute).
 - `candidate_var` (string): Namespace name the cross-modal candidate set is bound to in each branch (only used when context_query is set).
 
 **Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
@@ -2828,12 +2828,12 @@ Govern orchestration actions.
 
 **Typed input:**
 
-- `action` (string): grant_approval | submit_risk_veto | verify_action | ownership_report | ownership_apply | claim_ownership | policy_status
+- `action` (string): grant_approval | submit_risk_veto | check_action | ownership_report | ownership_apply | claim_ownership | policy_status
 - `approval_id` (string): Pending action_approval:* id (grant_approval).
 - `decision` (string): approved | denied (grant_approval).
 - `target_id` (string): Existing target id for a risk veto or policy check.
 - `reason` (string): Risk-veto or policy reason.
-- `kind` (string): ActionPolicy action kind (verify_action).
+- `kind` (string): ActionPolicy action kind (check_action).
 - `params_json` (string): JSON object of ActionPolicy parameters.
 - `source` (string): Policy request source.
 - `actor_id` (string): Optional policy actor id.
@@ -2959,7 +2959,7 @@ Smart ingestion for codebases, documents, directories, and conversation logs.
 - `target_path` (string): Path or JSON list of paths to ingest.
 - `max_depth` (integer): Maximum directory depth for codebase ingestion.
 - `agent_id` (string): ID of the agent performing the ingestion.
-- `action` (string): Action to perform (ingest, ingest_url, backfill_platform_history, archivebox_sync, cdc_catchup, opensearch_reindex, skill_workflows, fact_extract, sync_second_brain, classify_topics, enrich_pending_documents, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). For backfill_platform_history, pass corpus_name=<recoverable platform> and target_path=<channel/room id>; it re-fetches retained history using the platform's existing credential and records idempotent backfilled InboundMessage nodes. 'enrich_pending_documents' sweeps :Document nodes a connector wrote via the native_ingest primitive (e.g. searxng-mcp results) from outside the hub process — raw text only, flagged needs_enrichment=true — and runs each through the SAME DocumentProcessor + central _enrich_text seam a direct ingest gets (chunk+contextual-enrich+concepts+facts+WorldView topic classification), clearing the flag. 'classify_topics' runs the WorldView subject/topic classifier ad hoc (CONCEPT:AU-KG.enrichment.topic-classification-topology): description=raw text (or target_path=file, or target_path=an existing Document node id to attach edges to) → classifies onto the canonical WorldView taxonomy (ontology_worldview.ttl) and mints/links the :Topic hierarchy (BROADER/NARROWER) + HAS_TOPIC/CLASSIFIED_AS edges with confidence; corpus_name=optional title. This is the SAME core every document ingestion runs by default — use this action to classify a document that already exists in the graph without re-ingesting it, or to preview a classification. 'ingest_url' content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): target_path=URL → fetch via the unified resolver (ArchiveBox→crawl4ai→requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page→paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'cdc_catchup' (CONCEPT:AU-KG.ingest.debezium-changeenvelope, CA-21) runs one bounded on-demand catch-up poll of the Debezium `cdc.<db>.<schema>.<table>` consumer — drains whatever is currently available (up to a batch cap), maps each row through debezium_envelope.map_debezium_event, and commits through the same ingest_envelope atomic boundary every other connector uses; returns counts (succeeded/skipped/quarantined/failed) and the last committed LSN watermark; never blocks waiting for more messages. 'opensearch_reindex' (CONCEPT:AU-KG.retrieval.opensearch-cdc-indexer, CA-24, DEC-CA-09) rebuilds the OpenSearch search-tier index for one eg graph/tenant by replaying eg.cdc.<graph> from offset 0 (or base_path=from_seq) into a freshly-dropped index (the P3 recovery mechanism — a full rebuild is always a valid recovery path, not an exceptional one): corpus_name=eg graph/tenant id (required), target_path=optional object_type to scope the rebuild to one index (default: every index this tenant owns). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so graph_orchestrate execute_workflow can discover and fire them; ALSO sweeps the sibling atomic-skill corpus (skill_type: skill) into a CallableResource(AGENT_SKILL) each via the same reused ingest_runnable_skill primitive, so both legs of the corpus are classified by this one call; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately — the full corpus takes ~150s, over the call ceiling — poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'sync_second_brain' (CONCEPT:AU-KG.enrichment.second-brain-note-sync) is the one-call personal-notes sync: target_path=notes directory or file (a markdown folder, an Obsidian vault, or a synced Nextcloud/Paperless export — see the `second-brain-sync` skill), corpus_name=corpus name, base_path=optional 'since' cursor (epoch seconds or an ISO-8601 timestamp) to only process notes changed since then. Per note: runs 'fact_extract' (evidence-spanned facts), extracts entities/claims and PROPOSES each new claim into the governed ClaimFlywheel lifecycle (graph_claims reads the same state — never silently accepted), then scans each new claim against existing graph content and persists any contradiction as a propose-only :BeliefRevisionProposal (the same node loop_controller's belief-revision pass writes, so existing review tooling picks it up with no new UI). Content-hash idempotent: re-running over an unchanged corpus mints zero new facts/claims/proposals. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:AU-KG.research.skill-graph-distillation): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) — always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, priority_bucket=0..3 — no named priority aliases are accepted). Research evolution (CONCEPT:AU-KG.ingest.batch-research-cohort): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:AU-OS.observability.per-lane-latency-metrics) returns per-lane/stage latency percentiles + token/cost + the parallelism factor.
+- `action` (string): Action to perform (ingest, ingest_url, backfill_platform_history, archivebox_sync, cdc_catchup, opensearch_reindex, skill_workflows, fact_extract, sync_second_brain, classify_topics, enrich_pending_documents, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). For backfill_platform_history, pass corpus_name=<recoverable platform> and target_path=<channel/room id>; it re-fetches retained history using the platform's existing credential and records idempotent backfilled InboundMessage nodes. 'enrich_pending_documents' sweeps :Document nodes a connector wrote via the native_ingest primitive (e.g. searxng-mcp results) from outside the hub process — raw text only, flagged needs_enrichment=true — and runs each through the SAME DocumentProcessor + central _enrich_text seam a direct ingest gets (chunk+contextual-enrich+concepts+facts+WorldView topic classification), clearing the flag. 'classify_topics' runs the WorldView subject/topic classifier ad hoc (CONCEPT:AU-KG.enrichment.topic-classification-topology): description=raw text (or target_path=file, or target_path=an existing Document node id to attach edges to) → classifies onto the canonical WorldView taxonomy (ontology_worldview.ttl) and mints/links the :Topic hierarchy (BROADER/NARROWER) + HAS_TOPIC/CLASSIFIED_AS edges with confidence; corpus_name=optional title. This is the SAME core every document ingestion runs by default — use this action to classify a document that already exists in the graph without re-ingesting it, or to preview a classification. 'ingest_url' content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): target_path=URL → fetch via the unified resolver (ArchiveBox→crawl4ai→requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page→paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'cdc_catchup' (CONCEPT:AU-KG.ingest.debezium-changeenvelope, CA-21) runs one bounded on-demand catch-up poll of the Debezium `cdc.<db>.<schema>.<table>` consumer — drains whatever is currently available (up to a batch cap), maps each row through debezium_envelope.map_debezium_event, and commits through the same ingest_envelope atomic boundary every other connector uses; returns counts (succeeded/skipped/quarantined/failed) and the last committed LSN watermark; never blocks waiting for more messages. 'opensearch_reindex' (CONCEPT:AU-KG.retrieval.opensearch-cdc-indexer, CA-24, DEC-CA-09) rebuilds the OpenSearch search-tier index for one eg graph/tenant by replaying eg.cdc.<graph> from offset 0 (or base_path=from_seq) into a freshly-dropped index (the P3 recovery mechanism — a full rebuild is always a valid recovery path, not an exceptional one): corpus_name=eg graph/tenant id (required), target_path=optional object_type to scope the rebuild to one index (default: every index this tenant owns). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape run_workflow reads, so graph_orchestrate run_workflow can discover and fire them; ALSO sweeps the sibling atomic-skill corpus (skill_type: skill) into a CallableResource(AGENT_SKILL) each via the same reused ingest_runnable_skill primitive, so both legs of the corpus are classified by this one call; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately — the full corpus takes ~150s, over the call ceiling — poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'sync_second_brain' (CONCEPT:AU-KG.enrichment.second-brain-note-sync) is the one-call personal-notes sync: target_path=notes directory or file (a markdown folder, an Obsidian vault, or a synced Nextcloud/Paperless export — see the `second-brain-sync` skill), corpus_name=corpus name, base_path=optional 'since' cursor (epoch seconds or an ISO-8601 timestamp) to only process notes changed since then. Per note: runs 'fact_extract' (evidence-spanned facts), extracts entities/claims and PROPOSES each new claim into the governed ClaimFlywheel lifecycle (graph_claims reads the same state — never silently accepted), then scans each new claim against existing graph content and persists any contradiction as a propose-only :BeliefRevisionProposal (the same node loop_controller's belief-revision pass writes, so existing review tooling picks it up with no new UI). Content-hash idempotent: re-running over an unchanged corpus mints zero new facts/claims/proposals. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:AU-KG.research.skill-graph-distillation): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) — always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, priority_bucket=0..3 — no named priority aliases are accepted). Research evolution (CONCEPT:AU-KG.ingest.batch-research-cohort): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:AU-OS.observability.per-lane-latency-metrics) returns per-lane/stage latency percentiles + token/cost + the parallelism factor.
 - `job_id` (string): ID of the job to check status for.
 - `priority_bucket` (integer): Integer WorkItem claim bucket used by prioritize.
 - `corpus_name` (string): Name of the corpus to add/update.
@@ -2967,7 +2967,7 @@ Smart ingestion for codebases, documents, directories, and conversation logs.
 - `description` (string): Description of the corpus.
 - `content_type` (string): Internal override only — leave empty. The content type (codebase, document, config, prompt, skill, mcp_server, kb, conversation, policy) is auto-detected from the path, and heavy types (codebase/document) always run on the async job queue. Only set this to force a specific category for an ambiguous path.
 - `connection` (string): CONCEPT:AU-KG.backend.multi-connection-registry — for action='ingest' codebase/document jobs: named BACKEND connection to submit to (default = primary). Selects WHICH BACKEND, never which physical graph — see `graph`. Fan-out ('all'/a list) is rejected: an ingest job always targets exactly one backend, never a union.
-- `graph` (string): CONCEPT:AU-KG.backend.explicit-graph-selection — for action='ingest' codebase/document jobs: explicit physical engine graph to ingest INTO (one of the names `engine_tenants(action='list')` returns), independent of `connection`. Empty = the caller's own bound graph (unchanged default behavior). An unknown graph, or a `connection` with no physical-graph concept, is a typed error — never a silent fallback or fan-out. The submitted job stays bound to this exact graph through async claim/execute (persisted on the WorkItem), so it can never drift to a default/registry-wide graph.
+- `graph` (string): CONCEPT:AU-KG.backend.explicit-graph-selection — for action='ingest' codebase/document jobs: explicit physical engine graph to ingest INTO (one of the names `engine_tenants(action='list')` returns), independent of `connection`. Empty = the caller's own bound graph (unchanged default behavior). An unknown graph, or a `connection` with no physical-graph concept, is a typed error — never a silent fallback or fan-out. The submitted job stays bound to this exact graph through async claim/run (persisted on the WorkItem), so it can never drift to a default/registry-wide graph.
 
 **Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
 
@@ -3063,11 +3063,11 @@ checkpoint a KV-cache at a point of ideal understanding, then initialise a new a
 - `new_run_id` (string): instantiate_agent: the new run's id.
 - `conversation_id` (string): restore_conversation: the conversation to reset.
 - `allow_cold_start` (boolean): restore_conversation: on an invalid/foreign/stale checkpoint, return an explicit traced cold-start result instead of raising.
-- `observation_json` (string): recommend/checkpoint_now: a CheckpointObservation as JSON (rebuild cost, sibling/queued tasks, retrieved/novel items, claim/evidence counts, contradictions, churn, phase, model_self_report). Every field is optional; an omitted field means NOT MEASURED and its scorer abstains rather than guessing.
+- `observation_json` (string): recommend/checkpoint_now: a CheckpointObservation as JSON (rebuild cost, sibling/queued tasks, fetched/novel items, claim/evidence counts, contradictions, churn, phase, model_self_report). Every field is optional; an omitted field means NOT MEASURED and its scorer abstains rather than guessing.
 - `evidence_bundle_json` (string): recommend/checkpoint_now: an EvidenceBundle as JSON (as returned by graph_ask/graph_query). Its claims/evidence_spans/contradictions populate the grounding and contradiction axes directly, so a caller need not transcribe the counts. Explicit observation_json fields always win over anything derived here.
 - `context_bundle_json` (string): recommend/checkpoint_now: a ContextBundle as JSON. Its items/dropped_redundant/citations populate the retrieval-saturation (novelty) axis. Same precedence rule as evidence_bundle_json.
 - `sources_json` (string): checkpoint_now: the sources that contributed to this context, as a JSON list of either ref strings (resolved to their governance labels) or fully-labelled objects (source_id/classification/residency_regions/retention_days/markings). Usually unnecessary: citations carried on context_bundle_json already name them. An EMPTY source set refuses durable persistence — an unprovenanced checkpoint cannot be shown to permit data-at-rest.
-- `trigger` (string): checkpoint_now/promote: which path took this checkpoint — 'user', 'agent' or 'system'. PROVENANCE ONLY. It is recorded on the audit record and never read by the eligibility decision, which derives authority from your verified session instead.
+- `trigger` (string): checkpoint_now/promote: which path took this checkpoint — 'user', 'agent' or 'system'. PROVENANCE ONLY. It is recorded on the audit record and never read by the eligibility decision, which derives authority from the operator's checked session instead.
 - `persist` (boolean): checkpoint_now: also attempt durable (cross-session) persistence. Always subject to the eligibility gate; a refusal still leaves the RAM checkpoint in place.
 - `graph` (string): Target graph (default engine graph).
 
@@ -3386,7 +3386,7 @@ Reason over the KG-native observability subgraph — traces, online-scores, asse
 
 **graph ontology**
 
-GraphSchema lifecycle control plane. load/update attach an explicit iri+version Turtle document through EG; list/get return generated GraphSchema metadata; delete detaches the exact source.
+GraphSchema lifecycle control plane. load/update attach an explicit iri+version Turtle document through EG. List/get return generated GraphSchema metadata; remove detaches the exact source.
 
 - **Intent verbs:** write, ask, manage
 - **REST route:** `/graph/ontology`
@@ -3405,11 +3405,11 @@ GraphSchema lifecycle control plane. load/update attach an explicit iri+version 
 
 **Typed input:**
 
-- `action` (string): load | list | get | update | delete
+- `action` (string): load | list | get | update | remove
 - `source` (string): For load/update: a UTF-8 Turtle file path or raw Turtle text.
 - `source_type` (string): How to read `source`: 'file' | 'text' | 'auto' (sniff).
-- `iri` (string): Required stable ontology IRI for load/get/update/delete.
-- `version` (string): Required stable version for load/get/update/delete.
+- `iri` (string): Required stable ontology IRI for load/get/update/remove.
+- `version` (string): Required stable version for load/get/update/remove.
 
 **Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
 
@@ -3423,7 +3423,7 @@ GraphSchema lifecycle control plane. load/update attach an explicit iri+version 
 
 **graph orchestrate**
 
-Resolve an ingested skill/workflow for a task and execute it on the local vLLM through the governed graph-os delegation runtime.
+Resolve an ingested skill/workflow for a task and run it on the local vLLM through the governed graph-os delegation runtime.
 
 - **Intent verbs:** act
 - **REST route:** `/graph/orchestrate`
@@ -3451,7 +3451,7 @@ Resolve an ingested skill/workflow for a task and execute it on the local vLLM t
 - `required_tools` (any): Tools that must each have recorded ToolCall provenance before the run can succeed. Must be a subset of allowed_tools.
 - `cred_ref` (string): Reference to an ephemeral credential in the secrets backend.
 - `open_channel` (boolean): Open a native bidirectional message channel for this run.
-- `reasoning_effort` (string): CONCEPT:AU-ORCH.execution.delegation-reasoning-off — reasoning is an OPT-IN capability (like RLM). A delegated agent runs with chain-of-thought OFF by default (deterministic tool loops don't need it and it stacks ~18x per-turn latency). Set an effort ('low'/'medium'/'high') to turn reasoning ON for an execution that genuinely needs deliberation (action='execute_agent'). Empty = off / inherit the model's setting.
+- `reasoning_effort` (string): CONCEPT:AU-ORCH.execution.delegation-reasoning-off — reasoning is an OPT-IN capability (like RLM). A delegated agent runs with chain-of-thought OFF by default (deterministic tool loops don't need it and it stacks ~18x per-turn latency). Set an effort ('low'/'medium'/'high') to turn reasoning ON for an execution that genuinely needs deliberation (action='run_agent'). Empty = off / inherit the model's setting.
 - `model_class` (string): Required configured model class: economy | standard.
 - `response_format` (string): Response contract: text for ordinary prose or json for one Pydantic-validated JSON object.
 - `grounding` (string): CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract — required (the default) fails this run closed if the mandatory evidence compilation times out, errors, or the retrieval-quality gate rejects every candidate, rather than silently answering ungrounded. best_effort/none explicitly opt into degraded operation, marked in the model messages, the RunTrace, and the OTel span, and never counted as a plain success.
@@ -3499,7 +3499,7 @@ a composable train→eval→serve→predict ML pipeline over a VERSIONED ':Model
 
 **graph projection**
 
-run the SAME query `graph_query` would and project the result into a stable node-link JSON shape: {nodes:[{id,label,properties}], links:[{source,target,label,properties}]} — the D3/force-graph convention every 2D/3D graph renderer already speaks.
+run the SAME query `graph_query` will and project the result into a stable node-link JSON shape: {nodes:[{id,label,properties}], links:[{source,target,label,properties}]} — the D3/force-graph convention every 2D/3D graph renderer already speaks.
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/projection`
@@ -3565,7 +3565,7 @@ query the engine's observability metrics with PromQL. action='instant' (a single
 
 **graph query**
 
-Execute a read-only Cypher, bounded UQL, SQL, SPARQL, or federated graph query and return the sole typed EvidenceBundle response.
+Run a read-only Cypher, bounded UQL, SQL, SPARQL, or federated graph query and return the sole typed EvidenceBundle response.
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/query`
@@ -3641,7 +3641,7 @@ reach the user over a messaging backend (Telegram, Slack, Discord, ...).
 
 **graph runvcs**
 
-Agent-native run version-control (CONCEPT:AU-ORCH.runvcs.run-commit): fork, revert and review a LIVE agent run as content-addressed commits that bind its conversation + filesystem + process/event frontier into ONE exact world. action in 'list' (live run sessions), 'status' (a run's event/commit/message counts + log digest), 'commit' (snapshot messages+fs+events into one RunCommit — pass label), 'revert' (restore a run's files+process+messages to a commit — pass commit_id), 'fork' (branch a NEW run from a commit into a fresh workspace, parent untouched — pass commit_id), 'discard' (drop the uncommitted event delta), 'replay' (deterministically replay the CURRENT live run's event log — a recorded exchange stands in for the model — and verify reproduction).
+Agent-native run version-control (CONCEPT:AU-ORCH.runvcs.run-commit): fork, revert and review a LIVE agent run as content-addressed commits that bind its conversation + filesystem + process/event frontier into ONE exact world. action in 'list' (live run sessions), 'status' (a run's event/commit/message counts + log digest), 'commit' (snapshot messages+fs+events into one RunCommit — pass label), 'revert' (restore a run's files+process+messages to a commit — pass commit_id), 'fork' (branch a NEW run from a commit into a fresh workspace, parent untouched — pass commit_id), 'discard' (drop the uncommitted event delta), 'replay' (deterministically replay the CURRENT live run's event log — a recorded exchange stands in for the model — and check reproduction).
 
 - **Intent verbs:** act
 - **REST route:** `/graph/runvcs`
@@ -3854,7 +3854,7 @@ Synthesize a shortcut-resistant deep-search task from the evidence graph, or dia
 
 **graph secret**
 
-Manage secrets (CONCEPT:AU-OS.identity.encrypted-secret-store) in the durable, engine-encrypted __secrets__ store (secret VALUES are sealed by the engine's encryption-at-rest; key NAMES + metadata stay queryable).
+Manage secrets (CONCEPT:AU-OS.identity.encrypted-secret-store) in the durable, engine-encrypted __secrets__ store (secret VALUES are sealed by the engine's encryption-at-rest. Key NAMES + metadata stay queryable).
 
 - **Intent verbs:** manage
 - **REST route:** `/graph/secret`
@@ -3872,8 +3872,8 @@ Manage secrets (CONCEPT:AU-OS.identity.encrypted-secret-store) in the durable, e
 
 **Typed input:**
 
-- `action` (string): set | get | list | delete
-- `key` (string): Secret key (set/get/delete).
+- `action` (string): set | get | list | remove
+- `key` (string): Secret key (set/get/remove).
 - `value` (string): Secret value (set).
 - `metadata` (any): Optional non-secret metadata (set).
 - `reason` (string): Why this mutation is happening (audit trail).
@@ -3890,7 +3890,7 @@ Manage secrets (CONCEPT:AU-OS.identity.encrypted-secret-store) in the durable, e
 
 **graph sessions**
 
-Manage durable sessions (action in 'list', 'get', 'delete', 'reply', 'cancel', 'health', 'topology').
+Manage durable sessions (action in 'list', 'get', 'remove', 'reply', 'cancel', 'health', 'topology').
 
 - **Intent verbs:** manage, ask
 - **REST route:** `/graph/sessions`
@@ -3911,7 +3911,7 @@ Manage durable sessions (action in 'list', 'get', 'delete', 'reply', 'cancel', '
 
 **Typed input:**
 
-- `action` (string, required): Action: 'list', 'get', 'delete', 'reply', 'cancel', 'health', 'topology'
+- `action` (string, required): Action: 'list', 'get', 'remove', 'reply', 'cancel', 'health', 'topology'
 - `session_id` (string): Target session ID
 - `user_reply` (string): Reply content for 'reply' action
 - `limit` (integer): Page size for 'topology'.
@@ -4049,7 +4049,7 @@ search or fetch distributed traces. action='search' (filter by 'service'/'operat
 
 **graph viz**
 
-GOC-88/D-VZ-1 V5: render native charts through the engine's LOD ColumnStore/export pipeline (Method::Viz) — no matplotlib, no per-view chart code. action='plot_from_query' (the common path: 'query' [+'mark','x_field','y_field',+'color_field',+'size_field',+'title'] — runs the SQL query against the connected graph and renders the result; answers {'unavailable': true} rather than an empty chart when the query returns no usable rows), 'export_chart' ('spec_json' + 'dataset_json' — an already-built ViewSpec/VizDatasetSource pair, thin pass-through), 'describe_chart' ('view_result_json' [+'spec_json'] — a plain-language, LLM-facing summary of what was actually drawn: mark, LOD tier, exact-vs-approximated, row count — no engine call), or 'capability_matrix' (which mark x surface pairs are real today). 'format' is png|svg|pdf; 'width_px'/'height_px' bound the canvas; 'max_primitives'/'max_bytes' bound the render budget — LOD selection is bounded by these, never by row count.
+GOC-88/D-VZ-1 V5: render native charts through the engine's LOD ColumnStore/export pipeline (Method::Viz) — no matplotlib, no per-view chart code. action='plot_from_query' (the common path: 'query' [+'mark','x_field','y_field',+'color_field',+'size_field',+'title'] — runs the SQL query against the connected graph and renders the result. Answers {'unavailable': true} rather than an empty chart when the query returns no usable rows), 'export_chart' ('spec_json' + 'dataset_json' — an already-built ViewSpec/VizDatasetSource pair, thin pass-through), 'describe_chart' ('view_result_json' [+'spec_json'] — a plain-language, LLM-facing summary of what was actually drawn: mark, LOD tier, exact-vs-approximated, row count — no engine call), or 'capability_matrix' (which mark x surface pairs are real today). 'format' is png|svg|pdf; 'width_px'/'height_px' bound the canvas; 'max_primitives'/'max_bytes' bound the render budget — LOD selection is bounded by these, never by row count.
 
 - **Intent verbs:** act, ask
 - **REST route:** `/graph/viz`
@@ -4083,7 +4083,7 @@ GOC-88/D-VZ-1 V5: render native charts through the engine's LOD ColumnStore/expo
 - `height_px` (integer): Canvas height in pixels.
 - `max_primitives` (integer): Frame primitive budget (bounds LOD tier).
 - `max_bytes` (integer): Frame byte budget (bounds LOD tier).
-- `row_limit` (integer): Max query rows fed inline into the render (action='plot_from_query'); the query itself should aggregate/LIMIT for anything larger — this is a safety cap on the wire payload, not the render budget (that's max_primitives/max_bytes, honored server-side regardless of row_limit).
+- `row_limit` (integer): Max query rows fed inline into the render (action='plot_from_query'); the query itself should aggregate/LIMIT for anything larger — this is a safety cap on the wire payload, not the render budget (that's max_primitives/max_bytes, honored server-side in either case of row_limit).
 - `dataset_ref` (string): Dataset id for the render.
 - `graph` (string): Target graph (empty ⇒ deployment default).
 
@@ -4121,7 +4121,7 @@ Manage governed WorkflowDefinitions.
 
 **Typed input:**
 
-- `action` (string): compile | compile_process | list | execute | execute_dynamic | dispatch | status | export
+- `action` (string): compile | compile_process | list | run | run_dynamic | dispatch | status | export
 - `workflow` (string): Workflow name, process id, or run/session id.
 - `task` (string): Compilation description or workflow input task.
 - `name` (string): Optional compiled workflow name.
@@ -4132,8 +4132,8 @@ Manage governed WorkflowDefinitions.
 - `max_concurrency` (integer):
 - `budget_tokens` (any):
 - `model_class` (string): economy | standard
-- `dynamic_fallback` (string): execute_dynamic only: error | stored_dag. Fallback applies only when the optional upstream runtime is unavailable.
-- `workflow_run_id` (string): execute_dynamic only: RESUME a halted run. Pass the workflow_run_id a previous execute_dynamic reported to replay its already-completed steps instead of re-dispatching them (the response reports 'resumed' and 'replayed_step_ids'). Leave empty to start a brand-new run.
+- `dynamic_fallback` (string): run_dynamic only: error | stored_dag. Fallback applies only when the optional upstream runtime is unavailable.
+- `workflow_run_id` (string): run_dynamic only: RESUME a stopped run. Pass the workflow_run_id a previous run_dynamic reported to replay its already-completed steps instead of re-dispatching them (the response reports 'resumed' and 'replayed_step_ids'). Leave empty to start a brand-new run.
 
 **Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
 
@@ -4176,7 +4176,7 @@ Write nodes, relationships, or register external graphs to the Knowledge Graph.
 
 **Typed input:**
 
-- `action` (string, required): Action to perform (add_node, add_edge, delete_node, delete_edge, register_external_graph, bulk_ingest, compare_and_set, store_memory, recall_memory, recall_media, log_chat, submit_sdd, register_execution, check_loop). Use 'compare_and_set' for an ATOMIC conditional update — optimistic concurrency / safe concurrent graph-shaping: it applies 'updates' only if every field in 'conditions' still equals the node's current value (missing field reads as null), so two agents mutating the same node never lose each other's write (conditional state transitions, atomic reservations).
+- `action` (string, required): Action to perform (add_node, add_edge, remove_node, remove_edge, register_external_graph, bulk_ingest, compare_and_set, store_memory, recall_memory, recall_media, log_chat, submit_sdd, register_execution, check_loop). Use 'compare_and_set' for an ATOMIC conditional update — optimistic concurrency / safe concurrent graph-shaping: it applies 'updates' only if every field in 'conditions' still equals the node's current value (missing field reads as null), so two agents mutating the same node never lose each other's write (conditional state transitions, atomic reservations).
 - `node_id` (string): The unique identifier for the node.
 - `node_type` (string): The type or label of the node.
 - `properties` (string): JSON-encoded dictionary of properties.
@@ -4190,7 +4190,7 @@ Write nodes, relationships, or register external graphs to the Knowledge Graph.
 - `idempotency_key` (string): For action='bulk_ingest': a caller-owned idempotency key for this exact batch (CONCEPT:AU-KG.ingest.envelope-atomic-transaction). Non-empty (or a non-empty 'evidence') routes the batch onto the engine's atomic ApplyChangeEnvelopes path (durably idempotent, scoped by (tenant, graph, idempotency_key) — a replay reports 'status':'skipped', never silently re-reported as fresh 'success'). Empty ⇒ the lighter BatchUpdate path, which carries no per-call idempotency key at the wire level.
 - `evidence` (string): For action='bulk_ingest': JSON list of evidence records ({'object_id','modality','locus','content_digest'}) attached to the FIRST node in 'nodes' (CONCEPT:AU-KG.ingest.envelope-atomic-transaction). Non-empty routes the batch onto ApplyChangeEnvelopes (the only primitive carrying evidence/policy/lineage) instead of the lighter BatchUpdate.
 - `upsert` (boolean): For action='bulk_ingest' on the BatchUpdate (light) path: real engine insert-or-merge semantics (CONCEPT:AU-KG.ingest.envelope-atomic-transaction). True (default) MERGEs onto an existing id — idempotent re-application, matching every prior add_node-loop caller's behavior. False INSERTs (a repeated edge becomes an additional parallel edge rather than replacing the prior one).
-- `connection` (string): CONCEPT:AU-KG.backend.multi-connection-registry — named BACKEND connection to write to (default = primary). Use a registered connection name, or 'all' (or a comma-separated list) to mirror the SAME write to several backends. Fan-out requires an explicit multi-connection value; the default and a single named connection stay single-write. Selects WHICH BACKEND, never which physical graph — see `graph`.
+- `connection` (string): CONCEPT:AU-KG.backend.multi-connection-registry — named BACKEND connection to write to (default = primary). Use a registered connection name, or 'all' (or a comma-separated list) to mirror the SAME write to multiple backends. Fan-out requires an explicit multi-connection value; the default and a single named connection stay single-write. Selects WHICH BACKEND, never which physical graph — see `graph`.
 - `graph` (string): CONCEPT:AU-KG.backend.explicit-graph-selection — explicit physical engine graph to write to (one of the names `engine_tenants(action='list')`/the engine's own ListGraphs returns), independent of `connection`. Empty = the caller's own bound graph (unchanged default behavior). Requires exactly one resolved `connection` (the default one) — never combinable with `connection='all'`/a list. Authorization-checked by the engine's own RBAC/RLS on every call; an unknown graph, or a `connection` with no physical-graph concept, is a typed error — never a silent fallback to a default graph and never a union across graphs. Echoed back (as `connection`/`graph`) in the compare_and_set/recall_media JSON responses and appended to the plain-text outcome of the other write actions.
 - `conditions` (object): For action='compare_and_set': field→expected-value the node must currently match for the update to apply (a missing field reads as null). e.g. {'status': 'pending'}.
 - `updates` (object): For action='compare_and_set': field→new-value to merge into the node ONLY when every condition matches. e.g. {'status': 'claimed', 'owner': 'agent-7'}.
@@ -4281,7 +4281,7 @@ Ingest AI agent chat/session history into the usage store + KG (CONCEPT:AU-ECO.m
 
 **manage**
 
-Configure and govern graph-os and fleet loading; previews first, then execute with plan_ref. action='<tool>.<op>' (see action='describe'), or leave it empty to route `intent`.
+Configure and govern graph-os and fleet loading. Previews first, then run with plan_ref. action='<tool>.<op>' (see action='describe'), or leave it empty to route `intent`.
 
 - **Intent verbs:** manage
 - **REST route:** `/intent/manage`
@@ -4346,7 +4346,7 @@ ask the Knowledge Graph in plain English, planned by agent-utilities' OWN config
 
 **object edits**
 
-Durable object-edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback): record a structured edit (property_set/link_add/link_remove/object_create/object_delete), revert an edit, or read per-object history / as_of snapshot.
+Durable object-edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback): record a structured edit (property_set/link_add/link_remove/object_create/object_remove), revert an edit, or read per-object history / as_of snapshot.
 
 - **Intent verbs:** write
 - **REST route:** `/object/edits`
@@ -4366,7 +4366,7 @@ Durable object-edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback): recor
 
 - `action` (string): 'record' an edit | 'revert' an edit by id | 'history' per object | 'as_of' snapshot.
 - `object_id` (string): Target object id (record/history/as_of).
-- `edit_type` (string): property_set|link_add|link_remove|object_create|object_delete (for action='record').
+- `edit_type` (string): property_set|link_add|link_remove|object_create|object_remove (for action='record').
 - `properties_json` (string): JSON property map (record property_set/object_create).
 - `link_target` (string): Link target id (record link_add/link_remove).
 - `link_label` (string): Link label (record link_add/link_remove).
@@ -4704,7 +4704,7 @@ Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerate
 
 **ontology link materialize**
 
-Reify a many-to-many ontology link as a (junction_node, edge_a, edge_b) triple and write it (CONCEPT:AU-KG.domains.trade-journal-bias-auditor).
+Reify a multiple-to-multiple ontology link as a (junction_node, edge_a, edge_b) triple and write it (CONCEPT:AU-KG.domains.trade-journal-bias-auditor).
 
 - **Intent verbs:** write
 - **REST route:** `/ontology/link-materialize`
@@ -4844,7 +4844,7 @@ Git identity and history anchors (U-47, CONCEPT:AU-KG.ontology.repository-proven
 
 **ontology sampling profile**
 
-Task-aware LLM sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection/KG-2.94): list/describe the per-task-class profiles, 'resolve' the profile that would be picked for a prompt/role,
+Task-aware LLM sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection/KG-2.94): list/describe the per-task-class profiles, 'resolve' the profile that will be picked for a prompt/role,
 
 - **Intent verbs:** manage, ask
 - **REST route:** `/ontology/sampling-profiles`
@@ -4985,8 +4985,8 @@ Agent-Native Research Artifacts over the one ontology-driven KG (CONCEPT:AU-KG.r
 
 **Typed input:**
 
-- `action` (string): reason|compile|review|seal|capture|get|list|inquire
-- `topic` (string): Topic to inquire into (inquire).
+- `action` (string): reason|compile|review|seal|capture|get|list|ask
+- `topic` (string): Topic to ask into (ask).
 - `article_id` (string): Paper/article id (compile/review/get).
 - `query` (string): Topic for 'reason' (reasoning is ecosystem-wide).
 - `level` (string): Seal level: L1|L2|L3 (review).
@@ -4996,7 +4996,7 @@ Agent-Native Research Artifacts over the one ontology-driven KG (CONCEPT:AU-KG.r
 - `event_type` (string): Force event type (capture).
 - `target_codebase` (string): Codebase to ground claims against (compile).
 - `limit` (integer): Max rows (list).
-- `materialize` (boolean): Persist inquiry nodes (inquire).
+- `materialize` (boolean): Persist inquiry nodes (ask).
 
 **Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
 
@@ -5105,7 +5105,7 @@ Watch a chunked async drain started by source_sync(mode='full') on a LARGE corpu
 
 **source sync**
 
-THE canonical connector→KG ingestion tool (CONCEPT:AU-KG.ingest.enterprise-source-extractor) — one entrypoint for every external source. source='leanix'|'camunda'|'servicenow'|'gitlab'|… (any registered hydration/materialize source), OR source='all' to sweep EVERY configured connector in one pass (the fleet-wide background-ingest sweep). mode='delta' (only changes since the watermark, default), 'full' (re-mirror all), or 'reconcile' (tombstone records deleted upstream).
+THE canonical connector→KG ingestion tool (CONCEPT:AU-KG.ingest.enterprise-source-extractor) — one entrypoint for every external source. source='leanix'|'camunda'|'servicenow'|'gitlab'|… (any registered hydration/materialize source), OR source='all' to sweep EVERY configured connector in one pass (the fleet-wide background-ingest sweep). mode='delta' (only changes since the watermark, default), 'full' (re-mirror all), or 'reconcile' (tombstone records removed upstream).
 
 - **Intent verbs:** write
 - **REST route:** `/source/sync`
@@ -5176,7 +5176,7 @@ Link a KG SDD spec/feature to a Plane/Jira work item and make agents assignable 
 
 **tabular query**
 
-Execute a read-only SQL projection through the governed tabular query service and return its typed evidence bundle.
+Run a read-only SQL projection through the governed tabular query service and return its typed evidence bundle.
 
 - **Intent verbs:** ask
 - **REST route:** `/query/tabular`
@@ -5287,7 +5287,7 @@ Explain beliefs, decisions, provenance and changes. action='<tool>.<op>' (see ac
 
 **write**
 
-Create or change graph data; previews first, then execute with plan_ref. action='<tool>.<op>' (see action='describe'), or leave it empty to route `intent`.
+Create or change graph data. Previews first, then run with plan_ref. action='<tool>.<op>' (see action='describe'), or leave it empty to route `intent`.
 
 - **Intent verbs:** write
 - **REST route:** `/intent/write`

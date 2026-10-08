@@ -4,12 +4,12 @@
 
 The **Agent OS Infrastructure** pillar provides the production-grade foundation, telemetry, and proactive security guardrails that elevate `agent-utilities` from a research prototype into an enterprise-ready Agentic Operating System.
 
-## Why We Built This (Rationale)
+## Why This repository Built This (Rationale)
 
 Deploying autonomous systems in production introduces severe risks:
-1. **Prompt & Command Injection**: Malicious or malformed inputs can hijack the agent's LLM context and execute arbitrary code.
+1. **Prompt & Command Injection**: Malicious or malformed inputs can hijack the agent's LLM context and run arbitrary code.
 2. **Infinite Loops (Doom Loops)**: Agents can get stuck repeatedly calling the same tool with the same failed arguments, burning thousands of dollars in LLM API credits.
-3. **Lack of Auditability**: When an agent modifies a production database or deletes a file, tracking exactly *why* that decision was made is critical for compliance.
+3. **Lack of Auditability**: When an agent modifies a production database or removes a file, tracking exactly *why* that decision was made is critical for compliance.
 
 ---
 
@@ -154,20 +154,20 @@ Supports native xAI OAuth 2.0 PKCE authentication to access the X / xAI API and 
 
 1. **How Loopback Works Remotely**
    The OIDC callback server runs inside the workspace environment at `http://127.0.0.1:56121/callback`.
-   Because `graph-os` runs as an MCP server, standard standard-input prompts (`input()`) cannot be used (since the IDE uses standard input/output for JSON-RPC communication, reading from stdin would hang the MCP server).
+   Because `graph-os` runs as an MCP server, standard standard-input prompts (`input()`) cannot be used (since the IDE uses standard input/output for JSON-RPC communication, reading from stdin will hang the MCP server).
    Therefore, the callback server is the exclusive way to exchange tokens without crashing the MCP channel.
 
 2. **How to Authenticate in a Headless/Remote Environment**
-   To authenticate using your local browser while the MCP server runs on the remote container/VM:
-   * **Forward the Callback Port**: Set up a local port forward for port `56121` in your IDE (or via SSH using `ssh -L 56121:127.0.0.1:56121`).
-   * **Authorize**: Click the xAI auth link in your browser and log in.
-   * **Seamless Redirect**: When the browser redirects to `http://127.0.0.1:56121/callback`, the traffic will be forwarded back to your remote workspace. The OIDC loopback server will instantly capture the authorization code, exchange it, and save the token securely—completing the setup automatically with zero manual copy-pasting!
+   To authenticate using the operator's local browser while the MCP server runs on the remote container/VM:
+   * **Forward the Callback Port**: Set up a local port forward for port `56121` in the operator's IDE (or via SSH using `ssh -L 56121:127.0.0.1:56121`).
+   * **Authorize**: Click the xAI auth link in the operator's browser and log in.
+   * **Smooth Redirect**: When the browser redirects to `http://127.0.0.1:56121/callback`, the traffic will be forwarded back to the operator's remote workspace. The OIDC loopback server will instantly capture the authorization code, exchange it, and save the token securely—completing the setup automatically with zero manual copy-pasting!
 
 ---
 
 ## 🛡️ Declarative Sensory Guardrails & Safety Contracts (CONCEPT:AU-OS.config.secrets-authentication) { #sensory-guardrails }
 
-Sensory verification utilizes declarative tool contracts (`ContractValidator`) enforcing functional pre-conditions and strict schema-validated post-conditions on execution steps. This ensures that agent steps operate strictly within validated environments and return safety-compliant data structures.
+Sensory verification use declarative tool contracts (`ContractValidator`) enforcing functional pre-conditions and strict schema-validated post-conditions on execution steps. This ensures that agent steps operate strictly within validated environments and return safety-compliant data structures.
 
 ### System Sequence Flow
 
@@ -218,10 +218,10 @@ Append-only compliance audit trail with 30+ action constants, never-raise semant
 
 ### Centralized Logging & XDG Path Resolution (CONCEPT:AU-OS.config.agent-os-pillar-overview)
 
-To ensure workspace cleanliness, seamless containerization, and standardized troubleshooting, `agent-utilities` employs a centralized logging and path resolution architecture based on the **XDG Base Directory Specification**. All agent packages and downstream tools redirect their execution and debug logs away from workspace folders and into a single, unified log folder.
+To ensure workspace cleanliness, smooth containerization, and standardized troubleshooting, `agent-utilities` employs a centralized logging and path resolution architecture based on the **XDG Base Directory Specification**. All agent packages and downstream tools redirect their execution and debug logs away from workspace folders and into a single, unified log folder.
 
 #### Path Resolution Architecture
-*   **Standard XDG Log Directory**: Resolves by default to the standard platform-specific user log path, utilizing `user_log_path(APP_NAME, APP_AUTHOR)` (e.g., `~/.cache/agent-utilities/log/` on Linux).
+*   **Standard XDG Log Directory**: Resolves by default to the standard platform-specific user log path, use `user_log_path(APP_NAME, APP_AUTHOR)` (e.g., `~/.cache/agent-utilities/log/` on Linux).
 *   **Environment Override**: Developers and CI/CD environments can easily override the path using the `AGENT_UTILITIES_LOG_DIR` environment variable.
 *   **Centralized Path Helpers**: Exposed as first-class standard helpers in `agent_utilities.core.paths` via `log_dir() -> Path` and auto-created during initialization via `ensure_dirs()`.
 
@@ -250,7 +250,7 @@ Real-time Graph Streaming (SSE) and lifecycle events. Per-step state snapshots v
 *   **Source Code**: `agent_utilities/observability/telemetry.py`, `agent_utilities/harness/tracing.py`, `agent_utilities/harness/evaluators.py`
 
 #### Native Langfuse Integration
-`agent-utilities` integrates directly with the Langfuse API client (`langfuse-agent`). Persist only `LANGFUSE_PUBLIC_KEY_REF` and `LANGFUSE_SECRET_KEY_REF`; their key material is resolved in memory at the runtime boundary. Configure the canonical `LANGFUSE_HOST`, and reference private trust with `LANGFUSE_TLS_PROFILE_REF`. TLS verification cannot be disabled. `TRACE_EXPORT_ENABLED` is the explicit emission gate, and `LANGFUSE_CAPTURE_CONTENT=false` keeps traces metadata-only. The `@trace` path emits one bounded event when each decorated call completes; the graph-run exporter follows the Langfuse SDK lifecycle and flushes at explicit flush boundaries. Langfuse MCP availability is independently gated by `LANGFUSE_MCP_ENABLED`, so direct tracing and failure evolution do not require an MCP launcher. Traces below `LANGFUSE_DATASET_CAPTURE_THRESHOLD` may be proposed for governed dataset capture; proposal does not authorize promotion or raw-content retention.
+`agent-utilities` integrates directly with the Langfuse API client (`langfuse-agent`). Persist only `LANGFUSE_PUBLIC_KEY_REF` and `LANGFUSE_SECRET_KEY_REF`. Their key material is resolved in memory at the runtime boundary. Configure the canonical `LANGFUSE_HOST`, and reference private trust with `LANGFUSE_TLS_PROFILE_REF`. TLS verification cannot be disabled. `TRACE_EXPORT_ENABLED` is the explicit emission gate, and `LANGFUSE_CAPTURE_CONTENT=false` keeps traces metadata-only. The `@trace` path emits one bounded event when each decorated call completes; the graph-run exporter follows the Langfuse SDK lifecycle and flushes at explicit flush boundaries. Langfuse MCP availability is independently gated by `LANGFUSE_MCP_ENABLED`, so direct tracing and failure evolution do not require an MCP launcher. Traces below `LANGFUSE_DATASET_CAPTURE_THRESHOLD` may be proposed for governed dataset capture; proposal does not authorize promotion or raw-content retention.
 
 ---
 
@@ -334,7 +334,7 @@ To satisfy strict regulatory compliance, low-level isolation, and intelligent re
    * *Source Code*: [replay_engine.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/observability/replay_engine.py)
 
 2. **Hardened WASM Sandbox Executor (`AU-OS.deployment.platform-journey`)**:
-   Runs untrusted external tools and sub-agent scripts inside isolated WebAssembly processes with custom Gas Limit Bounds and Memory Allocation limits (e.g. 64MB cap), executing with microsecond-level process containment.
+   Runs untrusted external tools and sub-agent scripts inside isolated WebAssembly processes with custom Gas Limit Bounds and Memory Allocation limits (e.g. 64MB cap), running with microsecond-level process containment.
    * *Source Code*: [sandboxed_executor.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/security/sandboxed_executor.py)
 
 3. **Epistemic Resource Scheduler (`OS-5.8`)**:
@@ -513,8 +513,8 @@ server identity or topology. Metrics: `agent_utilities_engine_shard_up{endpoint}
 ## 🛠️ Developer-Workspace Runtime (CONCEPT:AU-OS.scaling.bridge-developer-workspace-mutating / ORCH-1.46 / KG-2.64)
 
 The substrate a knowledge-grounded software-engineering agent (ORCH-1.47) runs in —
-our answer to OpenHands' Docker runtime, projected onto our architecture. Unlike the
-RLM sandbox (ORCH-1.38), which executes one snippet against a namespace and syncs back
+this repository's answer to OpenHands' Docker runtime, projected onto this repository's architecture. Unlike the
+RLM sandbox (ORCH-1.38), which runs one snippet against a namespace and syncs back
 `{vars, stdout}`, a `DevWorkspace` is **long-lived and stateful**: `cd`/edits/installed
 deps persist across steps.
 
@@ -537,7 +537,7 @@ deps persist across steps.
   (`(:WorkspaceAction)-[:MUTATED]->(:Code)`). This is what lets the golden loop
   (AHE-3.23) attribute failures to edit-kinds on symbol classes as a graph query.
 - **Governance.** Mutating actions map to `workspace.cmd|write|edit` and pass through
-  the fail-closed `ActionPolicy` (OS-5.24) when a gate is supplied
+  the fail-closed `ActionPolicy` (OS-5.24) when a gate is provided
   (`runtime.action_policy_gate`); the shipped default sets them to `auto` (the sandbox
   is the boundary) and an operator can override any to `approval_required`.
 - **Surface.** `/api/runtime/*` — create a session, post typed actions, and stream the

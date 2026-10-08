@@ -7,7 +7,7 @@ instead of co-locating everything on one host. Config-only — no code fork.
 ## When to use it
 The durable write path is **fsync-bound**. In the recorded benchmark, HDD fsync
 p99 near 460 ms built a writer backlog while NVMe was near 3.2 ms, a roughly
-143× tail-latency cut. If your fastest disk and your most cores/RAM are on **different** hosts (common in a
+143× tail-latency cut. If the operator's fastest disk and the operator's most cores/RAM are on **different** hosts (common in a
 heterogeneous homelab/cluster), this flavor lets the engine sit on the fast disk while compute
 stays where the cores are. It is also the unit that later composes into a **sharded cluster** —
 each shard-engine on its own fast disk, clients routing by tenant.

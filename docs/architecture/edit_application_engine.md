@@ -2,8 +2,8 @@
 
 > A multi-format code-edit applier that lands LLM-proposed edits even when their
 > whitespace drifts from disk, and **reflects** on failures by re-prompting the
-> model with did-you-mean hints. It is the harness layer that turns a model's
-> "here is the change" into a file actually edited — for our own Claude and for
+> model with did-the operator-mean hints. It is the harness layer that turns a model's
+> "here is the change" into a file actually edited — for this repository's own Claude and for
 > every spawned coding sub-agent.
 
 ## Why
@@ -14,7 +14,7 @@ what is on disk made it fail silently, with no recovery — the single weakest l
 for any coding agent. Production coding harnesses (e.g. aider) instead parse a
 well-known edit format and apply it with a *ladder* of increasingly-forgiving
 matchers, then retry on failure. AU-ORCH.execution.robust-multi-format-edit brings that capability natively to
-agent-utilities. The fuzzy-match laddering is our own implementation; the laddered
+agent-utilities. The fuzzy-match laddering is this repository's own implementation; the laddered
 strategy is inspired by aider's `editblock_coder`.
 
 ## Formats
@@ -29,7 +29,7 @@ Two formats, auto-detected from the text:
 ## The matching ladder
 
 Each search block is applied with the first matcher that hits, getting progressively
-more forgiving. A failure at every tier returns a *did-you-mean* hint (the closest
+more forgiving. A failure at every tier returns a *did-the operator-mean* hint (the closest
 existing lines) instead of silently doing nothing.
 
 ```mermaid

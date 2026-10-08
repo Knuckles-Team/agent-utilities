@@ -51,7 +51,7 @@ affected by this task type**:
 | `document`     | `Article`      | Code, Concept, Agent, etc. |
 | `conversation` | `Message`      | Code, Article, Concept, etc. |
 
-This means if you're ingesting a PDF, the `Code` table's HNSW index stays
+This means if the operator're ingesting a PDF, the `Code` table's HNSW index stays
 active and searches against code remain O(log N).
 
 The drop is **idempotent** — dropping a non-existent index is silently skipped.
@@ -124,7 +124,7 @@ candidate pool the engine returned** — never a full-graph scan.
 | **Unified plan** | `query`-feature engine | O(log N) + costed compose | `client.query.unified` (Scan/Filter/Traverse/`Rank`/FuseRrf/Limit) |
 | **Native ANN** | unified planning unavailable | O(log N) | `graph.semantic_search` (IVF-PQ/HNSW) |
 | **Keyword** | no engine embeddings | bounded | `engine._search_keyword` (degrade, not a vector path) |
-| **Unbounded O(N) Python cosine** | **Never (deleted)** | 80K+ comparisons | ~~`_vector_search_native` label-scoped scan + `cosine_similarity`~~ |
+| **Unbounded O(N) Python cosine** | **Never (removed)** | 80K+ comparisons | ~~`_vector_search_native` label-scoped scan + `cosine_similarity`~~ |
 
 There is **no SQLite-style fallback and no O(N) Python cosine scan**: if the engine
 has no embeddings the vector arm is empty and retrieval degrades to keyword search.
@@ -140,7 +140,7 @@ graph_ingest(action="rebuild_indexes")
 ```
 
 Starts HNSW index building in a **background thread** — returns immediately.
-Run this after any bulk ingestion completes or when you want to optimize search.
+Run this after any bulk ingestion completes or when the operator want to optimize search.
 
 #### Expected Build Time
 
@@ -175,7 +175,7 @@ just not optimal).
    preserving HNSW on unaffected tables for continued fast search.
 
 2. **No startup index build**: Building HNSW on 78K+ Code vectors is CPU/memory
-   intensive (~minutes, GBs of RAM). This would block MCP server startup.
+   intensive (~minutes, GBs of RAM). This will block MCP server startup.
 
 3. **Background thread for rebuilds**: Post-ingestion index building runs in a
    daemon thread so worker threads aren't blocked.

@@ -14,7 +14,7 @@ The policy files live in this repo:
 - [`examples/action-policies/supervised.yml`](https://github.com/knuckles-team/agent-utilities/blob/main/examples/action-policies/supervised.yml)
 - [`examples/action-policies/scoped-autonomous.yml`](https://github.com/knuckles-team/agent-utilities/blob/main/examples/action-policies/scoped-autonomous.yml)
 
-Deep dive: [fleet_autonomy.md](../architecture/fleet_autonomy.md). The
+Detailed review: [fleet_autonomy.md](../architecture/fleet_autonomy.md). The
 decision point itself is `agent_utilities/orchestration/action_policy.py`;
 the shipped conservative default is `deploy/action-policy.default.yml`
 (embedded byte-for-byte as `DEFAULT_POLICY` so installed wheels behave
@@ -35,7 +35,7 @@ decision = get_action_policy(engine).decide(
 )
 ```
 
-## 1. The YAML schema (verified against the loader)
+## 1. The YAML schema (checked against the loader)
 
 ```yaml
 version: 1
@@ -192,7 +192,7 @@ flowchart TD
   `decided_unix`. This node doubles as the durable rate/blast ledger.
 - **Approvals**: `queue_approval` files an `ActionApproval` node
   (`status: pending`; deduplicated per kind+target so a recurring divergence
-  does not flood the queue). The human flow — both routes verified in
+  does not flood the queue). The human flow — both routes checked in
   `agent_utilities/gateway/fleet.py` and mounted under `/api`:
 
 ```bash
@@ -211,7 +211,7 @@ Expected grant response:
 {"status": "success", "result": {"approval_id": "action_approval:1f2a3b4c5d6e", "decision": "approved"}}
 ```
 
-The fleet reconciler's tick (CONCEPT:AU-OS.config.desired-state-fleet-reconciler, `FLEET_RECONCILER=1`) executes
+The fleet reconciler's tick (CONCEPT:AU-OS.config.desired-state-fleet-reconciler, `FLEET_RECONCILER=1`) runs
 granted entries through the actuator seam.
 
 ## 5. Runtime KG overrides

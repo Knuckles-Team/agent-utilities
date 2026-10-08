@@ -9,7 +9,7 @@ The RLM subsystem provides a **persistent Python REPL** that enables agents to p
 RLM enables agents to:
 - Process inputs **two orders of magnitude** beyond model context windows
 - Perform **unbounded semantic work** through recursive sub-calls
-- Leverage **OWL reasoning** and **KG bulk analysis** within execution
+- Use **OWL reasoning** and **KG bulk analysis** within execution
 - Power **AHE trace distillation** for large-scale evolution analysis (CONCEPT:AU-AHE.harness.harness-evolution)
 
 ## Architecture
@@ -58,7 +58,7 @@ means disabled.
 | 2 | **Long Horizon** | `state.requires_long_horizon=True` | Always |
 | 3 | **Large Output** | Tool/specialist output exceeds threshold | 50,000 chars |
 | 4 | **AHE Distillation** | Trace count exceeds threshold | 500 traces |
-| 5 | **KG Bulk Analysis** | KG query returns too many nodes | 1,000 nodes |
+| 5 | **KG Bulk Analysis** | KG query returns too multiple nodes | 1,000 nodes |
 
 Use the unified `RLMConfig.should_trigger()` method for consistent routing:
 
@@ -73,7 +73,7 @@ if config.should_trigger(output_size=len(data)):
 
 ## Whitepaper Alignment (Algorithm 1)
 
-Our implementation aligns with the core algorithm from Zhang et al.:
+This repository's implementation aligns with the core algorithm from Zhang et al.:
 
 1. **Metadata-Only Root Prompting** (`config.metadata_only_root=True`):
    The root LLM receives only constant-size metadata about the context:
@@ -234,7 +234,7 @@ When the serialized `EvidenceCorpus` exceeds the context threshold, the `EvolveA
 
 ### `owl_query(sparql)`
 
-Executes SPARQL queries against the OWL reasoner backend from within the RLM REPL. Enables transitive reasoning without loading raw triples into the context window:
+Runs SPARQL queries against the OWL reasoner backend from within the RLM REPL. Enables transitive reasoning without loading raw triples into the context window:
 
 ```python
 # Inside RLM code block
@@ -263,7 +263,7 @@ FINAL_VAR("failure_memories", json.dumps(failures))
 ## Security Considerations
 
 > **CWE-94 (Code Injection)**: The RLM REPL intentionally uses `exec()` to
-> execute LLM-generated code. This is by design — the execution namespace is
+> run LLM-generated code. This is by design — the execution namespace is
 > restricted to approved helpers only.
 
 ### Mitigations

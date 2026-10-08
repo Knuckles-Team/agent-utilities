@@ -57,13 +57,13 @@ remain behind AgentConfig refs; content capture is off. See
 for native MCP registration, doctor validation, and the distinction between
 configuration readiness and a live traced-request certification.
 
-When `ENABLE_OTEL=true`, the `graph-os` entry point activates the same
-metadata-only `setup_otel()` pipeline used by served agents before it constructs
+When `ENABLE_OTEL=true`, the `graph-os` entry point enables the same
+metadata-only `setup_otel()` pipeline used by served agents before it builds
 the MCP server. A configured OTLP endpoint wins; otherwise a complete canonical
 Langfuse credential-reference pair derives the deployment's
 `/api/public/otel` endpoint and HTTP Basic authorization in memory. The OTLP TLS
 profile is selected by endpoint origin, so the Langfuse trust profile is reused
-for that origin regardless of whether authorization came from the canonical key
+for that origin in either case of whether authorization came from the canonical key
 pair or a purpose-specific OTLP header reference. HTTPS is mandatory except for
 the exact canonical loopback hosts.
 

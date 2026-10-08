@@ -4,7 +4,7 @@
 
 The **Agentic Harness Engineering** pillar encapsulates the continuous learning, evaluation, and evolutionary refinement of the agent ecosystem. It moves the system from static, pre-programmed behaviors into an adaptive entity that evaluates its own performance, distills lessons, and evolves new models and strategies autonomously.
 
-## Why We Built This (Rationale)
+## Why This repository Built This (Rationale)
 
 Autonomous agents typically suffer from a "Groundhog Day" effect:
 1. **Lack of Continual Learning**: An agent will make the same mistake across 100 sessions because it has no mechanism to convert an execution trace into generalized wisdom.
@@ -14,16 +14,16 @@ Autonomous agents typically suffer from a "Groundhog Day" effect:
 ## How It Works (Implementation)
 
 ### Trace Distillation & The Experience Node (AHE-3.1 & AU-AHE.harness.self-evolution-narrative)
-After a task completes or fails, the orchestrator initiates **Trace Distillation**. By analyzing the gap between failure and successful retry (Cross-Rollout Critique), the system extracts a `Condition -> Action` tactical insight and persists it as an `ExperienceNode`. This allows the agent to intrinsically "remember" how to avoid specific pitfalls in the future.
+After a task completes or fails, the orchestrator start **Trace Distillation**. By analyzing the gap between failure and successful retry (Cross-Rollout Critique), the system extracts a `Condition -> Action` tactical insight and persists it as an `ExperienceNode`. This allows the agent to intrinsically "remember" how to avoid specific pitfalls in the future.
 
 ### EWC Consolidation & Temporal Drift (AU-AHE.harness.evolution-checkpoint)
-To prevent catastrophic forgetting when modifying the Knowledge Graph, we implemented a lightweight **Elastic Weight Consolidation (EWC++)**. The system tracks concept drift across node embeddings via coefficient of variation. When drift exceeds a threshold, EWC applies a penalty to preserve the stability of legacy knowledge.
+To prevent catastrophic forgetting when modifying the Knowledge Graph, this repository implemented a lightweight **Elastic Weight Consolidation (EWC++)**. The system tracks concept drift across node embeddings via coefficient of variation. When drift exceeds a threshold, EWC applies a penalty to preserve the stability of legacy knowledge.
 
 ### Heavy Thinking & Horizon-Aware Curriculum (AU-AHE.harness.concept-2 & AHE-3.9)
 For complex tasks, **Heavy Thinking Orchestration** spawns multiple parallel thinker agents to explore trajectories before synthesizing a consensus. Simultaneously, the **Horizon-Aware Task Curriculum** uses macro-action composition and subgoal checkpoints to train agents on progressively longer execution horizons without losing focus.
 
 ### Agentic-iModels & Interpretability (AU-AHE.harness.self-improvement-overview & AU-AHE.harness.self-improvement-overview)
-The **Agent-Interpretable Model Evolver** autonomously evolves scikit-learn compatible models optimized for both predictive accuracy and LLM readability. **LLM-Graded Interpretability Tests** run 200-test protocols to verify the agent can correctly simulate the model's behavior natively.
+The **Agent-Interpretable Model Evolver** autonomously evolves scikit-learn compatible models optimized for both predictive accuracy and LLM readability. **LLM-Graded Interpretability Tests** run 200-test protocols to check the agent can correctly simulate the model's behavior natively.
 
 ## Benefits Introduced
 
@@ -39,7 +39,7 @@ Promoted patterns are persisted as paired `WorkflowDefinition` + `TeamConfigNode
 - **Source Code**: `agent_utilities/workflows/distillation_hook.py`
 - **Hot Path**: `synthesizer_step → WorkflowDistillationHook.on_execution_complete()`
 
-## Key Concepts Leveraged
+## Key Concepts Use
 - **AHE-3.1**: Continuous Evaluation Engine
 - **AU-AHE.harness.self-evolution-narrative**: Continual Learning & Experience Nodes
 - **AU-AHE.harness.evolution-checkpoint**: Continual Learning Engine
@@ -130,7 +130,7 @@ sample-efficient, weight-free self-evolution (source b4-03). Extends AHE-3.0.
 A comparative analysis of the 2026 reasoning-RL landscape (GRPO, DPO, RLVR, DAPO, Dr.GRPO,
 GSPO, DHPO, EP-GRPO, TR-GRPO, DPPO, ARPO, VPO, InSPO, TI-DPO, RAPPO) found that most of the
 toolkit is *already covered* by the AHE-3.1 reward spine and the capability reward-EMA router.
-The high-leverage gaps are the **agentic adaptations** below, not re-implementing GRPO. See
+The high-use gaps are the **agentic adaptations** below, not re-implementing GRPO. See
 [`COMPARATIVE_ANALYSIS.md`](https://github.com/Knuckles-Team/agent-utilities/blob/main/.specify/specs/reasoning-rl-2026/COMPARATIVE_ANALYSIS.md) and
 [`ACTIONABLE_PLAN.md`](https://github.com/Knuckles-Team/agent-utilities/blob/main/.specify/specs/reasoning-rl-2026/ACTIONABLE_PLAN.md).
 
@@ -187,7 +187,7 @@ failures (held while a signature is spiking; AU-AHE.assimilation.research-auto-m
   `telemetry_ingestion` sweep.
 - **Langfuse configuration** uses `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY_REF`, and
   `LANGFUSE_SECRET_KEY_REF`. Graph-OS resolves the references in memory and
-  supplies the official SDK key variables only to the isolated child process.
+  provides the official SDK key variables only to the isolated child process.
 - Full detail: [`docs/architecture/failure_driven_evolution.md`](../architecture/failure_driven_evolution.md).
 
 ### AU-AHE.optimization.performance-anomaly-consumer — Performance Anomaly Consumer
@@ -202,7 +202,7 @@ evolution ingress.
 The governed validation gate every promoted proposal must pass before merge
 (`knowledge_graph/research/promotion_governance.py`, wired into
 `research/auto_merge.py`): promotion is no longer a bare regression check but a
-policy surface. The merger's own promotion decision additionally consults the
+policy surface. The merger's own promotion decision also consults the
 operational OS-5.24 `ActionPolicy` under the reserved `merge_promotion` kind
 before the lifecycle flip — `deny` blocks promotion (fail-closed, audited);
 the shipped `approval_required` tier queues the same approval the AHE-3.21
@@ -226,8 +226,8 @@ The harness layer that turns a model's proposed change into a file actually edit
 `harness/edit_engine.py` parses SEARCH/REPLACE blocks or unified diffs and applies them
 with a graduated fuzzy-match ladder (exact → leading-whitespace-flexible → drop-blank →
 `SequenceMatcher` closest-window), so edits land even when whitespace drifts; failures
-return did-you-mean hints, and `apply_with_reflection` re-prompts the model on
-malformed/failed edits (with an optional lint/test verify gate as the checker half).
+return did-the operator-mean hints, and `apply_with_reflection` re-prompts the model on
+malformed/failed edits (with an optional lint/test check gate as the checker half).
 Consumed inside the governed DevWorkspace edit path; direct host-file mutation
 is not exposed as a developer tool. Full design:
 [Edit-Application Engine](../architecture/edit_application_engine.md).
@@ -237,13 +237,13 @@ Closes the "lock-as-regression-test" seam of the self-repair loop. `TestCase.ass
 + `EvalStrategy.ASSERTION` let a regression case be a human-readable pass/fail check
 judged by LLM-as-judge (with an offline lexical fallback), taking precedence over
 expected-output scoring (the Opik Test Suite pattern). When a failure remediation is
-*verified* — the AU-AHE.harness.failure-evolution regression gate confirms no spike against the original failing
+*checked* — the AU-AHE.harness.failure-evolution regression gate confirms no spike against the original failing
 input — `failure_analyzer._lock_regression_cases` promotes one plain-English assertion
 case per failure signature into the durable `EvalCorpus` (idempotent), so the same
 failure cannot silently recur. See
 [Failure-Driven Evolution](../architecture/failure_driven_evolution.md).
 
-## Key Concepts Leveraged (2026 additions)
+## Key Concepts Use (2026 additions)
 - **AU-AHE.reward.this-is-read-back**: Agent-Step Policy Optimization (ARPO)
 - **AU-AHE.harness.width-diverse-best-k**: Test-Time Diversity (VPO)
 - **AU-AHE.harness.preference-corpus-reliability**: Preference-Corpus Reliability (DPO family)
@@ -251,6 +251,6 @@ failure cannot silently recur. See
 - **AU-AHE.optimization.performance-anomaly-consumer**: Performance Anomaly Consumer (durable anomalies → evolution topics)
 - **AU-AHE.harness.promotion-governance-validator**: Promotion Governance Validator (governed gate on every promotion)
 - **AHE-3.21**: Evolution-to-Branch Bridge (change synthesis + RLM-sandbox validation + ActionPolicy-gated local-branch publication)
-- **AHE-3.25**: Plain-English regression assertions (LLM-judge `TestCase.assertion`; verified remediations auto-lock a regression case)
+- **AHE-3.25**: Plain-English regression assertions (LLM-judge `TestCase.assertion`; checked remediations auto-lock a regression case)
 - **AU-ORCH.execution.robust-multi-format-edit**: Robust edit-application engine (multi-format fuzzy edits + reflection loop)
 - **AU-AHE.harness.empirical-evidence-that-latent**: Latent-native efficiency benchmark (rollout drift KG-2.73b + retrieval type-coherence AU-KG.ontology.optional-populated-from vs round-tripped/flat baselines; `graph_analyze action="latent_efficiency_benchmark"`; distilled from arXiv:2606.09828)

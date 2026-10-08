@@ -2,12 +2,12 @@
 
 ## Overview
 
-The **Epistemic Knowledge Graph** transforms how the agent ecosystem perceives, stores, and retrieves information. It replaces static vector-based Retrieval-Augmented Generation (RAG) with a dynamic, graph-native, and self-organizing memory substrate that leverages formal mathematics and topological reasoning.
+The **Epistemic Knowledge Graph** transforms how the agent ecosystem perceives, stores, and fetches information. It replaces static vector-based Retrieval-Augmented Generation (RAG) with a dynamic, graph-native, and self-organizing memory substrate that use formal mathematics and topological reasoning.
 
-## Why We Built This (Rationale)
+## Why This repository Built This (Rationale)
 
 Standard RAG architectures suffer from three critical flaws that block Agentic General Intelligence (AGI):
-1. **Context Fragmentation**: Vector databases retrieve isolated chunks without understanding structural dependencies, leading to "hallucinations" when synthesizing complex concepts.
+1. **Context Fragmentation**: Vector databases fetch isolated chunks without understanding structural dependencies, leading to "hallucinations" when synthesizing complex concepts.
 2. **Retrieval Degradation (O(N) Scanning)**: As memory grows, scanning all vectors becomes computationally expensive and introduces irrelevant noise.
 3. **Poisoning and Contradictions**: Agents continually ingesting data can overwrite critical instructions or believe contradictory facts if there is no epistemological verification.
 
@@ -16,36 +16,36 @@ Standard RAG architectures suffer from three critical flaws that block Agentic G
 The solution is a unified `IngestionEngine` over the **one epistemic-graph engine — the authority** (compute + cache + semantic + durable persistence), with writes fanned out to optional durable mirrors (PostgreSQL/pg-age, Neo4j, FalkorDB, LadybugDB) for interop/BI/DR, and NetworkX retained as an ephemeral in-memory compute scratchpad.
 
 ### RAG-KG Unification & Spectral Clustering (KG-2.38 & AU-KG.retrieval.relational-intent-retrieval)
-We collapsed separate vector indexes directly into the Knowledge Graph. By computing an **Auto-Similarity Memory Graph**, the system pre-computes semantic proximity and creates `SIMILAR_TO` edges. Retrieval is now accelerated to O(degree) complexity via shortest-path traversal. The **Spectral Cluster Navigator** groups these nodes using normalized Laplacian eigengap heuristics, providing hierarchy-aware context scoping.
+This repository collapsed separate vector indexes directly into the Knowledge Graph. By computing an **Auto-Similarity Memory Graph**, the system pre-computes semantic proximity and creates `SIMILAR_TO` edges. Retrieval is now accelerated to O(degree) complexity via shortest-path traversal. The **Spectral Cluster Navigator** groups these nodes using normalized Laplacian eigengap heuristics, providing hierarchy-aware context scoping.
 
 ### Multi-Domain Architecture (KG-2.51)
 Transitioned the agent framework into a **Multi-Domain Expert System**, supporting modular expansion into `finance`, `medical`, `law`, and `science`. The architecture relies on Vectorized Topological Memory and the core Knowledge Graph for semantic interoperability. Domain-specific dependencies (e.g., PyTorch, Statsmodels for quantitative finance) are loaded optionally via environment tags (like `agent-utilities[finance]`) to keep the core graph orchestrator lightweight.
 
 ### Enterprise Architecture Scaling (Hub-and-Spoke Ingestion)
 To support 100,000+ employees and scale to true enterprise size, the architecture has decoupled its localized NetworkX memory from the persistent Backend. NetworkX now serves purely as an **ephemeral compute scratchpad** for localized sub-graph analytics, preventing Out-Of-Memory (OOM) bottlenecks.
-Furthermore, raw data ingestion (e.g., Active Directory, Workday, ServiceNow) is externalized to peripheral "spoke" agents. These webhooks utilize high-throughput asynchronous batched `UNWIND` logic directly into the central graph.
+Furthermore, raw data ingestion (e.g., Active Directory, Workday, ServiceNow) is externalized to peripheral "spoke" agents. These webhooks use high-throughput asynchronous batched `UNWIND` logic directly into the central graph.
 
 ### High-Throughput Stream Ingestion & Shared Ephemeral Memory (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
 To scale to massive workloads (100K+ employees, tens of thousands of active codebases, and continuous AI chat streams), the system incorporates a unified stream hydration and cache fabric:
 
-1. **High-Throughput Parallel Stream Hydration**: Consumes large data streams from external enterprise systems (ServiceNow incidents, GitLab repositories/pipelines, etc.) in parallel. Rather than relying on LLMs to translate unstructured text into graph representations, the pipeline utilizes schema-compliant, rigid R2RML mappings. These map raw JSON structures directly to formal ontology classes (like `au:Incident`, `au:Repository`, `au:Pipeline`), guaranteeing zero hallucination, predictable execution paths, and complete semantic alignment.
+1. **High-Throughput Parallel Stream Hydration**: Consumes large data streams from external enterprise systems (ServiceNow incidents, GitLab repositories/pipelines, etc.) in parallel. Rather than relying on LLMs to translate unstructured text into graph representations, the pipeline use schema-compliant, rigid R2RML mappings. These map raw JSON structures directly to formal ontology classes (like `au:Incident`, `au:Repository`, `au:Pipeline`), guaranteeing zero hallucination, predictable execution paths, and complete semantic alignment.
 2. **Shared Ephemeral Cache Fabric**: Enables stateless, short-lived agents and communication channels to share context instantly. The cache fabric is powered by a standard connection URI supporting Redis and Valkey (`redis://` or `valkey://`) with serializable payloads, falling back to a structured local directory namespaces architecture.
 3. **Dynamic TTL Eviction**: Prevents graph pollution from transient conversational memories. Nodes and edges ingested into ephemeral namespaces are decorated with explicit temporal boundaries (`ttl` and `created_at`). A periodic background task (`cleanup_expired_namespaces`) automatically sweeps and purges expired namespaces from the graph.
 
 ### Deterministic Garbage Collection (Mark-and-Sweep)
-To maintain 1:1 parity between external file systems and the Knowledge Graph, the system utilizes a **Mark-and-Sweep Synchronization** approach:
+To maintain 1:1 parity between external file systems and the Knowledge Graph, the system use a **Mark-and-Sweep Synchronization** approach:
 - **Mark**: During ingestion, every parsed file (e.g., `:Code` or `:Article` nodes) is tagged with a session-specific `last_seen_timestamp` in the pipeline context.
-- **Sweep**: After parsing concludes, a cleanup Cypher query automatically detaches and deletes any nodes in the active workspace scope that have an older timestamp.
+- **Sweep**: After parsing concludes, a cleanup Cypher query automatically detaches and removes any nodes in the active workspace scope that have an older timestamp.
 - **Handling Duplicates/Updates**: Because upserts are idempotent and keyed on `id`, repeatedly ingesting the same file naturally updates its properties rather than creating duplicates.
-- **MD5 Checksums vs Timestamps**: We explicitly opted for temporal mark-and-sweep over md5 checksum tracking. Checksum tracking introduces significant state overhead and collision complexities. In contrast, timestamp-based pruning is an atomic and stateless mechanism that natively drops deleted files while gracefully updating modified ones.
+- **MD5 Checksums vs Timestamps**: This repository explicitly opted for temporal mark-and-sweep over md5 checksum tracking. Checksum tracking introduces significant state overhead and collision complexities. In contrast, timestamp-based pruning is an atomic and stateless mechanism that natively drops removed files while gracefully updating modified ones.
 
 ### Graph-Level Access Control (RBAC/ABAC)
 Security is enforced natively on the read path. Node ACLs (`DataLevelPermissions` —
 classification + read/write roles) and tenant scoping are applied at retrieval time
 via `core/secured_reads.py` and the guarded `facade.designate`/`facade.query`, so
-agents cannot retrieve restricted sub-graphs (like executive compensation data)
-regardless of the prompt. Enforcement is mandatory and identity is carried by a
-verified `ActorContext` plus immutable `GraphSession`. See
+agents cannot fetch restricted sub-graphs (like executive compensation data)
+in either case of the prompt. Enforcement is mandatory and identity is carried by a
+checked `ActorContext` plus immutable `GraphSession`. See
 **[Company Brain Runtime](../architecture/company_brain_runtime.md)** for the full
 wiring.
 
@@ -60,7 +60,7 @@ perimeter. This propagation is always active.
 When new information is encountered, **OWL-Driven Semantic Subsumption** automatically computes embedding similarities against OWL class prototypes, injecting the new concept into the correct lineage. **Inductive Knowledge Hypergraphs** vectorize relationship intersections via `EncPI` (Positional Interaction Encodings), enabling the graph to perform zero-shot generalization over entirely novel runtime topologies.
 
 ### Rust-Compiled Epistemic Reasoning Backend (CONCEPT:AU-KG.research.research-pipeline-runner)
-The core OWL reasoning engine has transitioned to using a high-performance **Rust-Compiled Epistemic Backend** (`Jena Fuseki / EpistemicGraph ComputeDatalogBackend`) as the framework-wide default. By leveraging `epistemic-graph` via Unix Sockets and under-the-hood `pyjena_fuseki` serialization, the backend completely bypasses the legacy Java Virtual Machine (JVM) overhead of `owlready2`.
+The core OWL reasoning engine has transitioned to using a high-performance **Rust-Compiled Epistemic Backend** (`Jena Fuseki / EpistemicGraph ComputeDatalogBackend`) as the framework-wide default. By use `epistemic-graph` via Unix Sockets and under-the-hood `pyjena_fuseki` serialization, the backend completely bypasses the legacy Java Virtual Machine (JVM) overhead of `owlready2`.
 
 It performs high-performance, compiled Datalog forward-chaining reasoning directly in Rust with standard OWL structural inference rules:
 - **Subclass Transitivity**: Propagates hierarchical node typing down class inheritance lineages.
@@ -74,7 +74,7 @@ To support advanced quantitative reasoning and high-throughput financial factor 
 - **High-Performance Order Book Matching**: Native tick simulation (`simulate_order_matching`) matching bidirectional buy/sell orders against streaming L2 limits to simulate trade executions in real-time.
 
 ### Formal Mathematical Primitives (AU-KG.ontology.default-runtime-bound-import — AU-KG.ontology.populated-at-import-real-3)
-We integrated advanced primitives from the MIT Mathematics for Computer Science (MCS) curriculum:
+This repository integrated advanced primitives from the MIT Mathematics for Computer Science (MCS) curriculum:
 - **Formal Relations (KG-2.47)**: Enforces Reflexive, Symmetric, and Transitive closures for zero-shot entity resolution.
 - **State Machine Invariants (KG-2.48)**: Validates deterministic transitions against structural invariants.
 - **Markov Transition Forecasting (AU-KG.ontology.populated-at-import-real-3)**: Predicts statistical failure nodes in execution traces. Extended with:
@@ -83,7 +83,7 @@ We integrated advanced primitives from the MIT Mathematics for Computer Science 
   - **Hidden Markov Model Inference**: Gaussian HMM with Baum-Welch estimation and Viterbi decoding for latent regime detection (`hmmlearn` integration).
   - **Walk-Forward Backtesting**: Rolling-window regime model re-estimation with strict no-lookahead bias guarantees.
   - **PreemptiveCacheEngine Integration**: `predict_next_states()` satisfies the forecaster contract for predictive context pre-loading.
-- **Structural Causal Reasoning (KG-2.43)**: Utilizes do-calculus and d-separation to perform counterfactual analysis, moving beyond correlation to causal verification.
+- **Structural Causal Reasoning (KG-2.43)**: Use do-calculus and d-separation to perform counterfactual analysis, moving beyond correlation to causal verification.
 
 ## Ontology System (Palantir-Foundry-parity)
 
@@ -125,12 +125,12 @@ purpose, never the vendor.
   (`DocumentProcessor`, `process_document`).
 - **Document → atomic-triple fact extraction (CONCEPT:AU-KG.enrichment.atomic-triple-extraction/2.65/2.66)** — a document,
   URL, or pasted text becomes canonical `(subject) -[predicate]-> (object)` fact edges with
-  evidence span, confidence, and tags; facts stream live, dedup semantically against our own
+  evidence span, confidence, and tags; facts stream live, dedup semantically against this repository's own
   embedder, and persist as engine edges (variant node names merged). Runs on a single-GPU-slot
   scheduler (preempt/backfill/resume) and is rendered interactively in all three frontends. See
   [Document → KG Fact Extraction](../architecture/document_fact_extraction.md).
 - **First-class / reified links (CONCEPT:AU-KG.domains.trade-journal-bias-auditor)** — named directed link types plus
-  many-to-many junction reification onto the existing graph-write path, with reverse traversal.
+  multiple-to-multiple junction reification onto the existing graph-write path, with reverse traversal.
 
 The layer is exposed over the `ontology_*` MCP tools (`mcp/kg_server.py`) and an operator
 UI in agent-webui — `/api/enhanced/ontology/*` routes plus the **ObjectExplorerView /
@@ -145,7 +145,7 @@ edit history, a self-evolving ontology, and the Rust epistemic engine underneath
 - **Retrieval Precision**: The `Hybrid Search Index` combining semantic+keyword scoring (72%/28%), augmented by `Backlink-Density Boost`, yields unmatched relevance, fetching central hub concepts naturally.
 - **Epistemic Integrity**: The two-phase Entity-Claim Extraction extracts assertions and explicitly maps contradictions (`CONTRADICTS` edge), ensuring the system maintains a logically consistent worldview.
 
-## Key Concepts Leveraged
+## Key Concepts Use
 - **KG-2.0**: Active Knowledge Graph
 - **KG-2.2**: Ontology & Epistemics (Semantic Subsumption)
 - **KG-2.4**: Inductive Knowledge Hypergraphs
@@ -200,13 +200,13 @@ ACTIVE ──(soft-delete)──▶ ARCHIVED ──(hard-delete)──▶ REMOVE
 ```
 
 - **`status: ACTIVE`** — Default state. Node is included in all search and retrieval operations.
-- **`status: ARCHIVED`** — Soft-deleted. Excluded from `search_hybrid()`, `_search_keyword()`, and `discover_all_capabilities()`. Can be restored via `DocumentDeletionPipeline.restore_document()`.
+- **`status: ARCHIVED`** — Soft-removed. Excluded from `search_hybrid()`, `_search_keyword()`, and `discover_all_capabilities()`. Can be restored via `DocumentDeletionPipeline.restore_document()`.
 - **`status: DEPRECATED`** — Marked for eventual removal but still discoverable for migration purposes.
 - **Hard deletion** — Permanently removed from the graph after age-based cleanup (`DocumentCleanup.cleanup_soft_deleted_documents()`).
 
 This lifecycle is enforced uniformly across:
 - `QueryMixin` (engine_query.py) — Search-time filtering
-- `DocumentDeletionPipeline` (document_deletion.py) — Soft-delete/restore operations
+- `DocumentDeletionPipeline` (document_deletion.py) — Soft-remove/restore operations
 - `DocumentUpdatePipeline` (document_update.py) — Update rejection for archived nodes
 - `DocumentCleanup` (document_cleanup.py) — Age-based hard deletion
 
@@ -257,7 +257,7 @@ This strict separation guarantees that exported domain knowledge is consistently
 The OWL bridge (`core/owl_bridge.py`) provides a SPARQL read-only interface via `rdflib` materialization:
 
 1. **rdflib Materialization**: The LPG is materialized into an in-memory `rdflib.Graph` with typed individuals and property assertions under the `au:` namespace.
-2. **Query Execution**: Full SPARQL SELECT, ASK, and CONSTRUCT queries are supported.
+2. **Query Execution**: Full SPARQL SELECT, ASK, and Build queries are supported.
 3. **Cache**: The RDF graph is cached and invalidated when the LPG changes.
 4. **Programmatic Access**: Available via `OWLBridge.query_sparql()` for direct SPARQL queries (and the standalone W3C SPARQL HTTP endpoint below).
 
@@ -329,7 +329,7 @@ The enterprise rarely runs one vendor per capability — ServiceNow *or* ERPNext
 ITSM, Camunda *or* Archi for processes. The crosswalk makes reasoning
 **vendor-neutral**: each per-system class is related to one canonical
 ArchiMate-aligned concept in EG's immutable ArchiMate source, so a single query resolves
-all sources regardless of which product produced the data.
+all sources in either case of which product produced the data.
 
 ```turtle
 :Incident      rdfs:subClassOf :ApplicationEvent .   # ServiceNow
@@ -346,7 +346,7 @@ that emit canonical node types; code is linked to the `BusinessCapability` it
 realizes via `enrichment/realizes.py` (with write-back to Archi/LeanIX); and live
 REST systems can be queried on-demand via `engine_federation.register_rest_source`.
 
-→ **Deep dive:** [Vendor-Neutral Enterprise Ontology](../architecture/vendor_neutral_enterprise_ontology.md)
+→ **Detailed review:** [Vendor-Neutral Enterprise Ontology](../architecture/vendor_neutral_enterprise_ontology.md)
 
 ### SHACL Governance Validation
 
@@ -454,7 +454,7 @@ The graph engine supports policy-guided retrieval across four orthogonal views:
 
 ### Persistent Task Tracking (CONCEPT:AU-KG.query.object-graph-mapper)
 Background ingestion jobs across the entire ecosystem are no longer transient in-memory tasks. The `IntelligenceGraphEngine` provides a native, decoupled `TaskManagerMixin` where jobs are durably persisted natively as `Task` nodes directly within the Knowledge Graph.
-- **Job Recovery**: If the MCP server or your IDE restarts, pending ingestion jobs are automatically recovered from the cypher backend on startup and placed back into the execution queue.
+- **Job Recovery**: If the MCP server or the operator's IDE restarts, pending ingestion jobs are automatically recovered from the cypher backend on startup and placed back into the execution queue.
 - **Provenance**: Jobs store `agent_id`, timestamp, and metadata (like `.git` directory mapping) as topological properties.
 - **Monitoring**: Check statuses reliably via the `graph_ingest` MCP tool actions `jobs` (list) and `job_status` (per-job), which interact natively with the graph backend instead of memory.
 
@@ -469,7 +469,7 @@ Three additions: (1) a first-class **procedural** memory layer — `MemoryNode.m
 `engine.link_nodes` hot path via the pure `knowledge_graph/core/bitemporal.py` helpers; (3)
 **as-of queries** (`query_cypher(as_of=T)`, surfaced through `graph_query(as_of=...)`) and
 **event-time contradiction precedence** (`resolve_temporal_contradiction` writes a `SUPERSEDES`
-edge and closes the superseded fact's validity interval — never deleting it, so history remains
+edge and closes the superseded fact's validity interval — never removing it, so history remains
 queryable). This is the correctness substrate for memory-first retrieval (KG-2.12) and the
 background learner (KG-2.13). Extends KG-2.1.
 
@@ -490,13 +490,13 @@ Extends KG-2.3; reuses AHE-3.4 decomposition and the KG-2.6 gate.
 ### KG-2.13 — Background Learning Engine
 
 Assimilated from Quarq Agent's async learner (`agent-oss/agent.py`). `BackgroundLearner`
-(`knowledge_graph/memory/learning_engine.py`) runs targeted **ADD / UPDATE / DELETE** fact edits —
+(`knowledge_graph/memory/learning_engine.py`) runs targeted **ADD / UPDATE / Remove** fact edits —
 not raw transcript dumps — under a `Semaphore(4)` with bounded exponential backoff and an
 `await_pending` sync barrier. The ORCH-1.27 `learner` role extracts edits (`extract_edits`);
 `resolve_relative_dates` converts "yesterday"/"N weeks ago" to absolute dates at learn time so the
 stored `event_time` is a real instant. Edits become **bi-temporal mutations** (KG-2.11): an UPDATE
-re-stamps event/storage time on the node; a DELETE is **soft** (`status=REMOVED` + `valid_to`),
-preserving history — strictly better than Quarq's JSON-line overwrite / hard delete. Exposed via
+re-stamps event/storage time on the node; a Remove is **soft** (`status=REMOVED` + `valid_to`),
+preserving history — strictly better than Quarq's JSON-line overwrite / hard remove. Exposed via
 the `agent-utilities-memory learn` CLI subcommand. Backoff is bounded (not Quarq's infinite loop) so
 background learning can never wedge CI. Extends KG-2.1 (+AHE-3).
 
@@ -517,7 +517,7 @@ turns. See [KG-2.15](2_epistemic_knowledge_graph/KG-2.15-Resilient_Retrieval.md)
 ### KG-2.17 — Memory Hygiene
 
 A maintenance pass that bounds growth without data loss: a decay scanner archives stale AI memory by
-closing its bi-temporal `valid_to` (never deletes; alerts high-confidence stale items), and a
+closing its bi-temporal `valid_to` (never removes; alerts high-confidence stale items), and a
 semantic-merge pass collapses near-duplicates (cosine ≥ 0.92). Exposed via `agent-utilities-memory
 hygiene`. See [KG-2.17](2_epistemic_knowledge_graph/KG-2.17-Memory_Hygiene.md). Extends KG-2.1/2.3.
 
@@ -545,7 +545,7 @@ falling back to the bundled ontology if nothing is derived. Extends KG-2.7.
 ### KG-2.12 — Executable-RAG LLM plan synthesizer
 
 `HybridRetriever.retrieve_executable(use_planner=True)` synthesizes a richer,
-non-linear retrieve/answer plan via the ORCH-1.27 `planner` role instead of the
+non-linear fetch/answer plan via the ORCH-1.27 `planner` role instead of the
 deterministic linear plan. `parse_executable_plan` is parse-or-fallback: any
 malformed/partial LLM output degrades to `build_linear_plan`, so the run never
 breaks on a planner failure. Extends KG-2.12.
@@ -562,11 +562,11 @@ how this couples with the replay buffer. Extends KG-2.1.
 ### KG-2.7 — Graph-Native Assimilation Engine
 
 The self-evolution loop that assimilates external innovations (research papers, OSS
-libraries, our ~62 repos, docs/chat) into the ecosystem — as **graph operations**,
+libraries, this repository's ~62 repos, docs/chat) into the ecosystem — as **graph operations**,
 not per-source LLM reading. `knowledge_graph/assimilation/` provides dedup
 (`SIMILAR_TO`/`SUPERSEDES`), gap analysis (`SATISFIED_BY` + `open_features` — the
 "stop rediscovering built features" filter), synergy bundles (cross-pillar
-`HAS_SYNERGY_WITH`) + leverage ranking, grounded plan synthesis from a feature's KG
+`HAS_SYNERGY_WITH`) + use ranking, grounded plan synthesis from a feature's KG
 neighborhood, and lifecycle close-out (`DERIVED_FROM_RESEARCH`/`ASSIMILATED_INTO`).
 Content-addressed ingest + a per-cycle state watermark make it idempotent — cost
 grows with the delta, not the corpus. Runs via `graph_evolution(action="assimilate")`,
@@ -577,7 +577,7 @@ emits metrics + a queryable `EvolutionCycle` node for monitoring. Full design:
 ### KG-2.7 — Knowledge Distillation → Skill-Graphs
 
 Makes the KG the source of truth for packageable agent knowledge. Document ingestion is
-standardized into **one** verbatim contract regardless of submission form
+standardized into **one** verbatim contract in either case of submission form
 (`Document{content}` + `IdeaBlock` chunks `PART_OF` it + `Concept` via `MENTIONS`), so
 `SkillGraphDistiller` (`knowledge_graph/distillation/`) can project a coherent subgraph
 back into a versioned, shareable skill-graph (`reference/` tree + `kg_manifest.json`) — and
@@ -663,7 +663,7 @@ already ranks code symbols by PageRank-style `importance` (graph centrality). AU
 adds a compact, context-injection view: **`CodemapArtifact.to_skeleton(max_tokens)`**
 sorts nodes by importance and **binary-searches** the largest prefix that fits a token
 budget, rendering a per-file `path → symbol (type) [Ln]` skeleton — so the
-highest-signal symbols always survive truncation (the aider repo-map pattern over our
+highest-signal symbols always survive truncation (the aider repo-map pattern over this repository's
 graph). `CodemapGenerator.skeleton()` produces it from a focused subgraph **without the
 expensive LLM hierarchy pass**, cheap enough to inject every turn, and the live
 `POST /api/codemap` endpoint returns it via the `skeleton` / `max_tokens` request flags.

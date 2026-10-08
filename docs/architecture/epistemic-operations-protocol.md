@@ -14,8 +14,8 @@ catalog-bounded schema lookup; an undeclared name fails closed.
 
 | Schema | Purpose |
 | --- | --- |
-| `RequestContext` | Verified subject, tenant, scopes, policy, graph, placement epoch, and trace authority. |
-| `MutationBatch` | Ordered, idempotent mutations committed under one verified context. |
+| `RequestContext` | Checked subject, tenant, scopes, policy, graph, placement epoch, and trace authority. |
+| `MutationBatch` | Ordered, idempotent mutations committed under one checked context. |
 | `ChangeEnvelope` | Governed source change with ACL, temporal, checkpoint, lineage, and replay identity. |
 | `WorkItem` | Durable dependency, lease, retry, and artifact state for delegated work. |
 | `Artifact` | Content-addressed multimodal material and modality-neutral loci. |

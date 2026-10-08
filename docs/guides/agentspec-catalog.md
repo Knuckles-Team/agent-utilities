@@ -7,7 +7,7 @@ While the Knowledge Graph natively stores agent templates (`TeamConfig`, `Specia
 
 ### Key Benefits
 - **Shareable Architectures**: Trading bots and research agents can be exported as JSON blueprints and shared across teams.
-- **Semantic Consistency**: Every generated AgentSpec is tied to an `ontology_class` mapping back to our OWL ontologies, ensuring strict typing and validation.
+- **Semantic Consistency**: Every generated AgentSpec is tied to an `ontology_class` mapping back to this repository's OWL ontologies, ensuring strict typing and validation.
 - **Reproducibility**: AgentSpecs guarantee that the same tools, capabilities, and system prompts are assembled identically in every environment.
 
 ## Implementation Details

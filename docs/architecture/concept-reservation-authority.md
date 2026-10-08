@@ -4,7 +4,7 @@
 
 `agent_utilities.governance.concept_reservation` defines the authority boundary
 for concept IDs used by Repository Manager and development agents. The
-epistemic-graph engine already supplies the required durable primitives:
+epistemic-graph engine already provides the required durable primitives:
 
 * `CreateNodeIfAbsent(node_id, properties)` atomically chooses the first writer;
 * `CompareAndSetNodeFields(node_id, conditions, updates)` performs a fenced
@@ -23,7 +23,7 @@ worktrees share one checkout. Separate clones and hosts have different locks
 and ledgers, so both can otherwise succeed. The local ledger remains an
 auditable, merge-friendly projection only.
 
-The generic native primitives are sufficient because the exact concept ID is
+The generic native primitives are enough because the exact concept ID is
 the graph node's identity. A failed create is followed by a point read: an
 identical request key and immutable fingerprint on that same canonical node
 replays the winner; changed input conflicts. The same request key on a
@@ -44,7 +44,7 @@ only. It is thread-safe inside one Python process, advertises
 
 ## Authority-owned policy and durable record
 
-The deployment supplies versioned `ConceptNamespacePolicy` values to the native
+The deployment provides versioned `ConceptNamespacePolicy` values to the native
 adapter. The adapter validates the complete OKF-CIS ID, selects the one matching
 policy, and stores the policy namespace, numeric range, and `policy_version` in
 the durable claim. Caller-provided range fields are normalized to the selected

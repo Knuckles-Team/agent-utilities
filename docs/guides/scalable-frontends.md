@@ -1,19 +1,19 @@
-# Scalable Frontends — one shared backend, many thin instances
+# Scalable Frontends — one shared backend, multiple thin instances
 
 > **The standard.** A frontend is a *thin client* over a **shared** agent-utilities
 > backend. The heavy parts — the Rust epistemic-graph engine, the embedding model,
 > the consolidated background daemon — live in **one** backend (or a sharded set),
-> never co-located per frontend instance. This is what lets you run many frontend
+> never co-located per frontend instance. This is what lets the operator run multiple frontend
 > instances cheaply (the agent-terminal-ui pattern): one node hosts the engine,
 > dozens of light frontends fan out against it.
 
 The anti-pattern is the opposite: a frontend that imports the engine in-process and
 forces itself to be the KG host. Then every instance carries a full engine + daemon,
-RSS balloons (hundreds of MB to >1 GB each), and you cannot scale horizontally.
+RSS balloons (hundreds of MB to >1 GB each), and the operator cannot scale horizontally.
 
 ## The five-point checklist
 
-A frontend is "scale-many-instances ready" when:
+A frontend is "scale-multiple-instances ready" when:
 
 1. **Talks to a shared backend over the wire** — HTTP to the gateway (`AGENT_URL`)
    and/or the engine socket (`GRAPH_SERVICE_ENDPOINTS`), never an in-process engine
@@ -27,7 +27,7 @@ A frontend is "scale-many-instances ready" when:
 4. **Slim runtime image** — multi-stage build, runtime deps only, no test/dev
    extras, non-root, no caches. (See the `agent-terminal-ui/Dockerfile` template.)
 5. **A lightweight/headless mode** where the surface supports it (CLI/server), for
-   many concurrent non-interactive instances against one backend.
+   multiple concurrent non-interactive instances against one backend.
 
 ## Shared env knobs (the same on every thin instance)
 
@@ -49,22 +49,22 @@ The gold standard: **no `agent_utilities` dependency at all** (deps are
 textual/httpx/rich/agent-client-protocol/pyyaml). It speaks only HTTP to `AGENT_URL`;
 a dependency-free vendored `GoalSpec` parser (`agent_terminal_ui/goal.py`) exists
 specifically to avoid importing the backend. A `--headless` mode (`headless.py`,
-~30 MB, no Textual widget tree) runs many non-interactive instances per node, and a
+~30 MB, no Textual widget tree) runs multiple non-interactive instances per node, and a
 runtime-only `Dockerfile` ships the frontend without the backend. ~30–50 MB/instance.
 
 ### agent-webui — thin via client role
-The React SPA scales infinitely in the browser; the **Python API server** is what you
+The React SPA scales infinitely in the browser; the **Python API server** is what the operator
 scale horizontally. It needs `agent-utilities[agent-runtime,graph]` for model runtime and
 canonical gateway helpers; the full engine is already a hard base dependency. It is not
 as small as terminal-ui, but it is thin when
 run as **`KG_DAEMON_ROLE=client`**: the server skips the in-process host daemon
 (`server.py` `_start_kg_host_daemon`) and reaches a shared host over the engine socket.
-Run **one** host instance (or a sharded backend) and **many** client-role API instances
+Run **one** host instance (or a sharded backend) and **multiple** client-role API instances
 behind a load balancer. The heavy KG imports in `api_extensions.py` are used only inside
 their handlers (no module-level engine instantiation), so importing the server is light.
 
 ### geniusbot — desktop cockpit (not horizontally scaled)
-A PySide6 desktop app is one-per-user-desktop, not an instance you fan out in
+A PySide6 desktop app is one-per-user-desktop, not an instance the operator fan out in
 containers (it needs a display). Its scaling concern is therefore *startup weight*, and
 it already follows the standard: the `BackendAdapter`
 (`geniusbot/services/backend_adapter.py`) is **gateway-first** — it routes through the
@@ -81,4 +81,4 @@ uses the engine *client*, so it must ship `agent_utilities`. The win there is no
 tiny image; it is **runtime memory + host topology**: a client-role webui does not load
 the embedding model, does not host the engine, and does not run the daemon — so N of
 them share one host instead of standing up N engines. Same principle (one shared
-backend, many thin frontends), different floor.
+backend, multiple thin frontends), different floor.

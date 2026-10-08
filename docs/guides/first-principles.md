@@ -11,7 +11,7 @@ This document describes the **First Principles Architecture** layer — a set of
 | **Prompt bloat** | Every routing call serialized the full specialist registry into the LLM prompt | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: Hot cache filters to top-7 relevant specialists per query |
 | **Redundant team discovery** | LLM re-discovers the same specialist combinations for recurring query patterns | CONCEPT:AU-AHE.evaluation.interpretability-tests: TeamConfig promotes proven coalitions as reusable templates |
 | **Static tool binding** | Specialists had fixed tool sets; capabilities like RLM or critic were never auto-attached | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: AgentCapability nodes auto-activate based on input constraints |
-| **LLM orchestration overhead** | A2A requests required a full LLM planning round-trip even when the graph planner could handle them | CONCEPT:AU-ECO.messaging.native-backend-abstraction: PlannerGraphSkill provides a direct graph-backed A2A entry point |
+| **LLM orchestration overhead** | A2A requests required a full LLM planning round-trip even when the graph planner can handle them | CONCEPT:AU-ECO.messaging.native-backend-abstraction: PlannerGraphSkill provides a direct graph-backed A2A entry point |
 | **No feedback loop** | Execution outcomes were never fed back to improve future routing | CONCEPT:AU-AHE.evaluation.interpretability-tests + CONCEPT:AU-KG.memory.tiered-memory-caching: Verification outcomes update Self-Model and TeamConfig rewards |
 
 ## Architecture Overview
@@ -119,7 +119,7 @@ The cache is invalidated by 4 event sources, ensuring it stays in sync:
 
 ### Problem
 
-The LLM planner would rediscover the same specialist combinations for recurring query patterns. A user who frequently asks "deploy to staging" would see the LLM re-derive the `[DevOps, Cloud, Container Manager]` coalition every time — wasting inference tokens and adding latency.
+The LLM planner will rediscover the same specialist combinations for recurring query patterns. A user who frequently asks "deploy to staging" will see the LLM re-derive the `[DevOps, Cloud, Container Manager]` coalition every time — wasting inference tokens and adding latency.
 
 ### Solution
 
@@ -214,7 +214,7 @@ class AgentCapabilityNode(RegistryNode):
 
 ### Auto-Activation in Executor
 
-The executor loop in `executor.py` checks for auto-activatable capabilities before each specialist run:
+The executor include `executor.py` checks for auto-activatable capabilities before each specialist run:
 
 ```python
 # Simplified from executor.py
@@ -331,7 +331,7 @@ python -m pytest tests/unit/core/test_config_helpers.py \
 
 ## Related Documentation
 
-- [Registry Cache Deep-Dive](registry-cache.md) — Focused cache architecture and performance analysis
+- [Registry Cache Detailed review](registry-cache.md) — Focused cache architecture and performance analysis
 - [Process Lifecycle Management](process-lifecycle.md) — Sidecar cleanup and signal handling
 - [Emergent Architecture](emergent-architecture.md) — CONCEPT:AU-KG.query.object-graph-mapper through CONCEPT:AU-ORCH.adapter.hot-cache-invalidation (OGM, Swarm, Self-Model, Attention)
 - [Architecture](architecture.md) — Full system architecture with routing diagrams

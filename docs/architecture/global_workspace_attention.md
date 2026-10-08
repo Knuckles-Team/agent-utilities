@@ -6,8 +6,8 @@
 ## Overview
 
 Global Workspace Theory (GWT) models cognition as specialists competing for a shared
-"global workspace": many parallel processes produce candidate contributions, an
-attention mechanism scores and selects a few, and only the winners are *broadcast*
+"global workspace": multiple parallel processes produce candidate contributions, an
+attention mechanism scores and selects a small number of, and only the winners are *broadcast*
 back to the whole system. `WorkspaceAttention` applies this to multi-agent
 orchestration: instead of accepting every specialist's output equally (which
 collapses a team to a homogeneous median), each output is scored, the top‑K are
@@ -60,7 +60,7 @@ coordination aggregation, and selection share one taxonomy.
 
 ## Telemetry & the engine-mismatch guard
 
-Because the write and read sides could, in a future sharded deployment, end up on
+Because the write and read sides can, in a future sharded deployment, end up on
 different engine instances — silently breaking reinforcement — the loop is
 instrumented:
 
@@ -80,11 +80,11 @@ into an observable one.
 
 | Method | Purpose |
 |---|---|
-| `WorkspaceAttention(engine=…)` | construct against the shared knowledge engine |
+| `WorkspaceAttention(engine=…)` | build against the shared knowledge engine |
 | `collect_proposals(outputs, query)` | score specialist outputs → `[Proposal]` |
 | `select_winners(proposals)` | top‑K by composite score |
 | `broadcast_to_kg(winners)` | persist winners as `ProposalNode`s |
-| `select_and_broadcast(outputs, query)` | the full loop in one call |
+| `select_and_broadcast(outputs, query)` | the full include one call |
 | `get_attention_score(specialist_id)` | read back a specialist's standing |
 | `consensus_score(proposals, operator)` | aggregate via the ORCH-1.3 registry |
 | `workspace_attention_telemetry()` | process-wide loop health |

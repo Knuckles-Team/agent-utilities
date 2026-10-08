@@ -66,13 +66,13 @@ rejects the candidate without partial publication.
 `catalog_dispatch` resolves a tool against that exact generation and digest.
 If a read-only tool that was present in the snapshot reaches GraphOS but its
 child answers `Unknown tool`, GraphOS may relist the same child generation once,
-verify the descriptor still exists, and retry once. This does not repair a
+check the descriptor still exists, and retry once. This does not repair a
 client-side advertised-name miss that never reaches GraphOS; the client/service
 bridge remains responsible for refreshing its own advertised catalog.
 
 The anti-sprawl boundary is explicit: `McpCatalogReconciler` is the sole
 transport-neutral snapshot/generation/high-watermark authority;
-`MCPMultiplexer` is the sole child-session and FastMCP I/O adapter; source-sync
+`MCPMultiplexer` is the sole child-session and FastMCP `I/O` adapter; source-sync
 is a downstream projection; and REST/WebUI bind to the actually served
 multiplexer. They never construct a detached catalog or child pool.
 

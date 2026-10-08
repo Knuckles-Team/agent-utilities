@@ -65,7 +65,7 @@ The full spec (not just this rendering of it) is published at [`openapi.json`](o
 | GET | `/api/enhanced/code/instances` | Code Instances |
 | POST | `/api/enhanced/code/nav` | Code Nav |
 | GET | `/api/enhanced/commands/autocomplete` | Autocomplete Slash Command |
-| POST | `/api/enhanced/commands/execute` | Execute Slash Command |
+| POST | `/api/enhanced/commands/execute` | Run Slash Command |
 | GET | `/api/enhanced/config` | Get Config File |
 | PUT | `/api/enhanced/config` | Update Config File |
 | GET | `/api/enhanced/config-files` | List Config Files |
@@ -109,7 +109,7 @@ The full spec (not just this rendering of it) is published at [`openapi.json`](o
 | GET | `/api/enhanced/graph/memory/{memory_id}` | Get Memory |
 | PUT | `/api/enhanced/graph/memory/{memory_id}` | Update Memory |
 | GET | `/api/enhanced/graph/nodes` | Get Graph Nodes |
-| POST | `/api/enhanced/graph/query` | Execute Cypher |
+| POST | `/api/enhanced/graph/query` | Run Cypher |
 | GET | `/api/enhanced/graph/relationships` | Get Graph Relationships |
 | GET | `/api/enhanced/graph/search` | Hybrid Search |
 | GET | `/api/enhanced/graph/stats` | Get Graph Stats |
@@ -244,6 +244,6 @@ The full spec (not just this rendering of it) is published at [`openapi.json`](o
 | GET | `/api/research/artifacts` | List Artifacts |
 | POST | `/api/research/capture` | Capture Event |
 | POST | `/api/research/compile` | Compile Artifact |
-| POST | `/api/research/inquire` | Inquire |
+| POST | `/api/research/inquire` | Ask |
 | POST | `/api/research/reason` | Reason |
 | POST | `/api/research/review` | Review Artifact |

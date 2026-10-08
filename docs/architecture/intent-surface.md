@@ -20,7 +20,7 @@
 > (`agent_utilities/skills/graph-*`/`agent-utilities-*`) so the skill layer matches this same
 > doc's own condensed-surface philosophy one level up. Those 7 `graph-*` domain skills have
 > since moved to graph-os's own skill pack (`graph_os/skills/graph-*`, taken over in graph-os
-> commit 704ce45) and are deleted from agent-utilities, which retains only the 4
+> commit 704ce45) and are removed from agent-utilities, which retains only the 4
 > `agent-utilities-*` skills. Every verb named below is still reachable exactly as documented;
 > find its current skill home via graph-os's `graph-runtime-and-governance` skill's "Coverage
 > governance" section or the mapping in §5.
@@ -79,7 +79,7 @@ document.)*
    read), `find` (capability discovery), `write`, `act`, `manage`, `why`. Each takes
    `action: str` (an operation id `"<tool>.<op>"`, or `"describe"`) + `params: dict` (structured
    args) + optional `intent: str` (natural language, routed when `action` is empty) +
-   `execute: bool`. Small, fixed schema regardless of how many granular tools exist behind it.
+   `execute: bool`. Small, fixed schema in either case of how multiple granular tools exist behind it.
    (The kickoff design below originally shaped this as `intent` + `hints_json`; the condensed
    `action`/`params` shape superseded it — see the retirement note above.)
 2. **The resolver** (`resolve_intent`/`dispatch_intent`) — ranks every `REGISTERED_TOOLS` entry
@@ -91,19 +91,19 @@ document.)*
    The resolver then picks the top candidate and dispatches it through the **same**
    `_execute_tool` core every condensed tool uses, and returns `{"result", "routing", "executed"}`
    — `routing` carries the chosen tool/action, matched terms, alternatives considered, and a
-   plain-English "why". `ask` additionally falls back to `nl_query` (the engine's own NL
-   planner) when the winning candidate needs structured args the caller didn't supply.
+   plain-English "why". `ask` also falls back to `nl_query` (the engine's own NL
+   planner) when the winning candidate needs structured args the caller didn't provide.
 3. **(Retired) the profile switch** — the kickoff design gave the retired tool-mode switch a 4th value,
    `intent`, alongside `condensed`/`verbose`/`both` (`mcp/verbose_tools.py`). In `intent` mode the
    condensed tools still registered fully (REST + `_execute_tool` + `REGISTERED_TOOLS` — nothing
-   lost) but were additionally tagged `GATED_TAG` (+ the mode-independent `GRANULAR_TAG`) and
+   lost) but were also tagged `GATED_TAG` (+ the mode-independent `GRANULAR_TAG`) and
    held back from a session's default tool list, while `condensed` (the default) stayed
    unaffected. The whole mode switch has since been retired: graph-os now serves only the intent
    contract, unconditionally, with no per-deployment toggle.
 4. **(Retired) the escape hatch, both directions** — the fleet `load_tools`/`unload_tools`
    meta-tools (`mcp/multiplexer.py`) manage session-visibility for *external* fleet tools
    (`MCPMultiplexer._exposed`); the kickoff design extended the SAME mechanism to graph-os's own
-   gated tools (`_local_gated`) so `load_tools(tools=["graph_query"])` could reveal an exact
+   gated tools (`_local_gated`) so `load_tools(tools=["graph_query"])` can reveal an exact
    granular tool with no mounting needed, and `unload_tools` retract it again. graph-os no longer
    gates its own tools this way — the granular backing tools are simply always reachable via
    `act`/`find(action="describe")`, with no local-gate state to load/unload. The
@@ -162,7 +162,7 @@ follow-up (§7). All four landed together on `feat/au-seam8-complete`:
   and blend in a learned reward EMA via `OutcomeRouter` (§3).
 - **Dedicated skill** — originally `agent_utilities/skills/kg-intent/SKILL.md` (`tier: meta`),
   now folded into `graph-runtime-and-governance`'s "Manage tool visibility responsibly"
-  workflow step (that skill has since moved to graph-os's own skill pack and is deleted from
+  workflow step (that skill has since moved to graph-os's own skill pack and is removed from
   agent-utilities), which documents the resolver/dispatcher mechanism directly; `ask`/`find`/
   `write`/`act`/`manage`/`why` remain in `skill_coverage.INTENTIONALLY_UNSKILLED` (correctly —
   a meta concern never claims verb coverage), with the comment there pointing at that section.
@@ -176,7 +176,7 @@ follow-up (§7). All four landed together on `feat/au-seam8-complete`:
 ## 5. Skill sweep — preserving every kg-\* skill under the condensed intent surface
 
 **Scope:** agent-utilities' own skills only (`agent_utilities/skills/**`), not the 785-skill
-fleet. **Principle:** zero functionality lost — every `kg-*` skill still documents its exact
+fleet. **Principle:** zero feature lost — every `kg-*` skill still documents its exact
 granular tool(s) unchanged; each one now ALSO explains how to reach that tool when
 the retired `intent` tool mode is active.
 
@@ -190,7 +190,7 @@ heading (frontmatter, `## Invoke`, and every other section untouched).
 > folded into 13 broad domain skills (`agent_utilities/skills/graph-*`/`agent-utilities-*`)
 > — the tool/verb mapping is still exactly accurate, but `agent_utilities/skills/kg-<name>/`
 > no longer exists on disk. The 7 `graph-*` domain skills have since moved to graph-os's own
-> skill pack and are deleted from agent-utilities, which retains only the 4 `agent-utilities-*`
+> skill pack and are removed from agent-utilities, which retains only the 4 `agent-utilities-*`
 > skills. Cross-reference graph-os's `graph-runtime-and-governance` skill's "Coverage
 > governance" section (or `python -m agent_utilities.mcp.skill_coverage`) for which broad
 > skill documents a given tool today.
@@ -200,7 +200,7 @@ heading (frontmatter, `## Invoke`, and every other section untouched).
 > removed — REST + `_execute_tool` still reach it/them exactly as documented below). Two ways to
 > use this skill unchanged: (1) `load_tools(tools=["<tool>"])` once per session (as below), then
 > proceed exactly as documented; or (2) call the `<verb>` intent verb with the same
-> natural-language request — the resolver routes to `<tool>` for you and returns the result plus
+> natural-language request — the resolver routes to `<tool>` for the operator and returns the result plus
 > a routing justification. The retired default `condensed` tool mode was completely unaffected.
 
 | Skill | Wrapped tool(s) | Verb |
@@ -273,7 +273,7 @@ a preview is stored.
 `kg-capability-builder` (folded into `agent-utilities-development`), `kg-coverage-doctor` and
 `kg-mux-extend`/`kg-mux-use` (folded into `graph-runtime-and-governance`), `kg-delegate`
 (folded into `graph-orchestration-and-automation`) — the latter two skills have since moved
-to graph-os's own skill pack and are deleted from agent-utilities — plus, from the separate
+to graph-os's own skill pack and are removed from agent-utilities — plus, from the separate
 `agent-webui` package (not part of this collapse), `kg-webui-admin`, `kg-webui-dashboards`,
 `kg-webui-extraction`, `kg-webui-graphviz`, `kg-webui-ontology-operator`, `kg-webui-swe`.
 
@@ -288,12 +288,12 @@ per-capability wrapper):
   a genesis-provisioned deployment's drift-guard/docs stay accurate. (No code change needed —
   `check_env_var_drift.py` only checks for the KEY's presence, not an enum of values.)
 
-**Verified NOT needed:** `agent-utilities-self-evolution`, `agent-utilities-deployment`,
+**Checked NOT needed:** `agent-utilities-self-evolution`, `agent-utilities-deployment`,
 `agent-utilities-source-integration`, `autonomous-contribution` skills reference graph-os tool
 names only as illustrative examples of existing behavior (e.g. `graph_write` + `graph_query` in
 a smoke test) that remains equally true under any retired tool mode — nothing in them assumes a
 specific tool-visibility default, so no edit was needed to keep them accurate. (The latter two
-have since moved to graph-os's own skill pack and are deleted from agent-utilities.)
+have since moved to graph-os's own skill pack and are removed from agent-utilities.)
 
 ## 6. Tests
 
@@ -302,7 +302,7 @@ have since moved to graph-os's own skill pack and are deleted from agent-utiliti
   dispatches via `_execute_tool` + returns the justification), the NL-planner fallback, the
   explicit-tool-hint pin, a dispatch failure reported as structured `error` (not a crash), and
   that `graph_query` — the tool `graph-query-and-explanation` documents (now graph-os's own
-  skill) — still resolves under `ask` (no functionality lost).
+  skill) — still resolves under `ask` (no feature lost).
 - `tests/unit/test_intent_surface_build_server.py` — builds the REAL graph-os server
   (`bootstrap=False`, no live engine) under the retired `intent` tool mode: verbs + REST twins register,
   the granular surface (`graph_query`, `graph_write`, `nl_query`, …) stays fully registered, and
@@ -317,7 +317,7 @@ have since moved to graph-os's own skill pack and are deleted from agent-utiliti
   `gated_tool_names()` surfaces them, without registering a verbose 1:1 surface.
 - `tests/unit/test_gateway_mcp_parity.py` (existing, unmodified contract) stays green: every
   intent verb gets a REST twin via the SAME generic `ACTION_TOOL_ROUTES` mechanism `nl_query`/
-  `ask_data` already use, mounted by the SAME generic loop in `_mount_rest_routes` — no bespoke
+  `ask_data` already use, mounted by the SAME generic include `_mount_rest_routes` — no bespoke
   REST wiring was needed.
 - `tests/conftest.py`'s `_isolate_registered_tools` fixture was extended to ALSO snapshot/restore
   `ACTION_TOOL_ROUTES` (previously only `REGISTERED_TOOLS`) — a test that builds the server under
@@ -365,7 +365,7 @@ All five items below shipped together; each is cross-referenced to where it land
    in-process LRU (`_RESOLUTION_CACHE`, 256 entries) keyed by `(verb, normalized intent, hints,
    top_k, candidate-table generation, reward epoch)` — the last two counters make it a
    policy-version-aware cache: a CPD/tool-surface rebuild or a freshly recorded outcome
-   invalidates exactly the entries that could have used it, without a manual flush. A bare
+   invalidates exactly the entries that can have used it, without a manual flush. A bare
    in-process cache was used rather than the Seam 6 KV-cache seam (that seam caches LLM KV
    blocks keyed on prompt-prefix reuse; this cache holds ranked `CapabilityCandidate` lists keyed
    on normalized intent — a different cache shape, better served by its own small LRU than by
@@ -387,7 +387,7 @@ All five items below shipped together; each is cross-referenced to where it land
 `agent_utilities/knowledge_graph/retrieval/intent_selection_accuracy.py` (originally the 21-case
 corpus + measurement function) + `tests/unit/test_intent_selection_accuracy.py` (CI regression
 tripwire). Measured against the real, CPD-backed resolver: **top-1 76.19% (16/21)**, **top-3
-85.71% (18/21)** — a live run, not a fabricated number (see the module docstring for methodology
+85.71% (18/21)** — a live run, not a fabricated number (see the module docstring for method
 and why "naming the tool directly" is the 100%-by-definition baseline this is traded against, not
 a competing measurement). A model-in-the-loop task-success soak (vs. a small/cheap model, per the
 original phase-4 wording) remains a natural follow-up once a model-eval harness is wired to this

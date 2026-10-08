@@ -9,7 +9,7 @@
 ## Summary
 
 Provides a unified system for defining, persisting, discovering, and
-executing reusable agent workflows. The workflow lifecycle spans from
+running reusable agent workflows. The workflow lifecycle spans from
 SKILL.md / natural-language definitions through KG persistence to live
 multi-agent execution with full Langfuse tracing.
 
@@ -104,7 +104,7 @@ which auto-increments the version on re-registration.
 ### WorkflowRunner
 **Module**: `agent_utilities.workflows.runner`
 
-Executes stored `GraphPlan` workflows step-by-step using the
+Runs stored `GraphPlan` workflows step-by-step using the
 agent_runner pipeline:
 
 1. **Wave Builder** — Groups steps by dependency into concurrent waves

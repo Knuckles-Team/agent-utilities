@@ -16,12 +16,12 @@ substituted into exact release assembly.
 The manifest contains exactly eight components:
 
 1. Epistemic Operations protocol catalog and all twelve schema versions;
-2. Epistemic Graph OCI image with verified context, MutationBatch, ChangeEnvelope,
+2. Epistemic Graph OCI image with checked context, MutationBatch, ChangeEnvelope,
    WorkItem, MultiRaft, RLS, analytics worker RPC and queue metrics;
 3. Agent Utilities OCI image with GraphSession, mandatory ContextCompiler,
    intent-mode GraphOS, governed connectors, the standalone analytics worker,
    native Langfuse MCP discovery and metadata-only opaque trace export;
-4. Langfuse Agent OCI image with provider-profile transport, verified private-CA
+4. Langfuse Agent OCI image with provider-profile transport, checked private-CA
    TLS, metadata-only trace query, and parent-authority graph ingestion;
 5. the complete exact 65-package connector capability catalog;
 6. the exact one consolidated pre-bundled skill;
@@ -47,20 +47,20 @@ Repeated component claims without the record, or components produced from a diff
 freeze, are rejected before the release manifest can be signed.
 OCI artifacts use digest references; catalogs use opaque `catalog:<name>@sha256:<digest>`
 references. A verifier command is injected by environment as JSON argv and must bind the
-verified subject to the declared digest. Inline signing keys are forbidden.
+checked subject to the declared digest. Inline signing keys are forbidden.
 
 The manifest retains only release-relative evidence references. The gate opens each
 bounded, unaliased regular file without following symlinks, recomputes every digest,
 semantically validates the component source, CycloneDX 1.5/1.6 SBOM, exact SLSA
 provenance/v1 statement, and external signature-bundle schemas, and enforces their
-cross-document bindings. For an OCI component, the artifact digest is the verified OCI
+cross-document bindings. For an OCI component, the artifact digest is the checked OCI
 root descriptor identity and the SBOM wheel inventory must be non-empty. The opened
 signature bundle is passed to the external component verifier with the exact canonical
 composite subject bytes used by the signer; a verifier response must repeat both that
 subject digest and the artifact digest. Absolute paths, traversal (including `.` and
 `..` segments), URLs, aliases, hardlinks, and missing or oversized evidence are
 rejected. The complete manifest is itself externally signed; its signature binds the
-canonical unsigned manifest and is independently verified before certification.
+canonical unsigned manifest and is independently checked before certification.
 
 An SBOM is accepted only when `metadata.component` identifies the exact release
 component. Its name and version must match the release declaration, its `bom-ref` and
@@ -82,7 +82,7 @@ the same release. The closure independently binds the
 exact engine to the fault/restart, protocol authorization, multimodal,
 KnowledgeBatch, reasoning/repair, performance, and exact-local campaigns, so neither
 a component catalog digest nor prose can stand in for live acceptance.
-The OCI scan document binds the independently verified archive and root digests for
+The OCI scan document binds the independently checked archive and root digests for
 all three runtime images to signed Trivy 0.72.0 and fresh vulnerability/Java database
 attestations; HIGH or CRITICAL findings, online fallback, or retained raw output fail
 closed.
@@ -99,7 +99,7 @@ authority in addition to their component authorities.
 
 Before closure binding, run the six non-local engine campaigns with the
 canonical `scripts/certification/run_exact_engine_campaigns.py` producer. It
-takes only explicit `AgentConfig`-resolved and exact-release inputs, verifies
+takes only explicit `AgentConfig`-resolved and exact-release inputs, checks
 one full engine digest, one release-Python digest, and the source-frozen
 Epistemic Graph producer tree, then runs G-37, G-02/G-05, G-01/G-04, G-14, G-15,
 and G-17 serially. The new private output directory contains exactly
@@ -248,7 +248,7 @@ Structure-only still opens and validates every evidence file and signature bindi
 only suppresses invocation of external verifiers. Rendering and certification always
 invoke those verifiers.
 
-Connector bundle promotion additionally requires the complete signed
+Connector bundle promotion also requires the complete signed
 [connector live-certification](connector-live-certification.md) ledger. Offline fixture
 records cannot satisfy this gate: every connector with a signed source preset must have
 an `external-live` record for the current manifest, fixture, and SHACL hashes, with all
@@ -260,7 +260,7 @@ lifecycle/governance/schema/count checks passed.
 (operators may extend it to 72). It drives the live engine and captures aggregate raw
 metrics every 15 seconds with at least 95% coverage. There is no mock or skip branch.
 
-The scenario set first proves verified GraphOS identity, workload mTLS, stale-policy
+The scenario set first proves checked GraphOS identity, workload mTLS, stale-policy
 rejection and an opaque content-free Langfuse trace. It then applies faults at all
 commit phases plus worker, Raft leader, broker leader, node and zone loss; broker
 rebalance; online reshard; an atomic exact-release cutover; one-time index and ontology
@@ -303,7 +303,7 @@ Preflight the complete local authority without starting the 24-hour run:
 agent-utilities-doctor --only production_certification
 ```
 
-The doctor does not treat a readable JSON file as release proof. It verifies the
+The doctor does not treat a readable JSON file as release proof. It checks the
 configured manifest as a `signed-release` against the packaged compatibility matrix
 with independent signature verification enabled. Invalid, unsigned, differently
 matrix-bound, or unverifiable manifests fail with redacted diagnostics before TLS or
@@ -336,7 +336,7 @@ latency percentiles, SLO booleans and invariant-violation counts; entity-level f
 are discarded and the on-disk report is replaced with that aggregate form. It combines
 the normalized report digest, raw aggregate metric digest,
 sample coverage, scenario action/observation/metric digests, invariants and observed
-RPO/RTO. A pass additionally requires actual monotonic elapsed time and the normalized
+RPO/RTO. A pass also requires actual monotonic elapsed time and the normalized
 load report's real duration to reach the configured duration; 95% metric coverage is
 not accepted as a substitute for a full 24-hour run. Gateway error ratio and recent pod
 restarts are required metrics with canonical bounds, alongside latency, queue, lag,
@@ -374,14 +374,14 @@ signature over different totals cannot satisfy promotion. Generate the evidence 
 `agent-utilities-validate-skills --mode all` against the deployed
 candidate, retain its content-safe digest in the release evidence, and reject reports
 from another skill catalog or runtime configuration. Delegated cases invoke the
-execute-only `graph_orchestrate` contract without an `action` argument and poll the
+run-only `graph_orchestrate` contract without an `action` argument and poll the
 returned run handle exclusively through
 `graph_jobs(action="status", job_id=run_id)`. The handle uses the sole current
 128-bit opaque format. Trace proof is an exact-name Langfuse MCP lookup whose
 metadata must bind that run to the exact configured model, model class, skill, and
 skill-body digest; unfiltered project-wide trace baselines are not certification
 evidence. Each matched trace must also resolve to exactly one parent-mediated KG
-`Trace` node under verified `kg:write` authority.
+`Trace` node under checked `kg:write` authority.
 
 The signed matrix alone is insufficient for promotion. The mandatory
 `skillValidationDeployment` and `skillValidationLifecycleEvidence`

@@ -36,7 +36,7 @@ disposable local source cycle: the live-certification gate trusts the public key
 signed manifest, so a releasable bundle and its later live evidence must use the
 operator-managed release key rather than a discarded ephemeral key.
 
-For each signed source preset, the harness verifies the real connector's MCP tool
+For each signed source preset, the harness checks the real connector's MCP tool
 name and structural schema, then sends the connector-owned synthetic fixture through
 the real `ChangeEnvelope` ingestion driver in an isolated scope. It proves:
 
@@ -127,5 +127,5 @@ source-sync preset are not falsely reported as live-certified.
 
 For the current exact release train, the aggregate signed ledger contains exactly 65
 ordered, unique connector entries. The schema enforces the closed-world count and the
-release verifier additionally rejects duplicate identities, ordering drift, sentinel
+release verifier also rejects duplicate identities, ordering drift, sentinel
 digests, and count mismatches.

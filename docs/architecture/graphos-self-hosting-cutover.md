@@ -5,7 +5,7 @@
 > `2/2 Ready`), engine loaded 87 graphs (matches pre-cutover baseline), graph-os connected
 > `resolved_mode=remote endpoint_count=1 reachable_count=1 breaker=0 latency=0.4ms` over the
 > in-pod unix socket, messaging up (mattermost+telegram). Old `epistemic-graph` Deployment
-> kept scaled to 0 (not deleted) for the rollback/soak window. **One deviation from the spec
+> kept scaled to 0 (not removed) for the rollback/soak window. **One deviation from the spec
 > below:** the sidecar binds `--tcp-addr 0.0.0.0:9100` (not `127.0.0.1:9100`) because a
 > `tcpSocket` startupProbe dials the POD IP, not loopback — a loopback-only bind makes the
 > probe "connection refused" forever. Same TLS+HMAC posture as the pre-cutover engine (which
@@ -21,7 +21,7 @@
 > §"Shape 1"). This is the OPPOSITE shape from
 > [`graphos-horizontal-scaling.md`](graphos-horizontal-scaling.md) (`out-of-process-shared`,
 > N graph-os pods against one external engine) — do not run both cutovers on the same
-> Deployment. This document is **design only**; the orchestrator executes it live, on
+> Deployment. This document is **design only**; the orchestrator runs it live, on
 > its own schedule, against the real `platform/epistemic-graph` + `platform/graph-os`.
 > **Nothing in this document has been applied.**
 >
@@ -68,15 +68,15 @@ SAME unified image**, differing only in `command`.
 
 ## The identity trap this design exists to avoid
 
-**Do not** delete the separate `epistemic-graph` Deployment and simply let graph-os's
+**Do not** remove the separate `epistemic-graph` Deployment and simply let graph-os's
 existing `EngineResolver` **autostart** a local engine against the same `--persist-dir`.
-It will start, but it will not be able to serve the 87-graph store, and it will fail in
+It will start, but it will not can serve the 87-graph store, and it will fail in
 one of two ways depending on whether graph-os's own process already happens to carry an
 `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` (it does not, today):
 
 - Read `agent_utilities/knowledge_graph/core/graph_compute.py`
   (`_autostart_engine`, ~L1656–1711): when it spawns a child engine, it takes the
-  **current request's own verified actor** (`bootstrap_session.engine_verified_context()`
+  **current request's own checked actor** (`bootstrap_session.engine_verified_context()`
   — a per-caller Keycloak identity, not a static service account) and either (i) if the
   parent process already carries an `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON`, **requires that
   exact actor to already be a key in it** — `raise RuntimeError("verified process
@@ -88,7 +88,7 @@ one of two ways depending on whether graph-os's own process already happens to c
   `homelab-system` and graph-os's own service-account subject — a per-request end-user
   identity (case i) or a brand-new ad hoc one (case ii) matches neither, and the engine
   answers `ACCESS_DENIED: a provisioned identity/RBAC policy is required` (or, against a
-  genuinely empty store, would instead treat it as a *fresh* bootstrap — also wrong,
+  genuinely empty store, will instead treat it as a *fresh* bootstrap — also wrong,
   since this store is not fresh).
 - **Autostart is designed for a zero-config local/tiny engine, not for attaching to an
   already-governed production store.** `resolve_engine`
@@ -98,7 +98,7 @@ one of two ways depending on whether graph-os's own process already happens to c
   With it set, the resolver's precedence is `remote` — "every configured topology is a
   hard contract: connect to it, never auto-spawn a local stand-in" — the exact same code
   path graph-os already uses to reach today's separate engine, just now over a socket
-  inside its own pod instead of TLS to a sibling pod. The sidecar engine is launched
+  inside its own pod instead of TLS to a sibling pod. The sidecar engine is started
   directly (its own binary, its own CLI flags, its own env) — **never** through
   `_autostart_engine`.
 
@@ -157,7 +157,7 @@ take it:
 engine codebase but is an **unrelated** workload (vLLM KV-cache layering, not KG
 storage) on a different node — this cutover does not affect it.
 
-**Verify-before-cutover item (do not assume):** the live `epistemic-graph` container
+**Check-before-cutover item (do not assume):** the live `epistemic-graph` container
 declares `containerPort: 9130 name: kvcache` alongside `9100`, and
 `graph-os-env`'s `EPISTEMIC_GRAPH_KVCACHE_URL=http://<ENGINE_NODE_IP>:9130` points at it — but
 the container's actual CLI args (`kubectl get deploy epistemic-graph -o yaml`) show no
@@ -181,7 +181,7 @@ Mirrors the two techniques that already prevented outages in this exact system
 2. **Import-test inside the running pod without restarting it** — not applicable here
    the same way (this is a topology change, not a code drop), but the equivalent is:
    deploy the new pod spec to a **scratch Deployment name** (e.g. `graph-os-selfhost-rehearsal`)
-   pointed at the COPY from step 1, verify it reaches `Ready`, THEN do the real cutover
+   pointed at the COPY from step 1, check it reaches `Ready`, THEN do the real cutover
    against production. This costs one extra pod but converts an irreversible-feeling
    cutover into a rehearsed one.
 3. Confirm the kvcache item above.
@@ -191,7 +191,7 @@ Mirrors the two techniques that already prevented outages in this exact system
    --all-namespaces` — i.e. graph-os is already the sole live consumer; messaging/
    host-daemon are bundled INTO the unified graph-os image per
    `reports/unified-binary-program.md`'s status ledger, not separate processes anymore).
-   Re-verify this is still true immediately before cutover, since it is the basis for
+   Re-check this is still true immediately before cutover, since it is the basis for
    binding the sidecar's TCP listener to loopback-only in the spec below.
 
 ## The pod spec
@@ -376,8 +376,8 @@ spec:
 **Not shown/unchanged:** the `graph-os` Service (port 80 → container `http`) and
 Ingress (`graph-os.arpa`, cookie affinity, TLS) need **no edits at all** — they already
 target only the `graph-os` container's port 8000, which is unaffected by this cutover.
-Delete (or scale to 0) the `epistemic-graph` Deployment and Service once the new pod is
-verified — see the checklist.
+Remove (or scale to 0) the `epistemic-graph` Deployment and Service once the new pod is
+checked — see the checklist.
 
 ## Rollback
 
@@ -385,8 +385,8 @@ The redb single-writer lock makes rollback a mirror of cutover, not a special ca
 
 1. Scale the new `graph-os` (pod with the sidecar) to 0 — releases the lock.
 2. Scale the OLD `epistemic-graph` Deployment back to 1 (this is why cutover step 3
-   scales to 0 rather than deleting — keep it, its ConfigMap/Secret refs, and its
-   Service around for the whole verification window before deleting anything).
+   scales to 0 rather than removing — keep it, its ConfigMap/Secret refs, and its
+   Service around for the whole verification window before removing anything).
 3. `kubectl rollout undo deployment/graph-os -n platform` (or reapply the pre-cutover
    manifest) to restore the old pod spec (`GRAPH_SERVICE_ENDPOINTS=tls://<ENGINE_NODE_IP>:9100`
    via the durable config, no sidecar).
@@ -412,11 +412,11 @@ this design.
       immediately before cutover, don't reuse a stale figure).
 - [ ] A representative KG query (e.g. `graph_query`/`graph_search` against `__commons__`
       or a known `code_*` graph) returns the same answer it did before cutover.
-- [ ] The kvcache verify-before-cutover item resolved one way or the other, and the
+- [ ] The kvcache check-before-cutover item resolved one way or the other, and the
       resolution reflected in the sidecar's final `args`.
-- [ ] `platform/epistemic-graph` scaled to 0, not deleted, until this checklist is fully
+- [ ] `platform/epistemic-graph` scaled to 0, not removed, until this checklist is fully
       green AND a rollback rehearsal (§Rollback) has been dry-run at least once.
-- [ ] Only after a soak period: delete the old `epistemic-graph` Deployment + Service,
+- [ ] Only after a soak period: remove the old `epistemic-graph` Deployment + Service,
       and the now-unused `ENGINE_CA_BUNDLE`/`ENGINE_TLS_SERVER_NAME` keys from
       `graph-os-env` (left in place until then, per the inline comment above).
 

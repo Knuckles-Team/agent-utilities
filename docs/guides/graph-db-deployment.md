@@ -169,7 +169,7 @@ agent-utilities-doctor --only engine graph_backend graph_connections transport_s
 The deployment is ready only when:
 
 - the engine authority is reachable and durable under the selected profile;
-- every named mirror has a resolvable reference, verified TLS, and no stalled
+- every named mirror has a resolvable reference, checked TLS, and no stalled
   outbox tail;
 - every external source passes the connector capability gate and has an
   approved, drift-free mapping;

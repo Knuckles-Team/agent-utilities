@@ -135,7 +135,7 @@ pytest tests/unit/test_gateway_mcp_parity.py -q
 ```
 
 Run the skill-creator validator once for every retained directory after changing
-skill prose or interface metadata. The gate additionally checks the exact
+skill prose or interface metadata. The gate also checks the exact
 one-skill taxonomy, standard frontmatter, both sidecars, the 500-line ceiling,
 sensitive-data patterns, and the 2-case forward matrix.
 
@@ -150,7 +150,7 @@ agent-utilities-validate-skills \
 
 `--mode all` is not an ad hoc report command. It is the exact-release evidence
 producer and therefore requires adjacent Markdown/JSON destinations plus all seven
-verified digests and external signer/verifier references:
+checked digests and external signer/verifier references:
 
 ```bash
 agent-utilities-validate-skills \
@@ -178,13 +178,13 @@ Regenerate evidence for every exact installed artifact rather than committing a
 stale golden result or an environment-specific deployment profile.
 
 The harness starts no service and loads no model itself. The exact certification
-orchestrator owns its verified HTTPS loopback OIDC authority and injects it only
+orchestrator owns its checked HTTPS loopback OIDC authority and injects it only
 into campaign children. Configure the endpoint, model registry, model TLS trust,
 Langfuse exporter, and Langfuse MCP child through `AgentConfig`; do not put
 endpoints, credentials, or CA paths in the matrix. Content capture must remain
 disabled. Direct cases use the exact
 skill body as their system instructions and a typed output contract. Delegated cases
-execute through the single-operation
+run through the single-operation
 `graph_orchestrate(agent_name=..., task=..., ...)` surface with no `action`
 argument. The returned opaque `run_id` is polled to the exact terminal state
 `completed` through `graph_jobs(action="status", job_id=run_id)`.
@@ -199,9 +199,9 @@ timeout or cancellation poisons and aborts that certification process so abandon
 SDK calls cannot accumulate past the case budget. For each case the harness queries the Langfuse MCP child
 by the exact tenant-qualified opaque trace name and requires exactly one trace whose
 closed metadata binds the same run, configured model, model class, skill, and skill
-body digest. It verifies the mounted child reports metadata-only retention before any
+body digest. It checks the mounted child reports metadata-only retention before any
 case runs, then requires exactly one corresponding `Trace` node written through
-GraphOS parent mediation under the verified `kg:write` session. Unrelated project
+GraphOS parent mediation under the checked `kg:write` session. Unrelated project
 traces are never fetched; zero or duplicate exact matches fail closed. The generated
 report stores only controlled status values, safe route
 slugs, opaque run/trace references, and controlled error codes. Report publication is

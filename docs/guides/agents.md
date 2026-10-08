@@ -105,7 +105,7 @@ graph TD
 Team coordination uses the internal session/message bus. Agent Client Protocol
 (ACP) is a different, editor-facing stdio JSON-RPC boundary supplied by Pydantic
 AI Harness. Web and terminal frontends use AG-UI/SSE/REST; compatible editors
-launch `agent-utilities-acp`.
+start `agent-utilities-acp`.
 
 ## Memory & Code Lifecycle (CRUD + Analysis)
 
@@ -168,7 +168,7 @@ emit_graph_event(
 | **RECOVERY** | `error_recovery_replan`, `error_recovery_terminal` | `steps.py` (error_recovery) |
 | **TERMINATION** | `graph_force_terminated` | `steps.py` (dispatcher) |
 
-**You must add an entry to `_PHASE_MAP`** whenever you add a new `emit_graph_event()` call. Always use `snake_case` for event types.
+**The operator must add an entry to `_PHASE_MAP`** whenever the operator add a new `emit_graph_event()` call. Always use `snake_case` for event types.
 
 ### Frontend Event Consumers
 | Frontend | Events Used | Purpose |
@@ -181,5 +181,5 @@ emit_graph_event(
 The Knowledge Graph now serves as the unified registry for project governance (Policies) and operational workflows (Process Flows). This integration allows the agent to reason over established SOPs and guardrails during the planning and execution phases.
 
 - **Policies**: Declarative constraints and guardrails (e.g., "Always use TDD", "No destructive operations on production"). Policies are grounded in Knowledge Base topics and applied based on the current context.
-- **Process Flows**: Procedural step-by-step execution guides (SOPs) retrieved from the KG. The Planner agent discovers relevant flows and can choose to follow them for consistent execution.
-- **Dynamic Execution**: The `LoadAndExecuteProcessFlow` node (`process_executor`) allows the graph to transition into a guided execution mode based on a retrieved SOP.
+- **Process Flows**: Procedural step-by-step execution guides (SOPs) fetched from the KG. The Planner agent discovers relevant flows and can choose to follow them for consistent execution.
+- **Dynamic Execution**: The `LoadAndExecuteProcessFlow` node (`process_executor`) allows the graph to transition into a guided execution mode based on a fetched SOP.

@@ -78,7 +78,7 @@ Two independent proofs:
 an `isinstance` check against `http_client` itself — it only calls duck-typed
 methods (`.stream()`, `.build_request()`, `.send()`, `.aclose()`), and even
 `httpx2.EventSource(response)` (constructed from an `httpx.Response`, not
-`httpx2.Response`, in the SSE fallback path) iterates correctly, verified directly
+`httpx2.Response`, in the SSE fallback path) iterates correctly, checked directly
 against `httpx2.EventSource`. The mismatch is a real *static*-typing fact with a
 committed, currently-passing *runtime* proof it doesn't matter here. **No fix
 applied; the existing test is the fix's evidence.** Coordination note: the ledger
@@ -96,7 +96,7 @@ the same root cause in the same terms. GOC-87 has since landed the sanctioned
 *interim* mitigation while that decision remains open: a staged transport-factory
 seam (`agent_utilities/httpsupport/transport_factory.py`,
 `docs/architecture/httpx_httpx2_migration.md`) that lets call families migrate to
-`httpx2` one at a time, verified, rather than either a wholesale swap or an
+`httpx2` one at a time, checked, rather than either a wholesale swap or an
 indefinite freeze. As of the 2026-08-16 lock referenced in that doc: 17 locked
 packages require `httpx`, 3 require `httpx2`; 48 files import `httpx`, 2 import
 `httpx2` (denominator: files under `agent_utilities/`, per that doc). A repo-wide
@@ -120,7 +120,7 @@ doesn't recognize will fail via `uv`'s own error (that much is fail-closed), but
 flag `uv` *does* recognize and that changes sync/lock semantics in a way this
 wrapper's environment-partitioning, `UV_PROJECT_ENVIRONMENT` pinning, or
 pool-gated-heavy-sync assumptions (`_dependency_sync_slot()`) don't account for
-would pass straight through and "degrade to uv's own [unpartitioned] sync
+will pass straight through and "degrade to uv's own [unpartitioned] sync
 behaviour" exactly as the imported title says — this is a real, reproducible gap
 against the lane's own authority ("Unsupported uv flags... fail closed with the
 exact command and supported alternative; no unknown-flag pass-through is
@@ -157,7 +157,7 @@ independently against its own `uv.lock`, so a bare `uv sync` run inside any one
 repo resolves *that repo's own lock* — the correct behavior — rather than being
 pulled into a shared workspace-wide resolve. The former workspace-root-only `[tool.uv]
 override-dependencies` (nltk/pytest/cryptography/opentelemetry/fastmcp-slim
-floors) were redistributed into each repo that needs them (verified for
+floors) were redistributed into each repo that needs them (checked for
 fastmcp-slim above under D-2.1b-2).
 
 **Caveat, not a fix needed by this lane:** `agent-utilities/pyproject.toml`
@@ -168,7 +168,7 @@ ancestor — but that comment is dated **2026-08-13** (`git log -L`), one day
 *before* D-EGSFT-1 removed the outer `[tool.uv.workspace]` table entirely. Since
 the collision rule this comment describes only fires when uv discovers an
 ancestor workspace, and there is no longer one to discover, this documentation is
-now very likely stale itself. **Not verified empirically** in this pass (would
+now very likely stale itself. **Not checked empirically** in this pass (will
 require running bare `uv sync` inside the canonical
 `agent-packages/agent-utilities` checkout, which this lane's own instructions
 prohibit editing/running heavy operations against). Flagged for whoever next
@@ -185,7 +185,7 @@ dated comment (`2026-08-07 (D-W5AGB-1)`) explaining that `mlflow` — the sole
 source of the `cryptography<49` requirement — was removed from that package's
 optional dependencies specifically because no published `mlflow` release (as of
 that date, including the-then-latest 3.15.1) supports `cryptography>=50.0.0`
-(the fix for `PYSEC-2026-3552`). Verified for this revalidation: `grep -n
+(the fix for `PYSEC-2026-3552`). Checked for this revalidation: `grep -n
 "mlflow" agents/data-science-mcp/pyproject.toml` shows only comment lines (the
 historical explanation and reinstatement condition), no active dependency
 declaration; `grep -rln "cryptography<49"` across `agent-packages/*/pyproject.toml`
@@ -193,12 +193,12 @@ and `agent-packages/agents/*/pyproject.toml` (denominator: 1 + 68 files) returns
 only that same commented-out file. `agent-utilities/pyproject.toml`'s own floor
 (`"cryptography>=50.0.0"`, line 56) is unchanged and uncontested.
 
-### D-2.1b-2 — STALE-PREMISE (resolved, fully verified)
+### D-2.1b-2 — STALE-PREMISE (resolved, fully checked)
 
 > "Downstream `agents/*` packages need the same `fastmcp-slim[client,server]`
 > override"
 
-Resolved and verified with a full-population check, not a sample. Denominator:
+Resolved and checked with a full-population check, not a sample. Denominator:
 69 directories under `agent-packages/agents/` (68 with a `pyproject.toml`; the
 69th is `tests/`, which has none). Of the 68, all 68 mention `fastmcp` and all
 68 already carry `"fastmcp-slim[client,server]>=4.0.0b1"` in their own
@@ -262,7 +262,7 @@ in tests that aren't about platform support, while a dedicated test
 (`test_native_promoter_rejects_unsupported_platform`, referenced by name in
 those comments) covers the fail-closed gate itself. **No fix applied — the
 existing gate and tests already meet the bar.** The residual fact that
-`promote_local_release`'s real signing flow cannot execute end-to-end under
+`promote_local_release`'s real signing flow cannot run end-to-end under
 the sanctioned uv-managed interpreter on this host is a genuine operational
 constraint (needs either a memfd_create-capable interpreter build or an
 alternate sealed-fd primitive), not a design defect, and is outside a single
@@ -347,8 +347,8 @@ D-W6TG-1 is that same root cause surfacing in a downstream consumer's CI. The
 fix is a real PyPI publish of `agent-utilities>=2.0.0`, which is GOC-42's
 release-authority territory and outside this lane's non-goals (no publication
 without explicit authorization). **Recommendation only, not applied:**
-`geniusbot/requirements.txt`'s `agent-utilities==1.0.0` pin is additionally
-inconsistent with `geniusbot/pyproject.toml`'s own `>=2.0.0` floor regardless
+`geniusbot/requirements.txt`'s `agent-utilities==1.0.0` pin is also
+inconsistent with `geniusbot/pyproject.toml`'s own `>=2.0.0` floor in either case
 of the publish gap, and independent of the PyPI-publish fix — that file is
 outside this lane's owned-repository list (`geniusbot` is not `agent-utilities`,
 `agents/*`, or `repository-manager`) and was left untouched.

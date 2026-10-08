@@ -11,13 +11,13 @@ without weakening the RLM isolation boundary.
 
 1. `warm_spec()` returns a content-addressed description of the parent snapshot.
 2. `warm(spec)` prepares one confined parent and returns a `ParentHandle`.
-3. `run_forked(parent, code, env)` forks one child, executes the snippet, and returns a
+3. `run_forked(parent, code, env)` forks one child, runs the snippet, and returns a
    `SandboxResult`.
 
 `ForkableSandbox.execute()` acquires or creates the parent through `WarmParentRegistry`, then
 delegates to `run_forked`. The registry is bounded by host CPU and available memory, applies idle
 and absolute-age limits, and drains on daemon shutdown. A backend that does not advertise a real
-isolation boundary is rejected before it can execute model-generated code.
+isolation boundary is rejected before it can run model-generated code.
 
 ## Current backend
 

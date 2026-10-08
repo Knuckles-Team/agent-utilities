@@ -91,7 +91,7 @@ emptied).
 3. **Mid-size doc-sites** in batches of ~5, reviewing diffs and `status` between batches.
 4. **The large graphs last** (`vercel-docs` ~9.8k files, `python-docs`, `rust-docs`) —
    long crawls; run with KG ingest on so the corpus also lands in the KG.
-5. **Leave `native` graphs alone** unless you want to stamp them — they have no
+5. **Leave `native` graphs alone** unless the operator want to stamp them — they have no
    re-acquirable source.
 
 ## 4. Keep updated — periodic re-download + delta re-ingest

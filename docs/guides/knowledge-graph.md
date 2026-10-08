@@ -2,7 +2,7 @@
 
 ## The Unified Intelligence Graph (UIG)
 
-The ecosystem leverages a **Unified Intelligence Graph** (UIG) that bridges long-term agent memory with deep structural codebase awareness and cross-domain research knowledge. This single, intelligence-driven cognitive substrate allows agents to reason simultaneously about specialists, tools, memory, code, and external standard operating procedures.
+The ecosystem use a **Unified Intelligence Graph** (UIG) that bridges long-term agent memory with deep structural codebase awareness and cross-domain research knowledge. This single, intelligence-driven cognitive substrate allows agents to reason simultaneously about specialists, tools, memory, code, and external standard operating procedures.
 
 ### Core Components
 - **Autonomous Memory & Reasoning**:
@@ -228,7 +228,7 @@ on the read path.
 | **FalkorDB** | Runtime `connection_profile_ref` | Distributed graph mirror |
 | **Neo4j** | Runtime `connection_profile_ref` | Property-graph interop |
 
-> The `epistemic_graph` engine is reached **only** through the out-of-process MessagePack/UDS client — there is no PyO3. The engine is always the authority; declare `GRAPH_MIRROR_TARGETS` to also populate external projections. Projection drivers (`postgresql`/`falkordb`/`neo4j`) are imported only when enabled.
+> The `epistemic_graph` engine is reached **only** through the out-of-process MessagePack/UDS client — there is no PyO3. The engine is always the authority. Declare `GRAPH_MIRROR_TARGETS` to also populate external projections. Projection drivers (`postgresql`/`falkordb`/`neo4j`) are imported only when enabled.
 
 For step-by-step setup, Docker files, and multi-agent production guides, see the [Deploying Graph Databases Guide](graph-db-deployment.md).
 
@@ -261,7 +261,7 @@ backend = create_backend(
 |---|---|---|
 | `GRAPH_MIRROR_TARGETS` | Mirror aliases receiving the asynchronous committed-write stream | *None* |
 | `GRAPH_DB_CONNECTION_PROFILE_REF` | Runtime secret reference resolving the selected mirror's connection, identity, credential, and TLS document | *None* |
-| `KG_CONNECTIONS` | Role-aware reference-only declarations for several governed graph connections | *None* |
+| `KG_CONNECTIONS` | Role-aware reference-only declarations for multiple governed graph connections | *None* |
 
 Use the generated [runtime configuration catalog](../reference/runtime-configuration.md)
 for pool, capacity, and backend-specific bounds. Do not persist resolved connection
@@ -324,14 +324,14 @@ Agent Q&A and Knowledge Queries
 
 ## Memory Maintenance & Pruning
 
-The `GraphMaintainer` class (`knowledge_graph/core/maintainer.py`) runs several background maintenance operations using the unified `GraphBackend.prune()` interface:
+The `GraphMaintainer` class (`knowledge_graph/core/maintainer.py`) runs multiple background maintenance operations using the unified `GraphBackend.prune()` interface:
 1. **Embedding Enrichment**: Vectorizes unembedded content through the embedding provider selected in AgentConfig.
-2. **Cron Log Pruning**: Deletes successful logs older than 30 days.
+2. **Cron Log Pruning**: Removes successful logs older than 30 days.
 3. **Chat Summarization**: Compresses old threads into `ChatSummary` nodes.
 4. **Importance Scoring**: PageRank-based centrality scoring for all nodes.
 5. **Temporal Decay**: Ebbinghaus-style 5%/day decay on importance scores.
 6. **Memory Consolidation**: Distills old episodes into semantic summaries.
-7. **Low-Signal Pruning**: Removes nodes below importance threshold (0.05) using the backend-native pruning logic. **Conversational-data retention (BUG-041):** `InboundMessage`/`Thread`/`Memory`/`Memento` are written ONCE at live intake with no reingest path for most sources, so this sweep excludes them by default (`GraphMaintainer.UNRECOVERABLE_CONVERSATIONAL_NODE_TYPES`) and logs a warning naming how many rows it protected. A subset of messaging platforms (Discord, Slack, Matrix, Nextcloud Talk, Twilio) DO expose a re-fetchable history API — see `agent_utilities/messaging/backfill.py` for the per-platform recoverability table and the `backfill_platform_history()` recovery path — but the pruning sweep has no per-row platform awareness, so an operator must pass `include_unrecoverable_conversational=True` explicitly (never as a default) after confirming the affected rows are recoverable or accepting the loss.
+7. **Low-Signal Pruning**: Removes nodes below importance threshold (0.05) using the backend-native pruning logic. **Conversational-data retention (BUG-041):** `InboundMessage`/`Thread`/`Memory`/`Memento` are written ONCE at live intake with no reingest path for most sources, so this sweep excludes them by default (`GraphMaintainer.UNRECOVERABLE_CONVERSATIONAL_NODE_TYPES`) and logs a warning naming how multiple rows it protected. A subset of messaging platforms (Discord, Slack, Matrix, Nextcloud Talk, Twilio) DO expose a re-fetchable history API — see `agent_utilities/messaging/backfill.py` for the per-platform recoverability table and the `backfill_platform_history()` recovery path — but the pruning sweep has no per-row platform awareness, so an operator must pass `include_unrecoverable_conversational=True` explicitly (never as a default) after confirming the affected rows are recoverable or accepting the loss.
 8. **Knowledge Base Maintenance**: Archiving and health checks for the KB layer.
 9. **OWL Reasoning Cycle**: Promotes stable nodes -> runs HermiT/Stardog reasoning -> downfeeds inferred facts.
 10. **OWL Stale Triple Pruning**: Removes OWL individuals for nodes that no longer exist in LPG or have decayed below threshold.
@@ -341,7 +341,7 @@ The `GraphMaintainer` class (`knowledge_graph/core/maintainer.py`) runs several 
 
 > **Note:** The complete specification, tasks, and acceptance criteria for the Document Pipeline are now formally tracked using SDD in `.specify/specs/document_pipeline.md`.
 
-The Document Pipeline provides a tightly-wired system for managing documents natively within the Knowledge Graph. By leveraging the Graph DB's inherent structure and native vector indexing capabilities, it eliminates the need for redundant external document and vector storage dependencies. The Knowledge Graph acts as the single source of truth for seamless semantic and topological retrieval.
+The Document Pipeline provides a tightly-wired system for managing documents natively within the Knowledge Graph. By use the Graph DB's inherent structure and native vector indexing capabilities, it eliminates the need for redundant external document and vector storage dependencies. The Knowledge Graph acts as the single source of truth for smooth semantic and topological retrieval.
 
 ```mermaid
 graph TD
@@ -664,7 +664,7 @@ register_schema_pack("legal", LegalSchemaPack)
 
 ## Backlink-Density Retrieval Boost (CONCEPT:AU-KG.ingest.engineering-rules)
 
-The `HybridRetriever` supports optional backlink-density retrieval weighting that boosts the relevance score of hub entities (nodes with many inbound edges).
+The `HybridRetriever` supports optional backlink-density retrieval weighting that boosts the relevance score of hub entities (nodes with multiple inbound edges).
 
 ### Scoring Formula
 
@@ -805,11 +805,11 @@ Non-blocking, tiered validation for the Unified Intelligence Graph. Inspired by 
 
 ### LLM Alias Normalization
 
-The validator includes comprehensive alias maps for both node types (30+ aliases like `func` → `symbol`, `service` → `agent`) and edge types (30+ aliases like `extends` → `inherits_from`, `uses` → `depends_on`), ensuring consistent schema regardless of which LLM generated the graph data.
+The validator includes complete alias maps for both node types (30+ aliases like `func` → `symbol`, `service` → `agent`) and edge types (30+ aliases like `extends` → `inherits_from`, `uses` → `depends_on`), ensuring consistent schema in either case of which LLM generated the graph data.
 
 ### Pipeline Integration
 
-The validator runs as the **16th pipeline phase** (`validate`), executing in Stage 5. Results are stored via `EvaluationCapture` (CONCEPT:AU-KG.ingest.engineering-rules) for trend analysis.
+The validator runs as the **16th pipeline phase** (`validate`), running in Stage 5. Results are stored via `EvaluationCapture` (CONCEPT:AU-KG.ingest.engineering-rules) for trend analysis.
 
 ```python
 from agent_utilities.knowledge_graph.security.graph_validator import GraphValidator

@@ -61,7 +61,7 @@ flowchart TD
 **Supported Execution Modes:**
 
 - **Sequential**: `A → B → C` — Simple pipeline
-- **Parallel**: `[A, B, C]` — All execute concurrently
+- **Parallel**: `[A, B, C]` — All run concurrently
 - **Fan-out**: `A → [B₁, B₂, ..., Bₙ]` — Scatter
 - **Fan-in**: `[B₁, B₂, ..., Bₙ] → C` — Gather
 - **Mixed**: `A → [B, C] → D → [E, F] → G` — Arbitrary DAG
@@ -168,7 +168,7 @@ new_id = engine.import_team_config(bundle)
 
 The ORCH-1.8 `WorkflowVisualizer` already generates a Mermaid diagram of the routed graph; ORCH-1.37
 **surfaces** it in the current responses instead of only logging it. `graph_agents`
-swarm and `graph_workflows` compile/execute return a `mermaid` key (null when
+swarm and `graph_workflows` compile/run return a `mermaid` key (null when
 unavailable); `graph_orchestrate` returns `{"output", "run_id", "mermaid"}`.
 
 ### ORCH-1.39 — Curated context, budget, tool-scope & credential handoff
@@ -215,7 +215,7 @@ builds on that strength rather than fighting it:
   Channels are the **`Group`** type (members may join after creation, unlike `PeerToPeer` which locks
   membership), and `send` auto-joins the sender so any sender label works.
 
-- **Durable backstop.** Live channel messages are in-RAM. `send(durable=True)` additionally
+- **Durable backstop.** Live channel messages are in-RAM. `send(durable=True)` also
   dual-writes each message as a `Session -[:HAS_MESSAGE]-> AgentMessage` node, so the dialogue is
   replayable via `graph_message(action="history")` and survives an engine restart.
 

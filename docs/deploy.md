@@ -2,7 +2,7 @@
 
 agent-utilities is **self-deploying**: point any AI agent (Claude Code, Cursor,
 Codex, Windsurf, …) at the repository and it knows how to set itself up — or run a
-single command yourself. There is one path for two very different operators:
+single command the operator. There is one path for two very different operators:
 
 - **Homelabbers / self-hosters** — a zero-infra, all-local stack on a laptop or Pi.
 - **Enterprises** — a multi-host Docker Swarm with *everything wired in* (Vault, SSO,
@@ -39,18 +39,18 @@ curl -fsSL https://knuckles-team.github.io/agent-utilities/install.sh | sh -s --
 
 ## What the installer does
 
-1. Checks your host (Python 3.11–3.14; **no Rust needed** — the engine ships as a
+1. Checks the operator's host (Python 3.11–3.14; **no Rust needed** — the engine ships as a
    prebuilt wheel; Docker only above `tiny`).
-2. Installs agent-utilities (+ extras for your profile) and the skill toolkit.
-3. Runs the **host preflight** for your profile and any UI components you choose.
-4. Installs the skills into **every AI tool on your host** and wires the `graph-os`
-   MCP server into each — so your agent immediately has the knowledge graph and the
+2. Installs agent-utilities (+ extras for the operator's profile) and the skill toolkit.
+3. Runs the **host preflight** for the operator's profile and any UI components the operator choose.
+4. Installs the skills into **every AI tool on the operator's host** and wires the `graph-os`
+   MCP server into each — so the operator's agent immediately has the knowledge graph and the
    genesis skills.
 5. Hands off to a guided deployment that finishes the wiring.
 
 ## Profiles
 
-| You are… | Profile | What you get |
+| The operator are… | Profile | What the operator get |
 |---|---|---|
 | A homelab / self-hoster | `tiny` | Zero-infra, all-local. No databases, no Docker. |
 | One durable server | `single-node-prod` | Postgres/pg-age + the core MCP connector fleet. |
@@ -62,13 +62,13 @@ Optional UIs (add `--component`): `agent-webui`, `agent-terminal-ui`, `geniusbot
 
 The full deployment procedure lives in
 [`AGENTS.md` → Zero-to-deployed](https://github.com/Knuckles-Team/agent-utilities/blob/main/AGENTS.md#-zero-to-deployed-genesis--deploying-this-for-an-operator),
-and the machine-readable manifest you loop over is
+and the machine-readable manifest the operator loop over is
 [`genesis.yaml`](https://knuckles-team.github.io/agent-utilities/genesis.yaml)
 (profiles · preflight · MCP fleet · UI components · IDE targets). Preflight a host
 without installing anything via the MCP tool
 `graph_configure action=preflight config_key=<profile>`.
 
-## Verify
+## Check
 
 ```bash
 agent-utilities-doctor                       # full deployment health sweep

@@ -30,7 +30,7 @@ crosswalk** (EG's core ArchiMate source, `ontology_quant.ttl`,
 
 Because the types are shared, an ARIS EPC process and its Camunda implementation
 **collapse to one identity** under reasoning (via `ALIGNED_WITH`), and a single
-query answers "show everything about this process" regardless of which tool it
+query answers "show everything about this process" in either case of which tool it
 came from.
 
 ## Inbound — ingest processes INTO the KG

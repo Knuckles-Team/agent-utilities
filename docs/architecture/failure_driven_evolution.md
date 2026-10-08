@@ -113,7 +113,7 @@ agent-utilities-doctor --only langfuse
 ```
 
 An `ok` result proves local configuration, credential resolution, TLS material,
-and MCP launcher readiness. Seeing a trace still requires executing a traced
+and MCP launcher readiness. Seeing a trace still requires running a traced
 request and querying the configured Langfuse project; documentation does not
 substitute for that environment-dependent certification.
 
@@ -121,7 +121,7 @@ substitute for that environment-dependent certification.
 
 A brand-new `failure_gap` competes for a slot in `unresolved_topics()`'s limited,
 arbitrarily-ordered scan over (potentially thousands of) existing concepts — so
-generic intake can silently exclude it and the failure would never be remediated.
+generic intake can silently exclude it and the failure will never be remediated.
 The failure-ingest path therefore passes its just-materialized gaps **explicitly**
 to `GoldenLoopController.run_one_cycle(topics=…)`, bypassing the generic scan so
 remediation is deterministic.
@@ -162,7 +162,7 @@ production posture.
   `cluster_failures`, `make_regression_check`, `_lock_regression_cases` (AHE-3.25),
   `run_failure_ingest`.
 - `agent_utilities/harness/eval_corpus.py` — `EvalCorpus.add_case(..., assertion=…)`,
-  the durable regression-case store the verified fixes lock into.
+  the durable regression-case store the checked fixes lock into.
 - `agent_utilities/harness/continuous_evaluation_engine.py` — `TestCase.assertion`,
   `EvalStrategy.ASSERTION`, `EvalRunner._assertion_judge` (AHE-3.25).
 - `agent_utilities/harness/trace_backend.py` — the Langfuse failure-read surface.
@@ -184,5 +184,5 @@ production posture.
 - The remediation proposals are the same `TeamSpec`/`AgentSpec` artifacts the
   research-driven synthesis (**AU-KG.enrichment.a2a-capability-extraction**) produces.
 - **AHE-3.25** (plain-English regression assertions) closes the loop's final step:
-  a *verified* remediation locks a human-readable regression case into the eval
+  a *checked* remediation locks a human-readable regression case into the eval
   corpus, the "lock-as-regression-test" guarantee.

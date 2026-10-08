@@ -46,7 +46,7 @@ The complete transitive closure follows the same format. Markers, constraints,
 recursive includes, multiple hashes, indexes, source distributions, URLs, local
 paths, and direct references are rejected. One lock entry maps to one wheel. This
 makes the wheelhouse a neutral, closed, platform-specific release input rather than
-a resolver hint. The assembler accepts one explicit verified `uv` executable. The
+a resolver hint. The assembler accepts one explicit checked `uv` executable. The
 only installer used by the promoter is the byte-identical executable resolved from
 `PATH`; the promoter exposes no installer override.
 
@@ -124,10 +124,10 @@ strip Python, pip, `uv`, and dynamic-loader injection variables before execution
 
 ## Assembly and promotion
 
-Run the packaged assembler under the same verified Python environment that will run
+Run the packaged assembler under the same checked Python environment that will run
 the promoter. Its source directory contains wheels only. It rejects an incomplete or
 non-minimal union of `epistemic-graph[full]`, `agent-utilities[serving]`, and
-`langfuse-agent[mcp]`, verifies the folded engine binary and numeric extension, and
+`langfuse-agent[mcp]`, checks the folded engine binary and numeric extension, and
 atomically publishes a new private directory without overwriting an earlier assembly:
 
 ```bash
@@ -165,11 +165,11 @@ The promoter performs these gates serially to bound memory and native-process us
 2. Reject wheelhouse links, special files, nested content, path traversal, unsafe
    archive members, `direct_url.json`, missing metadata, and any lock/wheel drift.
 3. Copy the validated closure into the new release directory to close the input
-   race, copy the verified Python and `uv` executables into sealed anonymous Linux
+   race, copy the checked Python and `uv` executables into sealed anonymous Linux
    files, create a copy-based Python environment, and invoke `uv pip install` with
    `--offline`, `--no-index`, `--require-hashes`, `--no-deps`, and copy link mode.
    Root selection comes only from the package-name requirements lock.
-4. Verify the complete installed distribution set, every reachable metadata
+4. Check the complete installed distribution set, every reachable metadata
    dependency and selected extra, minimal closure, every version and `RECORD`
    digest/size against the locked wheel, full site-package ownership, entry points,
    the unchanged copied-interpreter baseline, the Agent Utilities
@@ -179,11 +179,11 @@ The promoter performs these gates serially to bound memory and native-process us
 6. Require zero running `graph-os`, `graph-os-daemon`, or
    `epistemic-graph-server` processes.
 7. Seal the candidate read-only and durably record a prepared activation journal.
-   Replace `current` atomically with a relative symlink to the candidate, execute
+   Replace `current` atomically with a relative symlink to the candidate, run
    the release-owned canary and doctor under bounded time/output limits, and prove
    that no engine process leaked. Bytecode writes are disabled and a complete
    release-tree snapshot must remain unchanged across both proofs.
-8. Sign and independently verify evidence that cross-binds the specification,
+8. Sign and independently check evidence that cross-binds the specification,
    wheels, toolchain, the exact-local campaign's Agent Utilities and distribution
    closure identities, interpreter, GraphOS launcher, and native engine. Durably
    write the signed evidence into the committed activation journal first, publish
@@ -194,7 +194,7 @@ The promoter performs these gates serially to bound memory and native-process us
 
 If either command fails, times out, emits a nonconforming report, or leaves a graph
 process, the promoter atomically restores the previous `current` target. When no
-previous release existed, it atomically removes `current`. It never deletes the
+previous release existed, it atomically removes `current`. It never removes the
 previous release or the rejected candidate; operators retain both for review and
 must remove an obsolete release explicitly after evidence review.
 
@@ -220,7 +220,7 @@ The signer and verifier are external JSON-command adapters configured through
 `EXACT_LOCAL_EVIDENCE_SIGNER_COMMAND` and
 `EXACT_LOCAL_EVIDENCE_VERIFIER_COMMAND`. They receive bounded canonical JSON on
 standard input and return bounded JSON; key material never enters the release
-specification or evidence. Verify a published record independently with:
+specification or evidence. Check a published record independently with:
 
 ```bash
 verify-local-graphos-release-evidence \
@@ -232,7 +232,7 @@ verify-local-graphos-release-evidence \
 The signed `certificationArtifacts` object is the campaign handoff. Its Agent
 Utilities, distribution-closure, release-Python, GraphOS, and engine digests use
 the campaign's exact identity algorithms. Create the closed handoff with
-`generate-exact-local-gates-manifest`; it re-verifies this signed evidence,
+`generate-exact-local-gates-manifest`; it re-checks this signed evidence,
 cross-checks the engine/native-artifact identity, and combines those values with
 the current harness and fixed test-catalog digests without retaining the supplied
 source root. Pin that manifest by its own SHA-256. The promoter and generator do

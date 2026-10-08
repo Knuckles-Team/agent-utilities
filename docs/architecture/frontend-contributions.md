@@ -52,10 +52,10 @@ iterates independently per registration; see its docstring).
 
 | Status | Meaning |
 |---|---|
-| `OK` | schema-valid, digest-verified, signer-trusted, every referenced capability resolves |
+| `OK` | schema-valid, digest-checked, signer-trusted, every referenced capability resolves |
 | `DEGRADED` | schema-valid but a referenced `capability` id does not resolve against the live catalog (injected via `capability_exists`) |
 | `BLOCKED` | schema violation, digest mismatch, untrusted/unconfigured signer, package-identity mismatch, unsafe content, or an unreadable/oversized/ambiguous descriptor file |
-| `MISSING` | the entry point is registered but its source root could not be resolved (no ownership proof) |
+| `MISSING` | the entry point is registered but its source root can not be resolved (no ownership proof) |
 
 Fail-closed provenance: an **unconfigured** trusted-signer allowlist blocks
 every descriptor, including a well-formed one — absence of trust configuration

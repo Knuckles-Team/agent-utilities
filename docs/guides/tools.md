@@ -99,7 +99,7 @@ register_agent_tools(agent, graph_bundle=my_graph_bundle)
 
 ## X & xAI Integration
 
-The `x_search_tool` provides native capabilities to search X posts and browse individual posts directly from an agent. It leverages the secure `XaiAuthManager` to obtain OAuth 2.0 access tokens.
+The `x_search_tool` provides native capabilities to search X posts and browse individual posts directly from an agent. It use the secure `XaiAuthManager` to obtain OAuth 2.0 access tokens.
 
 ### Functions
 

@@ -53,11 +53,11 @@ graph TD
 
 | Topic | Purpose | Retention | Cleanup Policy |
 |-------|---------|-----------|---------------|
-| `kg.mutations` | Graph CRUD events (add/update/delete node/edge) | 7 days | compact + delete |
-| `kg.tasks` | WorkItem notification and completion events | 3 days | delete |
-| `kg.staging` | Staged graph payloads awaiting write | 1 day | delete |
-| `kg.telemetry` | Agent traces, latency, error rates | 1 day | delete |
-| `kg.evolution` | Self-improvement triggers, AHE cycle events | 7 days | compact + delete |
+| `kg.mutations` | Graph CRUD events (add/update/remove node/edge) | 7 days | compact + remove |
+| `kg.tasks` | WorkItem notification and completion events | 3 days | remove |
+| `kg.staging` | Staged graph payloads awaiting write | 1 day | remove |
+| `kg.telemetry` | Agent traces, latency, error rates | 1 day | remove |
+| `kg.evolution` | Self-improvement triggers, AHE cycle events | 7 days | compact + remove |
 
 ## Event Schema
 

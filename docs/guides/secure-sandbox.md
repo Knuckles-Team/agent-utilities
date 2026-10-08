@@ -7,7 +7,7 @@ Running dynamically generated quantitative strategies natively poses immense ris
 
 ### Key Benefits
 - **Programmatic Safety**: By validating the Abstract Syntax Tree (AST), the sandbox blocks dangerous OS-level calls (e.g., `os.system`).
-- **Mathematical Invariants**: We enforce **State Machine Invariants (MCS Ch 6)** to guarantee that quantitative loops terminate and do not exceed pre-defined execution budgets.
+- **Mathematical Invariants**: This repository enforce **State Machine Invariants (MCS Ch 6)** to guarantee that quantitative loops stop and do not exceed pre-defined execution budgets.
 - **Full Reproducibility**: The sandbox can be instantiated identically across test, staging, and production environments.
 
 ## Implementation Details

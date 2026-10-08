@@ -79,7 +79,7 @@ cooldown applies to scale-up and scale-down and survives process restart.
 
 The action outbox is the pre-side-effect fence, not an audit-afterthought. A
 replayed terminal record returns its prior outcome and never calls the
-actuator. A prepared/executing record with an unknown external outcome returns
+actuator. A prepared/running record with an unknown external outcome returns
 `recovery_pending`; an observer or operator must settle it under the same key.
 The outbox binds the opaque key to a digest of the complete governed request,
 so a same-key/different-payload delivery is a conflict rather than a replay.
@@ -115,7 +115,7 @@ identity into the ActionRequest before policy and outbox digesting; caller
 duplicates cannot override it. The adapter reads the object through the
 declared `kubectl --context` immediately before mutation and rejects a context
 → cluster mismatch, kind/name mismatch, delete/recreate UID change, or
-resourceVersion change. Scale/stop writes additionally pass the observed
+resourceVersion change. Scale/stop writes also pass the observed
 resourceVersion precondition. No configured namespace or service name is an
 identity fallback.
 

@@ -32,9 +32,9 @@ anchored under a `writable_paths` mount this same profile already declared. `val
 what must be *proven* post-deploy, not merely observed as "not crashing": every
 profile must declare at least one `functional_checks` entry of kind
 `mcp-tools-list` — a real MCP `tools/list` call, per this repo's standing rule that
-`/health` alone is not sufficient evidence a deployment works.
+`/health` alone is not enough evidence a deployment works.
 
-## Secrets are references, never values — "we do not infer credentials"
+## Secrets are references, never values — "this repository do not infer credentials"
 
 `secrets.required` is a list of `{name, ref, keys}`. `ref` must use one of four
 schemes: `env://VAR`, `vault://path`, `secret://path`, or
@@ -70,7 +70,7 @@ flowchart LR
 Dropping a new `uat.yaml` (or any name) into either directory makes `--profile
 uat` immediately valid — no PR to this repo. `load_environment_profile` on an
 undiscovered name fails naming exactly what *was* found and where a new file
-would go; it never falls back to a "closest" name.
+will go; it never falls back to a "closest" name.
 
 ## Where this fits, and where it does not
 

@@ -76,7 +76,7 @@ profile response is a fail-closed unavailable/error outcome.
 
 ## Root-owned execution
 
-The delegated agent must not execute this harness. Root runs it once, after
+The delegated agent must not run this harness. Root runs it once, after
 pinning AU/EG/gitlab-api revisions and provisioning the real isolated endpoint:
 
 ```bash

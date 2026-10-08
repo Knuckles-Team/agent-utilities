@@ -77,7 +77,7 @@ unchanged.
 ### Tick classification
 
 - **Leader-only** — the scheduler tick that materializes due recurring work.
-  N copies would enqueue duplicate work.
+  N copies will enqueue duplicate work.
 - **Per-host (capacity scaling)** — ingestion workers. Native WorkItem claims,
   leases, fencing, dependency release, and expired-lease recovery are atomic
   across hosts (AU-KG.ingest.cross-host-safe-kg).
@@ -89,7 +89,7 @@ dispatch makes them *executable* on every host. An agent turn (goal run /
 orchestrator job)
 rides the session-keyed `agent_turns` queue and any host's
 `agent-dispatch-worker` claims it, rehydrates from this shared state store,
-executes the existing goal/agent bodies, and writes back — sessions are no
+runs the existing goal/agent bodies, and writes back — sessions are no
 longer pinned to their birth host. The workers' liveness registry is one more
 table in this store (`dispatch_workers`, surfaced by `/api/fleet/topology`),
 and per-session mutual exclusion reuses `state_claim_guard`

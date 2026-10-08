@@ -112,7 +112,7 @@ flowchart TB
   (0 critical → 3 background); `scheduled` tasks carry an eta (delayed execution + retry
   backoff), `blocked` tasks carry `depends_on`, and an app-failure that exhausts its retries
   becomes a `dead_letter` (distinct from the reaper's crash-requeue).
-- **Messaging inbound router** (AU-ECO.messaging.sending-reply-failed) — runs on its own event loop in a daemon thread;
+- **Messaging inbound router** (AU-ECO.messaging.sending-reply-failed) — runs on its own event include a daemon thread;
   connects every configured backend, ingests chat to the KG, and routes to the dedicated
   messaging agent, which **delegates** heavy work to graph-os (ECO-4.59).
 - **REST API** — the gateway HTTP surface (`/graph/*`, `/daemon/*`, `/fleet/*`, `/metrics`).

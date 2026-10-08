@@ -6,7 +6,7 @@
 > `core/gpu_group_budget.py`, `core/config.py`.
 
 This is the plan for how LLM/embedding fan-out concurrency is sized — from a single
-shared GPU today to many GPU hosts in the future — so that **interactive chat
+shared GPU today to multiple GPU hosts in the future — so that **interactive chat
 latency is protected** while **bulk embedding uses leftover headroom**, and adding
 hardware automatically yields more aggregate throughput.
 
@@ -38,7 +38,7 @@ the real serving capacity of *one* model without any hardcoded ceiling.
 ### (b) Per-GPU-host shared budget — `CONCEPT:AU-KG.compute.pure-config-enumeration-fail` (the new layer)
 
 Tier (a) tunes each model in isolation, so two models that **share one physical
-GPU** would each happily ramp and jointly oversubscribe it. The budget tier fixes
+GPU** will each happily ramp and jointly oversubscribe it. The budget tier fixes
 that: models on one GPU are grouped (`Config.gpu_group`), the group has a total
 concurrency `budget`, and each model's adaptive target is capped at its **allowed
 share**:
@@ -64,7 +64,7 @@ headroom for concurrent chat; the budget makes that structural instead of a hope
 
 ### (c) Per-deployment aggregate — across N GPU hosts (target state)
 
-A model can be replicated across several GPU hosts. The deployment-level capacity
+A model can be replicated across multiple GPU hosts. The deployment-level capacity
 for a model is then the **sum of its per-host shares**, and requests are
 load-balanced across hosts. Adding a GPU host raises the aggregate and is
 auto-discovered (below). This tier composes with (b): each host's budget still
@@ -116,7 +116,7 @@ Find it with a short profiling sweep per GPU host:
      uses online.
    * **vLLM `waiting{capacity} > 0`** — the engine itself reporting it is queueing
      at the scheduler (hard saturation).
-   * **GPU utilization / unified-memory pressure** approaching its ceiling.
+   * **GPU use / unified-memory pressure** approaching its ceiling.
 3. The **budget = the concurrency just before the knee** (where throughput is
    maxed but latency has not inflated). Record the measured value in runtime
    configuration; do not copy another deployment's budget.
@@ -153,7 +153,7 @@ coordinate beyond reporting their current target into the shared `GpuGroupBudget
 ### Scale up vs scale out
 
 * **Scale up (raise a host's budget)** when the saturation knee proves the GPU has
-  unused headroom (low utilization at the current budget, no `waiting{capacity}`).
+  unused headroom (low use at the current budget, no `waiting{capacity}`).
 * **Scale out (add a GPU host to the endpoint list)** when a single host is at its
   knee under sustained demand — chat's reserved slice is fully subscribed and
   best-effort is pinned at its floor. Adding a host raises the aggregate (tier c)

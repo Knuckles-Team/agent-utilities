@@ -1,12 +1,12 @@
 # Architecture Reference
 
-This is the curated entry point to the **141 architecture documents** in this repository — deep dives on one subsystem, one seam, or one hardening incident each. Start with **North-Star Architecture** for the whole-program view, then drop into whichever group matches what you're touching. Every file here is also reachable through MkDocs Material's site search if you already know its name.
+This is the curated entry point to the **141 architecture documents** in this repository — deep dives on one subsystem, one seam, or one hardening incident each. Start with **North-Star Architecture** for the whole-program view, then drop into whichever group matches what the operator're touching. Every file here is also reachable through MkDocs Material's site search if the operator already know its name.
 
-> New to the codebase? [`docs/pillars/index.md`](../pillars/index.md) is the 5-pillar concept map these documents implement; this page is the implementation detail underneath it.
+> New to the codebase? [`docs/pillars/index.md`](../pillars/index.md) is the 5-pillar concept map these documents implement. This page is the implementation detail underneath it.
 
 ## Start here — whole-program view
 
-The north star, the operating model, and the standards every other document here assumes you've read.
+The north star, the operating model, and the standards every other document here assumes the operator've read.
 
 - [North-Star Architecture (the whole program)](north-star-architecture.md)
 - [Delegation-First Operating Model (orchestrate + resolve)](delegation-first-operating-model.md)

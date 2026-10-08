@@ -344,7 +344,7 @@ gwt.broadcast_to_kg(winners, engine, task_id="task:123")
 
 ## Testing
 
-All modules have comprehensive test suites:
+All modules have complete test suites:
 
 ```bash
 # Individual modules

@@ -2,7 +2,7 @@
 
 Agent Utilities can run as independently deployable services around one
 authoritative Rust epistemic-graph data plane. Container manifests are templates;
-the operator supplies placement, endpoints, identities, secret references, TLS
+the operator provides placement, endpoints, identities, secret references, TLS
 profiles, and image digests through an external deployment profile.
 
 ## Service model
@@ -25,7 +25,7 @@ self-composes its configured co-services in one process
 (`agent_utilities.mcp.co_service_supervisor`, wired into `kg_server.mcp_server()`):
 whenever a real channel credential (e.g. `TELEGRAM_BOT_TOKEN`) is present in the
 SAME `AgentConfig` GraphOS MCP already reads, the inbound router starts as a
-supervised co-service thread sharing that process's already-verified
+supervised co-service thread sharing that process's already-checked
 `GraphSession`/identity — no separate `mint_graph_session` call, no second secret
 surface, no manually-run second daemon. The standalone `agent-utilities-messaging`
 process (`Messaging` row above) still exists and reuses the identical serving body
@@ -54,7 +54,7 @@ flowchart TB
 
 ## Deployment invariants
 
-- Every non-loopback request is authenticated and converted into a verified
+- Every non-loopback request is authenticated and converted into a checked
   `ActorContext`; authorization and ACL infrastructure fail closed.
 - Clients contact the configured engine coordinator. They never infer graph
   placement or start a local substitute when `GRAPH_SERVICE_ENDPOINTS` is set.
@@ -101,7 +101,7 @@ The following is a neutral distributed shape:
 }
 ```
 
-Reserved `.invalid` names are documentation placeholders. Runtime discovery supplies
+Reserved `.invalid` names are documentation placeholders. Runtime discovery provides
 the real topology outside the source tree.
 
 Use `KG_AUTH_TOKEN_REF` instead of `KG_IDENTITY_OAUTH2` only when the deployment
@@ -126,7 +126,7 @@ AgentConfig stores references, not resolved values:
 Some libraries require resolved material rather than a reference field. For example,
 the shared state store consumes `STATE_DB_URI`, and a distributed engine may consume a
 shared HMAC value. The deployment secret resolver injects those values into process
-memory at launch; they are not persisted to AgentConfig or a repository file.
+memory at start; they are not persisted to AgentConfig or a repository file.
 
 TLS profiles contain the CA bundle reference, optional client certificate/key
 references, expected server name, and verification policy. Use the shared resolver for
@@ -171,7 +171,7 @@ runtime profile and secret/TLS references. See
 ## Connector fleet
 
 The generated fleet registry is a capability catalog, not a site inventory. The
-operator-owned deployment profile selects packages and supplies discovered endpoints,
+operator-owned deployment profile selects packages and provides discovered endpoints,
 workload identity, connector secret references, and TLS profiles. GraphOS loads tools
 on demand through the registry rather than exposing every connector tool in every
 context.
@@ -205,7 +205,7 @@ agent-utilities doctor --only config auth secrets transport_security graph_conne
 The `agent-utilities-deployment` workflow consumes the external profile and performs
 an ordered rollout:
 
-1. verify image signatures/digests and dependency versions;
+1. check image signatures/digests and dependency versions;
 2. validate workload identity and all secret/TLS references;
 3. deploy engine authority and certify placement;
 4. deploy the GraphOS host and shared state workers;
@@ -224,7 +224,7 @@ reachability, queue/state access, and the effective host/client daemon role.
 Both Langfuse credential references plus the TLS profile allow the Langfuse MCP child
 and propose-only failure evolution to auto-enable. `TRACE_EXPORT_ENABLED`, content
 capture, and KG auto-ingestion are independent explicit gates. Content capture remains
-off by default. KG auto-ingestion additionally requires
+off by default. KG auto-ingestion also requires
 `LANGFUSE_PERSISTENCE_HMAC_KEY_REF` so durable identities remain opaque.
 
 Validate the configured TLS chain, list traces through the Langfuse MCP capability,

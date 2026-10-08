@@ -353,7 +353,7 @@ The `repository-manager` handles git primitives. The `gitlab-api` and `github-ag
 
 ### KG Extension Packs
 
-Each MCP repo could ship a `kg_extension/` module with domain ontology (OWL/Pydantic node types + relationships). When a specialist is installed via `AgentRegistry.install()`, the extension auto-hydrates the KG with domain-specific schema. Example: `from servicenow_api.kg_extension import register_ontology`.
+Each MCP repo can ship a `kg_extension/` module with domain ontology (OWL/Pydantic node types + relationships). When a specialist is installed via `AgentRegistry.install()`, the extension auto-hydrates the KG with domain-specific schema. Example: `from servicenow_api.kg_extension import register_ontology`.
 
 ---
 

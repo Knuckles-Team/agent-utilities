@@ -1,12 +1,12 @@
 # Workflow × Knowledge Graph Synergy Map
 
-> **ADR-WKG-001**: All workflow outputs are persisted as first-class OWL individuals in the Knowledge Graph at the engine level. This is deterministic — the user and LLM never need to explicitly trigger ingestion.
+> **ADR-WKG-001**: All workflow outputs are persisted as first-class OWL individuals in the Knowledge Graph at the engine level. This is deterministic — the user and LLM never must explicitly trigger ingestion.
 
 ## Overview
 
 Every workflow in the agent ecosystem produces structured data that feeds directly into the unified Knowledge Graph via 15 OWL ontology modules. This document maps the **cross-domain reasoning chains** that emerge when seemingly unrelated workflows share a common KG substrate.
 
-The value is not in individual storage — it's in the **OWL reasoner inferring relationships** between domains that no single workflow would ever discover.
+The value is not in individual storage — it's in the **OWL reasoner inferring relationships** between domains that no single workflow will ever discover.
 
 ---
 
@@ -120,7 +120,7 @@ These are relationships between workflows that seem completely unrelated but cre
 **OWL Chain**: `Person --prescribedDiet--> MealPlan --containsMeal--> MealEntry --hasNutrientProfile--> NutrientProfile --aggregatesTo--> DailyNutrientSummary --calorieBalance--> CalorieExpenditure <--estimatedExpenditure-- WorkoutSession`
 
 **Example Inference**:
-> "Your MealPlan consumed 2800 kcal today (protein: 180g, carbs: 320g, fat: 85g) but your WorkoutRoutine only burned 1800 kcal. Your BodyMeasurement trend shows +0.5 kg/week over the last 3 weeks. Recommend reducing carbs by 40g and adding a 4th training day."
+> "The operator's MealPlan consumed 2800 kcal today (protein: 180g, carbs: 320g, fat: 85g) but the operator's WorkoutRoutine only burned 1800 kcal. The operator's BodyMeasurement trend shows +0.5 kg/week over the last 3 weeks. Recommend reducing carbs by 40g and adding a 4th training day."
 
 **Macro-Level Detail**: The `NutrientProfile` tracks per-meal breakdowns (protein, carbs, fat, fiber, sugar, sodium) while `DailyNutrientSummary` aggregates these. The `NutritionTarget` stores the user's goals, enabling target-vs-actual comparison at both meal and daily granularity.
 
@@ -144,7 +144,7 @@ These are relationships between workflows that seem completely unrelated but cre
 **OWL Chain**: `Document --inspiredChange--> ChangeManifest --triggeredChange--> ArchitectureDecisionRecord | Task --blocksTask-- Incident`
 
 **Example Inference**:
-> "Research paper arXiv:2506.01234 on 'Agentic Memory Consolidation' inspired ChangeManifest CM-42 for `agent-utilities`. This triggered ServiceNow CHG0001234 in the enterprise pipeline. The corresponding Jira task AGENT-567 is assigned to you and is due Friday."
+> "Research paper arXiv:2506.01234 on 'Agentic Memory Consolidation' inspired ChangeManifest CM-42 for `agent-utilities`. This triggered ServiceNow CHG0001234 in the enterprise pipeline. The corresponding Jira task AGENT-567 is assigned to the operator and is due Friday."
 
 ---
 
@@ -155,7 +155,7 @@ These are relationships between workflows that seem completely unrelated but cre
 **OWL Chain**: `VoiceMessage --transcribedFrom--> Transcript --spawnsTask--> PersonalTask --originatedFrom--> CalendarEvent --scheduledFor--> Person`
 
 **Example Inference**:
-> "Voice message received at 9:15am, transcribed with 94% confidence: 'Need to review PR #42 for the new MCP server'. Created PersonalTask 'Review PR #42' (priority: high). Automatically scheduled CalendarEvent for tomorrow 10:00am — your calendar shows that slot is free."
+> "Voice message received at 9:15am, transcribed with 94% confidence: 'Must review PR #42 for the new MCP server'. Created PersonalTask 'Review PR #42' (priority: high). Automatically scheduled CalendarEvent for tomorrow 10:00am — the operator's calendar shows that slot is free."
 
 ---
 
@@ -166,7 +166,7 @@ These are relationships between workflows that seem completely unrelated but cre
 **OWL Chain**: `SocialPost --publishedOn--> System | BroadcastSession --derivedFromContent--> SocialPost | DailyEngagement --aggregatesDaily--> AggregatedEngagement`
 
 **Example Inference**:
-> "Your Postiz post about agent-utilities got 340 engagements (142 likes, 87 shares, 111 comments) over 3 days — your best-performing post this month. Schedule an Owncast deep-dive stream? Your Nextcloud calendar shows Thursday 7pm is free."
+> "The operator's Postiz post about agent-utilities got 340 engagements (142 likes, 87 shares, 111 comments) over 3 days — the operator's best-performing post this month. Schedule an Owncast detailed review stream? The operator's Nextcloud calendar shows Thursday 7pm is free."
 
 ---
 
@@ -177,7 +177,7 @@ These are relationships between workflows that seem completely unrelated but cre
 **OWL Chain**: `Incident --blocksTask--> Task | CalendarEvent --blockedByIncident--> Incident`
 
 **Example Inference**:
-> "ServiceNow P1 incident INC0099887 raised at 14:30. Automatically created Jira task OPS-123. Your CalendarEvent 'Team Standup' at 15:00 has been flagged as blocked — rescheduled to after resolution."
+> "ServiceNow P1 incident INC0099887 raised at 14:30. Automatically created Jira task OPS-123. The operator's CalendarEvent 'Team Standup' at 15:00 has been flagged as blocked — rescheduled to after resolution."
 
 ---
 
@@ -188,7 +188,7 @@ These are relationships between workflows that seem completely unrelated but cre
 **OWL Chain**: `DNSQueryStats --observation--> Observation | MealPlan --prescribedDiet--> Person`
 
 **Example Inference**:
-> "AdGuard blocked 847 ad domains from food delivery sites (UberEats, DoorDash) this week. Your MealPlan already covers dinner for all 7 days — you're effectively saving ~$120/week on takeout by following your meal plan."
+> "AdGuard blocked 847 ad domains from food delivery sites (UberEats, DoorDash) this week. The operator's MealPlan already covers dinner for all 7 days — the operator're effectively saving ~$120/week on takeout by following the operator's meal plan."
 
 ---
 
@@ -199,7 +199,7 @@ These are relationships between workflows that seem completely unrelated but cre
 **OWL Chain**: `FitnessGoal --targetsGoal-- WorkoutRoutine | BodyMeasurement --trackedMeasurement-- Person | SocialPost --createdBy--> Person`
 
 **Example Inference**:
-> "Congratulations! Your latest BodyMeasurement shows you hit your FitnessGoal of 100kg bench press (logged via wger WorkoutSession #342). Draft a celebratory Postiz post to share the milestone?"
+> "Congratulations! The operator's latest BodyMeasurement shows the operator hit the operator's FitnessGoal of 100kg bench press (logged via wger WorkoutSession #342). Draft a celebratory Postiz post to share the milestone?"
 
 ---
 
@@ -221,7 +221,7 @@ These are relationships between workflows that seem completely unrelated but cre
 > **Architectural Decision**: Workflow output persistence into the Knowledge Graph is handled **deterministically at the engine level**, not as an explicit workflow step. This means:
 >
 > 1. The user never needs to think about "saving to the KG"
-> 2. The LLM never needs to execute an explicit ingestion step
+> 2. The LLM never needs to run an explicit ingestion step
 > 3. Every workflow execution automatically produces OWL-promotable nodes
 > 4. The OWL bridge's `_NODE_TYPE_TO_OWL_CLASS` mapping ensures type-safe promotion
 >

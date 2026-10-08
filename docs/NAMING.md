@@ -13,7 +13,7 @@ Reserved for **top-level entry points** that own their own lifecycle (startup �
 - `ParallelEngine` — Canonical parallel task execution
 - `GraphComputeEngine` — Rust-backed graph algorithms
 
-**Rule:** If your class is a mixin, strategy, or helper, it is **not** an Engine.
+**Rule:** If the operator's class is a mixin, strategy, or helper, it is **not** an Engine.
 
 ---
 

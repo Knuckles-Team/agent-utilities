@@ -28,7 +28,7 @@ Two independent layers — the second is what makes **every** connector incremen
 The write-delta needs the backend's `execute` for a one-round-trip prefetch
 (`MATCH (n) WHERE n.id IN $ids RETURN n.content_hash`). `execute`/`execute_batch`
 are `@abstractmethod` on `GraphBackend`, so **every backend supports the
-write-delta** out of the box. It's **on by default** (`KG_WRITE_DELTA=1`).
+write-delta** by default. It's **on by default** (`KG_WRITE_DELTA=1`).
 
 ---
 
@@ -182,7 +182,7 @@ Hand Claude this recipe in a new environment. The guided path:
 
 - **tiny / single-node** → the **`agent-utilities-deployment`** skill: composes
   `setup-config` + the [pg-age recipe](databases.md)'s `graph_configure` calls,
-  then verifies with `agent-utilities-doctor`.
+  then checks with `agent-utilities-doctor`.
 - **enterprise / multi-node** → the **`agent-utilities-deployment`** skill, driven by
   the root **`genesis.yaml`** manifest.
   Its backend/config steps:
@@ -208,7 +208,7 @@ agent-utilities-doctor --preflight --profile single-node-prod --live
 
 ---
 
-## 6. Verify the delta is working
+## 6. Check the delta is working
 
 ```
 # First sweep — sources sync; changed entities written.

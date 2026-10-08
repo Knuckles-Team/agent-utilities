@@ -10,7 +10,7 @@ This is the operator runbook. The flow is driven by graph-os's own
 (`leanix-integration.md`). Both share one mechanism: inbound `source_sync`, outbound
 `graph_writeback`.
 
-## What you get
+## What the operator get
 
 | Direction | Capability | Surface |
 |---|---|---|

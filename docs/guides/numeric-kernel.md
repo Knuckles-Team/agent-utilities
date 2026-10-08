@@ -95,7 +95,7 @@ top-level schema is:
 `digest` is SHA-256 over the canonical JSON encoding (UTF-8,
 `ensure_ascii=false`, sorted keys, compact separators, and `allow_nan=false`)
 of the `schema` and `values` members only. Loading requires the exact three
-keys, revalidates the rank/elements/node bounds, and verifies the digest before
+keys, revalidates the rank/elements/node bounds, and checks the digest before
 returning values. Save/load use descriptor-relative no-follow operations,
 reject symlinks and non-regular files, and save via a private fsynced temporary
 file followed by an atomic replacement.

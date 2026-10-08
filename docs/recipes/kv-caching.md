@@ -14,7 +14,7 @@
 
 The shared KV-cache is served by the **epistemic-graph engine** over a small HTTP surface
 (EG-187), and reached by every client through the `EpistemicGraphKVBackend` connector. It is
-**off unless you switch it on**, which is a two-part contract:
+**off unless the operator switch it on**, which is a two-part contract:
 
 | Side | Setting | Effect |
 |------|---------|--------|
@@ -33,7 +33,7 @@ Optional: `EPISTEMIC_GRAPH_KVCACHE_TOKEN` (bearer auth), `EPISTEMIC_GRAPH_KVCACH
 
 ### On the engine
 
-Add the bind address to the engine's launch environment (or pass nothing extra — the flag is
+Add the bind address to the engine's start environment (or pass nothing extra — the flag is
 env-driven). The listener starts alongside the RPC transports:
 
 ```bash
@@ -125,7 +125,7 @@ in any non-trivial deployment:
 - **Content-addressed dedup.** Identical blocks are stored once and reference-counted, so
   repeated context (system prompts, shared retrieval sets, common tool outputs) costs memory once.
 - **Powers the win-stack.** It is the **L2 store** behind the vLLM → LMCache → engine KV layering
-  and the substrate the warm-fork cross-modal fan-out reuses (retrieve-once → fork N with no
+  and the substrate the warm-fork cross-modal fan-out reuses (fetch-once → fork N with no
   recompute). Without the surface enabled, those layers silently fall back to full recompute.
 - **Safe to leave on.** Idle cost is negligible, memory is bounded (LRU eviction), and every
   client degrades cleanly if the surface is ever unreachable — so there is no downside to
@@ -139,6 +139,6 @@ the rare host with a hard memory constraint.
 
 KV **cross-restart** benchmarks (kill + restart the engine to measure warm-vs-cold) must run
 against a **dedicated isolated engine**, never a shared production one — repeatedly downing the
-shared engine would take the whole KG offline. Stand up an isolated instance with its own
+shared engine will take the whole KG offline. Stand up an isolated instance with its own
 persist-dir + ports and KV on `127.0.0.1:9130`, and drive it with the `EpistemicGraphKVBackend`
 connector directly. See the Phase-2 memory/KV benchmark plan.

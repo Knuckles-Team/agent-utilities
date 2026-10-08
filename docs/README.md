@@ -6,7 +6,7 @@
 
 > [!NOTE]
 > **Experience the Platform in Action**
-> Read our comprehensive **[Technical Novel: The Narrative Journey](journey.md)** to see all 5 pillars and 70 concepts trace the high-stakes execution of a quantitative portfolio rebalancing mandate.
+> Read this repository's complete **[Technical Novel: The Narrative Journey](journey.md)** to see all 5 pillars and 70 concepts trace the high-stakes execution of a quantitative portfolio rebalancing mandate.
 
 ---
 
@@ -89,7 +89,7 @@ docs/
 | 4 | [Ecosystem & Peripherals](pillars/4_ecosystem_peripherals.md) | Tooling, connectors, integrations, governance, 40-repo ecosystem | Connects to external systems and enforces governance |
 | 5 | [Agent OS Infrastructure](pillars/5_agent_os_infrastructure.md) | Permissions, security, observability, governance | Wraps everything in policy and compliance |
 
-### Company Brain (Pillar 2 Deep-Dive)
+### Company Brain (Pillar 2 Detailed review)
 
 The Company Brain is the operational state layer that transforms the Knowledge Graph into a multi-writer, multi-reader, multi-tenant organizational brain. Actor-agnostic: humans, AIs, and hybrid teams are all first-class participants.
 
@@ -111,7 +111,7 @@ The Company Brain is the operational state layer that transforms the Knowledge G
 
 | Guide | Pillar | Path |
 |:------|:-------|:-----|
-| Architecture Deep-Dive | P1 | [pillars/1_graph_orchestration.md#architecture-orchestration-overview](pillars/1_graph_orchestration.md#architecture-orchestration-overview) |
+| Architecture Detailed review | P1 | [pillars/1_graph_orchestration.md#architecture-orchestration-overview](pillars/1_graph_orchestration.md#architecture-orchestration-overview) |
 | Knowledge Graph | P2 | [pillars/2_epistemic_knowledge_graph.md](pillars/2_epistemic_knowledge_graph.md) |
 | Enterprise Ingestion | P2 | [pillars/2_epistemic_knowledge_graph.md#enterprise-architecture-scaling-hub-and-spoke-ingestion](pillars/2_epistemic_knowledge_graph.md#enterprise-architecture-scaling-hub-and-spoke-ingestion) |
 | AHE Architecture | P3 | [pillars/3_agentic_harness_engineering.md](pillars/3_agentic_harness_engineering.md) |

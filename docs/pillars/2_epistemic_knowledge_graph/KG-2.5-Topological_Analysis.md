@@ -12,7 +12,7 @@ Dynamic Louvain partitioning with Label Propagation fallback to identify emergen
 # Topological Analogy Engine (CONCEPT:AU-KG.compute.spectral-cluster-navigator)
 
 ## Overview
-Leverages exact subgraph isomorphism (networkx VF2) and vectorized embeddings (EncPI) to find analogous subgraphs across different domains (cross-domain innovation extraction).
+Use exact subgraph isomorphism (networkx VF2) and vectorized embeddings (EncPI) to find analogous subgraphs across different domains (cross-domain innovation extraction).
 
 ## Implementation Details
 - **Source Code**: ``agent_utilities/knowledge_graph/core/analogy_engine.py``

@@ -5,7 +5,7 @@ shared library + knowledge graph + orchestration that every other piece builds
 on. This page maps the pieces and how a request flows through them.
 
 > Hostnames below are generalized placeholders (`*.example`). Substitute
-> your own. No secrets or real endpoints appear here.
+> the operator's own. No secrets or real endpoints appear here.
 
 ## The pieces (one-liners)
 
@@ -50,7 +50,7 @@ needs the client-facing subpackages — are not forced to resolve it). `[serving
 `[all]` both pull `[graphos]` in, so an existing `pip install agent-utilities[serving]`
 or `[all]` is unaffected; a bare `pip install agent-utilities` no longer is. The `[mcp]`
 extra is connector-focused and adds the MCP serving surface; `[agent-runtime]`
-additionally adds model orchestration — neither pulls `[graphos]` on its own, so a
+also adds model orchestration — neither pulls `[graphos]` on its own, so a
 deployment that wants the engine alongside them must request it explicitly (or use
 `[serving]`, which already composes it). Neither extra selects or owns a different
 engine build. Provider documentation must not describe the graph engine as exclusive to
@@ -81,7 +81,7 @@ python scripts/check_provider_fleet_contract.py
 |---|---|---|
 | **engine cluster** | Tenant-partitioned `epistemic-graph`; the engine catalog routes fenced MultiRaft groups | stable `GRAPH_SERVICE_ENDPOINTS` coordinator |
 | **kg-ingest-worker** | Joins the `kg-ingest` consumer group and drains the ingest task queue as an engine client | `TASK_QUEUE_BACKEND=kafka` (or `postgres`) |
-| **agent-dispatch-worker** | Claims session-keyed agent turns and executes them through fenced WorkItems | always queue-driven |
+| **agent-dispatch-worker** | Claims session-keyed agent turns and runs them through fenced WorkItems | always queue-driven |
 
 ## How a request flows
 

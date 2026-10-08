@@ -14,7 +14,7 @@ at runtime through two artifacts plus federation:
   resources; and
 - **publisher verification** — domain-anchored identity + Ed25519-signed datapoints.
 
-We map our existing fleet onto ARD's envelope rather than building anything new. Media
+This repository map this repository's existing fleet onto ARD's envelope rather than building anything new. Media
 types: `application/mcp-server+json`, `application/mcp-server-card+json`,
 `application/ai-skill`.
 
@@ -62,8 +62,8 @@ Ed25519 signature against the manifest `publisherKey` (domain-anchored), and yie
 `POST /search` reads `federationMode` (default `setting("ARD_FEDERATION_MODE")`): `none` =
 local; `referrals` = local + peer list; `auto` = concurrent fan-out to peers' `/search`,
 merged and re-ranked, de-duplicated by `(publisher domain, resource id)`. Loop-break: peer
-requests are sent with `federationMode="none"` and a `via` chain stamped with our origin; an
-inbound request already carrying our origin is served local-only (a structural `max_depth = 1`).
+requests are sent with `federationMode="none"` and a `via` chain stamped with this repository's origin; an
+inbound request already carrying this repository's origin is served local-only (a structural `max_depth = 1`).
 
 ```mermaid
 flowchart LR

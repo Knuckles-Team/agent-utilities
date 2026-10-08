@@ -87,9 +87,9 @@ flowchart LR
 (`observability/runtime_signals.py`) is the entire hot-path cost: build a privacy-safe
 dict (numbers only) and append it to a **bounded ring buffer** (`maxlen=512`) under a short
 lock. There is **no engine contact** — an `engine_latency` signal is emitted *because* the
-engine is contended; writing to it synchronously from the hot path would compound the very
+engine is contended; writing to it synchronously from the hot path will compound the very
 failure being recorded. Every exception is swallowed: a dropped signal, never a raised one,
-never a stalled caller. **All** engine I/O — persisting `:RuntimeSignal` nodes and reading
+never a stalled caller. **All** engine `I/O` — persisting `:RuntimeSignal` nodes and reading
 them back over a window — happens later, off the hot path, from the background tick.
 
 ## 3. How it extends the flywheel (reuse, not parallel)

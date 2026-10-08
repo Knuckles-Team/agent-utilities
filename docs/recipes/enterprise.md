@@ -49,7 +49,7 @@ The `agent-os-genesis` (alias `day0`) workflow runs the ordered bootstrap:
 9. `graph-os` → materialize the full topology in the KG.
 
 Select the **enterprise** profile when the workflow's Step-0 questionnaire asks,
-and toggle the integrations you want.
+and toggle the integrations the operator want.
 
 ## `config.json` (generalized, enterprise switches)
 
@@ -100,7 +100,7 @@ aliases and applied only where the env var is unset — environment always wins.
 The connector fleet is stateless and scales horizontally on the cluster
 (Kubernetes Deployments/replicas, or Swarm services if that `orchestrator` is
 chosen). The KG host daemon is a singleton per host per the `KG_DAEMON_ROLE=host`
-flock; running the agent fleet at very large scale (the 100k+ target) additionally needs
+flock; running the agent fleet at very large scale (the 100k+ target) also needs
 multiple gateway workers (`GATEWAY_WORKERS`) + a durable queue (Kafka, above) +
 shared pg-age/state-store Postgres — see the
 [capacity model](../scaling/capacity_model.md). Durable execution (idempotency
@@ -154,7 +154,7 @@ manifests — is in the `agent-os-genesis` skill's
 
 ## Operate
 
-The **agent-webui Fleet Supervisor** (`/api/fleet/*`) is your single pane of
+The **agent-webui Fleet Supervisor** (`/api/fleet/*`) is the operator's single pane of
 glass: per-domain health/error-rates, live topology, one-click pause/kill
 containment, and the mutation/risk approval queue.
 

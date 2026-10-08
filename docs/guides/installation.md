@@ -107,7 +107,7 @@ failure from `agent-utilities==1.26.4` has two causes, not a GraphOS runtime def
    found no compatible LiteLLM wheel for the target interpreter, so it entered a
    source build; and
 2. the temporary build backend then tried to download Rust, but its HTTPX TLS
-   client could not validate the enterprise interception chain.
+   client can not validate the enterprise interception chain.
 
 Release 1.27 removes the duplicate DSPy/LiteLLM optimizer path. Refresh to the
 approved current wheel set with the command above. If an internal package mirror
@@ -136,7 +136,7 @@ or proxy does not present a complete chain. Once GraphOS starts, use
 `LANGFUSE_TLS_PROFILE_REF`. GraphOS resolves and projects the profile for Requests,
 HTTPX, SSL, database drivers, and child MCP processes. Keep bundle material and its
 location in the runtime secret system, never in package source or a committed MCP
-config. Verify resolution with the corresponding `agent-utilities-doctor --only`
+config. Check resolution with the corresponding `agent-utilities-doctor --only`
 check.
 
 For Langfuse, persist only `LANGFUSE_PUBLIC_KEY_REF` and

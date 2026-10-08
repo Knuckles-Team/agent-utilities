@@ -82,7 +82,7 @@ Clients connecting to remote HTTP/SSE servers can pass dynamic query variables d
 - `?disabled_tools=tool1,tool2` / `?disabled_toolsets=tool1,tool2`: Exclude specific tools.
 - `?tags=git,filesystem`: Enable only tools matching these categories.
 - `?disabled_tags=network`: Exclude tools matching these categories.
-- `?q=dns` / `?query=git` / `?search=files`: Activate Knowledge Graph semantic resolution.
+- `?q=dns` / `?query=git` / `?search=files`: Enable Knowledge Graph semantic resolution.
 
 ### HTTP Custom Request Headers (Highest Precedence)
 For secure agent-to-agent (A2A) calls, custom headers can be attached to the request envelope:
@@ -99,10 +99,10 @@ For secure agent-to-agent (A2A) calls, custom headers can be attached to the req
 When a client passes a query filter (e.g. `?q=search` or header `x-mcp-query: directory`), the system automatically delegates resolution to the **Knowledge Graph** to discover relevant tools dynamically.
 
 ### Concept Overview (CONCEPT:AU-ECO.mcp.toolkit-live-discovery)
-Unlike traditional slow and expensive LLM-based tool classification, this path uses the `DynamicToolOrchestrator` to execute high-speed, direct Cypher queries on the local graph database backend. It retrieves matching tool nodes based on name matching, description contents, and system-defined tags.
+Unlike traditional slow and expensive LLM-based tool classification, this path uses the `DynamicToolOrchestrator` to run high-speed, direct Cypher queries on the local graph database backend. It retrieves matching tool nodes based on name matching, description contents, and system-defined tags.
 
 ### Cypher Query Implementation
-The orchestrator executes a multi-vector read-only match against tool nodes attached to the current server:
+The orchestrator runs a multi-vector read-only match against tool nodes attached to the current server:
 
 ```cypher
 MATCH (s:Server {name: $server_name})-[r:PROVIDES]->(t:CallableResource)

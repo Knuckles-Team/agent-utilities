@@ -11,7 +11,7 @@ align concepts from ingested codebases and research papers.
 **Specification**: [W3C SKOS Reference](https://www.w3.org/TR/skos-reference/)
 
 SKOS is the W3C standard for representing taxonomies, classification schemes,
-and controlled vocabularies in RDF. We use SKOS vocabulary semantics for
+and controlled vocabularies in RDF. This repository use SKOS vocabulary semantics for
 concept relationships within the Knowledge Graph:
 
 | SKOS Property | KG Edge Type | Meaning |
@@ -37,7 +37,7 @@ with hierarchies auto-generated from package structure.
 **Specification**: [SSSOM GitHub](https://mapping-commons.github.io/sssom/)
 
 SSSOM is the standard for representing concept mappings between different ontologies
-or concept schemes. We use SSSOM-style metadata on `ANALOGOUS_TO` edges:
+or concept schemes. This repository use SSSOM-style metadata on `ANALOGOUS_TO` edges:
 
 | SSSOM Field | KG Property | Purpose |
 |------------|------------|---------|
@@ -49,11 +49,11 @@ or concept schemes. We use SSSOM-style metadata on `ANALOGOUS_TO` edges:
 
 ### CodeTaxo — LLM-Driven Code Taxonomy Expansion (ACL 2024)
 
-CodeTaxo is a methodology for using LLMs to expand taxonomies from codebases.
+CodeTaxo is a method for using LLMs to expand taxonomies from codebases.
 The key insight is that code-language prompts (docstrings, function names,
 module structure) provide strong signals for concept hierarchies.
 
-Our 3-tier extraction pipeline implements the CodeTaxo approach:
+This repository's 3-tier extraction pipeline implements the CodeTaxo approach:
 
 ## Concept Extraction Pipeline
 
@@ -138,7 +138,7 @@ tool response stable and inspectable.
 
 ## Environment Configuration
 
-The KG MCP server relies on the unified `agent-utilities` configuration for LLM connectivity. Ensure your `~/.config/agent-utilities/config.json` is configured:
+The KG MCP server relies on the unified `agent-utilities` configuration for LLM connectivity. Ensure the operator's `~/.config/agent-utilities/config.json` is configured:
 
 ```json
 {

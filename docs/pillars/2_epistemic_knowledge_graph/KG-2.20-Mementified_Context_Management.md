@@ -13,7 +13,7 @@ multi-turn agent produces the paper's **sawtooth** context profile: tokens climb
 progress, then drop sharply when the block is compressed to a memento and evicted.
 
 The paper teaches this skill *into a model* via SFT + a vLLM KV-cache fork (≈2–2.5× peak KV
-reduction). agent-utilities runs hosted/API models, so we adopt the **pattern at the orchestration
+reduction). agent-utilities runs hosted/API models, so this repository adopt the **pattern at the orchestration
 layer** — which the paper itself flags as the prime next application: *"Terminal and CLI agents are
 naturally multi-turn, where each action-observation cycle is laid out as a natural block."*
 
@@ -57,10 +57,10 @@ removed or transformed before the current service starts.
 
 The paper's headline result is a **dual information stream**: because masking happens *in-place inside
 one forward pass*, the memento's KV-cache entries retain implicit information from the block they
-replaced — removing that channel costs **−15pp** (their "restart mode"). We do not control the
+replaced — removing that channel costs **−15pp** (their "restart mode"). This repository do not control the
 inference engine's KV cache, so an orchestration-level memento **is** restart mode and cannot
 reproduce that implicit channel. Encrypted MEM-4 recovery is an optional operator-approved
-substitute, not an equivalent, and is intentionally unavailable by default. We also do not train
+substitute, not an equivalent, and is intentionally unavailable by default. This repository also do not train
 models (the SFT curriculum and the OpenMementos data-gen pipeline are out of scope; noted for any
 future RLM-role fine-tuning).
 
@@ -69,7 +69,7 @@ future RLM-role fine-tuning).
 Entry point → `agent/factory.py` registers `MementoCompaction` in `agent_capabilities`
 (`memento_compaction=True` by default) → pydantic-ai `before_model_request` hook receives
 `ModelRequestContext.messages` (the list actually sent to the model) → eviction transform. The memento
-**write** path is also reachable from `mcp/kg_server.py` via `observer.observe_transcript`. Verified
+**write** path is also reachable from `mcp/kg_server.py` via `observer.observe_transcript`. Checked
 by `check_wiring.py` (passed, 0 violations) and a `*_live_path` test that exercises the capability on
 real `ModelMessage` objects.
 

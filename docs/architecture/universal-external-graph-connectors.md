@@ -111,7 +111,7 @@ is rejected during `AgentConfig` and durable-registration validation rather than
 being accepted as an inert option. GraphQL uses deterministic structural mapping
 from its configured policy or explicitly approved introspection instead.
 
-Property-graph declarations additionally set `ingest_page_size` (default 500),
+Property-graph declarations also set `ingest_page_size` (default 500),
 `ingest_max_pages` (default 100), `sync_mode` (`auto`, `cdc`, or `snapshot`),
 `reconcile_deletions`, the fail-closed `allow_empty_snapshot` safeguard, and
 structural read budgets: `ingest_max_row_bytes` (default 1 MiB, maximum 8 MiB),

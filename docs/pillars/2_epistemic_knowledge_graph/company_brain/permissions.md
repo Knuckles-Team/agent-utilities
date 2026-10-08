@@ -6,7 +6,7 @@
 
 ## Beyond Tool-Level Permissions
 
-The existing `PermissionsKernel` (CONCEPT:AU-OS.config.secrets-authentication) controls **which tools agents can call**. This is necessary but insufficient for a Company Brain — we also need to control **which data actors can see**.
+The existing `PermissionsKernel` (CONCEPT:AU-OS.config.secrets-authentication) controls **which tools agents can call**. This is necessary but insufficient for a Company Brain — this repository also must control **which data actors can see**.
 
 Data-level permissions provide:
 - **Node-level ACLs** — Per-node access control lists
@@ -122,7 +122,7 @@ visible = brain.permissions.filter_nodes(
 
 ## Actor-Agnostic Enforcement
 
-Permission checks apply identically regardless of actor type:
+Permission checks apply identically in either case of actor type:
 - A **human analyst** is denied access to RESTRICTED nodes if not in the ACL
 - An **AI agent** gets the same denial
 - A **hybrid team** is evaluated by their combined actor_id

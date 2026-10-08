@@ -120,11 +120,11 @@ convention.
 ### 3.1 Reliability/eval corpus — 4 new isolated-scorer cases
 
 `SEED_CASES` grew from 6 to 10. The prior 2 adversarial cases
-(`hallucinated_unsafe_answer`, `poisoned_retrieved_context`) fail on *many*
+(`hallucinated_unsafe_answer`, `poisoned_retrieved_context`) fail on *multiple*
 scorers at once because their context is sparse — good for "the corpus catches
 something," weak for proving any ONE scorer's true-negative path. The 4 new
 cases give every OTHER scorer fully-passing context so exactly one scorer
-trips, verified against the real suite before landing (`suite.evaluate(...)`
+trips, checked against the real suite before landing (`suite.evaluate(...)`
 run interactively; each case's `failed_scorers` was confirmed to be a
 one-element list matching its name):
 
@@ -185,12 +185,12 @@ exactly one plain unit test, never exercised against a *concurrent*
 
 **Tenant isolation under load** (explicitly requested — extends the existing
 sequential elephant-then-ordinary case in `test_chaos_tenant_and_restart.py`
-to adversarial interleaving across many tenants):
+to adversarial interleaving across multiple tenants):
 - `test_tenant_isolation_holds_under_interleaved_multi_tenant_load` — 19
   ordinary tenants (quota 2 each) and one elephant tenant (quota 8) submit in a
   deterministically-shuffled interleaved schedule (seeded `random.Random`, not
   wall-clock threading, so the scenario is exact and reproducible); asserts
-  every ordinary tenant got its full quota regardless of elephant interleaving,
+  every ordinary tenant got its full quota in either case of elephant interleaving,
   the elephant never exceeded or leaked past its own quota, every ordinary
   tenant's work completes independently, and completing ordinary tenants'
   work never touches the elephant's still-held quota.
@@ -201,7 +201,7 @@ which correctly dead-letters an item after 3 crash cycles (the existing,
 correct `reap_expired_leases` retry-budget behavior, already covered by
 `test_chaos_lifecycle_and_dlq.py`) — the test intent was to churn the CAS/
 fencing machinery specifically, so `max_attempts=50` was set explicitly. Fixed
-and re-verified before landing; no product code changed for this.
+and re-checked before landing; no product code changed for this.
 
 ## 4. HARDENED (real gap found, fixed with a test)
 
@@ -215,7 +215,7 @@ racing sweep before this session (§3.2) — that gap is now closed with a
 passing regression test, and the reliability corpus's blind spot (only
 whole-suite failures, no per-scorer isolated failure) is closed with 4 new
 cases (§3.1). No `agent_utilities/` product code required a change; the
-hardening in this program is test coverage that would catch a REAL regression
+hardening in this program is test coverage that will catch a REAL regression
 in either area if one is introduced later, since neither invariant had a
 dedicated regression test before.
 

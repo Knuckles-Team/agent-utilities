@@ -31,7 +31,7 @@ pip install "agent-utilities[serving]"   # GraphOS, full engine, headless agent,
 ## 2. Generate the complete config (all options)
 
 Don't hand-write `config.json`. Generate a full, profile-seeded one — every option at
-a sensible default, with the handful of deployment-varying keys pre-filled:
+a sensible default, with the a small number of deployment-varying keys pre-filled:
 
 ```bash
 setup-config generate --profile single-node-prod      # writes the XDG AgentConfig
@@ -116,7 +116,7 @@ AgentConfig. For Langfuse, persist only `LANGFUSE_HOST`, credential references, 
 a TLS-profile reference. Both credential references automatically make the native
 Langfuse MCP child and propose-only failure evolution available unless explicitly
 disabled; trace export, content capture, and KG auto-ingestion remain explicit
-opt-ins. Auto-ingestion additionally requires an independent persistence HMAC-key
+opt-ins. Auto-ingestion also requires an independent persistence HMAC-key
 reference.
 
 ## 7. Multi-node → agent-utilities-deployment
@@ -125,7 +125,7 @@ For a full swarm (SSH mesh, hardware placement, overlay networks, ingress, GitOp
 fleet deploy), hand off to the **`agent-utilities-deployment`** skill. This guide
 generates and validates the config *around* that bootstrap; it doesn't reimplement it.
 
-## 8. Verify
+## 8. Check
 
 Run the holistic doctor — one sweep across config, engine, backend, secrets, auth,
 the MCP fleet, hooks, and observability, each line carrying a remediation + the skill
@@ -138,13 +138,13 @@ agent-utilities-doctor --live          # prove MCP, Langfuse, and native optimiz
 
 The normal sweep is static. `--live` performs real, bounded operations: when the
 corresponding features are enabled, it mounts the current Langfuse MCP child,
-requires its metadata-only runtime posture, executes a one-row trace read through
+requires its metadata-only runtime posture, runs a one-row trace read through
 that child, calls the Langfuse API directly, emits and reads back one metadata-only
 diagnostic trace, and submits one content-free `ProgramOptimize` job to an
 already-active engine. It does not autostart an engine, and its report contains no
 endpoint, credential, identity, or local-path material.
 
-It composes the focused checks too, which you can still run directly:
+It composes the focused checks too, which the operator can still run directly:
 
 ```bash
 setup-config doctor --profile single-node-prod        # config: required keys, durability, secret refs
@@ -152,9 +152,9 @@ python scripts/validate_mcp_config.py --live          # MCP reachability (catch 
 ```
 
 The config check reuses the production-safety rules (`collect_production_violations`)
-so a config that pins you to a single host or in-memory broker is flagged before you
+so a config that pins the operator to a single host or in-memory broker is flagged before the operator
 ship. Also reachable as `graph_configure(action="system_doctor")` (MCP/REST).
-A green doctor + a `graph_write`/`graph_query` round-trip = you're up.
+A green doctor + a `graph_write`/`graph_query` round-trip = the operator're up.
 
 ## See also
 - [Day-0 overview](day0.md) · [Deployment configurations](deployment-configurations.md) ·

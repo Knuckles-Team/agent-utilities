@@ -254,7 +254,7 @@ engine.store_memory(
 )
 ```
 
-Both leverage the existing `MemoryDecayConfig` (CONCEPT:AU-KG.memory.auto-similarity-memory-graph) for
+Both use the existing `MemoryDecayConfig` (CONCEPT:AU-KG.memory.auto-similarity-memory-graph) for
 Ebbinghaus-curve-based relevance decay over time.
 
 ---

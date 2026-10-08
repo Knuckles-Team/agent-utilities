@@ -18,7 +18,7 @@ onto that contract, in waves, smallest-first.
 | `reacquire` | 56 | re-crawl `source_url` → standardized + KG-ingested |
 | `native` | 12 | hand-authored (`agent-utilities/*`, `trading-systems/*`, …) — **leave alone** |
 
-## Leveraging the full KG — split format from processing, process as you ingest
+## Use the full KG — split format from processing, process as the operator ingest
 
 The migration has two costs with very different speeds, so **separate them**:
 
@@ -27,7 +27,7 @@ The migration has two costs with very different speeds, so **separate them**:
    corpus. Roll this across the **whole** library first so every graph is on the
    contract immediately.
 2. **KG processing (slow, LLM-bound)** — chunk → embed → **Concept + Fact extraction**
-   into the KG. This is where the *leverage* is: every graph's concepts are
+   into the KG. This is where the *use* is: every graph's concepts are
    deduped by `ConceptMatcher` (AU-KG.ingest.world-model-gate) onto the **same Concept nodes** that
    documents, papers, code and the other skill types point to — so a freshly-ingested
    `fastapi-docs` instantly links to existing `Concept:dependency-injection`,
@@ -35,7 +35,7 @@ The migration has two costs with very different speeds, so **separate them**:
    `SkillGraph` ontology object (`CONTAINS` Documents / `RELATES_TO` Concepts /
    `DERIVED_FROM` source), so coverage and overlap are queryable.
 
-**Process as you ingest** — the document-grade ingest *is* the processing (it runs
+**Process as the operator ingest** — the document-grade ingest *is* the processing (it runs
 concept/fact extraction inline), so KG-processing a graph and ingesting it are the same
 step. Drive it incrementally so each graph is queryable the moment it lands:
 
@@ -48,7 +48,7 @@ python -m ...skill_graph_pipeline migrate --root <skill_graphs> --apply --no-kg
 python -m ...skill_graph_pipeline refresh --root <skill_graphs> --limit 8   # delta, KG on
 ```
 
-After each graph lands, leverage it: `graph_search(query="…", mode="hybrid")` scoped to
+After each graph lands, use it: `graph_search(query="…", mode="hybrid")` scoped to
 its `skillgraph:<name>` domain, or `ontology_interface(action='implementers',
 name='SkillGraph')` to see the whole skill-graph set and what concepts they share.
 
@@ -97,7 +97,7 @@ python -m ...skill_graph_pipeline refresh --root <skill_graphs>     # delta only
 ```
 
 `refresh` now **writes + re-ingests only the changed files** — it diffs the re-crawl
-against the live `reference/` (path + sha256), writes only added/changed files, deletes
+against the live `reference/` (path + sha256), writes only added/changed files, removes
 removed ones, leaves unchanged files (and their embeddings) untouched, and re-ingests
 **only** the changed files into the KG. A graph where one page moved costs one file
 write + one re-embed, not a full rebuild. Schedule it nightly (cron) — see the runbook.

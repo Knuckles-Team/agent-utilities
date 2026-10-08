@@ -6,12 +6,12 @@
 > `knowledge_graph/research/search.py` + `research/loop_controller.py`, surfaced via
 > `research/ara/service.py` (`action=inquire`).
 
-Stanford's **STORM** (NAACL 2024) showed that researching a topic from several distinct
+Stanford's **STORM** (NAACL 2024) showed that researching a topic from multiple distinct
 expert *lenses* — each asking different questions — then mapping where they disagree,
 produces markedly more organized and broader coverage than a single prompt. Its one known
 weakness is the lack of self-critique.
 
-We make that pattern **the default behaviour of the research fan-out**, not a separate
+This repository make that pattern **the default behaviour of the research fan-out**, not a separate
 tool. Where the loop used to take one semantic probe of the topic name
 (`acquire_for_topic`), it now fans the *same* probe across questions asked from multiple
 perspectives (`acquire_for_topic_perspectival`), derives a contradiction/agreement/

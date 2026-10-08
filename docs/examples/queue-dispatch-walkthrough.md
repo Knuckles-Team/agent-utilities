@@ -1,9 +1,9 @@
 # Worked Example: Queue-Driven Agent Dispatch (enqueue → worker → writeback)
 
 **What this demonstrates.** CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch — dispatching an orchestrator job
-onto the durable, session-keyed `agent_turns` queue instead of executing it
+onto the durable, session-keyed `agent_turns` queue instead of running it
 in-process: the caller gets a job handle, any host running an
-`agent-dispatch-worker` claims and executes the turn through the existing
+`agent-dispatch-worker` claims and runs the turn through the existing
 execution paths, writes the result back durably, and the whole fleet is visible
 through worker heartbeats, `/api/fleet/topology`, and Prometheus metrics. Deep
 dive: [Agent dispatch architecture](../architecture/agent_dispatch.md).
@@ -11,7 +11,7 @@ dive: [Agent dispatch architecture](../architecture/agent_dispatch.md).
 **Prerequisites (ladder rung).** Works on the single-host rung of
 [Deployment configurations](../guides/deployment-configurations.md) with zero
 extra infrastructure (per-host SQLite queue). The multi-host story shown in the
-AgentConfig projection below additionally needs the shared-state rung (`STATE_DB_URI` Postgres,
+AgentConfig projection below also needs the shared-state rung (`STATE_DB_URI` Postgres,
 CONCEPT:AU-OS.state.unified-durable-state-externalization) or Kafka (`TASK_QUEUE_BACKEND=kafka`).
 
 ---
@@ -125,7 +125,7 @@ idempotency key; `payload_ref` addresses the sole WorkItem.
 (`agent_utilities/knowledge_graph/core/kafka_queue_backend.py`) keys the
 message with an opaque `session:<reference>` — a session key outranks everything, including
 the ambient tenant key, so all turns of one session land on one partition and
-execute serially (turn N+1 reads the state turn N wrote), while distinct
+run serially (turn N+1 reads the state turn N wrote), while distinct
 sessions parallelize across `AGENT_TURNS_PARTITIONS`.
 
 ## 3. Run the worker fleet

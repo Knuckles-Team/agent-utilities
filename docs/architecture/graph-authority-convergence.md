@@ -67,7 +67,7 @@ process-authority boundary where it belongs — `mcp/kg_server.py`'s
 `_start_engine_bootstrap`, under the process session, before the server accepts
 a request — not implicitly on every authenticated request.
 
-The session is signed into epistemic-graph's v2 verified request context. The
+The session is signed into epistemic-graph's v2 checked request context. The
 engine rechecks audience, tenant, policy version, replay nonce, method/body
 binding, primitive capability policy, and graph isolation. The facade's stable
 aggregate scopes map to the engine capability ledger as follows:
@@ -86,7 +86,7 @@ Only an explicit validated `kg:admin` capability, supplied directly or through
 the configured identity mapping, enters this hierarchy. A generic application
 role named `admin` is never promoted to graph administration.
 
-External stdio process sessions are additionally bounded by a renewable shared
+External stdio process sessions are also bounded by a renewable shared
 expiry lease. The lease contains only an expiry, not the token or identity. A
 renewal must preserve subject, actor type, capabilities, tenant, authentication
 state, and groups exactly. Drift is rejected; failed renewal retries without
@@ -100,7 +100,7 @@ hashes the principal before durable provenance is written. Workstation user
 names, display names, and local filesystem locations are not session claims and
 must not be persisted as authority or provenance.
 
-The current `eg2` verified context is the only native engine request protocol.
+The current `eg2` checked context is the only native engine request protocol.
 The process socket is opened with a fixed, zero-scope opaque transport context;
 it cannot dispatch an operation. Every operation must replace it with the
 authentication boundary's task-local `GraphSession` before a frame is signed.
@@ -145,7 +145,7 @@ There is no feature flag or development fallback that enables Python lifecycle
 writes: a missing native verb fails closed. Definitions live on the WorkItem;
 status/list/metrics APIs render read-only views from it, and completed WorkItems
 remain immutable audit records. Lease/fencing capabilities are held only by the
-executing process and are never copied into another graph node.
+running process and are never copied into another graph node.
 
 `AgentTask`, `TaskNode`, `Task`, and `AgentLease` are not operational work-state
 models, and there is no selector that can create or adopt a second owner.
@@ -183,6 +183,6 @@ backend normalization.
 The exact claim keys `GraphSession.engine_verified_context()` emits, their
 required/optional status, per-surface (Iceberg/SPARQL/observability/WebUI)
 carrier coverage, and the explicit consumer handoff for lanes minting or
-verifying a caller identity (GOC-15) are frozen in
-[Verified Identity Carrier Contract](verified-identity-carrier-contract.md) —
+checking a caller identity (GOC-15) are frozen in
+[Checked Identity Carrier Contract](checked-identity-carrier-contract.md) —
 this document's field-level companion.

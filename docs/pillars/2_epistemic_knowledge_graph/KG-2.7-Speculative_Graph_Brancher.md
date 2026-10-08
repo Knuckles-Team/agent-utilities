@@ -1,7 +1,7 @@
 # Speculative Graph Brancher (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
 
 ## Overview
-The **Speculative Graph Brancher** enables concurrent, non-blocking mutations on the Knowledge Graph by spawning isolated transactional branches (`KGTransaction`). Multiple agents can execute reasoning paths in parallel without acquiring global database locks.
+The **Speculative Graph Brancher** enables concurrent, non-blocking mutations on the Knowledge Graph by spawning isolated transactional branches (`KGTransaction`). Multiple agents can run reasoning paths in parallel without acquiring global database locks.
 
 When execution concludes, a semantic diff is calculated and validated for conflicts (such as concurrent deletion of nodes modified by the branch) before being atomically committed back to the main graph state (`KGCommit`).
 
@@ -77,7 +77,7 @@ commit = brancher.merge_branch("experiment-alpha")
 
 Merge validation performs three checks:
 
-1. **Concurrent Deletion Check** — If a node modified by the branch was deleted in the main state since branch creation, a `ValueError("Merge Conflict: Node 'X' was deleted in main graph.")` is raised.
+1. **Concurrent Deletion Check** — If a node modified by the branch was removed in the main state since branch creation, a `ValueError("Merge Conflict: Node 'X' was deleted in main graph.")` is raised.
 2. **Structural Diff** — `KGVersionEngine.diff()` computes the exact delta between main state and branch state to build a minimal merge transaction.
 3. **Atomic Application** — The merge transaction is committed through the standard `engine.commit()` path, which itself supports auto-rollback on partial failure.
 
@@ -85,7 +85,7 @@ Merge validation performs three checks:
 
 | Scenario | Behavior |
 |---|---|
-| Branch modifies node deleted from main | `ValueError` — clean merge conflict |
+| Branch modifies node removed from main | `ValueError` — clean merge conflict |
 | Two branches add the same node ID | Second merge succeeds with `ADD_NODE` (idempotent — skips if already exists) |
 | Empty branch (no mutations) | Returns a no-op `KGCommit` with `mutations_applied=0` |
 | Branch references non-existent branch ID | `ValueError("Branch 'X' does not exist.")` |
