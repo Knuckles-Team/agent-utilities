@@ -578,14 +578,18 @@ def _inject_generic_toolkits(node_id: str, skill_tags: list[str]) -> list[Any]:
 
 
 def _collect_skill_toolsets(node_id: str, skill_tags: list[str]) -> list[Any]:
-    """Build the specialized-skill toolset list for one specialist, given its capability tags.
+    """Build the specialized-skill capability list for one specialist, given its capability tags.
 
     Returns an empty list if ``pydantic-ai-skills`` is not installed, or if no
-    skill directory matches ``skill_tags``.
+    skill directory matches ``skill_tags``. Despite the name (kept for the
+    caller's existing variable naming — see ``_get_domain_tools``), this
+    returns ``SkillsCapability`` instances for ``Agent(capabilities=...)``, not
+    toolsets: pydantic-ai-skills 2.x replaced the toolset-based
+    ``SkillsToolset`` with a capability-based ``SkillsCapability``.
     """
-    toolsets: list[Any] = []
+    capabilities: list[Any] = []
     try:
-        from pydantic_ai_skills import SkillsToolset
+        from pydantic_ai_skills import SkillsCapability
 
         from agent_utilities.core.workspace import get_skills_path
 
@@ -612,23 +616,23 @@ def _collect_skill_toolsets(node_id: str, skill_tags: list[str]) -> list[Any]:
 
             filtered_dirs = [d for d in skill_dirs if skill_matches_tags(d, skill_tags)]
             if filtered_dirs:
-                skills_toolset = SkillsToolset(
+                skills_capability = SkillsCapability(
                     directories=cast("list[Any]", filtered_dirs)
                 )
-                toolsets.append(skills_toolset)
+                capabilities.append(skills_capability)
                 logger.info(
                     f"Loaded {len(filtered_dirs)} skill directories for '{node_id}'"
                 )
     except ImportError:
         logger.debug("pydantic-ai-skills not installed; skipping skill injection")
 
-    return toolsets
+    return capabilities
 
 
 async def _get_domain_tools(
     node_id: str, deps: GraphDeps
 ) -> tuple[list[Any], list[Any]]:
-    """Dynamically discover and load toolsets specialized for a domain expert.
+    """Dynamically discover and load tools/capabilities specialized for a domain expert.
 
     Starts with universal developer tools and augments them with domain-specific
     These tools are resolved by matching the node identifier against the
@@ -636,7 +640,8 @@ async def _get_domain_tools(
     capability tags and MCP server associations.
 
     Returns:
-        A tuple containing (list of developer tools, list of specialized skill toolsets).
+        A tuple containing (list of developer tools, list of specialized
+        skill ``SkillsCapability`` instances for ``Agent(capabilities=...)``).
 
     """
     from agent_utilities.core.config import get_discovery_registry
@@ -2304,10 +2309,12 @@ async def _execute_specialized_step(
         registry,
     ) = await asyncio.to_thread(_read_specialist_bindings)
 
-    # Dynamic Skill Distribution
-    custom_tools, skill_toolsets = await _get_domain_tools(prompt_name, ctx.deps)
+    # Dynamic Skill Distribution. Despite the name, skill_capabilities holds
+    # SkillsCapability instances (pydantic-ai-skills 2.x), attached via
+    # Agent(capabilities=...) below, not toolsets=.
+    custom_tools, skill_capabilities = await _get_domain_tools(prompt_name, ctx.deps)
     logger.info(
-        f"[LAYER:GRAPH:EXPERT] Specialized step '{prompt_name}' started. Tools loaded: {len(custom_tools)}, Toolsets: {len(skill_toolsets)}"
+        f"[LAYER:GRAPH:EXPERT] Specialized step '{prompt_name}' started. Tools loaded: {len(custom_tools)}, Skill capabilities: {len(skill_capabilities)}"
     )
 
     # Include validation feedback if this is a re-dispatch from verifier
@@ -2345,8 +2352,12 @@ async def _execute_specialized_step(
     )
 
     # CONCEPT:AU-ORCH.session.invoker-agent-handoff — enforce the invoker's least-privilege tool allow-list (if any).
+    # skill_capabilities is deliberately excluded here: apply_tool_scope wraps each
+    # entry with its pydantic-ai toolset `.filtered()` method, which a
+    # SkillsCapability (pydantic-ai-skills 2.x's capability, not a toolset) does
+    # not implement.
     custom_tools, _scoped_toolsets = apply_tool_scope(
-        ctx.state, custom_tools, collected_mcp_toolsets + skill_toolsets
+        ctx.state, custom_tools, collected_mcp_toolsets
     )
 
     agent = create_context_agent(
@@ -2364,6 +2375,7 @@ async def _execute_specialized_step(
         ),
         tools=custom_tools,
         toolsets=_scoped_toolsets,
+        capabilities=skill_capabilities,
         output_type=[str, DeferredToolRequests],
     )
     # Dynamic function tools must pass through the same fail-closed approval
@@ -2381,8 +2393,11 @@ async def _execute_specialized_step(
 
     # Injected dev/sdd tools are RunContext[AgentDeps]-typed (read ctx.deps.workspace_path);
     # adapt the graph context so specialist tool calls don't NoneType on missing deps.
+    # skill_capabilities excluded for the same reason as the apply_tool_scope call
+    # above: AgentDeps.mcp_toolsets is a toolset-shaped list, and a
+    # SkillsCapability is a capability, not a toolset.
     _agent_deps = agent_deps_from_graph(
-        ctx.deps, collected_mcp_toolsets + skill_toolsets, state=ctx.state
+        ctx.deps, collected_mcp_toolsets, state=ctx.state
     )
 
     # CONCEPT:AU-ORCH.execution.orchestration-flow-mermaid (perf) — bound per-agent requests. Without this, pydantic-ai's

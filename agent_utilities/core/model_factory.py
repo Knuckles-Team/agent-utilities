@@ -889,11 +889,25 @@ def _build_anthropic_model(
 ) -> Any:
     target_api_key = api_key or config.anthropic_api_key
     try:
-        if http_client and AsyncAnthropic is not None and AnthropicProvider is not None:
+        if AsyncAnthropic is not None and AnthropicProvider is not None:
+            # BUG-CX-024-style gap (see _build_huggingface_model below): the
+            # installed `anthropic` SDK's `AsyncAnthropic.__init__` now raises
+            # `TypeError: Invalid 'http_client' argument; 'httpx.AsyncClient'
+            # is from the 'httpx' package, but this SDK uses 'httpx2'` for any
+            # httpx-backed client, which is exactly what `http_client` (built
+            # by `_build_model_http_client`, see its docstring) always is.
+            # Building an equivalent DNS-pinned/air-gapped httpx2 client is a
+            # staged, verified-per-family migration (GOC-87;
+            # agent_utilities/httpsupport/transport_factory.py) that this
+            # model-call-egress family has not been ported through yet, so —
+            # like the HuggingFace branch below — this does not forward the
+            # shared http_client rather than silently constructing an
+            # unhardened one or crashing. Tracked as a known gap, not
+            # silently masked: an airgapped deployment that needs the
+            # Anthropic provider needs that family ported first.
             anthropic_client = AsyncAnthropic(
                 api_key=target_api_key,
                 base_url=base_url,
-                http_client=http_client,
             )
             anthropic_provider = AnthropicProvider(anthropic_client=anthropic_client)
             return AnthropicModel(model_name=_model_id, provider=anthropic_provider)

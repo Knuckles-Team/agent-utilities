@@ -1389,7 +1389,10 @@ class WorkItemTasksExtension(ServerExtension):
             # Native WorkItems have no automatic record-expiration policy: they
             # are durable graph records (mirrors the gateway's own ttlMs: null).
             ttl_ms=None,
-            meta=self._response_meta(session, route),
+            # `mcp_types.Result.meta` aliases to `_meta`; both spellings validate
+            # at runtime (`populate_by_name=True`), but the pydantic mypy plugin
+            # only recognizes the alias in the synthesized constructor signature.
+            _meta=self._response_meta(session, route),
         )
         self._apply_task_status_payload(result, status, task_id, item, pending)
         return result
@@ -1558,7 +1561,7 @@ class WorkItemTasksExtension(ServerExtension):
             created_at=_iso_timestamp(created_at),
             last_updated_at=_iso_timestamp(updated_at),
             ttl_ms=None,
-            meta=self._response_meta(session, route),
+            _meta=self._response_meta(session, route),
         )
         self._apply_repository_status_payload(result, status, view, input_request)
         return result
@@ -1630,7 +1633,7 @@ class WorkItemTasksExtension(ServerExtension):
             created_at=_iso_timestamp(raw["created_at"]),
             last_updated_at=_iso_timestamp(raw["updated_at"]),
             ttl_ms=None,
-            meta=self._response_meta(session, route),
+            _meta=self._response_meta(session, route),
         )
 
     def _cancel_repository(
@@ -1736,5 +1739,5 @@ class WorkItemTasksExtension(ServerExtension):
             created_at=_iso_timestamp(item.get("created_at")),
             last_updated_at=_iso_timestamp(item.get("updated_at")),
             ttl_ms=None,
-            meta=self._response_meta(session, route),
+            _meta=self._response_meta(session, route),
         )

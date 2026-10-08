@@ -169,8 +169,12 @@ def run_web_ui(
         uvicorn.Config(app, host=bind_host, port=bind_port, access_log=False)
     )
     # Signal handlers may only be installed from the main thread, and the
-    # supervisor owns shutdown through ``stop_event`` regardless.
-    server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
+    # supervisor owns shutdown through ``stop_event`` regardless. Uvicorn
+    # >=0.5x removed the separate `install_signal_handlers` method this used
+    # to monkeypatch; its replacement, `Server.capture_signals()`, already
+    # skips installing handlers itself when not called from the main thread
+    # (which this co-service, always run on a supervisor-owned
+    # ``threading.Thread``, never is) — so no override is needed any more.
 
     async def _serve() -> None:
         task = asyncio.ensure_future(server.serve())

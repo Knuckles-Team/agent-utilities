@@ -49,7 +49,15 @@ dependencies = [
     # ConnectorContent contract. The SDK is phase 3 and may not depend on AU;
     # AU (phase 4) may depend on the published SDK.
     "agent-connector-sdk>=0.1.0,<1.0.0",
-    "pydantic[email]>=2.13.4",
+    # Upper bound excludes the 2.14.0 prerelease line (2.14.0b2 et al.): this
+    # workspace sets `prerelease = "allow"` below for OTel's permanently-beta
+    # instrumentation packages, which otherwise lets uv's resolver pick up any
+    # package's newest prerelease as its "latest" — verified via `uv lock
+    # --upgrade` landing pydantic on 2.14.0b2 while PyPI's own `info.version`
+    # (latest stable) was 2.13.5. `X.dev0` is the first point in a version's
+    # prerelease sequence (dev < a < b < rc < final), so `<2.14.0.dev0`
+    # excludes every 2.14.0 prerelease without needing per-build literals.
+    "pydantic[email]>=2.13.5,<2.14.0.dev0",
     "pydantic-settings>=2.14.2",
     "PyYAML>=6.0.3",
     # CONCEPT:KG-2.324 / CONCEPT:AU-OS.deployment.engine-resolver-auto-provision —
@@ -102,7 +110,10 @@ dependencies = [
     "filelock>=3.32.0",
     # Tiny pure-Python safe-XML parser used on the hydration path; kept in base so the
     # XML path is never unguarded.
-    "defusedxml>=0.7.1",
+    # Upper bound excludes the 0.8.0 prerelease line for the same reason as the
+    # `pydantic` floor above (prerelease=allow + an open floor otherwise lets
+    # uv's resolver land on 0.8.0rc2 instead of the real latest stable 0.7.1).
+    "defusedxml>=0.7.1,<0.8.0.dev0",
     # Parse external GraphQL documents into a bounded AST.  Connector read-only
     # enforcement must not rely on lexical keyword checks that can be confused by
     # comments, strings, fragments, or multiple operations.
@@ -165,7 +176,7 @@ graphos = []
 # base install stays light — the RLM router degrades to the local floor when neither is present.
 sandbox = [
     "wasmtime>=47.0.1",
-    "pydantic-monty>=0.0.18,<0.1.0"
+    "pydantic-monty>=1.1.0,<2.0.0"
 ]
 # CONCEPT:KG-2.121 — native RSS/Atom feed connector (robust feed parsing). Pulled by
 # `serving` (ingestion) and lazily imported by the connector; absent from the lean core.
@@ -230,12 +241,12 @@ data-quality-pandera = [
 mcp = [
     # fastmcp 4 is the default (CONCEPT:AU-ECO.mcp.protocol-compat-bridge). Empirically
     # verified (see agent_utilities/mcp/protocol_compat.py + docs/architecture/fastmcp4-default.md):
-    # `pydantic_ai.mcp` (pydantic-ai-slim 2.29.0, the supported release) natively
+    # `pydantic_ai.mcp` (pydantic-ai-slim 2.54.0, the supported release) natively
     # handles both MCP SDK field spellings and modern FastMCP sessions. The exact
     # Pydantic-AI pin below is intentional: protocol_compat.py verifies this
     # contract and refuses an unverified runtime version; it no longer monkeypatches
     # upstream MCPToolset methods or installs process-global aliases.
-    "fastmcp>=4.0.0b1",
+    "fastmcp>=4.0.11",
     # Schema-only dependency. The native middleware avoids eunomia-mcp's
     # unpatched python-jose/ecdsa transitive chain and unsafe HTTP defaults.
     "eunomia-core>=0.3.10",
@@ -252,25 +263,36 @@ mcp = [
     # `[agent-google]`, `[agent-groq]`, `[agent-mistral]`, `[agent-huggingface]`.
     # `pydantic-ai-slim[openai]` is the lean provider extra (httpx + openai SDK, no
     # torch) — dependency-discipline safe on the serving plane.
-    "pydantic-ai-slim[openai]==2.29.0"
+    "pydantic-ai-slim[openai]==2.54.0"
 ]
 agent-runtime = [
     "agent-utilities[mcp,ag-ui,terminal,sandbox]>=1.0.0",
     "universal-skills>=1.3.1",
     "skill-graphs>=1.1.0",
-    "pydantic-ai-skills>=1.2.0",
+    "pydantic-ai-skills>=2.1.0,<3.0.0",
     # openai is the default bundled provider (local LLMs use the OpenAI API); other
     # providers are opt-in add-ons (`[agent-anthropic]`, `[agent-google]`, …).
-    "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli]==2.29.0",
-    "pydantic-graph==2.29.0",
-    "fasta2a[pydantic-ai]>=0.6.1",
+    "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli]==2.54.0",
+    "pydantic-graph==2.54.0",
+    # Upper bound: fasta2a 1.0.0 (not just the eventual 2.x) already removed
+    # the `kind` discriminator this module's own TaskSendParams/Message/Part
+    # handling depends on throughout agent_utilities/protocols/a2a_epistemic.py
+    # (Message/Task no longer declare `kind` at all; Part became one flat
+    # TypedDict instead of a Union discriminated by `kind`) -- confirmed by
+    # reading fasta2a 1.0.0's and 2.1.1's own agent_utilities/schema.py, not
+    # merely a changelog note. Adapting this module to the new schema is a
+    # real migration (every Part/Message/Task construction and read site),
+    # not a one-line fix, so this stays on the last 0.x release (0.6.1,
+    # fasta2a's OWN pydantic-ai-slim floor is an open `>=1.92`, compatible
+    # with the 2.54.0 pin above) until that migration is done.
+    "fasta2a[pydantic-ai]>=0.6.1,<1.0.0",
     # CONCEPT:AU-OS.safety.harness-guardrails-adoption — bare harness (no extras): its
     # own metadata requires only httpx + pydantic-ai-slim (both already required above),
     # so it rides along wherever an agent can be built. Provides InputGuardrail/
     # OutputGuardrail, the live replacement for the dead PolicyEngine (D-48), wired
     # default-on via capabilities/content_guardrails.py. NOT `[dynamic-workflow]`/`[acp]`
     # — those extras' heavier deps (pydantic-monty, agent-client-protocol) stay opt-in.
-    "pydantic-ai-harness>=0.14.0,<0.15.0",
+    "pydantic-ai-harness>=0.54.0,<0.55.0",
 ]
 # Server-side agent runtime WITHOUT the frontend component libraries. `agent-runtime`
 # pulls `ag-ui` (agent-webui) + `terminal` (agent-terminal-ui), which a serving
@@ -283,35 +305,38 @@ agent-headless = [
     "agent-utilities[mcp,sandbox]>=1.0.0",
     "universal-skills>=1.3.1",
     "skill-graphs>=1.1.0",
-    "pydantic-ai-skills>=1.2.0",
+    "pydantic-ai-skills>=2.1.0,<3.0.0",
     # openai is the default bundled provider (local LLMs use the OpenAI API); other
     # providers are opt-in add-ons (`[agent-anthropic]`, `[agent-google]`, …).
-    "pydantic-ai-slim[mcp,openai,web,cli]==2.29.0",
-    "pydantic-graph==2.29.0",
-    "fasta2a[pydantic-ai]>=0.6.1",
+    "pydantic-ai-slim[mcp,openai,web,cli]==2.54.0",
+    "pydantic-graph==2.54.0",
+    # See agent-runtime above: fasta2a >=1.0.0 removed the `kind` discriminator
+    # this module's A2A handling depends on; stays on 0.6.1 until that
+    # migration is done.
+    "fasta2a[pydantic-ai]>=0.6.1,<1.0.0",
     # See agent-runtime above: bare harness for InputGuardrail/OutputGuardrail
     # (CONCEPT:AU-OS.safety.harness-guardrails-adoption), the serving-plane path.
-    "pydantic-ai-harness>=0.14.0,<0.15.0",
+    "pydantic-ai-harness>=0.54.0,<0.55.0",
 ]
 agent-google = [
-    "pydantic-ai-slim[google]==2.29.0"
+    "pydantic-ai-slim[google]==2.54.0"
 ]
 agent-groq = [
-    "pydantic-ai-slim[groq]==2.29.0"
+    "pydantic-ai-slim[groq]==2.54.0"
 ]
 agent-mistral = [
-    "pydantic-ai-slim[mistral]==2.29.0"
+    "pydantic-ai-slim[mistral]==2.54.0"
 ]
 agent-anthropic = [
-    "pydantic-ai-slim[anthropic]==2.29.0"
+    "pydantic-ai-slim[anthropic]==2.54.0"
 ]
 agent-huggingface = [
-    "pydantic-ai-slim[huggingface]==2.29.0"
+    "pydantic-ai-slim[huggingface]==2.54.0"
 ]
 dynamic-workflow = [
     # Optional only: the governed adapter remains on GraphPlan/ParallelEngine and
     # never grants the upstream sandbox a second GraphOS execution plane.
-    "pydantic-ai-harness[dynamic-workflow]>=0.14.0,<0.15.0",
+    "pydantic-ai-harness[dynamic-workflow]>=0.54.0,<0.55.0",
 ]
 ag-ui = [
     # 1.1.0's server.py called `Agent.to_web(builtin_tools=...)`; pydantic-ai's
@@ -319,7 +344,22 @@ ag-ui = [
     # on the Agent constructor, so 1.1.0 raised
     # `TypeError: Agent.to_web() got an unexpected keyword argument 'builtin_tools'`
     # against any current pydantic-ai. Fixed upstream in agent-webui 2.4.0.
-    "agent-webui>=2.4.0"]
+    #
+    # Upper bound: agent-webui 2.6.0 (commit "refactor(webui): inject GraphOS
+    # application composition", one day before the 2.6.0 release tag) removed
+    # its own fleet-catalog/tool-inventory surface outright (-1064 lines in
+    # api_extensions.py alone) rather than renaming it, so `/api/enhanced/tools`
+    # has no successor path to adopt -- it is simply gone, pending AU itself
+    # "injecting" that composition, which is a real feature decision, not a
+    # one-line adaptation. 2.6.0 also lands the (separately clean, mechanical)
+    # `/api/chat` + `/api/enhanced/chats*` -> `/api/chats`/`/api/chats/messages`
+    # rename from "Collapse chat transport + history CRUD into one /api/chats
+    # resource" (2026-08-24) -- harmless on its own, but it ships in the SAME
+    # 2.6.0 release as the tool-catalog removal, so there is no version that
+    # has the rename without also losing the catalog. Stays on 2.5.0 (the
+    # last release before both) until AU's own composition layer replaces the
+    # removed catalog.
+    "agent-webui>=2.4.0,<2.6.0"]
 terminal = [
     "agent-terminal-ui>=1.0.0"]
 browser = [
@@ -427,7 +467,7 @@ gateway-widgets = [
     "wger-agent>=1.0.1",
 ]
 acp = [
-    "pydantic-ai-harness[acp]>=0.14.0,<0.15.0",
+    "pydantic-ai-harness[acp]>=0.54.0,<0.55.0",
 ]
 # D2 (GHSA-8mgp-746c-j5xp, no patched nltk release): `documents` previously
 # pulled llama-index-core + llama-index-readers-file solely to run
@@ -506,7 +546,10 @@ fuseki = [
     "rdflib>=7.6.0"
 ]
 event-kafka = [
-    "confluent-kafka>=2.15.0"
+    # Upper bound excludes the 2.16.0 prerelease line (same prerelease=allow
+    # leak as the base `pydantic`/`defusedxml` floors above; real latest
+    # stable is 2.15.1, not the 2.16.0rc3 uv would otherwise resolve).
+    "confluent-kafka>=2.15.1,<2.16.0.dev0"
 ]
 ingest-dedup = [
     # CONCEPT:AHE-3.70 — cheap deterministic name normalizers for the entity-
@@ -615,7 +658,10 @@ finance = [
 finance-kronos = [
     "agent-utilities[finance]",
     "transformers>=5.14.1",
-    "safetensors>=0.8.0"
+    # Upper bound excludes the 0.9.0 prerelease line (same prerelease=allow
+    # leak noted on the base `pydantic` floor above; real latest stable is
+    # 0.8.0, not the 0.9.0rc1 uv would otherwise resolve).
+    "safetensors>=0.8.0,<0.9.0.dev0"
 ]
 hr = []
 medical = []
@@ -1190,8 +1236,8 @@ override-dependencies = [
     "httpx2>=2.12.0",
     "httpcore2>=2.12.0",
     # CONCEPT:AU-ECO.mcp.protocol-compat-bridge — fastmcp 4 is the default (see the
-    # `[mcp]` extra above). `fastmcp==4.0.0b1` pins an exact `fastmcp-slim[client,server]
-    # ==4.0.0b1`, while pydantic-ai-slim 2.29.0 now declares
+    # `[mcp]` extra above). `fastmcp==4.0.11` pins an exact `fastmcp-slim[client,server]
+    # ==4.0.11`, while pydantic-ai-slim 2.54.0 now declares
     # `fastmcp-slim[client]<5,>=3.3.0` and natively supports the FastMCP 4
     # protocol. This workspace-wide override remains the explicit fastmcp-4
     # policy for image/fleet consumers that do not carry AU's direct floor; it
@@ -1208,7 +1254,24 @@ override-dependencies = [
     # FastMCP/Context` — a real regression this exact override could have
     # caused, caught only by installing the full `agent-runtime` extra into a
     # real venv and importing `fastmcp.Context`.
-    "fastmcp-slim[client,server]>=4.0.0b1",
+    "fastmcp-slim[client,server]>=4.0.11",
+    # D-DEPS-REFRESH-1 — this workspace's `prerelease = "allow"` (needed for
+    # OTel's permanently-beta instrumentation packages, see that setting's own
+    # comment below) also lets uv's resolver treat an UNRELATED package's
+    # newest prerelease as its "latest" the moment any requester in the graph
+    # declares an open-ended floor on it. None of these four are declared
+    # directly by this project (each is pulled transitively); `uv lock
+    # --upgrade` landed on their prerelease builds instead of the real latest
+    # stable (verified against PyPI's own `info.version`, which excludes
+    # prereleases) until these were added. `X.dev0` is the first point in a
+    # version's prerelease sequence, so `<X.dev0` excludes every prerelease of
+    # X without needing per-build literals that go stale on the next beta.
+    "beartype>=0.22.9,<0.23.0.dev0",            # real latest 0.22.9; resolved 0.23.0rc2
+    "curl-cffi>=0.16.3,<0.16.4.dev0",            # real latest 0.16.3; resolved 0.16.4b1
+    "lxml>=6.1.3,<7.0.0.dev0",                   # real latest 6.1.3; resolved 7.0.0b1
+    # logfire-api's floor comes from pydantic-graph's own metadata
+    # (`logfire-api>=3.14.1`, unbounded above); real latest is 5.1.1.
+    "logfire-api>=3.14.1,<6.0.0.dev0",           # real latest 5.1.1; resolved 6.0.0b7
 ]
 
 # CONCEPT:PHASE2-RECONCILE — searxng has no published wheel for the current
