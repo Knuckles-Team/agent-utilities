@@ -156,7 +156,7 @@ def test_synthetic_query_zero_evidence_is_degraded_not_ready(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """A REAL, non-degraded answer that grounds on nothing is DEGRADED with
-    reason evidence_coverage_zero — the exact BUG-004 empty-index shape — and
+    reason evidence_coverage_zero — regardless of index coverage — and
     must never read as a successful grounding."""
     monkeypatch.setattr(
         rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
@@ -173,9 +173,9 @@ def test_synthetic_query_zero_evidence_is_degraded_not_ready(
     assert synth["state"] == "degraded"
     assert synth["reason"] == "evidence_coverage_zero"
     assert synth["evidence_count"] == 0
-    # sparse_index derives the same BUG-004 wording from a genuinely empty index
-    assert snapshot["checks"]["sparse_index"]["state"] == "unavailable"
-    assert snapshot["checks"]["sparse_index"]["reason"] == "compiled_index_empty"
+    # An empty query result does not establish index-wide coverage.
+    assert snapshot["checks"]["sparse_index"]["state"] == "not_configured"
+    assert "coverage_pct" not in snapshot["checks"]["sparse_index"]
     # A required check (synthetic_query) is only DEGRADED here, not UNAVAILABLE,
     # so overall degrades but is not the harder failure state.
     assert snapshot["overall"] == "degraded"
@@ -225,7 +225,7 @@ def test_synthetic_query_ready_when_real_evidence_found(
     assert synth["state"] == "ready"
     assert synth["evidence_count"] >= 1
     assert synth["route"] == "graph_code_context"
-    assert snapshot["checks"]["sparse_index"]["state"] == "ready"
+    assert snapshot["checks"]["sparse_index"]["state"] == "not_configured"
     assert snapshot["checks"]["ontology_activation"]["state"] == "unavailable"
     assert snapshot["overall"] == "degraded"
     assert rd.is_snapshot_ready(snapshot) is False
@@ -617,3 +617,72 @@ def test_snapshot_is_json_serializable_with_a_well_formed_digest(
 def test_rollup_matrix(states, required_failures, expected):
     checks = {name: {"state": state} for name, state in states.items()}
     assert rd._rollup(checks, required_failures) == expected
+
+
+@pytest.mark.parametrize("source", ["docs/readiness.md", None])
+def test_document_only_retrieval_is_not_empty_index_or_grounded_answer(
+    monkeypatch, source
+):
+    from agent_utilities.knowledge_graph.retrieval.code_context import (
+        build_code_context,
+    )
+
+    class DocumentEngine(_FakeEngine):
+        def query_cypher(self, cypher, params):
+            if "d:Chunk OR d:Document" in cypher:
+                return [
+                    {
+                        "id": "doc:readiness",
+                        "snippet": "Readiness documentation",
+                        "source_path": source,
+                    }
+                ]
+            return super().query_cypher(cypher, params)
+
+    engine = DocumentEngine()
+    answer = build_code_context(engine, query="readiness", intent="how", top_k=3)
+    assert answer["status"] == "ok"
+    assert len(answer["sections"]["docs"]) == 1
+    assert answer["citations"] == []
+    monkeypatch.setattr(
+        rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
+    )
+    snapshot = rd.collect_readiness_snapshot(
+        engine, synthetic_query="readiness", deadline_s=2
+    )
+    synth = snapshot["checks"]["synthetic_query"]
+    assert synth["state"] == "degraded"
+    assert synth["reason"] == "evidence_coverage_zero"
+    assert synth["evidence_count"] == 0
+    assert synth["detail"] == {
+        "retrieval_status": "ok",
+        "retrieved_document_count": 1,
+        "documents_with_source_count": int(bool(source)),
+    }
+    assert snapshot["checks"]["sparse_index"]["state"] == "not_configured"
+    assert "coverage_pct" not in snapshot["checks"]["sparse_index"]
+    assert snapshot["overall"] == "degraded"
+    assert not rd.is_snapshot_ready(snapshot)
+
+
+@pytest.mark.parametrize(
+    "state,count,reason",
+    [
+        ("degraded", 0, "evidence_coverage_zero"),
+        ("ready", 2, None),
+        ("unavailable", 0, "engine_degraded"),
+        ("unavailable", 0, "synthetic_query_timeout"),
+    ],
+)
+def test_sparse_coverage_is_not_inferred_from_canary(state, count, reason):
+    check = rd._check_sparse_index(
+        {"state": state, "evidence_count": count, "reason": reason}
+    )
+    assert check["state"] == "not_configured"
+    assert check["reason"] == "sparse_index_coverage_unmeasured"
+    assert "coverage_pct" not in check
+    assert check["detail"] == {
+        "source": "synthetic_query",
+        "synthetic_query_state": state,
+        "citation_count": count,
+    }
