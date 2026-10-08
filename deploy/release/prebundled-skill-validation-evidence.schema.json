@@ -268,26 +268,20 @@
       "additionalProperties": false,
       "required": ["skillCount", "skillCatalogDigest", "testCaseCount", "testCatalogDigest", "caseCatalogDigest"],
       "properties": {
-        "skillCount": {"const": 4},
+        "skillCount": {"const": 1},
         "skillCatalogDigest": {"$ref": "#/$defs/digest"},
-        "testCaseCount": {"const": 8},
+        "testCaseCount": {"const": 2},
         "testCatalogDigest": {"$ref": "#/$defs/digest"},
         "caseCatalogDigest": {"$ref": "#/$defs/digest"}
       }
     },
     "cases": {
       "type": "array",
-      "minItems": 8,
-      "maxItems": 8,
+      "minItems": 2,
+      "maxItems": 2,
       "prefixItems": [
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "deployment-delegated"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "deployment-direct"}}}]},
         {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "development-delegated"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "development-direct"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "evolution-delegated"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "evolution-direct"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "self-evolution-delegated"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "self-evolution-direct"}}}]}
+        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "development-direct"}}}]}
       ],
       "items": false
     },
@@ -297,10 +291,10 @@
       "required": ["status", "passedCases", "totalCases", "fullyPassedSkills", "totalSkills"],
       "properties": {
         "status": {"$ref": "#/$defs/result"},
-        "passedCases": {"type": "integer", "minimum": 0, "maximum": 8},
-        "totalCases": {"const": 8},
-        "fullyPassedSkills": {"type": "integer", "minimum": 0, "maximum": 4},
-        "totalSkills": {"const": 4}
+        "passedCases": {"type": "integer", "minimum": 0, "maximum": 2},
+        "totalCases": {"const": 2},
+        "fullyPassedSkills": {"type": "integer", "minimum": 0, "maximum": 1},
+        "totalSkills": {"const": 1}
       }
     },
     "privacy": {
@@ -324,7 +318,7 @@
       "if": {"properties": {"result": {"properties": {"status": {"const": "pass"}}}}, "required": ["result"]},
       "then": {
         "properties": {
-          "result": {"properties": {"passedCases": {"const": 8}, "fullyPassedSkills": {"const": 4}}},
+          "result": {"properties": {"passedCases": {"const": 2}, "fullyPassedSkills": {"const": 1}}},
           "cases": {"not": {"contains": {"properties": {"status": {"const": "fail"}}, "required": ["status"]}}}
         }
       }

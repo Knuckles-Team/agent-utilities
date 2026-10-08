@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-574 typed fields · 370 runtime-only call-site inputs.
+579 typed fields · 366 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -158,6 +158,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `REACTIONS` | `str` | `1` |
 | `MESSAGING_BURST_WINDOW_S` | `str` | `2.5` |
 | `MESSAGING_BURST_MAX_S` | `str` | `12` |
+| `MESSAGING_DIRECT_REPLY_BUDGET_S` | `str` | `60.0` |
 | `MESSAGING_ENRICH` | `str` | `1` |
 | `MESSAGING_GOALS` | `str` | `1` |
 | `MESSAGING_WEBHOOK_BASE_URL` | `str` | `` |
@@ -198,6 +199,10 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `KG_EMBEDDING_DIM` | `str \| None` | `768` |
 | `KG_INGEST_AUTO_EMBED` | `bool` | `True` |
 | `KG_DEV_MODE` | `bool` | `False` |
+| `KG_BASELINE_INGEST` | `bool` | `True` |
+| `KG_BASELINE_SKILL_PROVIDERS` | `str` | `agent-utilities,graph-os,universal-skills` |
+| `KG_BASELINE_CODEBASES` | `str` | `core` |
+| `KG_BASELINE_MAX_CODEBASES` | `int` | `32` |
 
 ## Observability / usage analytics (CONCEPT:AU-OS.observability.usage-analytics-store / ECO-4.40 / OS-5.31)
 
@@ -233,7 +238,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `MCP_CONFIG` | `str \| None` | `unset` |
 | `MCP_FLEET_SECRET_REFS` | `dict` | `{}` |
 | `INGESTION_CONFIDENCE_THRESHOLDS` | `dict` | `{}` |
-| `MCP_TOOL_MODE` | `Literal` | `intent` |
+| `AGENT_GROUNDING_POLICY` | `Literal` | `required` |
 | `MCP_HTTP_ALLOWED_PRIVATE_HOSTS` | `list` | `[]` |
 | `FASTMCP_SERVER_AUTH_STATIC_TOKENS_REF` | `str \| None` | `unset` |
 | `AUTH_TYPE` | `Literal` | `none` |
@@ -1052,11 +1057,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `SLACK_APP_TOKEN` | 1 |
 | `SOURCE_CREDENTIALS` | 1 |
 | `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE` | 1 |
-| `STARDOG_DATABASE` | 1 |
-| `STARDOG_ENDPOINT` | 2 |
-| `STARDOG_PASSWORD` | 1 |
-| `STARDOG_PASSWORD_REF` | 1 |
-| `STARDOG_USER` | 1 |
+| `STARDOG_ENDPOINT` | 1 |
 | `SWE_TOOLS` | 1 |
 | `SYNOLOGY_CHAT_WEBHOOK_URL_REF` | 2 |
 | `TECHNITIUM_TOKEN` | 1 |

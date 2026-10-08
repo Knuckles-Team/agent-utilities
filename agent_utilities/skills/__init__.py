@@ -2,11 +2,6 @@
 
 from __future__ import annotations
 
-BUNDLED_SKILLS: tuple[str, ...] = (
-    "agent-utilities-deployment",
-    "agent-utilities-development",
-    "agent-utilities-evolution",
-    "agent-utilities-self-evolution",
-)
+BUNDLED_SKILLS: tuple[str, ...] = ("agent-utilities-development",)
 
 __all__ = ["BUNDLED_SKILLS"]

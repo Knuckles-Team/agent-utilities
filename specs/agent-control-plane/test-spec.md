@@ -12,6 +12,10 @@
 | Continuation asks for greater width/depth/rounds | topology unit | refuse; new decision and lease needed |
 | Fence loss, timeout after dispatch, missing event, unavailable usage | fault injection | stop/reconcile; `outcome-uncertain`/`trace-incomplete`; no blind retry or zero cost |
 | Self-reported success or unpromoted model | routing negative | no selection authority or promotion |
+| Agent saved through the library | `tests/unit/orchestration/test_agent_library.py` | listed and read back with every field; runnable-skill contract kept |
+| Library agent through the intent router | `tests/unit/orchestration/test_agent_library_intent.py` | `find` ranks `agent_library`; `ask` lists it; `ask` cannot save; `manage` saves after a previewed plan |
+| Packaged prompt with and without a role | `tests/unit/orchestration/test_agent_library.py` | role blueprint becomes a role agent with package tools; no role, no agent |
+| Solved, uncommitted and failed-publish assemblies | `tests/unit/decide/test_assembly_consumer.py` | committed graph is published and saved; uncommitted graph is saved only; publish failure keeps the agent |
 | Planning question with scripted solved EG answers | unit, `tests/unit/decide/test_task_planner.py` | decided topology, per-agent components, reuse sources, policy guardrails, compiled workflow; decision provenance per element; goal text absent from EG requests |
 | Planning question with EG abstention or no ports | unit | named gaps; no model composition; fallback template labelled `fallback` |
 | Bare, non-planning and hinted `ask` | unit routing | plan for bare planning text; no route for code questions or hinted calls |

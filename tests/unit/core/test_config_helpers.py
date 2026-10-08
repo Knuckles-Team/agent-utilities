@@ -14,7 +14,6 @@ import logging
 import os
 import re
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import MagicMock
 
@@ -23,6 +22,7 @@ from pydantic import ValidationError
 
 from agent_utilities.core import config as ch
 from agent_utilities.models.mcp import MCPAgentRegistryModel, MCPToolInfo
+from tests.unit.fstat_support import fstat_changing_on_second_call
 
 
 def _prompt_blueprint(body: str, *, task: str = "router") -> dict[str, Any]:
@@ -69,7 +69,7 @@ def test_production_xdg_config_rejects_group_readable_file(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config_file = tmp_path / "config.json"
-    config_file.write_text('{"mcp_tool_mode": "intent"}', encoding="utf-8")
+    config_file.write_text('{"reactions": "intent"}', encoding="utf-8")
     config_file.chmod(0o640)
     monkeypatch.setenv("APP_PROFILE", "production")
     monkeypatch.setenv("AGENT_UTILITIES_CONFIG_DIR", str(tmp_path))
@@ -83,16 +83,16 @@ def test_production_xdg_config_loads_private_regular_file(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config_file = tmp_path / "config.json"
-    config_file.write_text('{"mcp_tool_mode": "intent"}', encoding="utf-8")
+    config_file.write_text('{"reactions": "intent"}', encoding="utf-8")
     config_file.chmod(0o600)
     monkeypatch.setenv("APP_PROFILE", "production")
     monkeypatch.setenv("AGENT_UTILITIES_CONFIG_DIR", str(tmp_path))
-    monkeypatch.delenv("MCP_TOOL_MODE", raising=False)
+    monkeypatch.delenv("REACTIONS", raising=False)
 
     ch._load_xdg_json_config()
 
-    assert os.environ["MCP_TOOL_MODE"] == "intent"
-    os.environ.pop("MCP_TOOL_MODE", None)
+    assert os.environ["REACTIONS"] == "intent"
+    os.environ.pop("REACTIONS", None)
 
 
 def test_xdg_schema_rejection_logs_only_value_free_coordinates(
@@ -160,7 +160,7 @@ def test_staged_production_profile_revalidates_source_permissions(
 ) -> None:
     config_file = tmp_path / "config.json"
     config_file.write_text(
-        '{"app_profile":"production","mcp_tool_mode":"intent"}',
+        '{"app_profile":"production","reactions":"intent"}',
         encoding="utf-8",
     )
     config_file.chmod(0o640)
@@ -175,11 +175,11 @@ def test_staged_production_profile_revalidates_source_permissions(
     ("raw", "error_class"),
     [
         (
-            '{"MCP_TOOL_MODE":"intent","mcp_tool_mode":"verbose"}',
+            '{"REACTIONS":"intent","reactions":"verbose"}',
             "AmbiguousKeyError",
         ),
         (
-            '{"MCP_TOOL_MODE":"intent","MCP_TOOL_MODE":"verbose"}',
+            '{"REACTIONS":"intent","REACTIONS":"verbose"}',
             "ValueError",
         ),
     ],
@@ -241,26 +241,8 @@ def test_configuration_reader_rejects_oversize_and_unstable_sources(
     with pytest.raises(ch.ConfigurationSourceError, match="ValueError"):
         ch._read_configuration_mapping(source, source_type="xdg", strict=True)
 
-    source.write_text('{"MCP_TOOL_MODE":"intent"}', encoding="utf-8")
-    real_fstat = os.fstat
-    calls = 0
-
-    def changed_fstat(descriptor: int):
-        nonlocal calls
-        calls += 1
-        metadata = real_fstat(descriptor)
-        if calls != 2:
-            return metadata
-        return SimpleNamespace(
-            st_mode=metadata.st_mode,
-            st_size=metadata.st_size,
-            st_uid=metadata.st_uid,
-            st_dev=metadata.st_dev,
-            st_ino=metadata.st_ino,
-            st_mtime_ns=metadata.st_mtime_ns + 1,
-        )
-
-    monkeypatch.setattr(ch.os, "fstat", changed_fstat)
+    source.write_text('{"REACTIONS":"intent"}', encoding="utf-8")
+    monkeypatch.setattr(ch.os, "fstat", fstat_changing_on_second_call())
     with pytest.raises(ch.ConfigurationSourceError, match="PermissionError"):
         ch._read_configuration_mapping(source, source_type="xdg", strict=True)
 

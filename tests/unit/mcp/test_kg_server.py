@@ -72,7 +72,12 @@ def server_tools():
             from agent_utilities.mcp.kg_server import _build_server
 
             _build_server()
-    return mock_mcp.funcs
+    from agent_utilities.mcp import kg_server
+
+    # The intent tools register on the served server; the action-routed tools
+    # they route to register on the private backing server and populate the
+    # shared dispatch core.
+    return {**kg_server.REGISTERED_TOOLS, **mock_mcp.funcs}
 
 
 @pytest.fixture

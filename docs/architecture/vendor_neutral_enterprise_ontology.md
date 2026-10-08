@@ -302,7 +302,7 @@ sequenceDiagram
     KG-->>Q: incidents from ALL vendors
 ```
 
-## Ontology → workflow bridge (`KG-2.52`/`AU-KG.ontology.descriptive-process-world-gains`/`ORCH-1.41`–`1.43`)
+## Ontology → workflow bridge (`AU-KG.ontology.descriptive-process-world-gains`/`ORCH-1.41`–`1.43`)
 
 The descriptive process world (harvested `BusinessProcess` nodes) and the
 executable workflow world (`WorkflowDefinition`/`GraphPlan`) are connected
@@ -335,9 +335,8 @@ end-to-end:
    (process external id/GUID, workflow id, run id, status, timestamps) — the
    seam a deployment uses to wire egeria-mcp's `assert_lineage` without
    agent-utilities depending on it (see the `workflows/runner.py` docstring).
-5. **Distribution (`KG-2.52`)** — the opt-in `fuseki_publish` daemon tick
-   (`KG_FUSEKI_PUBLISH`) pushes the bundled ontology modules to an Apache
-   Jena Fuseki triplestore for enterprise SPARQL federation.
+5. **Distribution** — the epistemic-graph engine owns ontology distribution.
+   Agent Utilities no longer pushes ontology modules to a triplestore.
 
 ## Query cookbook
 

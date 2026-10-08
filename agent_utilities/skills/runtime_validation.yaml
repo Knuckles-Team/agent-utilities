@@ -89,54 +89,6 @@ cases:
     allowed_tools: [graph_code, graph_query, graph_search]
     read_only: true
     architecture_candidate: *development_architecture_candidate
-  - id: deployment-direct
-    skill: agent-utilities-deployment
-    mode: direct
-    model_class: economy
-    task: Use $agent-utilities-deployment at skill://agent-utilities-deployment to produce a review-only plan for a new synthetic single-node installation profile and list deployment verification gates.
-    expected_routes: [genesis_manifest, deployment_doctor]
-    allowed_tools: []
-    read_only: true
-  - id: deployment-delegated
-    skill: agent-utilities-deployment
-    mode: delegated
-    model_class: standard
-    task: Use $agent-utilities-deployment at skill://agent-utilities-deployment to decompose a synthetic multi-node rollout into preflight, canary, policy, observability, and recovery checks without applying it.
-    expected_routes: [graph_orchestrate, genesis_manifest, deployment_doctor]
-    allowed_tools: [graph_configure, graph_observe]
-    read_only: true
-  - id: evolution-direct
-    skill: agent-utilities-evolution
-    mode: direct
-    model_class: economy
-    task: Use $agent-utilities-evolution at skill://agent-utilities-evolution to classify a synthetic regression signal and draft a bounded proposal with measurable acceptance criteria, without reviewing or implementing a concrete diff.
-    expected_routes: [evidence_triage, proposal]
-    allowed_tools: []
-    read_only: true
-  - id: evolution-delegated
-    skill: agent-utilities-evolution
-    mode: delegated
-    model_class: standard
-    task: Use $agent-utilities-evolution at skill://agent-utilities-evolution to produce a review-only coordination plan for synthetic evidence assimilation, adversarial review, implementation planning, and regression validation.
-    expected_routes: [graph_orchestrate, graph_query, focused_tests]
-    allowed_tools: [graph_query]
-    read_only: true
-  - id: self-evolution-direct
-    skill: agent-utilities-self-evolution
-    mode: direct
-    model_class: economy
-    task: Use $agent-utilities-self-evolution at skill://agent-utilities-self-evolution to survey unresolved synthetic research topics and draft a bounded scan plan, without ingesting a paper, running comparative analysis, or generating an SDD plan.
-    expected_routes: [topic_detection, wiring_sweep]
-    allowed_tools: []
-    read_only: true
-  - id: self-evolution-delegated
-    skill: agent-utilities-self-evolution
-    mode: delegated
-    model_class: standard
-    task: Use $agent-utilities-self-evolution at skill://agent-utilities-self-evolution to produce a review-only coordination plan that separates synthetic research ingestion, comparative analysis, mining-flywheel discovery, and SDD plan generation into independent steps.
-    expected_routes: [graph_orchestrate, engine_mining]
-    allowed_tools: [engine_mining]
-    read_only: true
 privacy_assertions:
   forbid_persisted:
     - credential

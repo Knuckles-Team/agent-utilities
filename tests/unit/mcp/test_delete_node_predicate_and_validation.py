@@ -88,7 +88,9 @@ def graph_write_and_engine(tmp_path, monkeypatch):
         lambda _t: ([("primary", engine)], {}, False),
     )
     monkeypatch.setattr(kg_server, "get_connection_registry", lambda: registry)
-    return mock_mcp.funcs["graph_write"], engine
+    # The action-routed tools register on graph-os's private backing server
+    # and populate the shared dispatch core the intent tools route through.
+    return kg_server.REGISTERED_TOOLS["graph_write"], engine
 
 
 @pytest.mark.asyncio

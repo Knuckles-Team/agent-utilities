@@ -29,6 +29,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -685,6 +686,8 @@ async def create_planner_handler(
                 "image_parts": image_parts,
                 "budget": shape.reply_budget_s,
                 "shape": shape,
+                # direct-reply budget spec — a run past its budget lands as a follow-up message.
+                "on_late_reply": functools.partial(_send, threaded=False),
             }
             if checklist is not None:
                 _reply_kwargs["progress_sink"] = checklist.sink
@@ -1567,40 +1570,17 @@ def _resolve_reply_timeout(budget: float | None) -> float:
     return float(setting("MESSAGING_REPLY_TIMEOUT", "45"))
 
 
-def _unwrap_agent_envelope(text: str) -> tuple[str, dict[str, Any] | None]:
-    """Unwrap ``run_agent``'s JSON envelope
-    (CONCEPT:AU-ORCH.session.session-anchored-collections-native/1.37), if
-    ``text`` is one, for ``_graph_agent_reply``.
+def _unwrap_agent_envelope(text: Any) -> tuple[str, dict[str, Any] | None]:
+    """Unwrap ``run_agent``'s JSON envelope for ``_graph_agent_reply``.
 
-    When the run opened a native message channel (or carries a mermaid
-    diagram / run_summary), ``run_agent`` returns a JSON envelope string
-    ``{"output", "channel_id"?, "mermaid"?, "run_summary"?}`` rather than the
-    bare reply. The chat reply is the ``output`` field; unwrap it so the user
-    sees the rendered text, not raw JSON. The membership check is exact
-    (keys subset of the envelope's allow-set) so a genuine JSON reply from
-    the agent is never mis-unwrapped.
-
-    Extracted verbatim (pure extract-method, no behaviour change). Returns
-    ``(text, run_summary)`` — unchanged if ``text`` is not this envelope shape.
+    Delegates to :func:`agent_utilities.orchestration.run_envelope.unwrap_run_envelope`,
+    the single chokepoint that turns a run result into outbound message text
+    (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency). Returns
+    ``(text, run_summary)`` — unchanged text if ``text`` is not an envelope.
     """
-    if not (text.startswith("{") and '"output"' in text):
-        return text, None
-    import json
+    from agent_utilities.orchestration.run_envelope import unwrap_run_envelope
 
-    try:
-        _env = json.loads(text)
-    except (ValueError, TypeError):
-        return text, None
-    if not (
-        isinstance(_env, dict)
-        and "output" in _env
-        and set(_env) <= {"output", "run_id", "channel_id", "mermaid", "run_summary"}
-    ):
-        return text, None
-    unwrapped = str(_env["output"]).strip()
-    _rs = _env.get("run_summary")
-    run_summary = _rs if isinstance(_rs, dict) else None
-    return unwrapped, run_summary
+    return unwrap_run_envelope(text)
 
 
 def _classify_unusable_agent_reply(
@@ -1641,6 +1621,7 @@ async def _graph_agent_reply(
     budget: float | None = None,
     shape: Any = None,
     progress_sink: Callable[[Any], Awaitable[None]] | None = None,
+    on_late_reply: Callable[[str], Awaitable[Any]] | None = None,
 ) -> str:
     """Draft a reply by running the UNIVERSAL graph agent (CONCEPT:AU-ECO.messaging.universal-graph-agent).
 
@@ -1712,7 +1693,7 @@ async def _graph_agent_reply(
     try:
         from agent_utilities.orchestration.manager import Orchestrator
 
-        out = await asyncio.wait_for(
+        run_task = asyncio.ensure_future(
             Orchestrator(engine).execute_agent(
                 agent_name=agent_name,
                 task=content,
@@ -1722,17 +1703,15 @@ async def _graph_agent_reply(
                 run_id=run_id,
                 include_run_summary=True,
                 progress_sink=progress_sink,
-            ),
-            timeout=reply_timeout,
+            )
         )
-        text = str(out).strip() if out else ""
-        # ``run_id`` is ALWAYS present once ANY envelope trigger fires
-        # (_render_agent_result's base payload) — it was missing from
-        # _unwrap_agent_envelope's allow-set before, which meant the unwrap
-        # could silently fail (and leak raw JSON into the chat) the moment a
-        # caller actually got an envelope back
-        # (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency).
-        text, run_summary = _unwrap_agent_envelope(text)
+        # direct-reply budget spec — shield the run so the budget wall does not cancel it; the
+        # overrun branch below decides between follow-up delivery and cancellation.
+        out = await asyncio.wait_for(asyncio.shield(run_task), timeout=reply_timeout)
+        # The envelope key set is shared with the renderer (run_envelope.py), so a
+        # new additive key (e.g. ``provenance_recorded``) can no longer leak raw
+        # JSON into the chat (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency).
+        text, run_summary = _unwrap_agent_envelope(out if out else "")
         if text and not text.startswith("Agent execution failed"):
             return _with_transparency(text, run_summary)
         # The run completed but returned a failure string. If that failure was a backend
@@ -1745,6 +1724,9 @@ async def _graph_agent_reply(
         if early_reply is not None:
             return _with_transparency(early_reply, fallback_summary)
     except TimeoutError:
+        if on_late_reply is not None and not run_task.done():
+            return _defer_overrun_reply(run_task, on_late_reply, reply_timeout)
+        run_task.cancel()
         # The whole turn hit the reply-timeout wall — the backend is slow/degraded. Making a
         # SECOND full LLM call to the same endpoint is the double-LLM tax that pushed a single
         # turn past 90 s (CONCEPT:AU-ORCH.routing.chat-budget-routing). Return a graceful message instead; the chat
@@ -1775,6 +1757,50 @@ async def _graph_agent_reply(
     # still rides along as a transparency footer.
     reply = await _plain_chat_reply(content, image_parts=image_parts)
     return _with_transparency(reply, fallback_summary)
+
+
+# direct-reply budget spec — the reply-budget wall no longer discards the turn on a transport
+# that can post a follow-up: the run keeps going and its answer arrives as a new message.
+_LATE_REPLY_MESSAGE = (
+    "The assistant backend is taking longer than usual. I am still working on "
+    "your message, and the full reply will follow here when it is ready."
+)
+
+
+def _defer_overrun_reply(
+    run_task: asyncio.Future[Any],
+    on_late_reply: Callable[[str], Awaitable[Any]],
+    reply_timeout: float,
+) -> str:
+    """Keep an over-budget run alive and schedule its follow-up delivery (direct-reply budget spec)."""
+    logger.warning(
+        "[CONCEPT:AU-ORCH.routing.chat-budget-routing] universal agent passed the %ss reply "
+        "budget — keeping the run alive and delivering its reply as a follow-up.",
+        reply_timeout,
+    )
+    _spawn_bg(_deliver_late_reply(run_task, on_late_reply))
+    return _LATE_REPLY_MESSAGE
+
+
+async def _deliver_late_reply(
+    run_task: asyncio.Future[Any],
+    on_late_reply: Callable[[str], Awaitable[Any]],
+) -> None:
+    """Await an over-budget run and send its final reply exactly once (direct-reply budget spec)."""
+    try:
+        out = await run_task
+    except Exception as exc:  # a late failure is logged; no follow-up is sent
+        logger.warning(
+            "[CONCEPT:AU-ORCH.routing.chat-budget-routing] late run failed: %s", exc
+        )
+        return
+    text, run_summary = _unwrap_agent_envelope(out if out else "")
+    if not text or text.startswith("Agent execution failed"):
+        logger.warning(
+            "[CONCEPT:AU-ORCH.routing.chat-budget-routing] late run returned no usable reply."
+        )
+        return
+    await on_late_reply(_with_transparency(text, run_summary))
 
 
 async def _varied_ack(content: str, shape: Any) -> str:

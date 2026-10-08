@@ -312,7 +312,7 @@ def _isolate_registered_tools():
     CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse — registering their REST-route twin
     dynamically). A test that builds the server (e.g. via a
     ``server_tools``/``registered_tools`` fixture, or a test that exercises
-    ``MCP_TOOL_MODE=intent``) therefore leaves stale tool bindings AND route
+    the intent-tool surface) therefore leaves stale tool bindings AND route
     entries in the global registries that corrupt a later test's tool calls (a
     ``graph_query`` returning ``[]`` from the wrong engine) or the MCP⇄REST
     parity contract (an ``ACTION_TOOL_ROUTES`` entry surviving into a test whose

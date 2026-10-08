@@ -17,6 +17,7 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from agent_utilities.mcp import server_factory
 from agent_utilities.mcp.server_factory import (
     _register_skill_providers,
     create_mcp_server,
@@ -129,3 +130,54 @@ def test_register_skill_providers_one_bad_dir_does_not_sink_the_rest(
     # The bad dir's SkillProvider() constructor raised and was skipped; the
     # good dir still registered — one failure must not sink the whole sweep.
     assert fake_mcp.add_provider.call_count == 1
+
+
+def test_fleet_server_serves_only_its_own_package_skills() -> None:
+    """A fleet server advertises its own package's skills, never a sibling's."""
+    from agent_utilities.mcp.server_factory import _owned_skill_dirs
+
+    dirs = [
+        ("ansible-tower-mcp", Path("a/inventory")),
+        ("gitlab-api", Path("g/gitlab-vulnerabilities")),
+        ("langfuse-agent", Path("l/langfuse-prompt-management")),
+        ("agent-utilities", Path("au/core")),
+    ]
+    assert _owned_skill_dirs(dirs, "ansible_tower_mcp") == [
+        ("ansible-tower-mcp", Path("a/inventory"))
+    ]
+    assert _owned_skill_dirs(dirs, "gitlab_api") == [
+        ("gitlab-api", Path("g/gitlab-vulnerabilities"))
+    ]
+
+
+def test_hub_and_unknown_owner_keep_the_full_catalogue() -> None:
+    from agent_utilities.mcp.server_factory import _owned_skill_dirs
+
+    dirs = [("gitlab-api", Path("g")), ("agent-utilities", Path("au"))]
+    assert _owned_skill_dirs(dirs, "agent_utilities") == dirs
+    assert _owned_skill_dirs(dirs, None) == dirs
+
+
+def _build_from_fleet_module() -> None:
+    """Rebound onto a fleet module's globals to simulate a fleet caller."""
+    server_factory.create_mcp_server("Scoped", command_args=[])
+
+
+def test_create_mcp_server_scopes_skills_to_the_calling_package(
+    monkeypatch,
+) -> None:
+    """The factory infers the owner from the module that called it."""
+    import agent_utilities.mcp.server_factory as factory
+
+    seen: list[str | None] = []
+    monkeypatch.setattr(
+        factory, "_register_skill_providers", lambda mcp, owner=None: seen.append(owner)
+    )
+    import types
+
+    fleet_globals = {
+        "__name__": "ansible_tower_mcp.mcp.mcp_server",
+        "server_factory": factory,
+    }
+    types.FunctionType(_build_from_fleet_module.__code__, fleet_globals)()
+    assert seen == ["ansible_tower_mcp"]
