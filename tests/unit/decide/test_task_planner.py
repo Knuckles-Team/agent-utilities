@@ -1,4 +1,4 @@
-"""AU-CONTROL-R027/R028: one structured, provenanced plan per "how can I" question."""
+"""Spec agent-control-plane (task planner): one structured, provenanced plan per "how can I" question."""
 
 from __future__ import annotations
 
