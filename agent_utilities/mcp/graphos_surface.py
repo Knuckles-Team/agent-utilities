@@ -34,10 +34,9 @@ from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
 from agent_utilities.mcp.intent_contract import operation_id
 from agent_utilities.mcp.tool_specs import INTENT_VERBS
 
-#: Routing group whose operations are the raw engine namespaces.
+#: Routing group whose operations are the raw engine namespaces (their
+#: per-domain ADMIN scope policy is enforced by ``engine_tools``).
 ADMIN_GROUP = "admin"
-#: Capabilities that satisfy an ``admin``-group operation.
-ADMIN_CAPABILITIES = frozenset({"admin", "kg:admin", "mcp:admin"})
 
 
 @dataclass(frozen=True)
@@ -132,8 +131,7 @@ ROUTING_GROUPS: tuple[RoutingGroup, ...] = (
     _group(
         "memory",
         "Memory, context store, KV cache, KV checkpoints, projections.",
-        "graph_memory graph_context graph_kvcache graph_kv_checkpoint "
-        "graph_projection",
+        "graph_memory graph_context graph_kvcache graph_kv_checkpoint graph_projection",
     ),
     _group(
         ADMIN_GROUP,
@@ -191,11 +189,6 @@ def resolve_operation(op_id: str) -> tuple[str, str | None] | None:
     return manifest_operations().get(op_id)
 
 
-def requires_admin(tool: str) -> bool:
-    """Whether ``tool``'s operations need an administrative capability."""
-    return group_for_tool(tool) == ADMIN_GROUP
-
-
 def backing_server(mcp: Any) -> Any:
     """The private FastMCP instance holding the operations' backing tools."""
     backing = getattr(mcp, "_graphos_backing", None)
@@ -211,11 +204,23 @@ def backing_tools(mcp: Any) -> dict[str, Any]:
     return _provider_tools(backing_server(mcp))
 
 
-def host_operations(mcp: Any) -> frozenset[str]:
-    """Backing tools a host added beside the manifest (reached through ``act``)."""
-    return frozenset(backing_tools(mcp)) - frozenset(
-        tool for tool, _ in manifest_operations().values()
-    )
+def host_operations(mcp: Any) -> Mapping[str, tuple[str, str | None]]:
+    """``{operation id: (tool, action)}`` for backing tools a host added beside
+    the manifest (graph-os's browser control, A2A, RLM), reached through ``act``.
+
+    An action-routed host tool (an ``action`` enum) contributes one operation
+    per action, exactly like a manifest family.
+    """
+    from agent_utilities.mcp.verbose_tools import _action_enum
+
+    manifest_tools = {tool for tool, _ in manifest_operations().values()}
+    table: dict[str, tuple[str, str | None]] = {}
+    for name, tool in backing_tools(mcp).items():
+        if name in manifest_tools:
+            continue
+        for action in _action_enum(tool) or [None]:
+            table[operation_id(name, action)] = (name, action)
+    return MappingProxyType(table)
 
 
 def graphos_registrars() -> list[Any]:
@@ -283,7 +288,6 @@ def register_graphos_surface(mcp: Any, *, canonical: bool = False) -> Any:
 
 
 __all__ = [
-    "ADMIN_CAPABILITIES",
     "ADMIN_GROUP",
     "ROUTING_GROUPS",
     "ROUTING_GROUPS_BY_NAME",
@@ -295,6 +299,5 @@ __all__ = [
     "host_operations",
     "manifest_operations",
     "register_graphos_surface",
-    "requires_admin",
     "resolve_operation",
 ]

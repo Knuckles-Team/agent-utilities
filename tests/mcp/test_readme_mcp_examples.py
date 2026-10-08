@@ -59,7 +59,7 @@ def test_example_env_pairs_canonical_set(tmp_path: Path) -> None:
     root = _make_pkg(tmp_path)
     pairs = example_env_pairs(root)
     names = [n for n, _ in pairs]
-    assert names[0] == "MCP_TOOL_MODE"  # always first
+    assert "MCP_TOOL_MODE" not in names  # retired: one tool contract, no mode
     assert "INFOTOOL" in names  # derived toggle
     assert "CONTAINER_MANAGER_TYPE" in names  # code-read var
     assert "AGENT_DESCRIPTION" not in names  # agent-only excluded
@@ -71,10 +71,10 @@ def test_example_env_pairs_canonical_set(tmp_path: Path) -> None:
     assert "EMPTY_RUNTIME_VALUE" not in dict(pairs)
 
 
-def test_render_examples_has_markers_and_tool_mode(tmp_path: Path) -> None:
+def test_render_examples_has_markers_and_canonical_env(tmp_path: Path) -> None:
     block = gen.render_examples(_make_pkg(tmp_path))
     assert gen.START in block and gen.END in block
-    assert '"MCP_TOOL_MODE": "intent"' in block
+    assert "MCP_TOOL_MODE" not in block
     assert "demo-mcp[mcp]" in block  # connector-focused extra
     assert "epistemic-graph[full]" in block
     assert "[agent-runtime]` extra additionally" in block
@@ -83,7 +83,7 @@ def test_render_examples_has_markers_and_tool_mode(tmp_path: Path) -> None:
     # the stdio JSON block parses and carries the canonical env
     first = block.split("```json", 1)[1].split("```", 1)[0]
     env = json.loads(first)["mcpServers"]["demo-mcp"]["env"]
-    assert env["MCP_TOOL_MODE"] == "intent"
+    assert "MCP_TOOL_MODE" not in env
     assert "AGENT_DESCRIPTION" not in env
     assert env["DEMO_TOKEN"] == "env://DEMO_TOKEN"
     assert env["DEMO_URL"] == "env://DEMO_URL"
@@ -145,7 +145,8 @@ def test_sync_mcp_configs_rewrites_env(tmp_path: Path) -> None:
     env = json.loads((root / "mcp_config.json").read_text())["mcpServers"]["demo-mcp"][
         "env"
     ]
-    assert env["MCP_TOOL_MODE"] == "intent"
+    assert "MCP_TOOL_MODE" not in env
+    assert env["CONTAINER_MANAGER_TYPE"] == "docker"
     assert "AGENT_DESCRIPTION" not in env and "SYSTEM_TOOLS_ENABLE" not in env
     assert json.loads((root / "mcp_config.json").read_text())["mcpServers"]["demo-mcp"][
         "args"

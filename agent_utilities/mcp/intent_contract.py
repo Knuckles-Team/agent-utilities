@@ -77,8 +77,7 @@ READ_ACTION_PREFIXES = frozenset(
 )
 
 ACTION_FIELD_DESCRIPTION = (
-    "Operation id ('<tool>.<op>' or '<tool>') or 'describe'; "
-    "empty routes `intent`."
+    "Operation id ('<tool>.<op>' or '<tool>') or 'describe'; empty routes `intent`."
 )
 PARAMS_FIELD_DESCRIPTION = (
     "Operation arguments. With action='describe', {'action': '<id>'} returns "

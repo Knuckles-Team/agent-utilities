@@ -7,8 +7,8 @@ The approval-gate positive/negative proof for a PINNED, non-destructive-but-
 test_human_approval_class_routes_to_exact_tool_even_when_not_destructive`` —
 this module adds the CA-28-owned regression (a distinct fixture tool, kept in
 CA-28's own test file per the lane's acceptance-gate command) rather than
-duplicating that suite, plus new coverage for ``_manage_lifecycle``'s
-``lakehouse_status`` action this lane adds.
+duplicating that suite, plus coverage for ``manage``'s ``lakehouse_status``
+operation this lane adds.
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ def _fresh_candidate_cache():
     intent_tools._REWARD_EPOCH = 0
     intent_tools._RESOLUTION_CACHE.clear()
     intent_tools._PREVIEW_PLAN_CACHE.clear()
+    intent_tools._APPROVALS.clear()
     yield
     intent_tools._CANDIDATES_CACHE = None
     intent_tools._ACTIONS_BY_TOOL_CACHE = None
@@ -40,6 +41,7 @@ def _fresh_candidate_cache():
     intent_tools._REWARD_EPOCH = 0
     intent_tools._RESOLUTION_CACHE.clear()
     intent_tools._PREVIEW_PLAN_CACHE.clear()
+    intent_tools._APPROVALS.clear()
 
 
 # ── `manage(action="lakehouse_status")` — CA-28's read-only status surface ──
@@ -50,8 +52,8 @@ async def test_lakehouse_status_index_rebuild_is_available_and_documents_how_to_
     """CA-24 already landed a REAL working index rebuild (`graph_ingest`
     `action=opensearch_reindex`); the status surface must point at it rather
     than re-implement it (design non-goal: 'not a new subsystem')."""
-    result = await intent_tools._manage_lifecycle(
-        mcp=None, intent="lakehouse status", hints={"action": "lakehouse_status"}
+    result = await intent_tools._dispatch_verb(
+        None, "manage", "lakehouse_status", {}, "lakehouse status", False
     )
     assert result is not None
     assert result["executed"] is True
@@ -67,8 +69,8 @@ async def test_lakehouse_status_degrades_typed_not_raises_when_dependency_unland
     function have not landed yet — the status read must degrade to a typed
     'unavailable' entry, never raise, so a read-only status call can never
     fail just because a dependency lane is mid-flight."""
-    result = await intent_tools._manage_lifecycle(
-        mcp=None, intent="lakehouse status", hints={"action": "lakehouse_status"}
+    result = await intent_tools._dispatch_verb(
+        None, "manage", "lakehouse_status", {}, "lakehouse status", False
     )
     status = result["status"]
     assert status["cdc_lag"]["status"] == "unavailable"
@@ -83,22 +85,19 @@ async def test_lakehouse_status_is_read_only_and_needs_no_preview_plan_ref():
     execute round trip), a pure status read must not require one — it never
     mutates anything, so ``execute`` defaulting to False must still return
     the real status, not a preview stub."""
-    result = await intent_tools._manage_lifecycle(
-        mcp=None,
-        intent="lakehouse status",
-        hints={"action": "lakehouse_status"},
-        execute=False,
+    result = await intent_tools._dispatch_verb(
+        None, "manage", "lakehouse_status", {}, "lakehouse status", False
     )
     assert result["executed"] is True
     assert "plan" not in result
 
 
 @pytest.mark.asyncio
-async def test_manage_action_outside_status_or_reclaim_falls_through_to_resolver():
-    """Unrecognized ``action`` hints must still fall through to the normal
-    capability resolver (``None`` return), unchanged from before this lane."""
-    result = await intent_tools._manage_lifecycle(
-        mcp=None, intent="configure something", hints={"action": "not_a_real_action"}
+async def test_manage_action_outside_host_operations_falls_through_to_resolver():
+    """An ``action`` that is not one of ``manage``'s host operations falls
+    through to the manifest router (``None`` from the host dispatcher)."""
+    result = await intent_tools._host_dispatch(
+        None, "manage", "not_a_real_action", {}, False
     )
     assert result is None
 
@@ -147,5 +146,5 @@ async def test_ca28_pinned_act_on_approval_gated_tool_is_still_denied_without_ap
     )
     assert result["executed"] is False
     assert result["approval_required"] is True
-    assert result["required_load_tools"] == ["fake_lakehouse_trigger_action"]
+    assert result["required_approval"] == "fake_lakehouse_trigger_action"
     assert called is False

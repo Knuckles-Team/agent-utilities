@@ -33,7 +33,6 @@ def test_dead_var_flagged(tmp_path: Path) -> None:
                     "env": {
                         "DEMO_BASE_URL": "x",
                         "DEMO_TOKEN": "x",  # read by nothing -> DEAD
-                        "MCP_TOOL_MODE": "condensed",
                     }
                 }
             }
@@ -51,11 +50,7 @@ def test_runtime_allowlist_not_dead(tmp_path: Path) -> None:
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\n",
         mcp_config={
-            "mcpServers": {
-                "demo": {
-                    "env": {"TERM": "xterm", "NO_COLOR": "1", "MCP_TOOL_MODE": "both"}
-                }
-            }
+            "mcpServers": {"demo": {"env": {"TERM": "xterm", "NO_COLOR": "1"}}}
         },
         code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
     )
@@ -72,7 +67,7 @@ def test_platform_runtime_inputs_are_not_provider_configuration(
         env_example="DEMO_BASE_URL=https://service.example.invalid\n",
         mcp_config={
             "mcpServers": {
-                "demo": {"env": {"MCP_TOOL_MODE": "intent"}},
+                "demo": {"env": {"DEMO_BASE_URL": "x"}},
             }
         },
         code=(
@@ -99,7 +94,7 @@ def test_parent_injected_provider_profile_is_not_public_configuration(
         env_example="DEMO_BASE_URL=https://service.example.invalid\n",
         mcp_config={
             "mcpServers": {
-                "demo": {"env": {"MCP_TOOL_MODE": "intent"}},
+                "demo": {"env": {"DEMO_BASE_URL": "x"}},
             }
         },
         code=(
@@ -115,16 +110,22 @@ def test_parent_injected_provider_profile_is_not_public_configuration(
     )
 
 
-def test_missing_tool_mode_flagged(tmp_path: Path) -> None:
-    """An mcp_config env block without MCP_TOOL_MODE is flagged."""
+def test_retired_tool_mode_setting_is_dead(tmp_path: Path) -> None:
+    """``MCP_TOOL_MODE`` is retired (one intent contract): a config that still
+    declares it carries a DEAD var."""
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
+        mcp_config={
+            "mcpServers": {
+                "demo": {"env": {"DEMO_BASE_URL": "x", "MCP_TOOL_MODE": "intent"}}
+            }
+        },
         code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
     )
     report = drift.analyze(root)
-    assert "MCP_TOOL_MODE" in _types(report, "MISSING_TOOL_MODE")
+    assert "MCP_TOOL_MODE" in _types(report, "DEAD")
+    assert not _types(report, "MISSING_TOOL_MODE")
 
 
 def test_upstream_host_not_undocumented(tmp_path: Path) -> None:
@@ -132,7 +133,7 @@ def test_upstream_host_not_undocumented(tmp_path: Path) -> None:
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code=(
             "from agent_utilities.core.config import setting\n"
             'setting("DEMO_BASE_URL", "") or setting("DEMO_HOST", "d")\n'
@@ -154,7 +155,6 @@ def test_os_getenv_read_not_dead(tmp_path: Path) -> None:
                         "DEMO_BASE_URL": "x",
                         "HARVEST_HOST": "h",  # read via os.getenv below
                         "HARVEST_PORT": "1",  # read via os.environ[] below
-                        "MCP_TOOL_MODE": "condensed",
                     }
                 }
             }
@@ -171,7 +171,7 @@ def test_multiline_and_wrapped_reads_are_discovered(tmp_path: Path) -> None:
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_TOKEN=\nDEMO_GATE=true\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "intent"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code=(
             "from agent_utilities.core.config import setting\n"
             "def _setting(name, default):\n"
@@ -193,7 +193,7 @@ def test_test_only_reads_are_not_deployment_configuration(tmp_path: Path) -> Non
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "intent"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code='setting("DEMO_BASE_URL", "")\n',
     )
     tests = root / "tests"
@@ -209,7 +209,7 @@ def test_env_write_not_a_read(tmp_path: Path) -> None:
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code=(
             "import os\n"
             'setting("DEMO_BASE_URL", "")\n'
@@ -227,7 +227,7 @@ def test_read_inside_string_literal_ignored(tmp_path: Path) -> None:
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code=(
             "import os\n"
             'setting("DEMO_BASE_URL", "")\n'
@@ -248,7 +248,6 @@ def test_malformed_substitution_flagged(tmp_path: Path) -> None:
                 "demo": {
                     "env": {
                         "DEMO_BASE_URL": "${ DEMO_BASE_URL:-http://x }",  # spaces -> malformed
-                        "MCP_TOOL_MODE": "condensed",
                     }
                 }
             }
@@ -270,7 +269,6 @@ def test_agent_var_in_mcp_flagged(tmp_path: Path) -> None:
                         "DEMO_BASE_URL": "x",
                         "AGENT_DESCRIPTION": "y",  # agent-only
                         "SYSTEM_TOOLS_ENABLE": "True",  # companion suite
-                        "MCP_TOOL_MODE": "condensed",
                     }
                 }
             }
@@ -282,12 +280,11 @@ def test_agent_var_in_mcp_flagged(tmp_path: Path) -> None:
 
 
 def test_stale_readme_example_flagged(tmp_path: Path) -> None:
-    """A README mcp_config example env key not in the code-read surface is STALE_EXAMPLE,
-    and an example block without MCP_TOOL_MODE is flagged MISSING_TOOL_MODE."""
+    """A README mcp_config example env key not in the code-read surface is STALE_EXAMPLE."""
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
     )
     (root / "README.md").write_text(
@@ -300,7 +297,6 @@ def test_stale_readme_example_flagged(tmp_path: Path) -> None:
     )
     report = drift.analyze(root)
     assert "SYSTEM_TOOLS_ENABLE" in _types(report, "STALE_EXAMPLE")
-    assert "MCP_TOOL_MODE" in _types(report, "MISSING_TOOL_MODE")
 
 
 def test_scripts_read_suppresses_dead(tmp_path: Path) -> None:
@@ -311,11 +307,7 @@ def test_scripts_read_suppresses_dead(tmp_path: Path) -> None:
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\nFALKORDB_URI=\n",
-        mcp_config={
-            "mcpServers": {
-                "demo": {"env": {"DEMO_BASE_URL": "x", "MCP_TOOL_MODE": "condensed"}}
-            }
-        },
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
     )
     (root / "scripts").mkdir()
@@ -339,7 +331,7 @@ def test_scripts_read_does_not_force_undocumented(tmp_path: Path) -> None:
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "intent"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
     )
     (root / "scripts").mkdir()
@@ -362,7 +354,7 @@ def test_dynamic_tls_family_read_suppresses_dead(tmp_path: Path) -> None:
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\nMEALIE_TLS_PROFILE=\nMEALIE_TLS_PROFILE_REF=\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code=(
             "from agent_utilities.core.config import setting\n"
             'setting("DEMO_BASE_URL", "")\n'
@@ -385,7 +377,7 @@ def test_dynamic_tls_family_read_flags_undocumented(tmp_path: Path) -> None:
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code=(
             "from agent_utilities.core.config import setting\n"
             'setting("DEMO_BASE_URL", "")\n'
@@ -406,7 +398,7 @@ def test_dynamic_family_non_literal_prefix_is_silently_skipped(tmp_path: Path) -
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code=(
             "from agent_utilities.core.config import setting\n"
             'setting("DEMO_BASE_URL", "")\n'
@@ -426,7 +418,7 @@ def test_compose_image_substitution_suppresses_dead(tmp_path: Path) -> None:
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\nDEMO_MCP_IMAGE=\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
     )
     (root / "docker").mkdir()
@@ -448,7 +440,7 @@ def test_compose_command_and_entrypoint_substitution_suppresses_dead(
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\nDEMO_FLAG=\nDEMO_ENTRY=\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
     )
     (root / "docker").mkdir()
@@ -474,7 +466,7 @@ def test_compose_image_substitution_flags_undocumented(tmp_path: Path) -> None:
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
     )
     (root / "docker").mkdir()
@@ -497,7 +489,7 @@ def test_compose_environment_block_still_not_treated_as_subst_read(
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
     )
     (root / "docker").mkdir()
@@ -521,7 +513,7 @@ def test_known_bad_dead_var_still_caught_after_widening(tmp_path: Path) -> None:
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\nTOTALLY_ORPHANED_VAR=\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code=(
             "from agent_utilities.core.config import setting\n"
             'setting("DEMO_BASE_URL", "")\n'
@@ -550,7 +542,7 @@ def test_known_bad_undocumented_var_still_caught_after_widening(tmp_path: Path) 
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\nMEALIE_TLS_PROFILE=\nMEALIE_TLS_PROFILE_REF=\nDEMO_MCP_IMAGE=\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code=(
             "from agent_utilities.core.config import setting\n"
             'setting("DEMO_BASE_URL", "")\n'
@@ -582,7 +574,7 @@ def test_derived_toggle_undocumented(tmp_path: Path) -> None:
     (root / "demo_agent").mkdir(parents=True)
     (root / ".env.example").write_text("DEMO_BASE_URL=http://x\n", encoding="utf-8")
     (root / "mcp_config.json").write_text(
-        json.dumps({"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}}),
+        json.dumps({"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}}),
         encoding="utf-8",
     )
     (root / "demo_agent" / "tools.py").write_text(
@@ -603,7 +595,7 @@ def test_setting_passthrough_helper_reads_not_dead(tmp_path: Path) -> None:
         env_example=(
             "DEMO_BASE_URL=http://x\nJIRA_TOKEN=\nJIRA_API_TOKEN=\nSERVICENOW_USERNAME=\nSERVICENOW_PASSWORD=\n"
         ),
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code=(
             "from agent_utilities.core.config import setting\n"
             'setting("DEMO_BASE_URL", "")\n\n'
@@ -630,7 +622,7 @@ def test_setting_passthrough_helper_undocumented_still_flagged(tmp_path: Path) -
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code=(
             "from agent_utilities.core.config import setting\n"
             'setting("DEMO_BASE_URL", "")\n\n'
@@ -680,7 +672,7 @@ def test_direct_setting_forwarder_reads_only_its_name_parameter(tmp_path: Path) 
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\nMICROSOFT_TENANT_ID=\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code=(
             "from agent_utilities.core.config import setting\n\n"
             "def _configured_value(env, name, default=None):\n"
@@ -704,7 +696,7 @@ def test_direct_setting_forwarder_still_reports_undocumented_read(
     root = _make_pkg(
         tmp_path,
         env_example="DEMO_BASE_URL=http://x\n",
-        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        mcp_config={"mcpServers": {"demo": {"env": {"DEMO_BASE_URL": "x"}}}},
         code=(
             "from agent_utilities.core.config import setting\n\n"
             "def _configured_value(env, name, default=None):\n"

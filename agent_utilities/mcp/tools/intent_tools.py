@@ -11,9 +11,9 @@ effective operation, policy classification, preview plan, and result
 provenance. ``ask`` is read-only; a tool pin cannot change that policy.
 Non-read verbs preview by default, ambiguous mutations do not execute, and
 an approval-required (destructive, or a non-``auto`` ``approval_class``)
-operation only executes when the caller named the exact operation
-(``action="<tool>.<op>"``) and resubmitted its preview's ``plan_ref``
-(BUG-040 — see :func:`_explicit_operation`).
+operation only executes after the caller's session approved that exact
+operation through the separately governed ``manage(action="approve")``
+(BUG-040 — see :func:`_operation_approved`); a tool pin never bypasses it.
 
 The six verbs are graph-os's whole MCP surface: each takes the ecosystem's
 condensed contract (:mod:`agent_utilities.mcp.intent_contract`) — ``action``
@@ -42,7 +42,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from agent_utilities.knowledge_graph.retrieval.capability_context import load_cpds
 from agent_utilities.mcp import kg_server
@@ -51,6 +51,7 @@ from agent_utilities.mcp.intent_contract import (
     READ_ACTION_PREFIXES,
     operation_id,
 )
+from agent_utilities.mcp.optional_tool_features import OPTIONAL_TOOL_FEATURES
 from agent_utilities.mcp.tool_specs import INTENT_VERBS, READ_ONLY_ACTIONS, TOOL_VERBS
 from agent_utilities.security.error_surface import public_error_payload
 from agent_utilities.security.persistence_privacy import persistence_reference
@@ -632,10 +633,18 @@ def _pinned_resolution(
 ) -> list[CapabilityCandidate]:
     """Helper for `resolve_intent`: resolve a hints["tool"]-pinned request.
 
-    Empty list if `pinned` names no candidate authorized for `verb`.
+    Empty list if `pinned` names no candidate authorized for `verb`. ``act``
+    is authorized for an operation none of the tool's declared verbs can
+    classify (:func:`_act_fallback`); it previews and executes it as a mutation.
     """
+    action = hints.get("action")
     for c in candidates:
-        if c.tool == pinned and (verb is None or verb in c.verbs):
+        authorized = (
+            verb is None
+            or verb in c.verbs
+            or (verb == "act" and _act_fallback(c.tool, action or c.action))
+        )
+        if c.tool == pinned and authorized:
             return [
                 CapabilityCandidate(
                     tool=c.tool,
@@ -1283,28 +1292,68 @@ def _require_candidate(candidate: CapabilityCandidate | None) -> CapabilityCandi
     return candidate
 
 
-def _explicit_operation(
-    explicit_tool: bool, explicit_action: Any, chosen_tool: str
-) -> bool:
-    """BUG-040: did the caller name the EXACT operation this plan runs?
+#: Session-scoped approvals recorded by ``manage(action="approve")``:
+#: ``{opaque approval key: created_at}``. Bounded and expiring like the preview
+#: cache; a restart or expiry requires a fresh approval.
+_APPROVALS: OrderedDict[str, float] = OrderedDict()
+_APPROVALS_MAX = 256
+_APPROVAL_TTL_SECONDS = 600.0
+
+
+def _approval_key(op_id: str) -> str:
+    """Opaque key binding an approval to session, authority partition and op."""
+    from agent_utilities.mcp.multiplexer import _session_key
+
+    payload = json.dumps(
+        [_session_key(), _outcome_scope_ref(), op_id], separators=(",", ":")
+    )
+    return persistence_reference("intent_approval", payload)
+
+
+def _expire_approvals(now: float) -> None:
+    expired = [
+        key
+        for key, created in _APPROVALS.items()
+        if now - created > _APPROVAL_TTL_SECONDS
+    ]
+    for key in expired:
+        _APPROVALS.pop(key, None)
+
+
+def _record_approval(op_id: str) -> None:
+    """Record this session's approval of exactly ``op_id``."""
+    now = time.monotonic()
+    _expire_approvals(now)
+    key = _approval_key(op_id)
+    _APPROVALS[key] = now
+    _APPROVALS.move_to_end(key)
+    while len(_APPROVALS) > _APPROVALS_MAX:
+        _APPROVALS.popitem(last=False)
+
+
+def _operation_approved(op_id: str) -> bool:
+    """BUG-040: has THIS caller's session approved exactly ``op_id``?
 
     An approval-required (destructive, or non-``auto`` ``approval_class``)
-    plan executes only when the caller pinned the exact operation — the tool
-    and, for an action-routed tool, its action (the intent contract's
-    ``action="<tool>.<op>"``) — and resubmitted that preview's ``plan_ref``.
-    A plan the resolver chose from natural language never satisfies this.
+    plan executes only after the session approved that exact operation with
+    ``manage(action="approve", params={"action": "<tool>.<op>"})`` — itself a
+    governed preview → ``plan_ref`` → execute round trip — and then
+    resubmitted the original plan's ``plan_ref``. Naming or pinning the
+    operation alone never satisfies it (a pin selects WHICH candidate; it
+    never bypasses approval).
 
     ``approval_class`` is a static CPD declaration, not a per-call check inside
     the target tool; the real authorization boundary remains the actor/session
     identity verification in ``kg_server.verified_tool_session_scope`` /
-    ``_execute_tool``, which applies identically to every caller. Naming the
-    exact operation is the explicit acknowledgement the approval policy asks
-    for, and every client can do it (no tool-list refresh involved — the gap
-    BUG-040/BUG-050 found in the old load-then-call route).
+    ``_execute_tool``. The approval step replaces the retired session
+    ``load_tools`` acknowledgement with one every client can perform (no
+    tool-list refresh involved — the gap BUG-040/BUG-050 found).
     """
-    if not explicit_tool:
+    _expire_approvals(time.monotonic())
+    try:
+        return _approval_key(op_id) in _APPROVALS
+    except Exception:  # noqa: BLE001 — a broken session probe must fail closed
         return False
-    return explicit_action is not None or not _actions_by_tool().get(chosen_tool)
 
 
 def _plan_ref_hints_match(
@@ -1544,22 +1593,22 @@ def _policy_gate_execution_checks(
 
 def _policy_gate_approval_check(
     plan: dict[str, Any],
-    explicit_operation: bool,
     routing: dict[str, Any],
 ) -> dict[str, Any] | None:
     """Helper for `dispatch_intent`'s `_policy_gate` closure: the approval check."""
-    if not plan["approval"]["required"] or explicit_operation:
-        return None
     required = operation_id(plan["tool"], plan["action"])
+    if not plan["approval"]["required"] or _operation_approved(required):
+        return None
     return {
         "error": (
-            "Approval-required operation: resubmit naming the exact operation "
-            f"(action={required!r}) and this plan_ref with execute=true."
+            "Approval-required operation: approve it with manage(action='approve', "
+            f"params={{'action': {required!r}}}) (preview, then execute with its "
+            "plan_ref), then resubmit this plan_ref with execute=true."
         ),
         "routing": routing,
         "executed": False,
         "approval_required": True,
-        "required_action": required,
+        "required_approval": required,
     }
 
 
@@ -1650,9 +1699,9 @@ async def dispatch_intent(
     ``ask``/``why`` execute by default and remain read-only. Non-read verbs
     preview by default; execution requires the opaque ``plan_ref`` returned by
     that exact preview. An approval-required (destructive or non-``auto``
-    ``approval_class``) plan only executes when the caller named the exact
-    operation (BUG-040 — see :func:`_explicit_operation`); otherwise it fails
-    closed with an actionable ``required_action`` hint. Outcome
+    ``approval_class``) plan only executes once the caller's session approved
+    that exact operation (BUG-040 — see :func:`_operation_approved`); otherwise
+    it fails closed with an actionable ``required_approval`` hint. Outcome
     learning consumes only the verified tool result of an unpinned,
     unambiguous execution in the current tenant/policy partition.
     """
@@ -1984,11 +2033,7 @@ async def dispatch_intent(
         )
         if execution_error is not None:
             return execution_error
-        return _policy_gate_approval_check(
-            plan,
-            _explicit_operation(explicit_tool, explicit_action, chosen_tool),
-            routing,
-        )
+        return _policy_gate_approval_check(plan, routing)
 
     _policy_outcome = _policy_gate()
     if _policy_outcome is not None:
@@ -2001,19 +2046,41 @@ async def dispatch_intent(
 
 #: ``act`` operation that calls one tool of another fleet MCP server.
 FLEET_CALL_ACTION = "fleet.call"
+#: ``manage`` operations that mount fleet servers/tools ahead of use and
+#: release them again (``fleet.call`` mounts on demand either way).
+FLEET_LOAD_ACTION = "fleet.load"
+FLEET_UNLOAD_ACTION = "fleet.unload"
+#: ``manage`` operation that approves one approval-required operation for the
+#: caller's session (see :func:`_operation_approved`).
+APPROVE_ACTION = "approve"
 #: ``manage``'s read-only lakehouse maintenance status operation.
 LAKEHOUSE_STATUS_ACTION = "lakehouse_status"
 #: ``find``'s fixed action set: capability search (default), fleet tool search,
 #: the fleet catalog, fleet health, and operation descriptions.
 FIND_ACTIONS = ("capabilities", "tools", "catalog", "status", DESCRIBE_ACTION)
 _FIND_TOP_K = 8
+#: Request bounds on fleet operations (the retired load_tools/unload_tools
+#: meta-tools' safety boundary).
+_FLEET_LIST_LIMITS = {"tools": 128, "servers": 32}
+
+#: Operations a verb serves beside the generated manifest.
+_HOST_ACTIONS: dict[str, tuple[str, ...]] = {
+    "find": FIND_ACTIONS,
+    "act": (FLEET_CALL_ACTION,),
+    "manage": (
+        APPROVE_ACTION,
+        FLEET_LOAD_ACTION,
+        FLEET_UNLOAD_ACTION,
+        LAKEHOUSE_STATUS_ACTION,
+    ),
+}
 
 _VERB_SUMMARIES = {
     "ask": "Read or answer from the Knowledge Graph.",
     "find": "Discover capabilities, operations, fleet tools and the fleet catalog.",
     "write": "Create or change graph data; previews first, then execute with plan_ref.",
     "act": "Run work, an operation or a fleet tool; previews first, then execute with plan_ref.",
-    "manage": "Configure and govern graph-os; previews first, then execute with plan_ref.",
+    "manage": "Configure and govern graph-os and fleet loading; previews first, then execute with plan_ref.",
     "why": "Explain beliefs, decisions, provenance and changes.",
 }
 
@@ -2032,10 +2099,12 @@ def _verb_description(verb: str) -> str:
     )
 
 
-def _accepting_verbs(tool: str, action: str | None) -> tuple[str, ...]:
-    """The intent verbs whose router policy accepts this exact operation."""
+def _policy_verbs(tool: str, action: str | None) -> tuple[str, ...]:
+    """The dispatch verbs whose declared policy classifies this operation."""
     verbs: list[str] = []
     for verb in TOOL_VERBS.get(tool, ()):
+        if verb not in _DISPATCH_VERBS:
+            continue
         plan = _operation_plan(verb, tool, action, {})
         if plan["execution_class"] == "unclassified":
             continue
@@ -2043,6 +2112,22 @@ def _accepting_verbs(tool: str, action: str | None) -> tuple[str, ...]:
             continue
         verbs.append(verb)
     return tuple(verbs)
+
+
+def _accepting_verbs(tool: str, action: str | None) -> tuple[str, ...]:
+    """The intent verbs whose router policy accepts this exact operation.
+
+    An operation none of its declared verbs can classify (no declared effect,
+    not on a reviewed read-only allowlist) is reachable through ``act`` alone,
+    which treats it as a mutation: preview, ``plan_ref`` and the CPD approval
+    policy all apply (see :func:`_act_fallback`).
+    """
+    return _policy_verbs(tool, action) or ("act",)
+
+
+def _act_fallback(tool: str, action: str | None) -> bool:
+    """Whether ``act`` serves ``tool``'s ``action`` as an unclassified operation."""
+    return "act" not in TOOL_VERBS.get(tool, ()) and not _policy_verbs(tool, action)
 
 
 def operation_verbs() -> dict[str, tuple[str, ...]]:
@@ -2072,16 +2157,29 @@ def _verb_catalog(mcp: Any, verb: str, group: str | None) -> dict[str, Any]:
         name = group_for_tool(table[op_id][0]) or ""
         if verb in verbs and (group is None or name == group):
             grouped.setdefault(name, []).append(op_id)
-    extra: list[str] = []
+    extra = list(_HOST_ACTIONS.get(verb, ()))
     if verb == "act":
-        extra = [FLEET_CALL_ACTION, *sorted(host_operations(mcp))]
-    elif verb == "manage":
-        extra = [LAKEHOUSE_STATUS_ACTION]
-    elif verb == "find":
-        extra = list(FIND_ACTIONS)
+        extra += sorted(host_operations(mcp))
     if extra and group is None:
         grouped["host"] = extra
     return {"verb": verb, "operations": grouped}
+
+
+def _describe_host_operation(mcp: Any, op_id: str) -> dict[str, Any] | None:
+    """``describe`` for a host-native backing operation, or ``None``."""
+    from agent_utilities.mcp.graphos_surface import backing_tools, host_operations
+    from agent_utilities.mcp.intent_contract import schema_without_action
+
+    resolved = host_operations(mcp).get(op_id)
+    if resolved is None:
+        return None
+    tool = backing_tools(mcp)[resolved[0]]
+    return {
+        "action": op_id,
+        "verbs": ["act"],
+        "description": getattr(tool, "description", None) or "",
+        "params_schema": schema_without_action(tool.parameters or {}),
+    }
 
 
 def _describe_operation(mcp: Any, op_id: str) -> dict[str, Any]:
@@ -2093,20 +2191,14 @@ def _describe_operation(mcp: Any, op_id: str) -> dict[str, Any]:
     )
     from agent_utilities.mcp.intent_contract import schema_without_action
 
-    tools = backing_tools(mcp)
     resolved = resolve_operation(op_id)
     if resolved is None:
-        if op_id in tools:
-            tool = tools[op_id]
-            return {
-                "action": op_id,
-                "verbs": ["act"],
-                "description": getattr(tool, "description", None) or "",
-                "params_schema": schema_without_action(tool.parameters or {}),
-            }
+        host = _describe_host_operation(mcp, op_id)
+        if host is not None:
+            return host
         return {"error": f"Unknown operation {op_id!r}; action='describe' lists them."}
     tool_name, action = resolved
-    tool = tools.get(tool_name)
+    tool = backing_tools(mcp).get(tool_name)
     cpd = _load_cpds_required().get(tool_name) or {}
     record = _operation_record(cpd, action) or {}
     return {
@@ -2158,12 +2250,65 @@ def _fleet_mux(mcp: Any) -> Any:
     return mux
 
 
+def _host_plan_ref(verb: str, op_id: str, arguments: dict[str, Any]) -> str:
+    """Bind a host/fleet operation preview to its verb, operation and arguments."""
+    return _plan_ref(verb, "host", op_id, arguments, _outcome_scope_ref())
+
+
+async def _governed(
+    verb: str,
+    op_id: str,
+    arguments: dict[str, Any],
+    params: dict[str, Any],
+    execute: bool,
+    run: Any,
+) -> dict[str, Any]:
+    """Preview → ``plan_ref`` → execute for an operation outside the manifest.
+
+    The same contract :func:`dispatch_intent` enforces for non-read verbs: a
+    call without ``execute`` returns the plan and its ``plan_ref``; execution
+    requires resubmitting that ``plan_ref`` for the identical operation and
+    arguments.
+    """
+    plan_ref = _host_plan_ref(verb, op_id, arguments)
+    plan = {
+        "action": op_id,
+        "arguments": sorted(arguments),
+        "preview_required": True,
+        "plan_ref": plan_ref,
+    }
+    if not execute:
+        return {"executed": False, "plan": plan}
+    if str(params.get("plan_ref") or "") != plan_ref:
+        return {
+            "executed": False,
+            "plan": plan,
+            "error": (
+                "Preview required: call with execute=false, review the plan, then "
+                "resubmit its plan_ref with execute=true."
+            ),
+        }
+    return {"executed": True, "action": op_id, "result": await run()}
+
+
+def _bounded_names(params: dict[str, Any], key: str) -> list[str]:
+    names = params.get(key) or []
+    if not isinstance(names, list) or len(names) > _FLEET_LIST_LIMITS[key]:
+        raise ValueError(
+            f"params.{key} must be a list of at most {_FLEET_LIST_LIMITS[key]} names"
+        )
+    return [str(name) for name in names]
+
+
 async def _find(mcp: Any, action: str, params: dict[str, Any], intent: str) -> Any:
     """``find``: capability ranking, fleet tool search, fleet catalog, fleet health."""
     selected = action or "capabilities"
     if selected not in FIND_ACTIONS:
-        return {"error": f"Unknown find action {action!r}.", "actions": list(FIND_ACTIONS)}
-    top_k = int(params.get("top_k") or _FIND_TOP_K)
+        return {
+            "error": f"Unknown find action {action!r}.",
+            "actions": list(FIND_ACTIONS),
+        }
+    top_k = max(1, min(int(params.get("top_k") or _FIND_TOP_K), 100))
     if selected == "capabilities":
         if not intent:
             return {"error": "find needs an `intent` to rank capabilities."}
@@ -2175,7 +2320,7 @@ async def _find(mcp: Any, action: str, params: dict[str, Any], intent: str) -> A
         return await mux.discover_tools(query, top_k=top_k, loaded=set())
     if selected == "catalog":
         return await mux.list_catalog(
-            server=str(params.get("server") or ""),
+            server=str(params.get("server") or "")[:128],
             include_tools=bool(params.get("include_tools", True)),
         )
     return mux.status_snapshot()
@@ -2189,46 +2334,108 @@ async def _fleet_call(mcp: Any, params: dict[str, Any], execute: bool) -> Any:
         return {
             "error": "fleet.call needs params {'tool': '<fleet tool>', 'arguments': {...}}."
         }
-    if not execute:
-        return {"executed": False, "plan": {"tool": tool, "arguments": sorted(arguments)}}
-    mux = _fleet_mux(mcp)
-    mux.require_capability("delegate")
-    await mux.resolve_and_mount(tools=[tool], servers=None)
-    if mux._authority_scope is None:
-        result = await mux.call_proxied_tool(tool, arguments)
-    else:
-        with mux._authority_scope():
+
+    async def _run() -> Any:
+        mux = _fleet_mux(mcp)
+        mux.require_capability("delegate")
+        await mux.resolve_and_mount(tools=[tool], servers=None)
+        if mux._authority_scope is None:
             result = await mux.call_proxied_tool(tool, arguments)
-    return result.model_dump(mode="json", by_alias=True, exclude_none=True)
+        else:
+            with mux._authority_scope():
+                result = await mux.call_proxied_tool(tool, arguments)
+        return result.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+    return await _governed(
+        "act", FLEET_CALL_ACTION, {"tool": tool, **arguments}, params, execute, _run
+    )
+
+
+async def _fleet_load(mcp: Any, params: dict[str, Any], execute: bool) -> Any:
+    """``manage(action="fleet.load")``: mount fleet servers/tools ahead of use."""
+    tools = _bounded_names(params, "tools")
+    servers = _bounded_names(params, "servers")
+
+    async def _run() -> Any:
+        mux = _fleet_mux(mcp)
+        mux.require_capability("delegate")
+        mounted, available, failed = await mux.resolve_and_mount(
+            tools=tools or None, servers=servers or None
+        )
+        return {"mounted": mounted, "available": available, "failed": failed}
+
+    arguments = {"tools": tools, "servers": servers}
+    return await _governed(
+        "manage", FLEET_LOAD_ACTION, arguments, params, execute, _run
+    )
+
+
+async def _fleet_unload(mcp: Any, params: dict[str, Any], execute: bool) -> Any:
+    """``manage(action="fleet.unload")``: release mounted fleet tools."""
+    tools = _bounded_names(params, "tools")
+
+    async def _run() -> Any:
+        mux = _fleet_mux(mcp)
+        mux.require_capability("delegate")
+        released = [name for name in tools if mux.forget_tool(name) is not None]
+        return {"released": released}
+
+    return await _governed(
+        "manage", FLEET_UNLOAD_ACTION, {"tools": tools}, params, execute, _run
+    )
+
+
+async def _approve(mcp: Any, params: dict[str, Any], execute: bool) -> Any:
+    """``manage(action="approve")``: approve one operation for this session."""
+    from agent_utilities.mcp.graphos_surface import resolve_operation
+
+    op_id = str(params.get("action") or "")
+    if resolve_operation(op_id) is None:
+        raise ValueError(
+            "approve needs params {'action': '<tool>.<op>'} naming a graph-os operation."
+        )
+
+    async def _run() -> Any:
+        _record_approval(op_id)
+        return {"approved": op_id, "ttl_seconds": int(_APPROVAL_TTL_SECONDS)}
+
+    return await _governed(
+        "manage", APPROVE_ACTION, {"action": op_id}, params, execute, _run
+    )
 
 
 async def _host_operation(
     mcp: Any, op_id: str, params: dict[str, Any], execute: bool
 ) -> Any:
-    """``act`` on a host-native backing tool (e.g. graph-os browser control)."""
-    from agent_utilities.mcp.graphos_surface import backing_server, backing_tools
+    """``act`` on a host-native backing operation (e.g. graph-os browser control)."""
+    from agent_utilities.mcp.graphos_surface import (
+        backing_server,
+        backing_tools,
+        host_operations,
+    )
     from agent_utilities.mcp.intent_contract import shape_arguments
 
-    tool = backing_tools(mcp)[op_id]
-    schema = tool.parameters or {}
+    tool_name, action = host_operations(mcp)[op_id]
+    call_params = {key: value for key, value in params.items() if key != "plan_ref"}
+    schema = backing_tools(mcp)[tool_name].parameters or {}
     arguments = shape_arguments(
         frozenset((schema.get("properties") or {}).keys()),
-        params,
-        None,
+        call_params,
+        action,
         accepts_var_keyword=bool(schema.get("additionalProperties")),
     )
-    if not execute:
-        return {"executed": False, "plan": {"action": op_id, "arguments": sorted(arguments)}}
-    result = await backing_server(mcp).call_tool(op_id, arguments)
-    return {
-        "executed": True,
-        "action": op_id,
-        "content": [
-            item.model_dump(mode="json", by_alias=True, exclude_none=True)
-            for item in result.content
-        ],
-        "structured_content": result.structured_content,
-    }
+
+    async def _run() -> Any:
+        result = await backing_server(mcp).call_tool(tool_name, arguments)
+        return {
+            "content": [
+                item.model_dump(mode="json", by_alias=True, exclude_none=True)
+                for item in result.content
+            ],
+            "structured_content": result.structured_content,
+        }
+
+    return await _governed("act", op_id, arguments, params, execute, _run)
 
 
 def _find_result(candidate: CapabilityCandidate) -> dict[str, Any]:
@@ -2236,9 +2443,8 @@ def _find_result(candidate: CapabilityCandidate) -> dict[str, Any]:
     from agent_utilities.mcp.graphos_surface import group_for_tool
 
     actions = _actions_by_tool().get(candidate.tool) or []
-    example = (
-        operation_id(candidate.tool, actions[0]) if actions else candidate.tool
-    )
+    example = operation_id(candidate.tool, actions[0]) if actions else candidate.tool
+    verbs = [verb for verb in candidate.verbs if verb in _DISPATCH_VERBS] or ["act"]
     return {
         "tool": candidate.tool,
         "action": candidate.action,
@@ -2247,8 +2453,8 @@ def _find_result(candidate: CapabilityCandidate) -> dict[str, Any]:
         "score": round(candidate.score, 4),
         "matched_terms": candidate.matched_terms,
         "how_to_call": (
-            f"{candidate.verbs[0]}(intent=<same wording>) to let the router choose, "
-            f"or {candidate.verbs[0]}(action='{example}', params={{...}}); "
+            f"{verbs[0]}(intent=<same wording>) to let the router choose, "
+            f"or {verbs[0]}(action='{example}', params={{...}}); "
             f"find(action='describe', params={{'action': '{example}'}}) gives its arguments."
         ),
     }
@@ -2345,6 +2551,58 @@ async def _lakehouse_status(hints: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+async def _host_dispatch(
+    mcp: Any, verb: str, action: str, params: dict[str, Any], execute: bool
+) -> Any:
+    """Serve a verb's operation outside the manifest, or ``None`` if not one."""
+    from agent_utilities.mcp.graphos_surface import host_operations
+
+    handlers = {
+        ("act", FLEET_CALL_ACTION): _fleet_call,
+        ("manage", APPROVE_ACTION): _approve,
+        ("manage", FLEET_LOAD_ACTION): _fleet_load,
+        ("manage", FLEET_UNLOAD_ACTION): _fleet_unload,
+    }
+    handler = handlers.get((verb, action))
+    if handler is not None:
+        return await handler(mcp, params, execute)
+    if verb == "manage" and action == LAKEHOUSE_STATUS_ACTION:
+        status = await _lakehouse_status(params)
+        return {"executed": True, "action": action, "status": status}
+    if verb == "act" and action in host_operations(mcp):
+        return await _host_operation(mcp, action, params, execute)
+    return None
+
+
+def _explicit_operation_hints(
+    verb: str, action: str, params: dict[str, Any]
+) -> dict[str, Any]:
+    """Router hints for ``verb(action=<manifest operation id>)``.
+
+    Raises ``ValueError`` for an unknown operation or one ``verb`` does not
+    accept.
+    """
+    from agent_utilities.mcp.graphos_surface import resolve_operation
+
+    resolved = resolve_operation(action)
+    if resolved is None:
+        raise ValueError(
+            f"Unknown operation {action!r}; {verb}(action='describe') lists them."
+        )
+    feature = OPTIONAL_TOOL_FEATURES.get(resolved[0])
+    if feature and resolved[0] not in kg_server.REGISTERED_TOOLS:
+        raise ValueError(
+            f"{action!r} needs the optional '{feature}' feature, which this "
+            "deployment does not install."
+        )
+    verbs = operation_verbs().get(action, ())
+    if verb not in verbs:
+        raise ValueError(
+            f"{action!r} is not a {verb} operation; use one of {list(verbs)}."
+        )
+    return _operation_hints(resolved[0], resolved[1], params)
+
+
 async def _dispatch_verb(
     mcp: Any,
     verb: str,
@@ -2354,41 +2612,25 @@ async def _dispatch_verb(
     execute: bool,
 ) -> Any:
     """The intent contract over the governed router (see module docstring)."""
-    from agent_utilities.mcp.graphos_surface import host_operations, resolve_operation
-
     if action == DESCRIBE_ACTION:
         return _describe(mcp, verb, params)
     if verb == "find":
         return await _find(mcp, action, params, intent)
-    if verb == "manage":
-        security_failure = _intent_security_failure(intent, params)
-        if security_failure is not None:
-            return security_failure
-        if action == LAKEHOUSE_STATUS_ACTION:
-            return {"executed": True, "action": action, "status": await _lakehouse_status(params)}
-    if action and verb == "act":
-        if action == FLEET_CALL_ACTION:
-            return await _fleet_call(mcp, params, execute)
-        if action in host_operations(mcp):
-            return await _host_operation(mcp, action, params, execute)
-    hints = params
-    if action:
-        resolved = resolve_operation(action)
-        if resolved is None:
-            return {
-                "error": f"Unknown operation {action!r}; {verb}(action='describe') lists them.",
-                "executed": False,
-            }
-        verbs = operation_verbs().get(action, ())
-        if verb not in verbs:
-            return {
-                "error": f"{action!r} is not a {verb} operation; use one of {list(verbs)}.",
-                "executed": False,
-            }
-        try:
-            hints = _operation_hints(resolved[0], resolved[1], params)
-        except ValueError as exc:
-            return {"error": exc.args[0] if exc.args else "invalid params", "executed": False}
+    security_failure = _intent_security_failure(intent, params)
+    if security_failure is not None:
+        return security_failure
+    try:
+        hosted = (
+            await _host_dispatch(mcp, verb, action, params, execute) if action else None
+        )
+        if hosted is not None:
+            return hosted
+        hints = _explicit_operation_hints(verb, action, params) if action else params
+    except ValueError as exc:
+        return {
+            "error": exc.args[0] if exc.args else "invalid params",
+            "executed": False,
+        }
     return await dispatch_intent(verb, intent, hints=hints, execute=execute, mcp=mcp)
 
 
@@ -2411,7 +2653,9 @@ def register_intent_tools(mcp: Any) -> list[str]:
             return _dispatch_verb(mcp, _verb, action, params, intent, execute)
 
         async def _run(action, params, intent, execute, _handle=_handler) -> str:
-            return json.dumps(await _handle(action, params, intent, execute), default=str)
+            return json.dumps(
+                await _handle(action, params, intent, execute), default=str
+            )
 
         fn = make_intent_tool(
             verb,

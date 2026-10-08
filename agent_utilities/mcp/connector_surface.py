@@ -112,7 +112,11 @@ def connector_operations(backing: Any) -> dict[str, Operation]:
 
 
 def _tokens(text: str) -> set[str]:
-    return {t for t in "".join(c if c.isalnum() else " " for c in text.casefold()).split() if len(t) > 2}
+    return {
+        t
+        for t in "".join(c if c.isalnum() else " " for c in text.casefold()).split()
+        if len(t) > 2
+    }
 
 
 def rank_operations(
@@ -209,7 +213,9 @@ def _intent_handler(verb: str, backing: Any):
     return _handle
 
 
-def register_connector_intent_tools(mcp: Any, backing: Any, *, service: str) -> list[str]:
+def register_connector_intent_tools(
+    mcp: Any, backing: Any, *, service: str
+) -> list[str]:
     """Serve the intent tools over ``backing``'s operations on ``mcp``."""
     mcp._intent_backing = backing
     for verb in CONNECTOR_INTENT_TOOLS:

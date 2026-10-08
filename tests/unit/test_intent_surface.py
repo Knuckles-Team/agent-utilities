@@ -45,6 +45,7 @@ def _fresh_candidate_cache():
     intent_tools._REWARD_EPOCH = 0
     intent_tools._RESOLUTION_CACHE.clear()
     intent_tools._PREVIEW_PLAN_CACHE.clear()
+    intent_tools._APPROVALS.clear()
     yield
     intent_tools._CANDIDATES_CACHE = None
     intent_tools._ACTIONS_BY_TOOL_CACHE = None
@@ -52,6 +53,7 @@ def _fresh_candidate_cache():
     intent_tools._REWARD_EPOCH = 0
     intent_tools._RESOLUTION_CACHE.clear()
     intent_tools._PREVIEW_PLAN_CACHE.clear()
+    intent_tools._APPROVALS.clear()
 
 
 def _install_test_capability(
@@ -206,7 +208,7 @@ async def test_pin_of_a_tool_unknown_to_the_intent_surface_is_actionable():
     assert result["executed"] is False
     assert result["error"] != "Pinned capability is not allowed for this intent verb."
     assert "gith__pulls" in result["error"]
-    assert "load_tools" in result["error"]
+    assert "fleet.call" in result["error"]
     assert result["routing"]["candidates"] == []
 
 
@@ -541,103 +543,100 @@ async def test_explicit_action_must_belong_to_selected_tool(monkeypatch):
     )
 
 
-@pytest.mark.asyncio
-async def test_manage_lifecycle_plan_ref_replays_exact_preview_hints(monkeypatch):
-    """A plan-ref-only lifecycle execute uses the reviewed load parameters."""
-    mcp = type("Mcp", (), {"_fleet_mux": object()})()
-    seen: dict[str, object] = {}
+class _FakeMux:
+    """The multiplexer surface ``manage(action="fleet.load"/"fleet.unload")`` uses."""
 
-    async def fake_load(mcp, mux, *, tools, servers, auto_unload):
-        seen.update(
-            mcp=mcp,
-            mux=mux,
-            tools=tools,
-            servers=servers,
-            auto_unload=auto_unload,
-        )
-        return {"loaded": tools}
+    _authority_scope = None
 
-    from agent_utilities.mcp import multiplexer
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, object]] = []
 
-    monkeypatch.setattr(multiplexer, "load_session_tools", fake_load)
-    intent = "load the reviewed tool for this task"
-    preview = await intent_tools._manage_lifecycle(
-        mcp,
-        intent,
-        {"action": "load", "tools": ["github_review"], "auto_unload": True},
-    )
-    assert preview is not None
+    def require_capability(self, kind: str) -> None:
+        self.calls.append(("require", kind))
 
-    result = await intent_tools._manage_lifecycle(
-        mcp,
-        intent,
-        {"plan_ref": preview["plan"]["plan_ref"]},
-        execute=True,
-    )
+    async def resolve_and_mount(self, tools=None, servers=None):
+        self.calls.append(("mount", (tools, servers)))
+        return ["github"], list(tools or []), {}
 
-    assert result == {"loaded": ["github_review"]}
-    assert seen == {
-        "mcp": mcp,
-        "mux": mcp._fleet_mux,
-        "tools": ["github_review"],
-        "servers": None,
-        "auto_unload": True,
-    }
+    def forget_tool(self, name: str):
+        self.calls.append(("forget", name))
+        return "github"
 
 
 @pytest.mark.asyncio
-async def test_manage_lifecycle_plan_ref_is_context_bound(monkeypatch):
-    """A lifecycle plan cannot be replayed under another authority context."""
-    mcp = type("Mcp", (), {"_fleet_mux": object()})()
+async def test_fleet_load_previews_then_executes_only_with_its_plan_ref():
+    """``manage(action="fleet.load")`` keeps the non-read preview contract."""
+    mux = _FakeMux()
+    mcp = type("Mcp", (), {"_fleet_mux": mux})()
+    params = {"tools": ["github_review"]}
+
+    preview = await intent_tools._dispatch_verb(
+        mcp, "manage", "fleet.load", dict(params), "load the review tool", False
+    )
+    assert preview["executed"] is False
+    assert mux.calls == []
+
+    refused = await intent_tools._dispatch_verb(
+        mcp, "manage", "fleet.load", dict(params), "load the review tool", True
+    )
+    assert refused["executed"] is False
+    assert "Preview required" in refused["error"]
+    assert mux.calls == []
+
+    loaded = await intent_tools._dispatch_verb(
+        mcp,
+        "manage",
+        "fleet.load",
+        {**params, "plan_ref": preview["plan"]["plan_ref"]},
+        "load the review tool",
+        True,
+    )
+    assert loaded["executed"] is True
+    assert loaded["result"]["available"] == ["github_review"]
+    assert ("mount", (["github_review"], None)) in mux.calls
+
+
+@pytest.mark.asyncio
+async def test_fleet_plan_ref_is_context_and_operation_bound(monkeypatch):
+    """A fleet plan cannot be replayed under another authority context or for
+    another operation."""
+    mux = _FakeMux()
+    mcp = type("Mcp", (), {"_fleet_mux": mux})()
     monkeypatch.setattr(intent_tools, "_outcome_scope_ref", lambda: "scope-a")
-    preview = await intent_tools._manage_lifecycle(
-        mcp, "unload reviewed tools", {"action": "unload", "tools": ["a"]}
+    preview = await intent_tools._dispatch_verb(
+        mcp, "manage", "fleet.unload", {"tools": ["a"]}, "", False
     )
-    assert preview is not None
+    plan_ref = preview["plan"]["plan_ref"]
+
+    other_op = await intent_tools._dispatch_verb(
+        mcp, "manage", "fleet.load", {"tools": ["a"], "plan_ref": plan_ref}, "", True
+    )
+    assert other_op["executed"] is False
 
     monkeypatch.setattr(intent_tools, "_outcome_scope_ref", lambda: "scope-b")
-    result = await intent_tools._manage_lifecycle(
-        mcp,
-        "unload reviewed tools",
-        {"plan_ref": preview["plan"]["plan_ref"]},
-        execute=True,
+    other_scope = await intent_tools._dispatch_verb(
+        mcp, "manage", "fleet.unload", {"tools": ["a"], "plan_ref": plan_ref}, "", True
     )
-
-    assert result is not None
-    assert result["executed"] is False
-    assert "context-mismatched lifecycle plan_ref" in result["error"]
+    assert other_scope["executed"] is False
+    assert mux.calls == []
 
 
 @pytest.mark.asyncio
-async def test_lifecycle_replay_does_not_consume_normal_manage_plan(monkeypatch):
-    """A normal manage preview still falls through to dispatch_intent replay."""
-
-    async def fake_manage(**_kw) -> str:
-        return "ok"
-
-    _install_test_capability(
-        monkeypatch,
-        "fake_manage_tool",
-        fake_manage,
-        verbs=("manage",),
-        one_line="Manage the synthetic service configuration.",
-        mutates=True,
-        idempotent=True,
+async def test_fleet_call_previews_before_calling_a_fleet_tool():
+    """``act(action="fleet.call")`` previews first like every non-read verb."""
+    mux = _FakeMux()
+    mcp = type("Mcp", (), {"_fleet_mux": mux})()
+    params = {"tool": "github_list_pulls", "arguments": {"repo": "x"}}
+    preview = await intent_tools._dispatch_verb(
+        mcp, "act", "fleet.call", dict(params), "", False
     )
-    intent = "manage the synthetic service configuration"
-    preview = await intent_tools.dispatch_intent(
-        "manage", intent, hints={"tool": "fake_manage_tool"}, execute=False
+    assert preview["executed"] is False
+    assert preview["plan"]["arguments"] == ["repo", "tool"]
+    refused = await intent_tools._dispatch_verb(
+        mcp, "act", "fleet.call", dict(params), "", True
     )
-    mcp = type("Mcp", (), {"_fleet_mux": object()})()
-
-    lifecycle = await intent_tools._manage_lifecycle(
-        mcp,
-        intent,
-        {"plan_ref": preview["routing"]["plan"]["plan_ref"]},
-        execute=True,
-    )
-
-    assert lifecycle is None
+    assert refused["executed"] is False
+    assert mux.calls == []
 
 
 @pytest.mark.asyncio
@@ -893,16 +892,69 @@ async def test_destructive_plan_requires_exact_tool_approval(monkeypatch):
         hints={**hints, "plan_ref": plan["plan_ref"]},
         execute=True,
     )
+    # BUG-040: pinning the exact tool and action is not an approval.
     assert result["executed"] is False
     assert result["approval_required"] is True
-    # BUG-040: a caller with no session/mux at all (this test passes no
-    # ``mcp``) is still refused — see
-    # tests/unit/mcp/test_intent_surface_gating.py::
-    # test_bug040_destructive_plan_executes_once_session_loaded_exact_tool for
-    # the positive path once the exact tool IS session-loaded.
-    assert "approval policy" in result["error"]
-    assert result["required_load_tools"] == ["graph_write"]
+    assert "manage(action='approve'" in result["error"]
+    assert result["required_approval"] == "graph_write.delete_node"
     assert seen is False
+
+
+@pytest.mark.asyncio
+async def test_destructive_plan_executes_after_the_session_approves_it(monkeypatch):
+    """BUG-040 positive proof through the real dispatch gate: once this
+    session approved exactly ``graph_write.delete_node`` (itself a governed
+    preview → plan_ref → execute round trip), resubmitting the reviewed
+    ``plan_ref`` executes — and an approval of a different operation does not
+    count."""
+    seen: dict | None = None
+
+    async def fake_graph_write(**kw) -> str:
+        nonlocal seen
+        seen = kw
+        return "deleted"
+
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_write", fake_graph_write)
+    hints = {"tool": "graph_write", "action": "delete_node", "node_id": "node-1"}
+    preview = await intent_tools.dispatch_intent(
+        "write", "delete a node", hints=hints, execute=False
+    )
+    plan_ref = preview["routing"]["plan"]["plan_ref"]
+
+    async def _approve(op_id: str) -> None:
+        approval = await intent_tools._dispatch_verb(
+            None, "manage", "approve", {"action": op_id}, "", False
+        )
+        assert approval["executed"] is False
+        done = await intent_tools._dispatch_verb(
+            None,
+            "manage",
+            "approve",
+            {"action": op_id, "plan_ref": approval["plan"]["plan_ref"]},
+            "",
+            True,
+        )
+        assert done["executed"] is True
+
+    await _approve("graph_write.delete_edge")
+    still_refused = await intent_tools.dispatch_intent(
+        "write",
+        "delete a node",
+        hints={**hints, "plan_ref": plan_ref},
+        execute=True,
+    )
+    assert still_refused["approval_required"] is True
+    assert seen is None
+
+    await _approve("graph_write.delete_node")
+    result = await intent_tools.dispatch_intent(
+        "write",
+        "delete a node",
+        hints={**hints, "plan_ref": plan_ref},
+        execute=True,
+    )
+    assert result["executed"] is True
+    assert seen == {"action": "delete_node", "node_id": "node-1"}
 
 
 @pytest.mark.asyncio
@@ -1579,6 +1631,7 @@ async def test_human_approval_class_routes_to_exact_tool_even_when_not_destructi
         execute=True,
     )
     assert result["approval_required"] is True
+    assert result["required_approval"] == "fake_reviewed_action"
     assert result["executed"] is False
     assert called is False
 
