@@ -211,7 +211,7 @@ class TaskPlanner:
     async def plan(self, goal: str) -> TaskPlan:
         plan = TaskPlan(goal)
         plan.tasks = sorted(
-            {t for t in self.mapper(goal) if t in NATIVE_TASKS}, key=_ORDER.get
+            {t for t in self.mapper(goal) if t in NATIVE_TASKS}, key=_ORDER.__getitem__
         )
         if not plan.tasks:
             plan.gaps.append("unmapped_task: the goal names no native task")

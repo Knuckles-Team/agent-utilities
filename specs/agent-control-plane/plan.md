@@ -9,7 +9,7 @@
 
 **Dependency order:** public EG contract → graph-os admission → AU port/consumer → end-to-end evidence. A stub client, a mock-only happy path, or a green source build alone does not close AC-02/03/06.
 
-## Task planner and cross-source reports (AU-CONTROL-R024–AU-CONTROL-R027)
+## Task planner and cross-source reports (AU-CONTROL-R027–AU-CONTROL-R030)
 
 **Reuse.** The planner composes existing parts only. `decide/consumers/assembly.py` supplies `assemble_mapped` and `spec_fields`. `decide/consumers/topology.py` supplies `ask_topology` and `plan_of`. `decide/topology/templates.py` supplies the reference templates and their DAG edges. The planner adds no solver, selector or success store. Ports cover the remaining facts: a capability search, a guardrail source and a compiled-workflow lookup. graph-os binds those ports to the EG coverage and guardrail queries (EG-DECISION-ENGINE-R126, EG-DECISION-ENGINE-R127). `graph_workflows compile` and `process_plan_compiler.py` back the workflow lookup.
 

@@ -1700,9 +1700,9 @@ async def _question_route(
     """Route an unpinned ``ask`` that is a planning or cross-source question.
 
     "How can I ...", "what steps ..." and "which agents should ..." go to the
-    task planner (AU-CONTROL-R025). A question whose ontology concepts span
+    task planner (AU-CONTROL-R028). A question whose ontology concepts span
     two or more installed virtual sources goes to the cross-source report
-    (AU-CONTROL-R026). Both answers are read-only and carry provenance. Any
+    (AU-CONTROL-R029). Both answers are read-only and carry provenance. Any
     hint (a pinned tool, an action or structured arguments) keeps the
     caller's declared route.
     """
