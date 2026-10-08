@@ -34,42 +34,48 @@ def _server() -> FastMCP:
 def test_toggle_env_ignores_structural_only_tags():
     assert _toggle_env(set()) == "—"
     assert _toggle_env({"verbose"}) == "—"
-    assert _toggle_env({"gated", "granular", "verbose"}) == "—"
+    assert _toggle_env({"granular", "verbose"}) == "—"
 
 
 def test_toggle_env_selects_domain_among_structural_tags():
-    assert _toggle_env({"series", "gated", "granular"}) == "`SERIESTOOL`"
+    assert _toggle_env({"series", "granular"}) == "`SERIESTOOL`"
     assert _toggle_env({"podcasts", "granular", "verbose"}) == "`PODCASTSTOOL`"
 
 
-def test_render_includes_condensed_and_verbose_sections():
-    table = render_tools_table(_server())
-    assert START in table and END in table
-    # The generator catalogs the explicit condensed action-routed surface.
-    assert "Condensed action-routed tools" in table
-    assert "| `svc_cmdb` | `CMDBTOOL` |" in table
-    assert "| `svc_incidents` | `INCIDENTSTOOL` |" in table
-    # verbose 1:1 tools are now INCLUDED in their own (collapsible) section
-    assert "Verbose 1:1 API-mapped tools" in table
-    assert "<details>" in table
-    assert "| `svc_get_cmdb_instance` |" in table
-    # summary distinguishes the two surfaces
-    assert "2 action-routed tool(s) · 1 verbose 1:1 tool(s)" in table
-    assert "`intent` default" in table
+def _surface() -> FastMCP:
+    """A connector built through the shared builder (the intent contract)."""
+    import types
 
+    from agent_utilities.mcp.verbose_tools import register_tool_surface
 
-def test_render_omits_verbose_section_when_none():
+    mod = types.ModuleType("fake_pkg_mcp")
+
+    def register_cmdb_tools(mcp):
+        @mcp.tool(name="svc_cmdb", tags={"cmdb"})
+        def _c():
+            "Manage CMDB operations."
+
+    mod.register_cmdb_tools = register_cmdb_tools
     mcp = FastMCP("t")
+    register_tool_surface(mcp, service="svc-api", tools_module=mod)
+    return mcp
 
-    @mcp.tool(name="svc_cmdb", tags={"cmdb"})
-    def _c():
-        "Manage CMDB operations."
 
-    table = render_tools_table(mcp)
-    assert "Condensed action-routed tools" in table
-    assert "Verbose 1:1 API-mapped tools" not in table  # no verbose -> no section
-    assert "1 action-routed tool(s) · 0 verbose 1:1 tool(s)" in table
-    assert "`intent` default" in table
+def test_render_lists_the_intent_tools_and_their_operations():
+    table = render_tools_table(_surface())
+    assert START in table and END in table
+    assert "#### Intent tools" in table
+    for verb in ("find", "ask", "act"):
+        assert f"| `{verb}` | intent |" in table
+    assert "#### Operations (`action` values)" in table
+    assert "| `svc_cmdb` | act · `CMDBTOOL` |" in table
+    assert "3 intent tool(s) · 1 operation(s)" in table
+
+
+def test_render_omits_the_operations_section_without_a_backing_server():
+    table = render_tools_table(_server())
+    assert "#### Operations" not in table
+    assert "0 operation(s)" in table
 
 
 def test_sync_inserts_under_heading_and_is_idempotent(tmp_path):

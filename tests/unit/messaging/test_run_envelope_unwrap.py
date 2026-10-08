@@ -1,4 +1,4 @@
-"""R020: a run envelope never reaches the user as raw JSON."""
+"""Run-envelope unwrap (au-integration-reliability spec): a run envelope never reaches the user as raw JSON."""
 
 from __future__ import annotations
 

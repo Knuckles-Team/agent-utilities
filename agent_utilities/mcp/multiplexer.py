@@ -2332,9 +2332,9 @@ class MCPMultiplexer:
         # share a namespace however the fleet scales. Built lazily from catalog.
         self._prefix_map: dict[str, str] | None = None
         self._prefix_reverse: dict[str, str] = {}
-        # CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse (Seam 8) — the HOST server's OWN
-        # granular tools held back by ``MCP_TOOL_MODE=intent`` (seeded from
-        # ``verbose_tools.gated_tool_names`` post-build). Unlike ``_exposed``
+        # CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse (Seam 8) — host-server
+        # tools a caller may reveal per session (empty for graph-os, whose intent
+        # tools are its whole surface). Unlike ``_exposed``
         # (fleet forwarders that must be MOUNTED) these are already registered
         # local FastMCP tools that only need a session-visibility flip — no
         # child process, no ``resolve_and_mount``. ``load_tools`` reveals them
@@ -6313,6 +6313,12 @@ class MCPMultiplexer:
         self._exposed.discard(prefixed_name)
         return owner
 
+    def require_capability(self, kind: str) -> None:
+        """Authorize one fleet operation kind (``discover``/``delegate``/``manage``)
+        for the current caller — the check the intent tools apply before they
+        search or call the fleet."""
+        _require_fleet_capability(kind)
+
     def session_loaded(self, session_key: str) -> set[str]:
         """The set of prefixed tools loaded (visible) for one session."""
         return self._session_loaded.setdefault(session_key, set())
@@ -7054,8 +7060,8 @@ async def load_session_tools(
     for hours on a permanently-uncallable tool.
     """
     # Split out the host server's OWN gated tools (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse) —
-    # already registered locally under MCP_TOOL_MODE=intent, they only need a
-    # session-visibility flip, never fleet mounting/resolution.
+    # already registered locally, they only need a session-visibility flip,
+    # never fleet mounting/resolution.
     requested = list(tools or [])
     local_names = [n for n in requested if n in mux._local_gated]
     fleet_tools = [n for n in requested if n not in mux._local_gated]
@@ -8021,26 +8027,24 @@ def attach_fleet_loader(
     authority_scope=None,
     catalog_writer=None,
 ) -> MCPMultiplexer:
-    """Attach on-demand MCP fleet-loading to an EXISTING FastMCP server (graph-os).
+    """Attach on-demand MCP fleet access to an EXISTING FastMCP server (graph-os).
 
-    graph-os serves its own KG/engine tools natively (always on). This composes the
-    fleet-aggregation engine on top so the SAME server can also reach the rest of the
-    MCP fleet (declared in ``mcp_config.json``) on demand — it registers the meta-tools
-    ``find_tools`` / ``list_catalog`` / ``load_tools`` / ``unload_tools`` /
-    ``catalog_refresh`` / ``catalog_dispatch`` / ``catalog_session_resume`` /
-    ``multiplexer_status`` plus a per-session
-    progressive-disclosure middleware. Child
-    servers are mounted LAZILY (each as an isolated subprocess/HTTP session via
-    :class:`~agent_utilities.mcp.child_resilience.ChildRuntime`, with its own breaker +
-    concurrency limit) only when a tool is actually loaded, so the base context stays
-    small. Returns the :class:`MCPMultiplexer` for lifecycle — call ``await mux.aclose()``
-    on shutdown. (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)
+    graph-os serves its own intent tools. This composes the fleet-aggregation
+    engine on top so the SAME server can also reach the rest of the MCP fleet
+    (declared in ``mcp_config.json``) through them: ``find`` searches the fleet
+    catalog and ``act(action="fleet.call")`` calls a fleet tool. No fleet tool
+    or meta-tool is listed separately. Child servers are mounted LAZILY (each as
+    an isolated subprocess/HTTP session via
+    :class:`~agent_utilities.mcp.child_resilience.ChildRuntime`, with its own
+    breaker + concurrency limit) only when a tool is actually called. Returns the
+    :class:`MCPMultiplexer` for lifecycle — call ``await mux.aclose()`` on
+    shutdown. (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)
 
-    All wiring here is synchronous (config parse + tool registration + middleware); no
-    child is spawned at attach time, so it drops cleanly into graph-os's synchronous
+    All wiring here is synchronous (config parse + binding); no child is spawned
+    at attach time, so it drops cleanly into graph-os's synchronous
     ``mcp.run(...)`` startup with no event loop.
 
-    ``embed_fn(texts: list[str]) -> list[vector]`` (optional) makes ``find_tools``
+    ``embed_fn(texts: list[str]) -> list[vector]`` (optional) makes fleet tool search
     SEMANTIC: graph-os injects its own in-process embedding model so tool suggestions
     rank by query↔description meaning (understands intent) instead of only literal token
     overlap. Per-tool embeddings are cached; it runs off-thread. When absent, discovery
@@ -8083,60 +8087,18 @@ def attach_fleet_loader(
             logger.warning(
                 "native Tasks extension does not expose multiplexer route binding"
             )
-    # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — the always-load declaration is READ here
-    # (synchronously, no I/O) but ACTED ON in the serving loop, on a session's
-    # first request, by ``SessionVisibilityMiddleware``. Nothing is spawned at
-    # attach time, so a broken always-load server cannot fail startup.
-    mux._always_load_servers = _always_load_setting(
-        "mcp_always_load", "MCP_ALWAYS_LOAD"
-    )
-    mux._always_load_tool_specs = _always_load_setting(
-        "mcp_always_load_tools", "MCP_ALWAYS_LOAD_TOOLS"
-    )
-    if mux.always_load_declared():
-        logger.info(
-            "graph-os always-load declared: %d server(s), %d tool(s); mounted on "
-            "a session's first request, fail-soft to lazy discovery",
-            len(mux._always_load_servers),
-            len(mux._always_load_tool_specs),
-        )
-    _register_meta_tools(mcp, mux)
-    # CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse (Seam 8) — under MCP_TOOL_MODE=intent,
-    # register_tool_surface has already tagged the host's own condensed/verbose
-    # tools GATED_TAG; seed the session-visibility gate with those names so
-    # load_tools reveals them exactly like a fleet tool (no mounting needed —
-    # they are already registered local FastMCP tools, just hidden by default).
-    from agent_utilities.mcp.verbose_tools import _provider_tools, gated_tool_names
-
-    mux._local_gated = gated_tool_names(mcp)
-    # The always-visible surface: the meta-tools just registered above, PLUS
-    # every other tool graph-os already registered natively on this server
-    # (the intent verbs, the MCP Apps entry points, and — outside intent/
-    # has-own-verbose mode — the condensed/verbose surface itself) that is
-    # NOT held back by the intent gate. "graph-os's own tools ... are always
-    # on" (see below) previously only listed the fleet meta-tool names
-    # literally, so every OTHER natively-registered, ungated tool fell
-    # through to tool_dispatchable()'s final "unknown to our bookkeeping"
-    # branch — which itself refuses everything whenever is_serving() is
-    # False (an empty/lazily-loaded external fleet catalog, a perfectly
-    # normal deployment shape, e.g. a zero-dependency profile). That silently
-    # hid the entire intent-verb surface (ask/find/act/why/write/manage) and
-    # the MCP Apps tools on any server with no external fleet servers
-    # configured yet. Deriving the set from what is actually registered (and
-    # not gated) keeps it always on regardless of external fleet state, as
-    # documented, instead of depending on a hardcoded name list going stale.
-    mux._global_visible = set(_provider_tools(mcp).keys()) - mux._local_gated
-    # Stash the mux on the server so a local tool (e.g. the ``find`` intent verb,
-    # CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse) can best-effort widen its search to the
-    # whole fleet catalog without a second multiplexer instance.
+    # CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse — the fleet is reached
+    # through the host's intent tools (``find`` searches the catalog, ``act``
+    # calls a fleet tool), never as separately listed MCP tools, so no meta-tool
+    # or per-session visibility layer is attached. Stash the mux on the server
+    # for those intent tools and bind it as the process's served multiplexer.
     mcp._fleet_mux = mux
     from agent_utilities.mcp.shared_multiplexer import bind_served_multiplexer
 
     bind_served_multiplexer(mux)
-    mcp.add_middleware(SessionVisibilityMiddleware(mux, mcp))
     logger.info(
-        "graph-os fleet loader ready: %d MCP server(s) mountable on demand via "
-        "find_tools/load_tools.",
+        "graph-os fleet loader ready: %d MCP server(s) reachable through the "
+        "intent tools.",
         len(mux.load_catalog()),
     )
     return mux

@@ -25,6 +25,9 @@ class _FakeFleetMux:
     def session_loaded(self, _key: object) -> set:
         return set()
 
+    def require_capability(self, _capability: str) -> None:
+        """The fake supports every multiplexer capability."""
+
 
 class _FakeMCP:
     def __init__(self, fleet_mux: _FakeFleetMux) -> None:

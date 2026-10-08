@@ -140,6 +140,9 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "graph_jobs": ("act", "ask"),
         "graph_durable": ("act", "ask"),
         "graph_agents": ("act",),
+        # AU-CONTROL-R024: the Agent Library. ``find`` ranks it, ``ask`` reaches
+        # only the reviewed read actions below, and ``manage`` saves records.
+        "agent_library": ("manage", "find", "ask"),
         "graph_workflows": ("act", "ask", "manage"),
         "graph_evolution": ("act",),
         "graph_governance": ("act", "manage"),
@@ -219,6 +222,7 @@ READ_ONLY_ACTIONS: Mapping[str, frozenset[str]] = MappingProxyType(
             {"trace_rootcause", "prompt_regression", "failure_cluster", "error_detail"}
         ),
         "graph_context": frozenset({"get", "list"}),
+        "agent_library": frozenset({"get", "list"}),
         "graph_code": frozenset(
             {
                 "blast_radius",
@@ -241,6 +245,28 @@ READ_ONLY_ACTIONS: Mapping[str, frozenset[str]] = MappingProxyType(
         # ``reload`` re-reads from disk without writing, so it is a read of the
         # world, not a change to it.
         "graph_config": frozenset({"describe", "get", "diff", "reload"}),
+        # Observability reads: usage analytics over the usage store, PromQL
+        # evaluation, trace search/fetch/waterfall, and audit-chain
+        # verification/provenance lookups. None of them writes.
+        "usage_query": frozenset(
+            {
+                "activity",
+                "by_agent",
+                "by_model",
+                "by_project",
+                "search",
+                "series",
+                "session_detail",
+                "sessions",
+                "summary",
+                "tools",
+                "top_sessions",
+                "traces",
+            }
+        ),
+        "graph_promql": frozenset({"instant", "range"}),
+        "graph_traces": frozenset({"get", "search", "waterfall"}),
+        "graph_audit": frozenset({"verify", "for_target", "lineage"}),
     }
 )
 

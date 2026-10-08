@@ -21,6 +21,7 @@
     "AU-INTEGRATION-R016",
     "AU-INTEGRATION-R017",
     "AU-INTEGRATION-R018",
+    "AU-INTEGRATION-R019",
     "AU-INTEGRATION-R020"
   ],
   "delivery_state": "SPECIFIED",
@@ -223,6 +224,13 @@
       "title": "Public docs site passes the full documentation gate suite",
       "delivery_state": "SPECIFIED",
       "evidence": []
+    },
+    {
+      "id": "AU-INTEGRATION-R019",
+      "title": "Messaging direct turns use a configured budget and deliver over-budget replies as a follow-up",
+      "delivery_state": "BUILDING",
+      "evidence": [],
+      "remaining": "Regression tests in tests/unit/messaging/test_direct_reply_budget.py; merged-head evidence pending."
     },
     {
       "id": "AU-INTEGRATION-R020",

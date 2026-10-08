@@ -547,7 +547,6 @@ def _minimal_environment(root: Path) -> dict[str, str]:
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
         "LOGFIRE_SEND_TO_LOGFIRE": "false",
-        "MCP_TOOL_MODE": "intent",
         "OTEL_SDK_DISABLED": "true",
         "PATH": str(Path(sys.executable).resolve().parent) + ":/usr/bin:/bin",
         "PYTHONDONTWRITEBYTECODE": "1",
