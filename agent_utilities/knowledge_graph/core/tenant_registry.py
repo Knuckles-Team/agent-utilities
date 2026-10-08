@@ -166,6 +166,24 @@ def _control_backend() -> Any:
     return EpistemicGraphBackend().for_graph(CONTROL_GRAPH_NAME)
 
 
+def _registry_read_session() -> Any:
+    """The process service session that reads the ``__control__`` registry.
+
+    The snapshot is one process-wide cache shared by every caller. Reading it
+    under whichever request happened to miss the cache let an ordinary user,
+    who holds no ``__control__`` grant, poison flat tenancy for everyone with
+    ``ACCESS_DENIED``. The read now always runs as this process's own verified
+    identity. Authorization is unchanged: ``accessible_graphs`` still projects
+    only the calling actor's own tenant chain.
+    """
+    from agent_utilities.security.request_identity import system_write_session
+
+    from .session import suspend_session
+
+    with suspend_session():
+        return system_write_session()
+
+
 def _load_snapshot() -> dict[str, str]:
     """One label-indexed read of every registry record → ``{tenant: parent}``.
 
@@ -178,10 +196,10 @@ def _load_snapshot() -> dict[str, str]:
     ``core.schedule_engine._control_session_scope`` /
     ``knowledge_graph.core.session.control_session_scope``, the shared fix).
     """
-    from .session import control_session_scope
+    from .session import control_session_scope, use_session
 
     backend = _control_backend()
-    with control_session_scope(backend):
+    with use_session(_registry_read_session()), control_session_scope(backend):
         rows = backend.nodes_by_label(TENANT_HIERARCHY_LABEL) or []
     mapping: dict[str, str] = {}
     for node_id, props in rows:

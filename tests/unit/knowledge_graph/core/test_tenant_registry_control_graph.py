@@ -107,6 +107,9 @@ class _EnforcingControlBackend:
 def backend(monkeypatch):
     fake = _EnforcingControlBackend()
     monkeypatch.setattr(tr, "_control_backend", lambda: fake)
+    monkeypatch.setattr(
+        tr, "_registry_read_session", lambda: _session(graph="acme", tenant="svc")
+    )
     tr.invalidate_cache()
     yield fake
     tr.invalidate_cache()
@@ -179,3 +182,27 @@ def test_a_correctly_scoped_control_session_is_a_no_op_retarget(backend) -> None
     with use_session(_session(graph="__control__")):
         result = tr.set_parent("eng", "acme", actor=_actor(roles=("kg:admin",)))
     assert result.parent_tenant_id == "acme"
+
+
+def test_snapshot_reads_as_the_service_identity_not_the_caller(backend) -> None:
+    """A user without a ``__control__`` grant must not decide the shared
+    snapshot. The fake refuses every actor except the service identity, as
+    the engine refuses a user principal with ``ACCESS_DENIED``."""
+    with use_session(_session(graph="acme")):
+        tr.set_parent("eng", "acme", actor=_actor(roles=("kg:admin",)))
+    tr.invalidate_cache()
+    readers: list[str] = []
+    original = backend.nodes_by_label
+
+    def service_only(label: str, limit: int = 0):
+        session = current_session()
+        readers.append(session.tenant)
+        if session.tenant != "svc":
+            raise PermissionError("ACCESS_DENIED: lacks Read access to '__control__'")
+        return original(label, limit)
+
+    backend.nodes_by_label = service_only
+    user = _session(graph="acme", roles=("kg:read",))
+    with use_session(user):
+        assert tr.ancestor_chain("eng") == ["acme"]
+    assert readers == ["svc"]
