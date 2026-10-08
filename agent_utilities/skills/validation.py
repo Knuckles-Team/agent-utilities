@@ -12,8 +12,11 @@ from typing import Any
 
 import yaml
 
-from agent_utilities.mcp.skill_coverage import parse_graph_os_sidecar
-from agent_utilities.mcp.tool_specs import canonical_tool_names
+from agent_utilities.mcp.skill_coverage import (
+    discover_skills,
+    parse_graph_os_sidecar,
+    verb_universe,
+)
 from agent_utilities.skills import BUNDLED_SKILLS
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
@@ -586,22 +589,29 @@ def _validate_skill(skill_dir: Path) -> list[str]:
 
 
 def _forward_matrix_domain_wraps() -> tuple[dict[str, set[str]], set[str]]:
+    """Known Graph-OS verbs a delegated platform case may name in
+    ``allowed_tools``.
+
+    The seven ``graph-*`` domain skills that used to live locally here (and
+    whose sidecars this function used to read directly off ``SKILLS_ROOT``)
+    moved to graph-os's own skill pack; the one skill this package retains
+    is ``tier: platform`` and claims no verbs of its own. ``verb_universe()``
+    is this package's own static canonical ToolSpec registry — it needs no
+    sidecar or installed package to exist and so validates correctly whether
+    or not graph-os happens to be installed alongside agent-utilities (it is
+    not an agent-utilities dependency, so CI never has it; a dev sandbox
+    might). ``discover_skills()`` (the cross-package unified-resolver
+    discovery ``skill_coverage.compute_coverage()`` uses) is kept as a
+    supplementary source for ``domain_wraps`` — the per-skill mapping below,
+    used only for a DIRECT case's ``expected_routes`` check against a
+    locally-tiered-domain skill, which is legitimately empty when none is
+    installed.
+    """
     domain_wraps: dict[str, set[str]] = {}
-    for skill in EXPECTED_SKILLS:
-        meta = parse_graph_os_sidecar(
-            SKILLS_ROOT / skill / "agents" / "graph-os.yaml", skill_name=skill
-        )
+    for meta in discover_skills():
         if meta.tier == "domain" and not meta.errors:
-            domain_wraps[skill] = set(meta.wraps)
-    all_domain_wraps = set().union(*domain_wraps.values()) if domain_wraps else set()
-    # A delegated case's allowed_tools must name a REAL registered verb; that a
-    # bundled domain skill locally wraps it is sufficient but, since the
-    # domain skills moved to graph-os (2026-10-03) and agent-utilities no
-    # longer bundles any, no longer necessary -- the canonical ToolSpec
-    # universe is this repository's own remaining source of truth for "is
-    # this a real Graph-OS verb" and stays in scope regardless of which
-    # package currently documents it with a domain skill.
-    all_domain_wraps |= canonical_tool_names()
+            domain_wraps[meta.name] = set(meta.wraps)
+    all_domain_wraps = verb_universe()
     return domain_wraps, all_domain_wraps
 
 
@@ -1119,7 +1129,7 @@ def _validate_skill_inventory() -> tuple[set[str], list[str]]:
 
 def _validate_skill_tree(actual: set[str]) -> list[str]:
     errors: list[str] = []
-    # Scoped to the canonical 13-skill subtree only: a SKILL.md nested under one
+    # Scoped to the canonical 4-skill subtree only: a SKILL.md nested under one
     # of EXPECTED_SKILLS would be a real violation (that skill must be a flat
     # <name>/SKILL.md directory), but agent_utilities/skills/ also legitimately
     # hosts other, differently-shaped content outside this taxonomy — the

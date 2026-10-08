@@ -1678,6 +1678,57 @@ async def _dispatch_execute_and_record(
     return {"result": result, "routing": routing, "executed": True}
 
 
+def _question_routing(intent_ref: str, route: str, why: str) -> dict[str, Any]:
+    return {
+        "verb": "ask",
+        "intent_ref": intent_ref,
+        "chosen_tool": route,
+        "action": None,
+        "why": why,
+        "capability_source": "graphos_question_route",
+        "decision_trace": {
+            "policy": {"verb_class": "read_only", "read_only_enforced": True},
+            "route": {"tool": route, "action": None, "fallback": False},
+            "result_provenance": {"execution_core": route, "status": "succeeded"},
+        },
+    }
+
+
+async def _question_route(
+    verb: str, intent: str, raw_hints: dict[str, Any], intent_ref: str
+) -> dict[str, Any] | None:
+    """Route an unpinned ``ask`` that is a planning or cross-source question.
+
+    "How can I ...", "what steps ..." and "which agents should ..." go to the
+    task planner (AU-CONTROL-R028). A question whose ontology concepts span
+    two or more installed virtual sources goes to the cross-source report
+    (AU-CONTROL-R029). Both answers are read-only and carry provenance. Any
+    hint (a pinned tool, an action or structured arguments) keeps the
+    caller's declared route.
+    """
+    if verb != "ask" or raw_hints:
+        return None
+    from agent_utilities.decide.consumers.task_planner import (
+        is_planning_question,
+        process_task_planner,
+    )
+    from agent_utilities.knowledge_graph.virtual_graph.federation import (
+        answer_cross_source,
+    )
+
+    if is_planning_question(intent):
+        plan = await process_task_planner().plan(intent)
+        why = "Planning question: answered by the task planner."
+        routing = _question_routing(intent_ref, "task_planner", why)
+        return {"result": plan.to_dict(), "routing": routing, "executed": True}
+    report = await answer_cross_source(intent)
+    if report is None:
+        return None
+    why = "Ontology concepts span installed virtual sources: federated report."
+    routing = _question_routing(intent_ref, "cross_source_report", why)
+    return {"result": report.to_dict(), "routing": routing, "executed": True}
+
+
 async def dispatch_intent(
     verb: str,
     intent: str,
@@ -1744,10 +1795,12 @@ async def dispatch_intent(
     outcome_scope_ref = _outcome_scope_ref()
     supplied_plan_ref = str(raw_hints.get("plan_ref") or "")
 
-    def _restore_from_plan_ref() -> dict[str, Any] | None:
+    async def _restore_from_plan_ref() -> dict[str, Any] | None:
         nonlocal raw_hints
         if not (verb in _NON_READ_VERBS and should_execute and supplied_plan_ref):
-            return None
+            # No reviewed plan to restore: a bare planning or cross-source
+            # ``ask`` is answered here, before capability ranking.
+            return await _question_route(verb, intent, raw_hints, intent_ref)
         restored_hints = _restore_preview_hints(
             supplied_plan_ref,
             verb=verb,
@@ -1772,7 +1825,7 @@ async def dispatch_intent(
         raw_hints = {**restored_hints, "plan_ref": supplied_plan_ref}
         return None
 
-    _restore_outcome = _restore_from_plan_ref()
+    _restore_outcome = await _restore_from_plan_ref()
     if _restore_outcome is not None:
         return _restore_outcome
 

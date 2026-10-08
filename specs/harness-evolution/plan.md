@@ -9,3 +9,38 @@
 7. Run synthetic, fault and served integration fixtures. Record exact merged-head evidence per requirement and leave incomplete rows open.
 
 Dependencies: real EG Decide and generated clients precede work-market acceptance; repository-manager and graph-os receipt contracts precede Git materialization acceptance. A locally emitted job is not trained, evaluated or promoted.
+
+## L4 harness port (AU-HARNESS-R007 to AU-HARNESS-R010)
+
+Architecture, in call order:
+
+```text
+L3 AgentSpec(harness=...) -> ParallelEngine._execute_agent
+  native     -> existing in-process pydantic-ai path (unchanged)
+  other name -> HarnessRegistry.select -> HarnessPort.run(HarnessRequest)
+             -> RunOutcome -> record_outcome -> RunTrace writer + UsageRecorder
+```
+
+Interfaces live in `agent_utilities/layers/`:
+
+| Module | Role |
+|---|---|
+| `harness_port.py` | `HarnessPort`, `HarnessRequest`, `RunOutcome`, `UsageReport`, `DiffStat`, `refused` |
+| `harness_native.py` | `NativeHarness` over `run_agent`, the registry default |
+| `harness_cli.py` | `ClaudeCodeHarness`, the pinned argument vector, the graph-os MCP configuration helper |
+| `harness_process.py` | one bounded child launch, the environment allowlist and the read-only diff stat |
+| `harness_registry.py` | per-node selection by `AgentSpec.harness`; unknown names raise |
+| `harness_record.py` | L5 recording through the existing ordered RunTrace writer and `UsageRecorder` |
+| `harness_node.py` | `AgentSpec` to `HarnessRequest`, and `RunOutcome` to `AgentExecutionResult` |
+
+Reuse decisions:
+
+- The native adapter calls `run_agent` unchanged. Tool calls, structured output, usage, trace export and the RunTrace write stay on that path.
+- L5 reuses `_record_execution_trace_ordered` and `UsageRecorder.record_run`. No new trace store exists.
+- The run identifier comes from `run_identity.new_run_id`.
+- `core.execution.adapters` stays the text-only multi-CLI dispatcher. It returns no exit code, so the typed port does not route through it.
+- The earlier unmerged layer stack (`HarnessPort`, `SandboxPort`, five adapters, negotiation) informed the environment allowlist and the Claude Code flags. Negotiation and `SandboxPort` stay under `AU-CONTROL-001`.
+
+Extension point: a LangGraph or other runtime adds one class with `name` and `run`, then calls `HarnessRegistry.register`. No stub adapter ships.
+
+Live wiring: the default registry holds only `native`. An operator registers `ClaudeCodeHarness` with a written graph-os MCP configuration. A node then sets `harness="claude-code"` and `harness_workspace` to a worktree. The MCP configuration references the token through an environment variable, never as a literal value.

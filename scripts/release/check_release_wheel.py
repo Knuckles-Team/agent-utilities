@@ -113,10 +113,10 @@ def _named_skill_assets() -> frozenset[str]:
     generate_prebundled_skill_catalog.py / check_release_catalogs.py — see
     D-CDX-78) rather than a fixed per-skill file shape, so a skill legitimately
     growing a references/ directory or an extra script (as
-    graph-ingestion-and-integration, graph-query-and-explanation, and
-    agent-utilities-self-evolution already have) does not require a second,
-    independently-maintained edit here — it requires the ONE reviewed catalog
-    regeneration that already exists for exactly this purpose.
+    agent-utilities-development and agent-utilities-self-evolution already have)
+    does not require a second, independently-maintained edit here — it requires
+    the ONE reviewed catalog regeneration that already exists for exactly this
+    purpose.
     """
 
     try:

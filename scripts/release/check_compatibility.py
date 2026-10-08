@@ -39,9 +39,7 @@ _COMPONENT_VERSION = re.compile(r"^(?:0|[1-9][0-9]*)(?:\.(?:0|[1-9][0-9]*))*$")
 _OPAQUE_REFERENCE = re.compile(r"^pref_[a-z_]+_[a-f0-9]{64}$")
 _TRACE_NAME = re.compile(r"^graph_run:pref_run_[a-f0-9]{64}$")
 _SOURCE_FREEZE_DIGEST = re.compile(r"^(?!0{64}$)[a-f0-9]{64}$")
-_SOURCE_FREEZE_REPOSITORY_TOKEN = re.compile(
-    r"^\{repo:([a-z][a-z0-9-]{2,63})\}(.*)$"
-)
+_SOURCE_FREEZE_REPOSITORY_TOKEN = re.compile(r"^\{repo:([a-z][a-z0-9-]{2,63})\}(.*)$")
 _COMPONENT_BUILD_TYPE = "https://graphos.invalid/build/exact-local/v1"
 _COMPONENT_BUILDER_ID = "https://graphos.invalid/builders/exact-local/v1"
 _SKILL_NAMES = ("development",)
@@ -2772,9 +2770,7 @@ def _validate_release_identity(
     return release_id
 
 
-def _require_evidence_digest(
-    declared: Any, payload: bytes, message: str
-) -> None:
+def _require_evidence_digest(declared: Any, payload: bytes, message: str) -> None:
     if declared != "sha256:" + hashlib.sha256(payload).hexdigest():
         raise CompatibilityError(message)
 
@@ -2988,9 +2984,7 @@ def _validate_release_component_declaration(
     return version
 
 
-def _validate_release_component_artifact(
-    name: str, component: dict[str, Any]
-) -> None:
+def _validate_release_component_artifact(name: str, component: dict[str, Any]) -> None:
     artifact = str(component.get("artifact") or "")
     if not artifact or "latest" in artifact.casefold():
         raise CompatibilityError(
@@ -3229,9 +3223,7 @@ def verify_release_manifest(
             deployment=certifications.skill_deployment,
             field="skillValidationLifecycleEvidence",
         )
-        _verify_oci_vulnerability_scan_evidence(
-            certifications.oci_vulnerability_scan
-        )
+        _verify_oci_vulnerability_scan_evidence(certifications.oci_vulnerability_scan)
     expected_names, components = _validate_release_component_catalog(manifest, matrix)
     versions, component_source_evidence = _validate_release_components(
         expected_names,

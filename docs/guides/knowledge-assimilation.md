@@ -22,7 +22,7 @@ graph TD
     A["Content Sources"] --> B["UniversalKnowledgeClassifier"]
     B --> C{Evolution Potential ≥ 0.6?}
     C -->|Yes| D["EvolutionCandidateNode\ncreated in KG"]
-    D --> E["graph-ingestion-and-integration\n(SKILL)"]
+    D --> E["graph-ingestion-and-integration\n(graph-os SKILL)"]
     E --> F["comparative-analysis\n(SKILL)"]
     F --> G{Actionable Gaps?}
     G -->|Yes| H["SDD Plan Generated"]

@@ -4626,7 +4626,7 @@ def _check_skills() -> dict[str, Any]:
 
     CONCEPT:AU-OS.deployment.agent-factory-autoload — the agent factory loads flat
     operator-owned skills plus valid managed subtrees for current providers under
-    ``core.paths.skills_dir()``. The thirteen AU workflow skills unlock the platform. If
+    ``core.paths.skills_dir()``. The four AU workflow skills unlock the platform. If
     they are absent, point at the one command that installs them. Local discovery
     paths never leave this probe.
     """

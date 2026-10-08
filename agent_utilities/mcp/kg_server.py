@@ -53,7 +53,7 @@ import re
 import threading
 import time
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -1969,7 +1969,7 @@ async def graph_query_federated_endpoint(request: Request) -> JSONResponse:
 # 2. Granular Graph Search endpoints
 def _make_granular_search_endpoint(
     mode: str, *, include_top_k: bool = True
-) -> Callable[[Request], JSONResponse]:
+) -> Callable[[Request], Awaitable[JSONResponse]]:
     """Build one mode-fixed ``graph_search`` REST adapter.
 
     The per-mode URLs remain distinct, but all of them share the same JSON

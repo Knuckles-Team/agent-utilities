@@ -62,7 +62,7 @@ def test_validate_skill_flags_every_broken_facet_of_a_malformed_skill(
 ) -> None:
     """WB1-AU-02 characterization: the only pre-existing coverage of
     `_validate_skill` is `test_prebundled_skill_suite_is_valid` above, which
-    only proves the real 13-skill suite is 100% clean (0 errors) -- it never
+    only proves the real 4-skill suite is 100% clean (0 errors) -- it never
     exercises a single one of `_validate_skill`'s ~20 error-append branches
     (now split across `_validate_skill_frontmatter`/`_body`/
     `_workflow_terms`/`_openai_sidecar`/`_openai_interface`/

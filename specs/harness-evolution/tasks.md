@@ -8,6 +8,13 @@
 - [ ] HE-05: Proposal/validation/materialization client cutover; delete direct Git, local publication and Gap Cypher paths.
 - [ ] HE-07: Keep generative/autograd path deferred pending a separate approved evidence gate.
 - [ ] HE-08: Define the feature schema and slate-crediting method, fit and evaluate the work-market offer scoring head against a synthetic width-quality gold set, and promote it only through the governed promotion gate. Closes AU-HARNESS-R006.
+- [ ] HE-09: Typed `HarnessPort`, request and outcome models, typed refusal and the documented extension point. Closes AU-HARNESS-R007.
+- [ ] HE-10: `NativeHarness` over `run_agent` with envelope mapping and timeout. Closes AU-HARNESS-R008.
+- [ ] HE-11: `ClaudeCodeHarness` with pinned flags, worktree, timeout, environment allowlist, typed outcome and diff stat. Closes AU-HARNESS-R009.
+- [ ] HE-12: `AgentSpec.harness`, the registry, parallel-engine dispatch and L5 recording. Closes AU-HARNESS-R010.
+- [ ] HE-13: Run the `claude-code` harness once against served graph-os and record the receipt in `evidence.md`.
+- [ ] HE-14: Propose a `harness` field on the EG `AgentGraphNode` contract so published L3 graphs carry the selection.
+- [ ] HE-15: Update the `agent_utilities/layers/` row in the boundary coverage inventory for the new harness modules.
 - [ ] Run all fixtures and quality checks in `test-spec.md`; record exact merged-head evidence in `evidence.md`.
 
 Checkboxes close only after acceptance evidence. A design, branch, source file or local green test alone is not a completed deliverable.

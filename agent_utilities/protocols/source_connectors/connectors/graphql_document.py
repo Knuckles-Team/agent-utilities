@@ -338,7 +338,10 @@ def _parse_bounded_query(query: str) -> Any:
             query,
             no_location=True,
             max_tokens=_MAX_GRAPHQL_TOKENS,
-            allow_legacy_fragment_variables=False,
+            # graphql-core 3.3.0 removed the deprecated `allow_legacy_fragment_variables`
+            # parser option (GraphQL.js v17); its replacement defaults to the same
+            # deny-by-default posture this bounded parse relies on.
+            experimental_fragment_arguments=False,
         )
     except (GraphQLError, RecursionError, TypeError, ValueError):
         raise GraphQLDocumentError(
@@ -429,7 +432,10 @@ def _query_binds_row_bound(query: str, variable: str) -> bool:
             query,
             no_location=True,
             max_tokens=_MAX_GRAPHQL_TOKENS,
-            allow_legacy_fragment_variables=False,
+            # graphql-core 3.3.0 removed the deprecated `allow_legacy_fragment_variables`
+            # parser option (GraphQL.js v17); its replacement defaults to the same
+            # deny-by-default posture this bounded parse relies on.
+            experimental_fragment_arguments=False,
         )
     except (GraphQLError, RecursionError, TypeError, ValueError):
         return False

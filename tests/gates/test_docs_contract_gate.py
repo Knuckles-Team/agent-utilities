@@ -205,7 +205,7 @@ def test_privacy_gate_changed_source_scope_includes_tests_since_bug_228():
     privacy = _load_script("check_tracked_privacy.py")
     assert privacy._is_runtime_source_path(Path("agent_utilities/core/config.py"))
     assert privacy._is_runtime_source_path(
-        Path("agent_utilities/skills/graph-query-and-explanation/SKILL.md")
+        Path("agent_utilities/skills/agent-utilities-development/SKILL.md")
     )
     assert privacy._is_runtime_source_path(Path("tests/test_privacy.py"))
     assert not privacy._is_runtime_source_path(Path("scripts/check_tracked_privacy.py"))
