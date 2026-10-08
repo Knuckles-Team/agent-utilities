@@ -9,7 +9,7 @@
     "AU-HARNESS-R004",
     "AU-HARNESS-R005",
     "AU-HARNESS-R006",
-    "AU-HARNESS-R007"
+    "AU-HARNESS-R011"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -84,7 +84,7 @@
       ]
     },
     {
-      "id": "AU-HARNESS-R007",
+      "id": "AU-HARNESS-R011",
       "title": "Run outcomes feed propose-only prompt evolution",
       "delivery_state": "BUILDING",
       "evidence": []

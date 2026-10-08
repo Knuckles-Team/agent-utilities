@@ -8,7 +8,7 @@
 - [ ] HE-05: Proposal/validation/materialization client cutover; delete direct Git, local publication and Gap Cypher paths.
 - [ ] HE-07: Keep generative/autograd path deferred pending a separate approved evidence gate.
 - [ ] HE-08: Define the feature schema and slate-crediting method, fit and evaluate the work-market offer scoring head against a synthetic width-quality gold set, and promote it only through the governed promotion gate. Closes AU-HARNESS-R006.
-- [ ] HE-09: Schedule run-outcome prompt evolution through the existing optimization sweep and record propose-only `PromptVersion` candidates with trace provenance. Closes AU-HARNESS-R007.
+- [ ] HE-16: Schedule run-outcome prompt evolution through the existing optimization sweep and record propose-only `PromptVersion` candidates with trace provenance. Closes AU-HARNESS-R011.
 - [ ] Run all fixtures and quality checks in `test-spec.md`; record exact merged-head evidence in `evidence.md`.
 
 Checkboxes close only after acceptance evidence. A design, branch, source file or local green test alone is not a completed deliverable.

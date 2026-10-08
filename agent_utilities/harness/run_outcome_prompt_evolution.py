@@ -1,6 +1,6 @@
 """Run-outcome-driven prompt evolution (propose-only).
 
-CONCEPT:AU-AHE.optimization.run-outcome-prompt-evolution — run outcomes feed propose-only prompt evolution (AU-HARNESS-R007).
+CONCEPT:AU-AHE.optimization.run-outcome-prompt-evolution — run outcomes feed propose-only prompt evolution (AU-HARNESS-R011).
 
 Closes the L5 loop from recorded agent runs to a reviewable prompt candidate:
 

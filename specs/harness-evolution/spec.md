@@ -1,7 +1,7 @@
 # Harness evolution and governed work
 
 **Owner:** agent-utilities (AU) · **Stable ID:** `AU-HARNESS-001`
-**Delivery:** PARTIAL · **Acceptance:** NOT VERIFIED · **Scope IDs:** AU-HARNESS-R001–AU-HARNESS-R005, AU-HARNESS-R003–AU-HARNESS-R004, AU-HARNESS-R006–AU-HARNESS-R007 (AU portions). See [requirements.md](requirements.md) for the definition of every requirement ID and [status.json](status.json) for its delivery state and evidence.
+**Delivery:** PARTIAL · **Acceptance:** NOT VERIFIED · **Scope IDs:** AU-HARNESS-R001–AU-HARNESS-R005, AU-HARNESS-R003–AU-HARNESS-R004, AU-HARNESS-R006, AU-HARNESS-R011 (AU portions). See [requirements.md](requirements.md) for the definition of every requirement ID and [status.json](status.json) for its delivery state and evidence.
 
 ## Outcome
 
@@ -26,7 +26,7 @@ An operator sees one evidence-backed queue of gaps, can capture eligible open-we
 | HE-05 | Route code proposals through graph-os authorization and repository-manager materialization; remove AU direct Git, local publication/report authority and dual writes. | AU-HARNESS-R004 | source gate and end-to-end receipt |
 | HE-06 | Train/promote only with independent held-out evaluation, bounded resource lease, immutable artifact, compare-and-swap pointer and rollback receipt. | AU-HARNESS-R002 | negative and canary tests |
 | HE-07 | Keep in-engine generative/autograd implementation deferred until a separate evidence-backed Gap proves held-out benefit, cost and safety. | AU-HARNESS-R005 | absence and decision record |
-| HE-09 | Read new attributed `RunTrace` outcomes past a durable cursor. Optimize through a pluggable optimizer (native `eg-program` by default). Record a `PromptVersion` proposal with `was_derived_from` trace edges. Never write or promote the prompt. | AU-HARNESS-R007 | graph-double, fake-optimizer and native-path tests |
+| HE-16 | Read new attributed `RunTrace` outcomes past a durable cursor. Optimize through a pluggable optimizer (native `eg-program` by default). Record a `PromptVersion` proposal with `was_derived_from` trace edges. Never write or promote the prompt. | AU-HARNESS-R011 | graph-double, fake-optimizer and native-path tests |
 
 ## Success criteria
 

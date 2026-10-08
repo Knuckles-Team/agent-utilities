@@ -13,7 +13,7 @@
 | Decide unavailable, commit replay mismatch, claim fence lost | integration fault | no execution and no second scheduler |
 | Proposal missing approval, stale base, dirty tree, path escape, gate failure, uncertain remote result | graph-os/RM contract fakes | no unauthorized commit; pending proposal with typed reason |
 | Successful approved proposal | public contract integration | exact commit/gate/receipt digests; Gap resolves only after receipt re-ingest |
-| Agent with 10 new outcomes, 3 failures (AU-HARNESS-R007) | graph double + fake optimizer | one `PromptVersion` proposal, parent hash of the baseline, 10 `was_derived_from` edges, prompt file unchanged, cursor advanced |
+| Agent with 10 new outcomes, 3 failures (AU-HARNESS-R011) | graph double + fake optimizer | one `PromptVersion` proposal, parent hash of the baseline, 10 `was_derived_from` edges, prompt file unchanged, cursor advanced |
 | Pending proposal, too few outcomes, no failures, other agent's traces | graph double | no optimizer call and no new version |
 | Optimizer returns no candidate; graph write refused | graph double | status `error`; cursor and versions unchanged |
 | Default optimizer | fake engine serving `optimize_program` | native `bootstrap_few_shot` compiled state recorded on the proposal |
