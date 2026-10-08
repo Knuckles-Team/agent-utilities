@@ -18,6 +18,7 @@ import os
 import re
 import sys
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -2405,6 +2406,7 @@ def create_mcp_server(
     *,
     lifespan_extension: Callable[[Any], Any] | None = None,
     manage_engine_shutdown: bool = True,
+    skill_owner: str | None = None,
 ):
     """Initialize a FastMCP server with a standard middleware and auth stack.
 
@@ -2426,6 +2428,8 @@ def create_mcp_server(
         manage_engine_shutdown: Whether this factory context owns the active
             engine drain/close.  Public composition surfaces set this false
             and perform the gated finalization themselves.
+        skill_owner: Package whose skills this server serves as ``skill://``
+            resources. Defaults to the calling module's top-level package.
 
     Returns:
         A tuple containing:
@@ -2602,7 +2606,7 @@ def create_mcp_server(
             type(exc).__name__,
         )
 
-    _register_skill_providers(mcp)
+    _register_skill_providers(mcp, owner=skill_owner or _caller_package())
     _register_prompt_providers(mcp)
     from agent_utilities.mcp.content_resources import register_ontology_providers
 
@@ -2611,7 +2615,38 @@ def create_mcp_server(
     return args, mcp, middlewares
 
 
-def _register_skill_providers(mcp: Any) -> None:
+def _caller_package(stacklevel: int = 1) -> str:
+    """Return the top-level package of the module ``stacklevel`` frames up."""
+    frame = sys._getframe(stacklevel + 1)
+    module = str(frame.f_globals.get("__name__", ""))
+    return module.split(".", 1)[0]
+
+
+def _normalize_package(name: str) -> str:
+    return name.strip().casefold().replace("-", "_").replace(".", "_")
+
+
+def _owned_skill_dirs(
+    provider_dirs: list[tuple[str, Path]], owner: str | None
+) -> list[tuple[str, Path]]:
+    """Keep only the skill directories the owning package contributes.
+
+    A fleet server serves its OWN package's skills only. Every fleet pod
+    installs every package, so an unscoped sweep advertised other packages'
+    skills, which the engine's ConnectorPack import rejects. ``agent-utilities``
+    hub servers (and an unknown owner) keep the full catalogue.
+    """
+    if not owner or _normalize_package(owner) in {"agent_utilities", "__main__"}:
+        return provider_dirs
+    wanted = _normalize_package(owner)
+    return [
+        (provider, root)
+        for provider, root in provider_dirs
+        if _normalize_package(provider) == wanted
+    ]
+
+
+def _register_skill_providers(mcp: Any, owner: str | None = None) -> None:
     """Expose this server's skills as ``skill://`` MCP resources (CONCEPT:AU-ECO.mcp.skills-over-mcp-provider).
 
     Wires FastMCP-4's Skills-over-MCP ``SkillProvider`` onto the just-built
@@ -2643,7 +2678,8 @@ def _register_skill_providers(mcp: Any) -> None:
         from agent_utilities.core.providers import resolve_skill_provider_dirs
 
         registered = 0
-        for provider_name, root_dir in resolve_skill_provider_dirs():
+        owned = _owned_skill_dirs(resolve_skill_provider_dirs(), owner)
+        for provider_name, root_dir in owned:
             try:
                 mcp.add_provider(SkillProvider(root_dir))
                 registered += 1
