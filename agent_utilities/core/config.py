@@ -3074,6 +3074,11 @@ class AgentConfig(BaseSettings):
         default="2.5", alias="MESSAGING_BURST_WINDOW_S"
     )
     messaging_burst_max_s: str = Field(default="12", alias="MESSAGING_BURST_MAX_S")
+    # Direct/chat-turn reply budget in seconds (direct-reply budget spec): one grounding compile
+    # plus one full local-model answer. A turn past it is delivered as a follow-up.
+    messaging_direct_reply_budget_s: str = Field(
+        default="60.0", alias="MESSAGING_DIRECT_REPLY_BUDGET_S"
+    )
     # Post-conversation enrichment (CONCEPT:AU-ECO.messaging.post-conversation-enrichment): mine chats → KG concepts (opt-out).
     messaging_enrich: str = Field(default="1", alias="MESSAGING_ENRICH")
     # Surface goals / SDD specs from chats (CONCEPT:AU-ECO.messaging.surfaced, opt-out).
