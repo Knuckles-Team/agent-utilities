@@ -47,7 +47,7 @@ import fnmatch
 import logging
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
@@ -70,6 +70,8 @@ class Decision:
     verdict: Verdict
     reason: str
     source: str  # "rule" | "ontological-guardrail" | "context-policy" | "default"
+    #: EG's advisory pre-tool risk verdict -- shown, never obeyed.
+    advisory: str | None = None
 
 
 def more_restrictive(current: Decision, other: Decision) -> Decision:
@@ -163,7 +165,15 @@ class PermissionPolicy:
                         source="context-policy",
                     ),
                 )
-        return decision
+        return _with_advisory_risk(decision, tool_name)
+
+
+def _with_advisory_risk(decision: Decision, tool_name: str) -> Decision:
+    """Attach EG's advisory risk verdict; the verdict itself is unchanged."""
+    from agent_utilities.decide.consumers.risk import advisory_risk
+
+    advisory = advisory_risk(tool_name, decision.verdict, is_sensitive_tool(tool_name))
+    return decision if advisory is None else replace(decision, advisory=advisory)
 
 
 def is_identity_governed_toolset(toolset: Any) -> bool:

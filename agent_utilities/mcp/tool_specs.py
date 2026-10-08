@@ -209,6 +209,15 @@ READ_ONLY_ACTIONS: Mapping[str, frozenset[str]] = MappingProxyType(
         # an ``action`` parameter otherwise makes intent routing treat the
         # operation as an unclassified mutation.
         "graph_catalog": frozenset({"list", "preview_sync"}),
+        # The ``why`` verb's own tools: every graph_explain action returns an
+        # EvidenceBundle and every graph_observe action is trace/score
+        # analytics; none writes. Without this, ``why`` refused them.
+        "graph_explain": frozenset(
+            {"explain", "context", "executable_rag", "recommend"}
+        ),
+        "graph_observe": frozenset(
+            {"trace_rootcause", "prompt_regression", "failure_cluster", "error_detail"}
+        ),
         "graph_context": frozenset({"get", "list"}),
         "graph_code": frozenset(
             {

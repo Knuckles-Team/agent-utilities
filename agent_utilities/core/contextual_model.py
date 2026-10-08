@@ -751,12 +751,29 @@ def compile_model_context(
 ) -> ContextBundle:
     """Compile the sole evidence bundle allowed to reach a model invocation."""
 
-    from agent_utilities.knowledge_graph.retrieval.context_compiler import (
-        ContextCompiler,
+    from agent_utilities.knowledge_graph.retrieval.context_knapsack import (
+        sizer_for_model,
+        sizing_scope,
     )
 
     authority = resolve_session(session, required_scope="kg:read")
     source = _resolve_evidence_source(engine)
+    # AU-CONTEXT-R004: the invoked model's certified knapsack sizing (greedy when none).
+    with sizing_scope(sizer_for_model(str(model_version or ""))):
+        return _compile(source, query, authority, model_version, snapshot)
+
+
+def _compile(
+    source: Any,
+    query: str,
+    authority: GraphSession,
+    model_version: str,
+    snapshot: str,
+) -> ContextBundle:
+    from agent_utilities.knowledge_graph.retrieval.context_compiler import (
+        ContextCompiler,
+    )
+
     return ContextCompiler(source).compile(
         str(query or ""),
         authority,

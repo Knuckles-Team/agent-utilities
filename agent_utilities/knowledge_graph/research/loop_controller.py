@@ -610,6 +610,8 @@ class LoopController:
         support/contradiction neighborhood, persisting each outcome as a
         ``:BeliefRevisionProposal`` — never a mutation of the live belief
         (propose-only; the Critic flags, it does not arbitrate).
+        ``embedding_generation`` (opt-in) is the governed embedding-generation
+        swap (AU-CONTEXT-R002): activated only with EG's passing receipt.
         """
         from agent_utilities.core.config import config
 
@@ -635,6 +637,20 @@ class LoopController:
             report["belief_revision"] = stage(
                 "belief_revision", self._run_belief_revision
             )
+        if setting("KG_LOOP_EMBEDDING_GENERATION", False):
+            report["embedding_generation"] = stage(
+                "embedding_generation", self._run_embedding_generation
+            )
+
+    def _run_embedding_generation(self) -> dict[str, Any]:
+        """Swap the graph's embedding generation to the published model (AU-CONTEXT-R002),
+        activated only with EG's passing receipt (opt-in,
+        ``KG_LOOP_EMBEDDING_GENERATION``)."""
+        from agent_utilities.decide.learning.generation_cycle import (
+            run_generation_cycle,
+        )
+
+        return run_generation_cycle(self.engine)
 
     def _cycle_proposal_stages(
         self, report: dict[str, Any], stage: Callable, opts: _CycleOptions
