@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 from agent_utilities.graph.training_signals import batch_normalized_advantage
 from agent_utilities.harness.fast_slow_controller import FastSlowController, Trace
+from agent_utilities.harness.policy_job_inputs import PolicyJobInputs
 from agent_utilities.harness.substrate_trainer import (
     GrpoSample,
     SubstrateTrainer,
@@ -126,6 +127,37 @@ def test_idempotent_job_id():
     assert a.job_id == b.job_id == "job-taskA-n3"
     c = trainer.train("taskA", _traces([1.0, 2.0]))
     assert c.job_id == "job-taskA-n2"
+
+
+def _policy_inputs(**overrides):
+    fields = {
+        "capability_id": "polcap:aaa",
+        "base_version_id": "polver:bbb",
+        "capture_ids": ("polcapture:ccc",),
+        "method": {"method": "klpo", "estimator": {"estimator": "sampled_token"}},
+        "adapter": {"adapter": "lora", "rank": 8},
+        "hyperparameters_digest": "f" * 64,
+        "output_destination_ref": "artifacts:policy-new",
+    }
+    fields.update(overrides)
+    return PolicyJobInputs(**fields)
+
+
+def test_policy_job_is_digest_bound_and_idempotent():
+    trainer = SubstrateTrainer()
+    first = trainer.policy_job(_policy_inputs())
+    second = trainer.policy_job(_policy_inputs())
+
+    assert first.job_id == second.job_id and first.job_id.startswith("policy-job-")
+    assert first.method == "klpo" and first.corpus == []
+    assert first.policy is not None and first.policy.output_destination_ref == (
+        "artifacts:policy-new"
+    )
+    assert trainer.jobs() == [first, second]
+
+    # Changing any digest-bound input changes the job id.
+    changed = trainer.policy_job(_policy_inputs(hyperparameters_digest="e" * 64))
+    assert changed.job_id != first.job_id
 
 
 def test_determinism():

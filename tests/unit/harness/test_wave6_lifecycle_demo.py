@@ -25,6 +25,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.unit.fleet_autonomy_fakes import verified_fleet_session
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from test_wave6_gap_lifecycle import LifecycleEngine, _Draft  # noqa: E402
@@ -44,6 +46,14 @@ from agent_utilities.knowledge_graph.research.spec_proposals import (  # noqa: E
 )
 
 pytestmark = pytest.mark.concept("AU-AHE.harness.canonical-gap-lifecycle")
+
+
+@pytest.fixture(autouse=True)
+def _verified_session():
+    """Every Gap call binds the ambient verified tenant (EG's rule)."""
+    with verified_fleet_session():
+        yield
+
 
 _BUGGY = "def add(a, b):\n    return a - b  # BUG: subtracts\n"
 _FIXED = "def add(a, b):\n    return a + b\n"
@@ -111,7 +121,8 @@ def _single_traversal(engine: LifecycleEngine, gap_id: str):
     g = get_gap(engine, gap_id)
     if not g or g.get("status") != gaps.STATUS_RESOLVED:
         return None
-    spec = follow(gap_id, "SPECIFIED_BY")
+    # Hop 1 is recorded on EG's own Gap (its spec references), not a generic edge.
+    spec = list(g.get("spec_refs") or [])
     ver = follow(spec[0], "IMPLEMENTED_BY") if spec else []
     exe = follow(ver[0], "PUBLISHED_AS") if ver else []
     if spec and ver and exe:
@@ -181,7 +192,7 @@ def test_end_to_end_gap_to_resolved_chain(target_repo, tmp_path, monkeypatch):
     assert len(audit_gaps) == 1
     audit_gap_id = audit_gaps[0]["id"]
 
-    sources = {g["source"] for g in engine.by_type("Gap")}
+    sources = {g["source"] for g in engine.market.gap_rows.values()}
     assert sources == {"failure", "research", "skill", "audit"}, sources
 
     # ---- 2. author a first-class DSTDD spec (D2) + a develop-able SpecProposal
@@ -202,9 +213,9 @@ def test_end_to_end_gap_to_resolved_chain(target_repo, tmp_path, monkeypatch):
     spec_id = persist_spec_proposal(
         engine, draft, gap_id=audit_gap_id, target_file="w6_widget.py"
     )
-    assert (audit_gap_id, spec_id, "SPECIFIED_BY") in engine.edges
+    assert get_gap(engine, audit_gap_id)["spec_refs"] == [spec_id]
 
-    # ---- 3. review approve → binds a develop-Loop with the RESOLVES edge --------
+    # ---- 3. review approve → binds a develop-Loop carrying the origin gap -------
     review_spec(engine, spec_id, "approve")
 
     # Point the publisher AND code-synthesis at the seeded repo (both resolve
@@ -281,7 +292,7 @@ def test_non_opted_in_deployment_is_unaffected(monkeypatch):
     )
     monkeypatch.setattr(config, "kg_loop_audit", False, raising=False)
     assert run_audit_gap_scan(engine)["skipped"] is True
-    assert not engine.by_type("Gap")
+    assert not engine.market.gap_rows
 
 
 def test_crash_mid_implement_resumes(tmp_path):

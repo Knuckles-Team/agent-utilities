@@ -12,63 +12,18 @@ from agent_utilities.knowledge_graph.assimilation import (
     synthesize_plans,
 )
 from agent_utilities.knowledge_graph.assimilation.plan_synthesis import _default_synth
+from tests.unit.assimilation_graph_fakes import market_engine as _Engine
+from tests.unit.assimilation_graph_fakes import two_open_features as _nodes
+from tests.unit.fleet_autonomy_fakes import verified_fleet_session
 
 pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 
 
-class _Graph:
-    def __init__(self, nodes):
-        self._n = dict(nodes)
-        self._out: dict = {}
-        self._in: dict = {}
-
-    def nodes(self, data=False):
-        return list(self._n.items()) if data else list(self._n)
-
-    def add_node(self, nid, attrs):
-        self._n[nid] = attrs
-
-    def add_edge(self, src, dst, props):
-        self._out.setdefault(src, []).append((src, dst, props))
-        self._in.setdefault(dst, []).append((src, dst, props))
-
-    def out_edges(self, nid, data=False):
-        e = self._out.get(nid, [])
-        return e if data else [(s, t) for s, t, _ in e]
-
-    def in_edges(self, nid, data=False):
-        e = self._in.get(nid, [])
-        return e if data else [(s, t) for s, t, _ in e]
-
-
-class _Engine:
-    def __init__(self, nodes):
-        self.graph = _Graph(nodes)
-
-    def add_node(self, nid, node_type, properties=None, ephemeral=False):
-        self.graph.add_node(nid, {**(properties or {}), "type": node_type})
-
-    def link_nodes(self, src, dst, rel_type, properties=None, ephemeral=False):
-        self.graph.add_edge(src, dst, properties or {})
-
-
-def _nodes():
-    return {
-        "f1": {
-            "type": "capability",
-            "name": "exec-rag planner",
-            "concept_ids": ["AU-KG.retrieval.memory-first-retrieval"],
-            "research_sources": ["arxiv:pyrag"],
-            "status": "open",
-        },
-        "f2": {
-            "type": "capability",
-            "name": "social swarm",
-            "concept_ids": ["AU-ORCH.dispatch.kg-governed-agent-swarm"],
-            "research_sources": ["arxiv:mass"],
-            "status": "open",
-        },
-    }
+@pytest.fixture(autouse=True)
+def _verified_session():
+    """Every Gap call binds the ambient verified tenant (EG's rule)."""
+    with verified_fleet_session():
+        yield
 
 
 def test_hydrate_feature_pulls_neighborhood():
@@ -103,8 +58,11 @@ def test_synthesize_folds_into_canonical_gap_and_spec():
     # plan_id is now the persisted :SpecProposal id (title-derived), not plan:f1.
     assert proposal.plan_id == "spec_proposal:t"
     data = dict(engine.graph.nodes(data=True))
-    # A canonical :Gap and a :SpecProposal were persisted; NO sdd_plan node.
-    assert data["gap:research:f1"]["type"] == "Gap"
+    # ONE canonical Gap was upserted through EG's typed Gap surface (the
+    # harness-evolution work-market requirement), a :SpecProposal was
+    # persisted, and NO sdd_plan node was written.
+    assert {gap_id for _, gap_id in engine.market.gap_rows} == {"gap:research:f1"}
+    assert "gap:research:f1" not in data
     assert data["spec_proposal:t"]["type"] == "SpecProposal"
     assert "plan:f1" not in data
     assert data["f1"]["status"] == "proposed"
