@@ -552,7 +552,14 @@ async def test_two_turns_share_one_session_for_continuity(monkeypatch) -> None:
     sessions: list[str] = []
 
     async def _fake_reply(
-        _engine, _content, *, session, image_parts=None, budget=None, shape=None
+        _engine,
+        _content,
+        *,
+        session,
+        image_parts=None,
+        budget=None,
+        shape=None,
+        on_late_reply=None,
     ):
         sessions.append(session)
         return "ok"

@@ -615,7 +615,8 @@ def test_reply_budget_scales_with_shape() -> None:
     lean = dataclasses.replace(base, **_LEAN_FIELDS)
     full = dataclasses.replace(base, **_FULL_FIELDS)
 
-    assert lean.is_interactive and lean.reply_budget_s <= 30.0
+    # AU-INTEGRATION-R019: the direct budget is the configured setting (default 60 s).
+    assert lean.is_interactive and lean.reply_budget_s == 60.0
     assert not full.is_interactive and full.reply_budget_s >= 120.0
     # A full turn must earn a strictly larger budget than a lean one.
     assert full.reply_budget_s > lean.reply_budget_s

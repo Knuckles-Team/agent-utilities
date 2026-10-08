@@ -137,7 +137,7 @@ class ExecutionProfile:
         decide inline-vs-deferred delivery (see ``is_interactive``).
         """
         if self.direct_complete:
-            return 25.0
+            return _direct_reply_budget()
         if self.tool_servers:
             # CONCEPT:AU-ORCH.execution.focused-tools-altitude — the FOCUSED-TOOLS altitude is one agent loop that calls the
             # bound servers' tools (in parallel), with NO planner / discovery / agent resolution
@@ -171,13 +171,38 @@ class ExecutionProfile:
         the transport should acknowledge it immediately and deliver the result as a follow-up
         (CONCEPT:AU-ORCH.execution.passthrough-identity) rather than make the user stare at a typing indicator for minutes.
         """
+        if self.direct_complete:
+            return True
         return self.reply_budget_s <= _INTERACTIVE_REPLY_BUDGET_S
 
 
 # The longest a turn may take while still being answered INLINE (block-and-wait). Above this,
-# the messaging transport acks now and delivers later (CONCEPT:AU-ORCH.execution.passthrough-identity). A direct (25 s) and
-# a lean single-specialist (45 s) turn answer inline; a full multi-agent tool turn defers.
+# the messaging transport acks now and delivers later (CONCEPT:AU-ORCH.execution.passthrough-identity). A direct
+# turn and a lean single-specialist (45 s) turn answer inline; a full multi-agent tool turn
+# defers. ``is_interactive`` also treats every direct turn as inline, so a configured direct
+# budget above this ceiling never moves a plain chat turn onto the deferred path.
 _INTERACTIVE_REPLY_BUDGET_S = 50.0
+
+_DEFAULT_DIRECT_REPLY_BUDGET_S = 60.0
+
+
+def _direct_reply_budget() -> float:
+    """The configured direct/chat-turn reply budget (AU-INTEGRATION-R019), default 60 s.
+
+    A plain chat turn runs one grounding compile plus one full local-model answer. A
+    hard-coded 25 s wall cut that turn off on a slow local backend.
+    """
+    from agent_utilities.core.config import setting
+
+    try:
+        value = float(
+            setting(
+                "MESSAGING_DIRECT_REPLY_BUDGET_S", str(_DEFAULT_DIRECT_REPLY_BUDGET_S)
+            )
+        )
+    except (TypeError, ValueError):
+        return _DEFAULT_DIRECT_REPLY_BUDGET_S
+    return value if value > 0 else _DEFAULT_DIRECT_REPLY_BUDGET_S
 
 
 def _messaging_reply_timeout() -> float:
