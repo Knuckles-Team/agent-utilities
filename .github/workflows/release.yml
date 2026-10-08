@@ -589,7 +589,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: Knuckles-Team/pipelines
-          ref: 4f80a968dbf09b1f4d35bbff11b77f9e2fcd3ef6
+          ref: main
           path: .pipeline-contract
           persist-credentials: false
 
@@ -601,10 +601,12 @@ jobs:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
           EXPECTED_TAG: ${{ github.ref_name }}
           SOURCE_COMMIT: ${{ github.sha }}
-          PIPELINES_CONTRACT_COMMIT: 4f80a968dbf09b1f4d35bbff11b77f9e2fcd3ef6
         shell: bash
         run: |
           set -euo pipefail
+          # pipelines is referenced at main; freeze the commit checked out for this run.
+          PIPELINES_CONTRACT_COMMIT="$(git -C .pipeline-contract rev-parse HEAD)"
+          export PIPELINES_CONTRACT_COMMIT
           python -I scripts/release/publish_validated_wheel.py \
             --version "${EXPECTED_TAG#v}" \
             --manifest "$RUNNER_TEMP/au-publication.json"
