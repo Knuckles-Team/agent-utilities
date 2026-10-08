@@ -12,6 +12,9 @@
 - [ ] HE-10: `NativeHarness` over `run_agent` with envelope mapping and timeout. Closes AU-HARNESS-R008.
 - [ ] HE-11: `ClaudeCodeHarness` with pinned flags, worktree, timeout, environment allowlist, typed outcome and diff stat. Closes AU-HARNESS-R009.
 - [ ] HE-12: `AgentSpec.harness`, the registry, parallel-engine dispatch and L5 recording. Closes AU-HARNESS-R010.
+- [ ] HE-13: Run the `claude-code` harness once against served graph-os and record the receipt in `evidence.md`.
+- [ ] HE-14: Propose a `harness` field on the EG `AgentGraphNode` contract so published L3 graphs carry the selection.
+- [ ] HE-15: Update the `agent_utilities/layers/` row in the boundary coverage inventory for the new harness modules.
 - [ ] Run all fixtures and quality checks in `test-spec.md`; record exact merged-head evidence in `evidence.md`.
 
 Checkboxes close only after acceptance evidence. A design, branch, source file or local green test alone is not a completed deliverable.
