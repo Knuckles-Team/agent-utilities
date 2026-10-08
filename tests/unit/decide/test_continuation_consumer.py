@@ -153,7 +153,7 @@ def test_the_last_wave_of_a_plan_run_releases_its_leases(released: list[str]) ->
 def test_eg_cannot_widen_a_running_plan(
     eg: FakeTransport, released: list[str], width: int
 ) -> None:
-    """AU-CONTROL-R019: an unoffered widening answer grants no authority."""
+    """Control requirement 019: an unoffered widening answer grants no authority."""
     eg.answer = acted("widen")
     step = asyncio.run(
         continue_or_stop(

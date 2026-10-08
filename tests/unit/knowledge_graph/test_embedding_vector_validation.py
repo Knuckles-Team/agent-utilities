@@ -1,4 +1,4 @@
-"""AU-SEMANTIC-R028: explicit vector dimensions must never silently fall back."""
+"""Semantic requirement 028: explicit vector dimensions must not silently fall back."""
 
 from unittest.mock import Mock
 
