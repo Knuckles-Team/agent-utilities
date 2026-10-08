@@ -111,7 +111,7 @@ class Capacity:
             limits.append(_whole(self.budget_usd / self.usd_per_token))
         if self.latency_s is not None and self.tokens_per_second:
             limits.append(_whole(self.latency_s * self.tokens_per_second))
-        if caller_budget:
+        if caller_budget is not None:
             limits.append(int(caller_budget))
         return max(0, min(limits))
 

@@ -13,6 +13,7 @@ from agent_utilities.core import config as config_module
 from agent_utilities.core.config import (
     PRODUCTION_CERTIFICATION_SCENARIOS,
     AgentConfig,
+    EmbeddingModelConfig,
 )
 
 
@@ -417,6 +418,39 @@ def test_agent_config_overrides():
     finally:
         os.environ.pop("HOST", None)
         os.environ.pop("PORT", None)
+
+
+def test_resolved_kg_embedding_dim_fails_loud_on_explicit_mismatch(monkeypatch):
+    """An explicit ``KG_EMBEDDING_DIM`` that disagrees with the configured
+    embedder's real output size must raise, not silently apply (see
+    AU-SEMANTIC-R028): a silent mismatch between the configured dimension and
+    a 1024-dim ``bge-m3`` embedder would otherwise size every vector column
+    wrong with no error anywhere."""
+    monkeypatch.setenv("KG_EMBEDDING_DIM", "768")
+    config = AgentConfig(
+        EMBEDDING_MODELS=[
+            EmbeddingModelConfig(
+                id="bge-m3", provider="vllm", base_url="http://embedder.invalid"
+            )
+        ]
+    )
+    with pytest.raises(RuntimeError, match=r"KG_EMBEDDING_DIM.*explicitly set to 768"):
+        config.resolved_kg_embedding_dim()
+
+
+def test_resolved_kg_embedding_dim_derives_from_embedder_when_unset(monkeypatch):
+    """Without an explicit override, the dimension is derived from the
+    configured embedder rather than silently defaulting to 768
+    (AU-SEMANTIC-R028)."""
+    monkeypatch.delenv("KG_EMBEDDING_DIM", raising=False)
+    config = AgentConfig(
+        EMBEDDING_MODELS=[
+            EmbeddingModelConfig(
+                id="bge-m3", provider="vllm", base_url="http://embedder.invalid"
+            )
+        ]
+    )
+    assert config.resolved_kg_embedding_dim() == 1024
 
 
 def test_runtime_integration_settings_are_typed_and_normalized():
