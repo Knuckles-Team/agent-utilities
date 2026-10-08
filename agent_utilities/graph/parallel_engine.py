@@ -46,6 +46,8 @@ from agent_utilities.orchestration.resilience import (
 )
 
 from ..decide.consumers.continuation import after_wave
+from ..layers.harness_port import NATIVE_HARNESS
+from ..layers.harness_registry import harness_name
 from ..models.execution_manifest import (
     AgentExecutionResult,
     AgentSpec,
@@ -1097,6 +1099,41 @@ class ParallelEngine:
         return task
 
     async def _execute_agent(
+        self,
+        agent: AgentSpec,
+        manifest: ExecutionManifest,
+        graph_deps: GraphDeps | None,
+        wave_results: list[WaveResult],
+        proc: Any = None,
+    ) -> AgentExecutionResult:
+        """Execute one node on the harness its spec selects (AU-HARNESS-R010).
+
+        ``native`` keeps the in-process pydantic-ai path below; any other
+        harness runs through the L4 port and records its outcome at L5.
+        """
+        if harness_name(agent) != NATIVE_HARNESS:
+            return await self._execute_agent_via_harness(
+                agent, manifest, wave_results, proc
+            )
+        return await self._execute_agent_native(
+            agent, manifest, graph_deps, wave_results, proc
+        )
+
+    async def _execute_agent_via_harness(
+        self,
+        agent: AgentSpec,
+        manifest: ExecutionManifest,
+        wave_results: list[WaveResult],
+        proc: Any,
+    ) -> AgentExecutionResult:
+        """Run one node through its registered L4 ``HarnessPort``."""
+        from ..layers.harness_node import run_agent_spec
+
+        timeout = agent.timeout or getattr(config, "agent_execution_timeout", 120.0)
+        task = await self._build_agent_task(agent, manifest, wave_results, proc)
+        return await run_agent_spec(agent, task, timeout_s=timeout, engine=self.engine)
+
+    async def _execute_agent_native(
         self,
         agent: AgentSpec,
         manifest: ExecutionManifest,
