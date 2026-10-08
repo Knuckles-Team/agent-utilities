@@ -24,7 +24,7 @@ The manifest contains exactly eight components:
 4. Langfuse Agent OCI image with provider-profile transport, verified private-CA
    TLS, metadata-only trace query, and parent-authority graph ingestion;
 5. the complete exact 65-package connector capability catalog;
-6. the exact ten consolidated pre-bundled skills;
+6. the exact one consolidated pre-bundled skill;
 7. the canonical ontology lock;
 8. the one-time persisted-state migration catalog.
 
@@ -70,7 +70,7 @@ artifact digest. Empty or unrelated CycloneDX documents therefore cannot satisfy
 evidence gate even when their file digest is declared correctly.
 
 The release manifest also carries an exact `certificationDigests` map for the
-signed connector live-certification ledger, the 20-case pre-bundled skill
+signed connector live-certification ledger, the 2-case pre-bundled skill
 validation matrix, its exact `SkillValidationDeployment`, the signed
 skill-validation lifecycle evidence, the signed exact-artifact closure, and the
 aggregate-only OCI vulnerability-scan evidence. All six non-sentinel digests are
@@ -361,9 +361,9 @@ migration is not transferable.
 The skill catalog also requires fresh, signed JSON runtime validation evidence for the
 exact release. The release gate reconstructs the current test and case catalogs from
 the installed runtime-validation contract and requires their exact digests. It then
-requires the exact ordered set of all 8 checked-in cases (direct and
-GraphOS-delegated for each of the four skills), the exact skill/mode/model-class/case
-digest for each case, 8/8 passing cases, and 4/4 fully passing skills. Every check
+requires the exact ordered set of both checked-in cases (direct and
+GraphOS-delegated for the one bundled skill), the exact skill/mode/model-class/case
+digest for each case, 2/2 passing cases, and 1/1 fully passing skills. Every check
 must pass (with delegation marked not-applicable only for direct cases), references
 must be opaque, Langfuse lookup must be exact-name and metadata-only with one match,
 parent-KG readback must have one match, and every privacy flag must be false. Its
@@ -385,7 +385,7 @@ evidence. Each matched trace must also resolve to exactly one parent-mediated KG
 
 The signed matrix alone is insufficient for promotion. The mandatory
 `skillValidationDeployment` and `skillValidationLifecycleEvidence`
-certifications must bind that exact 20-case document digest, the current release
+certifications must bind that exact 2-case document digest, the current release
 specification and promotion evidence, and the exact configuration, profile,
 GraphOS, engine, and local model-registry authorities. The deployment document
 selects the external verifier by environment-reference name; release verification

@@ -96,12 +96,12 @@ _VERIFIED_PILLAR_FILES: tuple[str, ...] = (
 #: Same verification, for `agent_utilities/skills/*/SKILL.md` (real YAML
 #: frontmatter corpus). Restricted to the top-level ``*/SKILL.md`` glob depth —
 #: this fixture's `au-skills` domain pack therefore covers a verified subset of
-#: this repo's skills, not the nested `workflows/`/`skill_graphs/` ones.
-_VERIFIED_SKILL_FILES: tuple[str, ...] = (
-    "agent-utilities-deployment/SKILL.md",
-    "agent-utilities-development/SKILL.md",
-    "agent-utilities-evolution/SKILL.md",
-)
+#: this repo's skills, not the nested `skill_graphs/` one. Every domain-tier
+#: skill this tuple used to also list (agent-utilities-deployment,
+#: agent-utilities-evolution, autonomous-contribution, graph-modeling-and-
+#: mutation, graph-runtime-and-governance) moved to graph-os on 2026-10-03;
+#: agent-utilities-development is the one bundled skill left to verify.
+_VERIFIED_SKILL_FILES: tuple[str, ...] = ("agent-utilities-development/SKILL.md",)
 
 
 @pytest.fixture()

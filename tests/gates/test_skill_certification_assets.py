@@ -701,7 +701,7 @@ def test_source_gate_binds_runtime_and_release_certification_surfaces(
     assert check_skill_validation_certification.main() == 0
     assert capsys.readouterr().out == (
         "skill certification source gate: PASS "
-        "(4 skills, 8 cases, 3 skill schemas, 4 release schemas)\n"
+        "(1 skills, 2 cases, 3 skill schemas, 4 release schemas)\n"
     )
 
 
