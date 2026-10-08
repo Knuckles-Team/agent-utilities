@@ -15,6 +15,9 @@ re-enter through ``DecisionLog.resolve``, see :mod:`agent_utilities.decide.runne
 The record is always returned; it is made durable (``DecisionCommit``) only
 through a mutation-context provider, which the process that owns the
 policy gate (graph-os) binds -- AU never mints a mutation context itself.
+A solved, committed graph is then published (``AgentGraph.publish``) through
+the bound ``publish_context`` provider, and every solved graph is saved to the
+Agent Library as an ``agent_graph`` record for reuse (AU-CONTROL-R026).
 
 Topology -> skill (AU-CONTEXT-R001): the skills EG PROVED for the requested task
 classes -- the ``skill_ref`` of their judged-successful retrieval paths
@@ -186,6 +189,12 @@ class Assembler:
     #: The L1 component client pins resolve through; ``None``: the one bound to
     #: ``graphs``' client and session.
     components: Any = None
+    #: Mints the ``AgentLibraryMutationContext`` for the graph publish; the
+    #: policy owner (graph-os) binds it, like ``commit_context``.
+    publish_context: CommitContext | None = None
+    #: The :class:`~agent_utilities.orchestration.agent_library.AgentLibrary`
+    #: every solved graph is saved to; ``None`` keeps no library record.
+    library: Any = None
 
     async def skill_pins(self, task_iris: Sequence[str]) -> list[dict[str, Any]]:
         """The proven skills of ``task_iris`` at their current Agent Library
@@ -264,7 +273,43 @@ class Assembler:
             return Assembled(
                 payload, fallback(reasons), "abstained: " + ",".join(reasons)
             )
-        return Assembled(payload, None, "solved", await self._commit(payload))
+        answer = Assembled(payload, None, "solved", await self._commit(payload))
+        self._remember(answer, await self._publish(answer))
+        return answer
+
+    async def _publish(self, answer: Assembled) -> Any:
+        """Publish a committed graph when a publish context is bound.
+
+        A publish failure keeps the assembly answer; its cause is returned as
+        the receipt, so the library record names why the graph is unpublished.
+        """
+        graph = (answer.result or {}).get("graph")
+        if self.publish_context is None or answer.committed is None:
+            return None
+        if not isinstance(graph, Mapping):
+            return None
+        try:
+            context = await self.publish_context(graph)
+            return await self.publish_routed(answer, context)
+        except Exception as exc:  # the solved answer stands; cause kept as the receipt
+            logger.warning("assembled graph publish failed: %s", exc)
+            return {"error": type(exc).__name__}
+
+    def _remember(self, answer: Assembled, published: Any) -> None:
+        """Save the solved graph as an ``agent_graph`` Agent Library record."""
+        if self.library is None or answer.result is None:
+            return
+        from agent_utilities.orchestration.agent_library import assembled_graph_record
+
+        record = assembled_graph_record(
+            answer.result, committed=answer.committed, published=published
+        )
+        if record is None:
+            return
+        try:
+            self.library.save(record)
+        except Exception as exc:  # the library copy is for reuse; the answer stands
+            logger.warning("assembled graph library save failed: %s", exc)
 
 
 def decision_evidence(committed: Mapping[str, Any]) -> dict[str, Any]:
@@ -320,6 +365,37 @@ def install_assembler(
     _INSTALLED[0] = None if assembler is None or run is None else (assembler, run)
 
 
+def install_library_assembler(
+    eg_client: Any,
+    session: Any,
+    engine: Any,
+    *,
+    run: Callable[[Any], Any],
+    commit_context: CommitContext | None = None,
+    publish_context: CommitContext | None = None,
+) -> Assembler:
+    """Bind the process assembler to a verified session and the Agent Library.
+
+    The policy owner (graph-os) passes its ``commit_context`` and
+    ``publish_context`` providers; without them a solved graph is still saved
+    to the library, uncommitted and unpublished.
+    """
+    from agent_utilities.layers.clients import LayerClients
+    from agent_utilities.orchestration.agent_library import AgentLibrary
+
+    clients = LayerClients.for_session(eg_client, session)
+    assembler = Assembler(
+        clients.graphs,
+        str(session.tenant),
+        commit_context=commit_context,
+        components=clients.components,
+        publish_context=publish_context,
+        library=AgentLibrary(engine),
+    )
+    install_assembler(assembler, run)
+    return assembler
+
+
 def assemble_goal(goal: str, mapper: TaskMapper) -> Assembled | None:
     """Assemble an agent for free-text ``goal`` from a sync call site.
 
@@ -365,6 +441,7 @@ __all__ = [
     "NATIVE_TASKS",
     "assemble_goal",
     "install_assembler",
+    "install_library_assembler",
     "llm_task_mapper",
     "Assembled",
     "Assembler",

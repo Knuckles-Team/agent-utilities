@@ -3,6 +3,7 @@ tier: domain
 claims:
   core:
     - act
+    - agent_library
     - graph_agents
     - graph_broker
     - graph_bus

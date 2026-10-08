@@ -87,3 +87,101 @@ def test_without_an_assembler_nothing_changes() -> None:
 
     assert synthesize_agent(GOAL, lambda goal, limit: [], llm).name == "LLM agent"
     assert len(calls) == 1, "no mapping call when EG is not wired"
+
+
+GRAPH = {"graph_id": "graph:billing", "shape": {"nodes": [], "edges": []}}
+SOLVED_GRAPH = {
+    "record": {"outcome": {"outcome": "solved"}},
+    "agents": [AGENT],
+    "graph": GRAPH,
+}
+
+
+async def _commit_context(record: Any) -> dict[str, Any]:
+    return {"record": record, "context": "minted-by-graph-os"}
+
+
+async def _publish_context(graph: Any) -> dict[str, Any]:
+    return {"principal": "graph-os", "graph_id": graph["graph_id"]}
+
+
+def test_a_solved_committed_graph_is_published_and_saved_to_the_library(
+    installed,
+) -> None:
+    """AU-CONTROL-R026: commit, publish and library save are all bound."""
+    from agent_utilities.orchestration.agent_library import AgentLibrary
+    from tests.unit.orchestration.agent_library_fakes import FakeLibraryEngine
+
+    library = AgentLibrary(FakeLibraryEngine())
+    graphs = _install(
+        installed,
+        SOLVED_GRAPH,
+        commit_context=_commit_context,
+        publish_context=_publish_context,
+        library=library,
+    )
+    synthesize_agent(GOAL, lambda goal, limit: [], _llm)
+
+    assert graphs.commits, "the decision is committed before the publish"
+    draft, context, evidence = graphs.published[0]
+    assert draft["graph_id"] == "graph:billing"
+    assert context == {"principal": "graph-os", "graph_id": "graph:billing"}
+    assert evidence["component_id"] == "decision:abc"
+    saved = library.list(kind="agent_graph")
+    assert [r.name for r in saved] == ["graph:billing"]
+    reuse = library.get(saved[0].agent_id)
+    assert reuse is not None and reuse.graph is not None
+    assert reuse.graph["decision_record_id"] == "decision:abc"
+    assert reuse.graph["published"] == {"graph_id": "graph:billing"}
+
+
+def test_an_uncommitted_graph_is_saved_but_never_published(installed) -> None:
+    from agent_utilities.orchestration.agent_library import AgentLibrary
+    from tests.unit.orchestration.agent_library_fakes import FakeLibraryEngine
+
+    library = AgentLibrary(FakeLibraryEngine())
+    graphs = _install(
+        installed, SOLVED_GRAPH, publish_context=_publish_context, library=library
+    )
+    synthesize_agent(GOAL, lambda goal, limit: [], _llm)
+
+    assert graphs.published == [], "no committed decision, no publish"
+    saved = library.list(kind="agent_graph")
+    assert saved and saved[0].graph is not None
+    assert saved[0].graph["decision_record_id"] is None
+
+
+def test_a_publish_failure_keeps_the_assembled_agent(installed) -> None:
+    async def refuse(graph: Any) -> Any:
+        raise PermissionError("no mutation context")
+
+    graphs = _install(
+        installed, SOLVED_GRAPH, commit_context=_commit_context, publish_context=refuse
+    )
+    spec = synthesize_agent(GOAL, lambda goal, limit: [], _llm)
+    assert spec.name == "agent:researcher"
+    assert graphs.published == []
+
+
+def test_the_library_assembler_binds_session_clients_and_the_library() -> None:
+    from types import SimpleNamespace
+
+    from agent_utilities.decide.consumers.assembly import install_library_assembler
+    from agent_utilities.orchestration.agent_library import AgentLibrary
+
+    session = SimpleNamespace(tenant="tenant-t", graph="tenant-t")
+    try:
+        assembler = install_library_assembler(
+            object(),
+            session,
+            engine=SimpleNamespace(query_cypher=lambda *a: []),
+            run=asyncio.run,
+            commit_context=_commit_context,
+            publish_context=_publish_context,
+        )
+        assert assembler.tenant == "tenant-t"
+        assert isinstance(assembler.library, AgentLibrary)
+        assert assembler.commit_context is _commit_context
+        assert assembler.publish_context is _publish_context
+    finally:
+        install_assembler(None)

@@ -2,13 +2,14 @@
 
 > **GENERATED — do not edit by hand.** Regenerate with `python3 scripts/gen_capability_power.py --write`; `scripts/check_cpd.py` gates drift in CI/pre-commit (CONCEPT:AU-KG.retrieval.capability-power-descriptor). Seam 8 Phase 1 — `plans/program-design-2026-07-11-epistemic-tool-routing.md` section 2b.
 >
-> 128 capabilities · generated 2026-10-08T06:04:26Z. Every field is derived from a live source (the MCP tool registry, the generated graph-os action manifest, the EG-P0-1 capability ledger, transcribed measured benchmarks) — an empty field means the source had no answer, never a fabricated one.
+> 129 capabilities · generated 2026-10-08T06:04:26Z. Every field is derived from a live source (the MCP tool registry, the generated graph-os action manifest, the EG-P0-1 capability ledger, transcribed measured benchmarks) — an empty field means the source had no answer, never a fabricated one.
 
 ## Index
 
 | Capability | Intent verbs | One-line power | Actions | REST |
 |---|---|---|---:|---|
 | [`act`](#capability-act) | act | Preview or perform a natural-language ACT/execute intent. | 1 | `/intent/act` |
+| [`agent_library`](#capability-agent_library) | manage, find, ask | The Agent Library of built agents (system prompt, tools, skills, model profile, context policy, | 4 | `/graph/agent-library` |
 | [`ask`](#capability-ask) | ask | Ask the Knowledge Graph a natural-language READ question. | 1 | `/intent/ask` |
 | [`ask_data`](#capability-ask_data) | ask | answer a DATA question over the Knowledge Graph with a DB-GPT-style, multi-step data-analysis agent | 1 | `/graph/ask-data` |
 | [`concept_registry`](#capability-concept_registry) | find, ask | Coordinate canonical OKF-CIS concept ids for linked worktrees on one host | 1 | `/concept/registry` |
@@ -161,6 +162,41 @@ Preview or perform a natural-language ACT/execute intent.
 - `intent` (string, required): Natural-language act intent.
 - `hints_json` (string): Optional JSON object of structured args forwarded to the resolved tool (e.g. {"node_id": "..."} for a write, or {"tool": "graph_write"} to pin the exact tool). For a non-read execution, resubmit the preview's plan_ref here.
 - `execute` (boolean): Execute a read-only plan immediately. Non-read verbs default to preview and require the returned plan_ref before execution.
+
+**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+
+**Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
+
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T06:04:26Z'}*
+
+---
+
+### `agent_library` { #capability-agent_library }
+
+**agent library**
+
+The Agent Library of built agents (system prompt, tools, skills, model profile, context policy, role), stored in the knowledge graph.
+
+- **Intent verbs:** manage, find, ask
+- **REST route:** `/graph/agent-library`
+- **MCP tags:** agent-library, agent_execution, agents, gated, granular, graph-os
+- **Side effects:** 0/4 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
+- **Cost/Latency:** unmeasured for this capability (no benchmark source)
+- **Reliability:** (unmeasured — no live engine reward reachable at generation time)
+
+**Does:**
+
+- `get` → (no EG ledger match)
+- `list` → (no EG ledger match)
+- `save` → (no EG ledger match)
+- `seed_roles` → (no EG ledger match)
+
+**Typed input:**
+
+- `action` (string): list | get | save | seed_roles
+- `agent_id` (string): Agent id (action=get).
+- `kind` (string): list filter: local | role | agent_graph.
+- `agent_json` (string): JSON agent record (action=save).
 
 **Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
 

@@ -140,6 +140,9 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "graph_jobs": ("act", "ask"),
         "graph_durable": ("act", "ask"),
         "graph_agents": ("act",),
+        # AU-CONTROL-R024: the Agent Library. ``find`` ranks it, ``ask`` reaches
+        # only the reviewed read actions below, and ``manage`` saves records.
+        "agent_library": ("manage", "find", "ask"),
         "graph_workflows": ("act", "ask", "manage"),
         "graph_evolution": ("act",),
         "graph_governance": ("act", "manage"),
@@ -219,6 +222,7 @@ READ_ONLY_ACTIONS: Mapping[str, frozenset[str]] = MappingProxyType(
             {"trace_rootcause", "prompt_regression", "failure_cluster", "error_detail"}
         ),
         "graph_context": frozenset({"get", "list"}),
+        "agent_library": frozenset({"get", "list"}),
         "graph_code": frozenset(
             {
                 "blast_radius",

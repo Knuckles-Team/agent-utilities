@@ -16,6 +16,14 @@ class GraphosAction(TypedDict):
 
 GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "act", "action": None, "name": "act"},
+    {"tool": "agent_library", "action": "get", "name": "agent_library_get"},
+    {"tool": "agent_library", "action": "list", "name": "agent_library_list"},
+    {"tool": "agent_library", "action": "save", "name": "agent_library_save"},
+    {
+        "tool": "agent_library",
+        "action": "seed_roles",
+        "name": "agent_library_seed_roles",
+    },
     {"tool": "ask", "action": None, "name": "ask"},
     {"tool": "ask_data", "action": None, "name": "ask_data"},
     {"tool": "concept_registry", "action": None, "name": "concept_registry"},
