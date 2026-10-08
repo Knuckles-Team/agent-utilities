@@ -117,7 +117,7 @@ def test_release_identity_checks_bind_tag_version_and_commit() -> None:
         assert required in source
 
 
-def test_publication_uses_pinned_central_contract_after_identity_check() -> None:
+def test_publication_uses_central_contract_at_main_after_identity_check() -> None:
     steps = _job("publish-pypi")["steps"]
     contract = next(
         step
@@ -126,7 +126,7 @@ def test_publication_uses_pinned_central_contract_after_identity_check() -> None
     )
     assert contract["with"] == {
         "repository": "Knuckles-Team/pipelines",
-        "ref": "4f80a968dbf09b1f4d35bbff11b77f9e2fcd3ef6",
+        "ref": "main",
         "path": ".pipeline-contract",
         "persist-credentials": False,
     }
@@ -141,7 +141,11 @@ def test_publication_uses_pinned_central_contract_after_identity_check() -> None
     )
     assert steps.index(identity) < steps.index(contract) < steps.index(publish)
     assert publish["env"]["SOURCE_COMMIT"] == "${{ github.sha }}"
-    assert publish["env"]["PIPELINES_CONTRACT_COMMIT"] == contract["with"]["ref"]
+    assert "PIPELINES_CONTRACT_COMMIT" not in publish["env"]
+    assert (
+        'PIPELINES_CONTRACT_COMMIT="$(git -C .pipeline-contract rev-parse HEAD)"'
+        in publish["run"]
+    )
     assert publish["env"]["EXPECTED_TAG"] == "${{ github.ref_name }}"
     assert '"${EXPECTED_TAG#v}"' in publish["run"]
     assert '"$RUNNER_TEMP/au-publication.json"' in publish["run"]
