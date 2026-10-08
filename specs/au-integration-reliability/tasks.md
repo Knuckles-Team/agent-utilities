@@ -15,6 +15,8 @@
 - [ ] Confirm the publicly published ontology-deletion commit's patch content matches its source change and that both the focused and expanded ontology overlay test suites pass at that commit. Closes AU-INTEGRATION-R016.
 - [ ] Confirm AU's publicly published source history is fully contained in the ancestry of local main. Closes AU-INTEGRATION-R017.
 - [ ] Bring the public documentation site to full parity with the canonical README/theme/home-page tense, zero orphan pages with full page-count parity, a strict MkDocs build, and passing current-only, privacy, accessibility, theme, workflow and version gates. Closes AU-INTEGRATION-R018.
+- [x] Replace the literal 25 s direct budget with `MESSAGING_DIRECT_REPLY_BUDGET_S` and deliver over-budget messaging replies as a follow-up. Closes AU-INTEGRATION-R019.
+- [ ] Roll out AU-INTEGRATION-R019 to the live graph-os deployment and confirm a slow Telegram chat turn receives its follow-up reply.
 - [ ] Run the full test baseline, CCCC, jscpd, Dupehound, KISS review, Ruff/mypy, and the privacy/version-consistency scripts; record exact merged-head and hosted CI evidence against every requirement above before any `ACCEPTED` claim.
 
 Four additional AU workstreams (final composition, ontology/SHACL/OWL clean cut, public application control plane, public docs) are named in `spec.md` but still await stable requirement IDs through review; track them there rather than inventing a synthetic ID here.
