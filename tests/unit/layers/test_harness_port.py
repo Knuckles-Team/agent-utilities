@@ -1,4 +1,4 @@
-"""AU-HARNESS-R007..R010: the L4 harness port, its two adapters, selection and L5."""
+"""The L4 harness port (harness-evolution spec), its two adapters, selection and L5."""
 
 from __future__ import annotations
 
@@ -488,6 +488,6 @@ async def test_parallel_engine_dispatches_non_native_nodes(
     spec = AgentSpec(agent_id="coder", harness="claude-code", task_template="t1")
     manifest = ExecutionManifest(agents=[spec], query="q")
     engine = ParallelEngine(engine=None)
-    result = await engine._execute_agent(spec, manifest, None, [])
+    result = await engine._execute_node(spec, manifest, None, [])
     assert result.success is True
     assert port.requests[0].task.startswith("t1")

@@ -801,7 +801,7 @@ class ParallelEngine:
                 )
                 await scheduler.wait_for_running(proc.id)
                 try:
-                    res = await self._execute_agent(
+                    res = await self._execute_node(
                         agent, manifest, graph_deps, wave_results, proc
                     )
                     await scheduler.complete(proc.id)
@@ -1098,7 +1098,7 @@ class ParallelEngine:
         task += await self._paged_checkpoint_block(proc)
         return task
 
-    async def _execute_agent(
+    async def _execute_node(
         self,
         agent: AgentSpec,
         manifest: ExecutionManifest,
@@ -1115,7 +1115,7 @@ class ParallelEngine:
             return await self._execute_agent_via_harness(
                 agent, manifest, wave_results, proc
             )
-        return await self._execute_agent_native(
+        return await self._execute_agent(
             agent, manifest, graph_deps, wave_results, proc
         )
 
@@ -1133,7 +1133,7 @@ class ParallelEngine:
         task = await self._build_agent_task(agent, manifest, wave_results, proc)
         return await run_agent_spec(agent, task, timeout_s=timeout, engine=self.engine)
 
-    async def _execute_agent_native(
+    async def _execute_agent(
         self,
         agent: AgentSpec,
         manifest: ExecutionManifest,
@@ -1311,7 +1311,7 @@ class ParallelEngine:
             f"## PRIOR ATTEMPT FAILED VERIFICATION\nFix exactly this and satisfy the "
             f"success criteria ({spec.success_criteria}):\n{feedback}"
         )
-        new_res = await self._execute_agent(
+        new_res = await self._execute_node(
             retry_spec, resolved, graph_deps, wave_results
         )
         # replace the leaf in place
