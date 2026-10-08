@@ -72,18 +72,18 @@ The installed-tree digest is defined by the campaign's
 `agent-utilities-installed-release-v2` algorithm. It hashes the normalized
 distribution-relative name, byte length, and content SHA-256 of every installed
 `agent_utilities` and distribution-metadata file. The campaign is
-RECORD-checked: every installed distribution must have a complete hashed
+RECORD-verified: every installed distribution must have a complete hashed
 `RECORD`, every recorded file is rehashed, ownership collisions fail, and any
 unlisted site-package file fails. A second path-free SBOM digest binds the full
 installed distribution closure. The expected values must come from the release
 pipeline; calculating both expected and actual identity from the machine under
-test will not establish artifact provenance.
+test would not establish artifact provenance.
 
 The closed release manifest contains only its schema versions, `release_id`, and
 SHA-256 bindings for the signed promotion evidence, release specification,
 agent-utilities tree, full distribution closure, release interpreter, GraphOS
 launcher, Epistemic Graph server, certification harness, and test catalog. Generate
-it from checked promotion evidence with the current-only public CLI:
+it from verified promotion evidence with the current-only public CLI:
 
 ```bash
 generate-exact-local-gates-manifest \
@@ -137,7 +137,7 @@ and pass status. Runtime paths, endpoints, opaque record identifiers, authority
 material, test data, logs, and personal identifiers are never retained.
 
 The runner creates isolated external configuration, data, cache, state,
-workspace, runtime, and temporary roots. It runs copied gate cases with the
+workspace, runtime, and temporary roots. It executes copied gate cases with the
 explicit release interpreter under isolated-import mode, disables core dumps,
 reaps process groups, and deletes runtime state before emitting evidence. A
 failed, skipped, missing, or timed-out case fails the campaign.
@@ -154,8 +154,8 @@ Run the lightweight source guard separately:
 python scripts/check_exact_local_gates_harness.py
 ```
 
-That guard checks the fixed gate cardinalities, artifact-binding controls,
-privacy controls, documentation, and navigation. It does not run GraphOS or
+That guard verifies the fixed gate cardinalities, artifact-binding controls,
+privacy controls, documentation, and navigation. It does not execute GraphOS or
 the native engine and cannot close a runtime gate. G-08, G-09, G-26, G-30,
 G-32, G-34, and G-35 remain open until the exact installed campaign above
 produces passing evidence.
