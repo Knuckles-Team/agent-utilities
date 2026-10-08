@@ -1595,9 +1595,7 @@ def test_jira_reconcile_partial_drain_never_tombstones(monkeypatch):
             {"id": "jira-alpha-reported", "guid": "jira-reported"},
         ]
     )
-    out = ss._sync_jira(
-        FakeEngine(backend), mode="reconcile", ids=None, client=None
-    )
+    out = ss._sync_jira(FakeEngine(backend), mode="reconcile", ids=None, client=None)
 
     assert out["status"] == "ok"
     assert out["instances"][0]["tombstoned"] == 0
@@ -1742,9 +1740,7 @@ def test_ard_reconcile_partial_drain_never_tombstones(monkeypatch):
             {"id": "ard-alpha-reported", "guid": "ard-reported"},
         ]
     )
-    out = ss._sync_ard(
-        FakeEngine(backend), mode="reconcile", ids=None, client=None
-    )
+    out = ss._sync_ard(FakeEngine(backend), mode="reconcile", ids=None, client=None)
 
     assert out["status"] == "ok"
     assert out["registries"][0]["tombstoned"] == 0
@@ -2127,6 +2123,9 @@ class _ContractEngine(FakeEngine):
     def __init__(self):
         self.nodes: dict[str, dict] = {}
         super().__init__(_ContractBackend(self.nodes))
+        from tests.unit.knowledge_graph.schema_drift.fakes import attach_gaps
+
+        attach_gaps(self, self.nodes)
 
     def add_node(self, node_id, node_type, properties=None):
         merged = dict(self.nodes.get(node_id) or {})
@@ -2153,6 +2152,14 @@ def test_ops_connector_schema_drift_is_quarantined_without_checkpoint_advance(
         record = {"name": "node-a", "description": "host inventory"}
         return {"services": [{**record, **state["extra"]}]}
 
+    from agent_utilities.knowledge_graph.core.session import use_session
+    from tests.unit.fleet_autonomy_fakes import fleet_approval_session
+
+    with use_session(fleet_approval_session("tenant-a")):
+        _assert_drift_is_held(server, state)
+
+
+def _assert_drift_is_held(server, state: dict) -> None:
     engine = _ContractEngine()
     first = sync_source(engine, "systems-manager", mode="full", client=server)
     assert first["status"] == "ok" and first["details"]["ingested"] == 1

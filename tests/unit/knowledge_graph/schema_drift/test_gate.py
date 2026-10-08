@@ -67,6 +67,16 @@ class Harness:
         return outcome
 
 
+@pytest.fixture(autouse=True)
+def _verified_session():
+    """Bind the verified tenant session the canonical-Gap surface resolves."""
+    from agent_utilities.knowledge_graph.core.session import use_session
+    from tests.unit.fleet_autonomy_fakes import fleet_approval_session
+
+    with use_session(fleet_approval_session(TENANT)):
+        yield
+
+
 @pytest.fixture
 def harness() -> Harness:
     h = Harness()
@@ -224,7 +234,9 @@ def test_the_fleet_drain_never_actuates_a_schema_repair_approval() -> None:
     assert FleetReconciler._approval_candidate_props(row) is None
 
 
-def test_approved_contract_cannot_activate_a_tampered_projection(harness: Harness) -> None:
+def test_approved_contract_cannot_activate_a_tampered_projection(
+    harness: Harness,
+) -> None:
     lease_id = harness.sync(V2).detail["repair"]["approval_lease_id"]
     harness.port.decide(lease_id, "consumed")
     (proposal,) = harness.engine.labelled("SchemaRepairProposal").values()

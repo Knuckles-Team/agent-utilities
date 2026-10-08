@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 _MATCH = re.compile(r"MATCH \(n:(\w+) \{([^}]*)\}\)")
@@ -54,6 +55,27 @@ class FakeBackend:
         return rows
 
 
+class FakeGaps:
+    """EG's typed ``gaps`` namespace: ``upsert`` records one ``Gap`` row per id."""
+
+    def __init__(self, nodes: dict[str, dict[str, Any]]) -> None:
+        self.nodes = nodes
+
+    def upsert(self, *, tenant: str, gap_id: str, **request: Any) -> dict[str, Any]:
+        view = {"gap_id": gap_id, "tenant": tenant, "status": "open", **request}
+        self.nodes[gap_id] = {**view, "node_type": "Gap"}
+        return {"gap": view}
+
+
+def attach_gaps(engine: Any, nodes: dict[str, dict[str, Any]]) -> FakeGaps:
+    """Expose a :class:`FakeGaps` as ``engine.client.gaps`` over ``nodes``."""
+    gaps = FakeGaps(nodes)
+    if getattr(engine, "client", None) is None:
+        engine.client = SimpleNamespace()
+    engine.client.gaps = gaps
+    return gaps
+
+
 class FakeEngine:
     """``add_node`` upserts (merges) like the real engine; reads via the backend."""
 
@@ -61,6 +83,7 @@ class FakeEngine:
         self.nodes: dict[str, dict[str, Any]] = {}
         self.backend = FakeBackend(self.nodes)
         self.fail_writes = False
+        attach_gaps(self, self.nodes)
 
     def add_node(self, node_id: str, node_type: str, properties: dict | None = None):
         if self.fail_writes:
