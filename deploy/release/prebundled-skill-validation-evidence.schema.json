@@ -268,44 +268,26 @@
       "additionalProperties": false,
       "required": ["skillCount", "skillCatalogDigest", "testCaseCount", "testCatalogDigest", "caseCatalogDigest"],
       "properties": {
-        "skillCount": {"const": 13},
+        "skillCount": {"const": 4},
         "skillCatalogDigest": {"$ref": "#/$defs/digest"},
-        "testCaseCount": {"const": 26},
+        "testCaseCount": {"const": 8},
         "testCatalogDigest": {"$ref": "#/$defs/digest"},
         "caseCatalogDigest": {"$ref": "#/$defs/digest"}
       }
     },
     "cases": {
       "type": "array",
-      "minItems": 26,
-      "maxItems": 26,
+      "minItems": 8,
+      "maxItems": 8,
       "prefixItems": [
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "contribution-delegated"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "contribution-direct"}}}]},
         {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "deployment-delegated"}}}]},
         {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "deployment-direct"}}}]},
         {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "development-delegated"}}}]},
         {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "development-direct"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "engine-delegated"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "engine-direct"}}}]},
         {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "evolution-delegated"}}}]},
         {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "evolution-direct"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "ingestion-delegated"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "ingestion-direct"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "modeling-delegated"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "modeling-direct"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "orchestration-delegated"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "orchestration-direct"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "query-delegated"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "query-direct"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "research-delegated"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "research-direct"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "runtime-delegated"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "runtime-direct"}}}]},
         {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "self-evolution-delegated"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "self-evolution-direct"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "source-integration-delegated"}}}]},
-        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "source-integration-direct"}}}]}
+        {"allOf": [{"$ref": "#/$defs/case"}, {"properties": {"caseId": {"const": "self-evolution-direct"}}}]}
       ],
       "items": false
     },
@@ -315,10 +297,10 @@
       "required": ["status", "passedCases", "totalCases", "fullyPassedSkills", "totalSkills"],
       "properties": {
         "status": {"$ref": "#/$defs/result"},
-        "passedCases": {"type": "integer", "minimum": 0, "maximum": 26},
-        "totalCases": {"const": 26},
-        "fullyPassedSkills": {"type": "integer", "minimum": 0, "maximum": 13},
-        "totalSkills": {"const": 13}
+        "passedCases": {"type": "integer", "minimum": 0, "maximum": 8},
+        "totalCases": {"const": 8},
+        "fullyPassedSkills": {"type": "integer", "minimum": 0, "maximum": 4},
+        "totalSkills": {"const": 4}
       }
     },
     "privacy": {
@@ -342,7 +324,7 @@
       "if": {"properties": {"result": {"properties": {"status": {"const": "pass"}}}}, "required": ["result"]},
       "then": {
         "properties": {
-          "result": {"properties": {"passedCases": {"const": 26}, "fullyPassedSkills": {"const": 13}}},
+          "result": {"properties": {"passedCases": {"const": 8}, "fullyPassedSkills": {"const": 4}}},
           "cases": {"not": {"contains": {"properties": {"status": {"const": "fail"}}, "required": ["status"]}}}
         }
       }

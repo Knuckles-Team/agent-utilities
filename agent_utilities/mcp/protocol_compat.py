@@ -11,7 +11,7 @@ Pydantic-AI releases read the SDK's legacy camelCase fields and assumed the
 initialize handshake, so AU briefly carried process-global aliases, a copied
 `MCPToolset` method body, and an explicit legacy-mode pin.
 
-The supported contract is now `pydantic-ai-slim==2.29.0`. Its upstream
+The supported contract is now `pydantic-ai-slim==2.54.0`. Its upstream
 `pydantic_ai.mcp` implementation reads either SDK field spelling through its own
 `_mcp_compat` helpers, handles modern `server/discover` sessions, and imports the
 FastMCP protocol-error alias. The old method monkeypatch and field aliases are
@@ -131,7 +131,7 @@ def mcp_types_module() -> ModuleType:
 def install_mcp_v2_bridge() -> None:
     """Verify the exact Pydantic-AI MCP contract used by AU.
 
-    Pydantic-AI 2.29 natively handles both MCP SDK field spellings and modern
+    Pydantic-AI 2.54 natively handles both MCP SDK field spellings and modern
     FastMCP sessions, so the old process-global aliases and copied method body
     are intentionally gone. The public function remains at all historical
     construction sites as a fail-closed version gate: a stale or ambient
@@ -149,7 +149,7 @@ def install_mcp_v2_bridge() -> None:
 #: The exact Pydantic-AI release whose native MCPToolset surface AU supports.
 #: This is the single contract source consumed by the fleet parity checker;
 #: package extras, locks, image inputs, and runtime verification must agree.
-_PYDANTIC_AI_CONTRACT_VERSION = "2.29.0"
+_PYDANTIC_AI_CONTRACT_VERSION = "2.54.0"
 
 # Backwards-compatible name for integrations that imported the old private
 # sentinel while the method body was locally patched. It deliberately aliases
@@ -162,7 +162,7 @@ _toolset_reads_patched = False
 def _install_pydantic_ai_v2_read_bridge() -> None:
     """Verify the native Pydantic-AI MCPToolset contract without monkeypatching it.
 
-    Pydantic-AI 2.29.0's upstream `MCPToolset` now owns the complete surface:
+    Pydantic-AI 2.54.0's upstream `MCPToolset` now owns the complete surface:
     `_mcp_compat` reads current snake_case and legacy camelCase model fields,
     `__aenter__` handles both initialize-era and modern sessions, and tool-call
     errors use FastMCP's SDK-neutral alias. This function deliberately does not
@@ -233,7 +233,7 @@ def _read_mcp_field(value: Any, current_name: str, legacy_name: str) -> Any:
     """Read an MCP field from either SDK generation, failing closed if absent.
 
     MCP SDK v1 exposed camelCase model fields while SDK v2 moved them to
-    snake_case. Pydantic-AI 2.29 handles this internally; this small fail-closed
+    snake_case. Pydantic-AI 2.54 handles this internally; this small fail-closed
     resolver remains for AU-owned SDK-neutral resilience tests and callers that
     receive a model from either generation. It never installs a process-global
     alias that could hide a malformed response. If neither field exists, the
