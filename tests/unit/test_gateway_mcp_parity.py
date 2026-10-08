@@ -144,17 +144,16 @@ def test_retired_legacy_tool_fanout_is_not_mounted():
 # Beyond REST⇄MCP parity, every Graph-OS verb must be claimed explicitly by a
 # retained workflow skill's ``agents/graph-os.yaml`` sidecar. The contract lives
 # in ``agent_utilities.mcp.skill_coverage`` and has no slug inference or waivers.
-
-
-def test_every_verb_has_explicit_domain_skill_coverage():
-    from agent_utilities.mcp import skill_coverage
-
-    report = skill_coverage.compute_coverage()
-    assert not report.uncovered, (
-        "Graph-OS verbs missing from every domain skill sidecar: "
-        f"{report.uncovered}. Add each verb to the owning workflow skill's "
-        "agents/graph-os.yaml file."
-    )
+#
+# Every domain-tier skill (the ones that claimed verb coverage) moved to
+# graph-os on 2026-10-03; agent-utilities now bundles only the platform-tier
+# agent-utilities-development skill. Full fleet-wide coverage completeness
+# can only be verified where the covering skills actually live -- graph-os's
+# own test suite, which bundles them and depends on agent-utilities (the
+# reverse is not true) -- so the exact completeness assertion that used to
+# run here moved there. ``test_domain_skill_sidecars_are_valid_and_have_no_orphans``
+# stays: it is still meaningful (vacuously or not) for whatever domain skill
+# agent-utilities bundles in the future.
 
 
 def test_domain_skill_sidecars_are_valid_and_have_no_orphans():
@@ -175,19 +174,15 @@ def test_domain_skill_sidecars_are_valid_and_have_no_orphans():
     )
 
 
-def test_graphos_external_rlm_dependency_is_explicitly_skill_covered():
-    from agent_utilities.mcp.skill_coverage import (
-        EXTERNAL_GRAPHOS_TOOL_NAMES,
-        compute_coverage,
-        discover_skills,
-    )
+def test_graphos_external_rlm_dependency_is_declared() -> None:
+    """``graph_rlm`` stays a declared external GraphOS dependency.
+
+    Its owning domain skill, ``graph-research-and-analysis``, moved to
+    graph-os on 2026-10-03 along with every other domain-tier skill, so the
+    "is it claimed by that skill's sidecar" half of this contract now lives
+    in graph-os's own test suite; this half (the name itself is still the
+    one agreed external-dependency marker) stays here.
+    """
+    from agent_utilities.mcp.skill_coverage import EXTERNAL_GRAPHOS_TOOL_NAMES
 
     assert EXTERNAL_GRAPHOS_TOOL_NAMES == {"graph_rlm"}
-    research_skill = next(
-        skill for skill in discover_skills() if skill.name == "graph-research-and-analysis"
-    )
-    assert research_skill.external_claims == ("graph_rlm",)
-    assert "graph_rlm" in research_skill.claims_for(frozenset())
-    assert compute_coverage().covered["graph_rlm"] == [
-        "graph-research-and-analysis"
-    ]

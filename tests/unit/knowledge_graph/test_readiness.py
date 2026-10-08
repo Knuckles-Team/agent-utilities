@@ -18,10 +18,31 @@ the check.
 from __future__ import annotations
 
 import json
+import sys
+import types
+from datetime import UTC, datetime
 
 import pytest
 
 from agent_utilities.knowledge_graph import readiness as rd
+
+_ONTOLOGY_ACTIVATION_MODULE = "agent_utilities.knowledge_graph.ontology.activation"
+
+
+def _install_fake_activation_module(
+    monkeypatch: pytest.MonkeyPatch, get_activation_status
+) -> None:
+    """Make ``from .ontology.activation import get_activation_status`` resolve
+    inside ``_check_ontology_activation``, even though that submodule was
+    permanently deleted (43197d7c6) and no longer exists on disk — Python's
+    import machinery checks ``sys.modules`` before the filesystem, so
+    inserting a fake module object there lets these tests exercise every
+    branch of the function AS IF a replacement status source existed,
+    without needing one to actually land first.
+    """
+    fake_module = types.ModuleType(_ONTOLOGY_ACTIVATION_MODULE)
+    fake_module.get_activation_status = get_activation_status
+    monkeypatch.setitem(sys.modules, _ONTOLOGY_ACTIVATION_MODULE, fake_module)
 
 
 # --------------------------------------------------------------------------- #
@@ -135,7 +156,7 @@ def test_synthetic_query_zero_evidence_is_degraded_not_ready(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """A REAL, non-degraded answer that grounds on nothing is DEGRADED with
-    reason evidence_coverage_zero — the exact BUG-004 empty-index shape — and
+    reason evidence_coverage_zero — regardless of index coverage — and
     must never read as a successful grounding."""
     monkeypatch.setattr(
         rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
@@ -152,9 +173,9 @@ def test_synthetic_query_zero_evidence_is_degraded_not_ready(
     assert synth["state"] == "degraded"
     assert synth["reason"] == "evidence_coverage_zero"
     assert synth["evidence_count"] == 0
-    # sparse_index derives the same BUG-004 wording from a genuinely empty index
-    assert snapshot["checks"]["sparse_index"]["state"] == "unavailable"
-    assert snapshot["checks"]["sparse_index"]["reason"] == "compiled_index_empty"
+    # An empty query result does not establish index-wide coverage.
+    assert snapshot["checks"]["sparse_index"]["state"] == "not_configured"
+    assert "coverage_pct" not in snapshot["checks"]["sparse_index"]
     # A required check (synthetic_query) is only DEGRADED here, not UNAVAILABLE,
     # so overall degrades but is not the harder failure state.
     assert snapshot["overall"] == "degraded"
@@ -164,9 +185,10 @@ def test_synthetic_query_zero_evidence_is_degraded_not_ready(
 # --------------------------------------------------------------------------- #
 # KNOWN-GOOD PROOF: a real grounded answer -> ready, only when genuinely so
 # --------------------------------------------------------------------------- #
-def test_synthetic_query_ready_when_real_evidence_found(
-    monkeypatch: pytest.MonkeyPatch,
-):
+def _healthy_engine_with_evidence(monkeypatch: pytest.MonkeyPatch):
+    """A healthy health report + zero expected connectors + one real anchor
+    row. Shared setup for test_synthetic_query_ready_when_real_evidence_found
+    and test_ontology_activation_failure_makes_whole_snapshot_not_ready."""
     monkeypatch.setattr(
         rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
     )
@@ -174,14 +196,22 @@ def test_synthetic_query_ready_when_real_evidence_found(
         "agent_utilities.knowledge_graph.ingestion.connector_coverage.enumerate_expected_connectors",
         lambda: [],
     )
-    # Ontology activation is a separate concern from this test's target (the
-    # synthetic-query canary) — stub it ready, like the connector-coverage
-    # stub above isolates its own unrelated check.
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: {"state": "ready", "reason": None, "detail": {}},
-    )
-    engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
+    return _FakeEngine(anchor_rows=[_ANCHOR_ROW])
+
+
+def test_synthetic_query_ready_when_real_evidence_found(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Overall is ``"degraded"``, not ``"ready"``: ``ontology_activation`` is
+    a separate, non-required check that fails closed to ``"unavailable"`` --
+    in plain words, there is currently no replacement status source backed
+    by the epistemic-graph-owned ontology authority for this leg to read
+    (see ``readiness._check_ontology_activation``'s own comment), so overall
+    ``"ready"`` is not reachable yet no matter what this test stubs. This
+    test still proves its actual target: the synthetic-query canary itself
+    reads real grounded evidence as ``"ready"``.
+    """
+    engine = _healthy_engine_with_evidence(monkeypatch)
 
     snapshot = rd.collect_readiness_snapshot(
         engine,
@@ -195,23 +225,28 @@ def test_synthetic_query_ready_when_real_evidence_found(
     assert synth["state"] == "ready"
     assert synth["evidence_count"] >= 1
     assert synth["route"] == "graph_code_context"
-    assert snapshot["checks"]["sparse_index"]["state"] == "ready"
-    assert snapshot["overall"] == "ready"
-    assert rd.is_snapshot_ready(snapshot) is True
+    assert snapshot["checks"]["sparse_index"]["state"] == "not_configured"
+    assert snapshot["checks"]["ontology_activation"]["state"] == "unavailable"
+    assert snapshot["overall"] == "degraded"
+    assert rd.is_snapshot_ready(snapshot) is False
 
 
 def test_full_snapshot_ready_end_to_end(monkeypatch: pytest.MonkeyPatch):
-    """Every required + optional check green -> and ONLY then -> overall ready."""
+    """Every REQUIRED check green -> overall is the best currently-reachable
+    state, "degraded" -- not "ready". ``ontology_activation`` (non-required,
+    see ``REQUIRED_CHECKS``) fails closed to ``"unavailable"`` because its
+    backing module was permanently deleted (43197d7c6) with no replacement
+    epistemic-graph-backed status source yet; there is no way to stub it
+    back to "ready" (the module it would read does not exist to patch). In
+    plain words: overall "ready" is NOT reachable until that replacement
+    exists. This test proves every OTHER check reaches its best state.
+    """
     monkeypatch.setattr(
         rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
     )
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.ingestion.connector_coverage.enumerate_expected_connectors",
         lambda: ["leanix"],
-    )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: {"state": "ready", "reason": None, "detail": {}},
     )
     engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
 
@@ -227,17 +262,22 @@ def test_full_snapshot_ready_end_to_end(monkeypatch: pytest.MonkeyPatch):
         engine,
         session=_Session(),
         synthetic_query="collect_readiness_snapshot",
-        connector_freshness={"leanix": "2026-08-16T00:00:00Z"},
+        # Within connector_coverage.DEFAULT_SLA_DAYS (7) of "now" — a fixed
+        # past date goes stale as real time passes it (this field was
+        # "2026-08-16", which cleared the SLA when this test was written but
+        # does not today), making source_sync "degraded" for a reason
+        # unrelated to what this test proves.
+        connector_freshness={"leanix": datetime.now(UTC).isoformat()},
         deadline_s=2.0,
     )
 
-    assert snapshot["overall"] == "ready"
+    assert snapshot["overall"] == "degraded"
     assert snapshot["required_failures"] == []
     assert snapshot["checks"]["identity_policy"]["state"] == "ready"
     assert snapshot["checks"]["identity_policy"]["carrier"] == "verified"
     assert snapshot["checks"]["source_sync"]["state"] == "ready"
-    assert snapshot["checks"]["ontology_activation"]["state"] == "ready"
-    assert rd.is_snapshot_ready(snapshot) is True
+    assert snapshot["checks"]["ontology_activation"]["state"] == "unavailable"
+    assert rd.is_snapshot_ready(snapshot) is False
     # Serializes cleanly with no live objects left behind.
     json.dumps(snapshot)
 
@@ -396,7 +436,13 @@ def test_source_sync_degraded_on_partial_coverage(monkeypatch: pytest.MonkeyPatc
 # --------------------------------------------------------------------------- #
 # ontology_activation (CONCEPT:AU-KG.ontology.integrity-bootstrap, NE-152) —
 # fails closed: a graph never attempted, or that gave up, must never read
-# "ready" just because a socket/engine handle exists.
+# "ready" just because a socket/engine handle exists. The backing module
+# (agent_utilities/knowledge_graph/ontology/activation.py) was permanently
+# deleted by 43197d7c6 with no replacement epistemic-graph-backed status
+# source yet, so in THIS codebase today every real call always takes the
+# ImportError branch -- these tests exercise every OTHER branch directly
+# against the function (bypassing the import) so that contract stays
+# covered and does not silently rot once a replacement does exist.
 # --------------------------------------------------------------------------- #
 def test_ontology_activation_unavailable_when_no_engine_supplied():
     result = rd._check_ontology_activation(None, "")
@@ -404,21 +450,29 @@ def test_ontology_activation_unavailable_when_no_engine_supplied():
     assert result["reason"] == "no_engine_supplied"
 
 
+def test_ontology_activation_unavailable_when_status_source_removed():
+    """The real, current behavior in THIS codebase: the backing module is
+    gone, so every call with a real engine takes the ImportError branch and
+    fails closed instead of raising out of a readiness snapshot."""
+    result = rd._check_ontology_activation(object(), "acme")
+    assert result["state"] == "unavailable"
+    assert result["reason"] == "ontology_activation_status_source_removed"
+
+
 def test_ontology_activation_unavailable_when_never_attempted(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: None,
-    )
+    """Once a replacement status source exists: a graph that was never
+    attempted must still read unavailable, not ready."""
+    _install_fake_activation_module(monkeypatch, lambda graph_name: None)
     result = rd._check_ontology_activation(object(), "")
     assert result["state"] == "unavailable"
     assert result["reason"] == "ontology_activation_not_attempted"
 
 
 def test_ontology_activation_ready_when_recorded_ready(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
+    _install_fake_activation_module(
+        monkeypatch,
         lambda graph_name: {
             "state": "ready",
             "reason": None,
@@ -432,8 +486,8 @@ def test_ontology_activation_ready_when_recorded_ready(monkeypatch: pytest.Monke
 def test_ontology_activation_unavailable_when_recorded_failed(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
+    _install_fake_activation_module(
+        monkeypatch,
         lambda graph_name: {
             "state": "unavailable",
             "reason": "activation_timeout",
@@ -448,20 +502,9 @@ def test_ontology_activation_unavailable_when_recorded_failed(
 def test_ontology_activation_failure_makes_whole_snapshot_not_ready(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """End-to-end proof of requirement 5: every OTHER check green, but
-    ontology activation never attempted -> overall must NOT read ready."""
-    monkeypatch.setattr(
-        rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
-    )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ingestion.connector_coverage.enumerate_expected_connectors",
-        lambda: [],
-    )
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: None,
-    )
-    engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
+    """End-to-end proof: every OTHER check green, but ontology activation
+    never attempted -> overall must NOT read ready."""
+    engine = _healthy_engine_with_evidence(monkeypatch)
 
     snapshot = rd.collect_readiness_snapshot(
         engine,
@@ -574,3 +617,72 @@ def test_snapshot_is_json_serializable_with_a_well_formed_digest(
 def test_rollup_matrix(states, required_failures, expected):
     checks = {name: {"state": state} for name, state in states.items()}
     assert rd._rollup(checks, required_failures) == expected
+
+
+@pytest.mark.parametrize("source", ["docs/readiness.md", None])
+def test_document_only_retrieval_is_not_empty_index_or_grounded_answer(
+    monkeypatch, source
+):
+    from agent_utilities.knowledge_graph.retrieval.code_context import (
+        build_code_context,
+    )
+
+    class DocumentEngine(_FakeEngine):
+        def query_cypher(self, cypher, params):
+            if "d:Chunk OR d:Document" in cypher:
+                return [
+                    {
+                        "id": "doc:readiness",
+                        "snippet": "Readiness documentation",
+                        "source_path": source,
+                    }
+                ]
+            return super().query_cypher(cypher, params)
+
+    engine = DocumentEngine()
+    answer = build_code_context(engine, query="readiness", intent="how", top_k=3)
+    assert answer["status"] == "ok"
+    assert len(answer["sections"]["docs"]) == 1
+    assert answer["citations"] == []
+    monkeypatch.setattr(
+        rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
+    )
+    snapshot = rd.collect_readiness_snapshot(
+        engine, synthetic_query="readiness", deadline_s=2
+    )
+    synth = snapshot["checks"]["synthetic_query"]
+    assert synth["state"] == "degraded"
+    assert synth["reason"] == "evidence_coverage_zero"
+    assert synth["evidence_count"] == 0
+    assert synth["detail"] == {
+        "retrieval_status": "ok",
+        "retrieved_document_count": 1,
+        "documents_with_source_count": int(bool(source)),
+    }
+    assert snapshot["checks"]["sparse_index"]["state"] == "not_configured"
+    assert "coverage_pct" not in snapshot["checks"]["sparse_index"]
+    assert snapshot["overall"] == "degraded"
+    assert not rd.is_snapshot_ready(snapshot)
+
+
+@pytest.mark.parametrize(
+    "state,count,reason",
+    [
+        ("degraded", 0, "evidence_coverage_zero"),
+        ("ready", 2, None),
+        ("unavailable", 0, "engine_degraded"),
+        ("unavailable", 0, "synthetic_query_timeout"),
+    ],
+)
+def test_sparse_coverage_is_not_inferred_from_canary(state, count, reason):
+    check = rd._check_sparse_index(
+        {"state": state, "evidence_count": count, "reason": reason}
+    )
+    assert check["state"] == "not_configured"
+    assert check["reason"] == "sparse_index_coverage_unmeasured"
+    assert "coverage_pct" not in check
+    assert check["detail"] == {
+        "source": "synthetic_query",
+        "synthetic_query_state": state,
+        "citation_count": count,
+    }

@@ -370,6 +370,24 @@ def _log_engine_startup_failure(capture: Any) -> None:
     )
 
 
+_UNPROVISIONED_POLICY_REFUSAL = "a provisioned identity/RBAC policy is required"
+
+
+def _engine_policy_unprovisioned(client: Any, verified_context: Any) -> bool:
+    """Whether the engine refuses this authority because no policy exists yet.
+
+    A graph read is policy-gated before the target graph is even resolved
+    (``check_caller_is_known``, epistemic-graph ``src/server/access.rs``), so
+    its refusal text identifies the empty-store state exactly.
+    """
+    try:
+        with client.use_verified_context(verified_context):
+            client.query.cypher_read("MATCH (n) RETURN n.id AS id LIMIT 1")
+    except RuntimeError as exc:  # the client's engine refusal type
+        return _UNPROVISIONED_POLICY_REFUSAL in str(exc)
+    return False
+
+
 def _is_graph_already_exists_error(error: BaseException, graph_name: str) -> bool:
     """Whether ``error`` is the engine's "this graph already exists" rejection.
 
@@ -2141,7 +2159,9 @@ def _signer_key_from_registry(raw_registry: str, actor_id: str) -> str:
         raise RuntimeError("local engine signer registry is invalid") from exc
     if not isinstance(registry, dict):
         raise RuntimeError("local engine signer registry is invalid")
-    signer_key = str(registry.get(actor_id, "") or "")
+    from agent_utilities.security.admission_authority import signer_entry_key
+
+    signer_key = signer_entry_key(registry.get(actor_id)) or ""
     if len(signer_key.encode("utf-8")) < 32:
         raise RuntimeError(
             "verified process identity is absent from the engine signer registry"
@@ -3067,11 +3087,14 @@ class GraphComputeEngine:
     ) -> None:
         """Initialize one fresh packaged engine from verified process authority.
 
-        Existing engines are probed first.  If the process identity already has
-        administrative placement access, no bootstrap request is sent.  On an
+        Existing engines are probed first with a policy-gated read.  Only the
+        engine's own refusal for an unprovisioned identity/RBAC policy -- the
+        empty-store state -- sends a bootstrap request; an admitted read, or any
+        other refusal, means the store is already initialized and is left to
+        fail closed on its own terms.  (Placement routing is not a usable probe:
+        it is per-actor reachable and answers before any policy exists.)  On an
         empty identity store, the engine accepts exactly one signer-backed
-        ``security:bootstrap`` System registration on ``__commons__``; any other
-        initialized/unauthorized state remains fail-closed.
+        ``security:bootstrap`` System registration on ``__commons__``.
         """
         prepared = getattr(self, "_local_bootstrap_identity", None)
         if prepared is None or not hasattr(client, "placement"):
@@ -3083,12 +3106,8 @@ class GraphComputeEngine:
 
         graph_name = str(connect_kwargs.get("graph_name") or "__commons__")
         tenant, sub_key = split_tenant_key(graph_name)
-        try:
-            with client.use_verified_context(verified_context):
-                client.placement.route(tenant, sub_key, client_epoch=0)
+        if not _engine_policy_unprovisioned(client, verified_context):
             return
-        except Exception:  # noqa: BLE001 - empty store is established below
-            pass
 
         bootstrap_context = dict(verified_context)
         bootstrap_context.update(
@@ -3115,8 +3134,12 @@ class GraphComputeEngine:
         finally:
             bootstrap_client.close()
 
-        # Do not declare the engine ready until the actual process authority can
-        # read its authoritative route under the newly durable policy state.
+        # Do not declare the engine ready until the newly durable policy state
+        # admits the actual process authority and it can read its route.
+        if _engine_policy_unprovisioned(client, verified_context):
+            raise RuntimeError(
+                "engine identity bootstrap did not provision an RBAC policy"
+            )
         with client.use_verified_context(verified_context):
             client.placement.route(tenant, sub_key, client_epoch=0)
 

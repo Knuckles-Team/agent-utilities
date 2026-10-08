@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-407 publishable pages · 31 direct nav targets · 128 public capabilities · 834 action rows · 574 typed configuration fields · 373 runtime-only call-site inputs.
+407 publishable pages · 32 direct nav targets · 129 public capabilities · 842 action rows · 579 typed configuration fields · 367 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -88,7 +88,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Loop Engine — running the self-improvement / research / goal loop](../guides/loop-engine.md) — catalog
 - [Mathematical Foundations & Financial Engineering Reference](../guides/mathematical_foundations.md) — catalog
 - [MCP fleet authentication and monitoring runbook](../guides/mcp-fleet-auth-and-monitoring-runbook.md) — catalog
-- [MCP Tool Modes — intent, condensed, verbose, or both](../guides/mcp-tool-modes.md) — catalog
+- [MCP Tool Surface — the single intent-tool contract](../guides/mcp-tool-modes.md) — catalog
 - [Multi-Model Registry & Configuration](../guides/models.md) — catalog
 - [AU native numeric call-site gap report](../guides/numeric-kernel-callsite-gaps.md) — catalog
 - [Native numeric kernel contract](../guides/numeric-kernel.md) — catalog
@@ -120,7 +120,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 
 ## Recipes
 
-- [Recipe: Stardog + pg-age database environments](../recipes/databases.md) — catalog
+- [Recipe: pg-age database environment](../recipes/databases.md) — catalog
 - [Recipe — Delta-based KG ingestion via the backends](../recipes/delta-ingestion.md) — catalog
 - [Recipe — Enterprise (Kubernetes/RKE2)](../recipes/enterprise.md) — catalog
 - [Recipe — Enable the shared KV-cache (highly recommended)](../recipes/kv-caching.md) — catalog
@@ -221,7 +221,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Intelligent ingestion — classify, evolve, embed fast, tame the tail](../architecture/intelligent-ingestion.md) — catalog
 - [Intent Surface — Seam 8, Phases 2-5 (complete)](../architecture/intent-surface.md) — catalog
 - [KG Connectors, Ingestors & Enrichers — the unified ingestion architecture](../architecture/kg_connectors_and_ingestion.md) — catalog
-- [Knowledge Graph as a Bidirectional ETL Hub (Stardog data backend, connectors, write-back, lineage)](../architecture/kg_etl_hub.md) — catalog
+- [Knowledge Graph as a Bidirectional ETL Hub (connectors, write-back, lineage)](../architecture/kg_etl_hub.md) — catalog
 - [Knowledge Distillation → Skill-Graphs](../architecture/knowledge_distillation_skill_graphs.md) — catalog
 - [Knowledge Graph Ingestion Stability & Locking Architecture](../architecture/knowledge_graph_ingestion_stability.md) — catalog
 - [Dynamic KV-Cache-Layering Policy (per-execution cache-worthiness)](../architecture/kv-cache-layering-policy.md) — catalog
@@ -438,7 +438,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Connector-manifest signing custody path (GOC-16 / BUG-234 / GOC-84)](../release/connector-manifest-signing-custody.md) — catalog
 - [Exact-artifact closure evidence](../release/exact-artifact-closure.md) — direct nav
 - [Exact installed local certification](../release/exact-local-gates.md) — direct nav
-- [Exact local GraphOS releases](../release/exact-local-release.md) — catalog
+- [Exact local GraphOS releases](../release/exact-local-release.md) — direct nav
 - [Exact OCI-layout export](../release/oci-layout-export.md) — catalog
 - [Exact OCI vulnerability scanning](../release/oci-vulnerability-scanning.md) — catalog
 - [Exact skill-validation certification](../release/skill-validation-certification.md) — catalog

@@ -25,7 +25,14 @@
     "AU-CONTROL-R020",
     "AU-CONTROL-R021",
     "AU-CONTROL-R022",
-    "AU-CONTROL-R023"
+    "AU-CONTROL-R023",
+    "AU-CONTROL-R024",
+    "AU-CONTROL-R025",
+    "AU-CONTROL-R026",
+    "AU-CONTROL-R027",
+    "AU-CONTROL-R028",
+    "AU-CONTROL-R029",
+    "AU-CONTROL-R030"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -344,6 +351,48 @@
           "description": "Implemented on the default branch; exercised by tests/unit/test_capability_binding_survives_real_guards.py"
         }
       ]
+    },
+    {
+      "id": "AU-CONTROL-R024",
+      "title": "Durable Agent Library with list, get and save",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R025",
+      "title": "Pre-built role agents from packaged fleet prompts",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R026",
+      "title": "Assembled agent graphs are committed, published and saved for reuse",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R027",
+      "title": "Task planner answers how to execute a task as one structured plan",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R028",
+      "title": "The ask intent routes planning questions to the task planner",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R029",
+      "title": "Cross-source reports select sources by ontology and read them live",
+      "delivery_state": "BUILDING",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTROL-R030",
+      "title": "Virtual-graph contracts materialize metadata and hot subsets only",
+      "delivery_state": "BUILDING",
+      "evidence": []
     }
   ]
 }

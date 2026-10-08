@@ -27,10 +27,9 @@ Design (anti-sprawl, anti-drift):
   ``POST /engine/<domain>`` automatically.
 - Both surfaces dispatch through the one ``_execute_tool`` core — no parallel
   implementation.
-- The verbose 1:1 surface (one ``engine_<domain>_<method>`` MCP tool per engine
-  method, opt-in via ``MCP_TOOL_MODE=verbose``/``both``) is generated from
-  :data:`ENGINE_DOMAINS` by the graph-os verbose builder + the action manifest
-  generator (``scripts/gen_graphos_manifest.py``).
+- Every engine method is one operation of the generated action manifest
+  (``scripts/gen_graphos_manifest.py``, from :data:`ENGINE_DOMAINS`), reached
+  through the intent tools as ``action="engine_<domain>.<method>"``.
 - Per-action scope/policy (AU-P0-6): every domain is classified ADMIN or
   normal (see :data:`ADMIN_DOMAINS`); ADMIN actions (tenant lifecycle, cluster
   resharding, zero-trust consensus/identity, RBAC policy administration,

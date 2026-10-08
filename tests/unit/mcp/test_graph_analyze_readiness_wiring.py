@@ -20,6 +20,8 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pytest
+
 from agent_utilities.mcp import kg_server
 
 
@@ -85,7 +87,8 @@ def test_readiness_wiring_reports_unavailable_when_engine_degraded(monkeypatch):
 
 def test_readiness_wiring_reports_ready_when_query_genuinely_resolves(monkeypatch):
     """KNOWN-GOOD PROOF via the live entrypoint: a real grounded answer comes
-    back through the actual dispatch path -> and only then -> ready.
+    back through the actual dispatch path -> and only then -> the
+    synthetic-query check this test targets reports ready.
 
     ``runtime_health.collect_health`` (a real bounded socket probe against
     whatever engine this sandbox happens to have running — unrelated to the
@@ -93,19 +96,22 @@ def test_readiness_wiring_reports_ready_when_query_genuinely_resolves(monkeypatc
     so the assertion isolates the seam under test: the served ``readiness``
     action actually reaches ``build_code_context`` through the real engine
     handle this test injects.
+
+    Overall is ``"degraded"``, not ``"ready"``: ``ontology_activation`` is a
+    separate, non-required check (``REQUIRED_CHECKS`` is only ``engine``,
+    ``catalog``, ``synthetic_query``) that fails closed to ``"unavailable"``
+    — in plain words, there is currently no replacement status source backed
+    by the epistemic-graph-owned ontology authority for this leg to read, so
+    it can never report anything but ``"unavailable"`` yet (see
+    ``readiness._check_ontology_activation``'s own comment). ``_rollup``
+    folds any ``"unavailable"`` leg into an overall ``"degraded"`` regardless
+    of whether it is required, by design (never silently "ready").
     """
     engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
     monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.ingestion.connector_coverage.enumerate_expected_connectors",
         lambda: [],
-    )
-    # Ontology activation is a separate concern from this test's target (the
-    # synthetic-query wiring) — stub it ready, like the connector-coverage
-    # stub above isolates its own unrelated check.
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
-        lambda graph_name: {"state": "ready", "reason": None, "detail": {}},
     )
     monkeypatch.setattr(
         "agent_utilities.observability.runtime_health.collect_health",
@@ -135,7 +141,9 @@ def test_readiness_wiring_reports_ready_when_query_genuinely_resolves(monkeypatc
     payload = out.claims[0]
     assert payload["checks"]["synthetic_query"]["state"] == "ready"
     assert payload["checks"]["synthetic_query"]["evidence_count"] >= 1
-    assert payload["overall"] == "ready"
+    assert payload["checks"]["ontology_activation"]["state"] == "unavailable"
+    assert payload["overall"] == "degraded"
+    assert payload["required_failures"] == []
     # No engine handle, credential, or raw query text ever leaks into the
     # served payload.
     serialized = json.dumps(payload)
@@ -154,3 +162,98 @@ def test_readiness_action_rejected_by_the_generic_analyze_tool_before_the_split(
     out = asyncio.run(tool(action="code_context", query="graph_analyze"))
     payload = out.claims[0]
     assert payload["error"] == "action belongs to a focused graph tool"
+
+
+@pytest.fixture
+def intent_readiness(monkeypatch):
+    from agent_utilities.mcp.tools import intent_tools
+
+    _get_tool()
+    for name in ("_CANDIDATES_CACHE", "_ACTIONS_BY_TOOL_CACHE", "_OUTCOME_ROUTER"):
+        monkeypatch.setattr(intent_tools, name, None)
+    monkeypatch.setattr(intent_tools, "_RESOLUTION_CACHE", {})
+    monkeypatch.setattr(intent_tools, "_PREVIEW_PLAN_CACHE", {})
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.connector_coverage.enumerate_expected_connectors",
+        lambda: [],
+    )
+    monkeypatch.setattr(
+        "agent_utilities.observability.runtime_health.collect_health",
+        lambda: {
+            "status": "healthy",
+            "checks": [
+                {"name": "engine", "status": "ok", "detail": {}},
+                {"name": "embedding_endpoint", "status": "ok", "detail": {}},
+            ],
+        },
+    )
+    return intent_tools
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("degraded", [False, True])
+async def test_ask_admits_readiness_without_changing_snapshot_policy(
+    intent_readiness, monkeypatch, degraded
+):
+    from agent_utilities.knowledge_graph.core.session import current_session
+
+    engine = _FakeEngine(
+        anchor_rows=[_ANCHOR_ROW],
+        raise_exc=ConnectionError("unavailable") if degraded else None,
+    )
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    session = current_session()
+    result = await intent_readiness.dispatch_intent(
+        "ask",
+        "inspect graph readiness",
+        hints={
+            "tool": "graph_analyze",
+            "action": "readiness",
+            "query": "graph_analyze",
+        },
+    )
+    assert result["executed"] is True
+    assert result["routing"]["plan"]["execution_class"] == "read_only"
+    payload = result["result"].claims[0]
+    assert payload["schema_version"] == "graphos.readiness.v1"
+    assert payload["checks"]["identity_policy"]["tenant"] == session.tenant
+    assert payload["checks"]["synthetic_query"]["state"] == (
+        "unavailable" if degraded else "ready"
+    )
+    assert payload["overall"] == ("unavailable" if degraded else "degraded")
+    assert current_session() is session
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["unknown_readiness", "process_writeback"])
+async def test_ask_readiness_fix_does_not_admit_other_actions(
+    intent_readiness, monkeypatch, action
+):
+    reached = []
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: reached.append(True))
+    result = await intent_readiness.dispatch_intent(
+        "ask",
+        "inspect graph readiness",
+        hints={"tool": "graph_analyze", "action": action},
+    )
+    assert result["executed"] is False
+    assert reached == []
+
+
+def test_readiness_descriptor_is_exact_and_packaged():
+    from agent_utilities.mcp.tools import intent_tools
+    from tests.unit.cpd_generator_support import generated_action_items
+
+    expected = generated_action_items("graph_analyze", ["readiness"])["readiness"]
+    assert expected["mutates"] == "false"
+    assert expected["eg_method"] is None
+    actual = next(
+        d
+        for d in intent_tools._load_cpds_required()["graph_analyze"]["does"]
+        if d["action"] == "readiness"
+    )
+    assert actual == expected
+    assert (
+        "mutates"
+        not in generated_action_items("other_tool", ["readiness"])["readiness"]
+    )

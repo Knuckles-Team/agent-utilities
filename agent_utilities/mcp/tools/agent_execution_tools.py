@@ -525,3 +525,9 @@ def register_agent_execution_tools(mcp: Any) -> None:
 
     kg_server.REGISTERED_TOOLS["graph_agents"] = graph_agents
     kg_server.ACTION_TOOL_ROUTES["graph_agents"] = "/graph/agents"
+
+    from agent_utilities.mcp.tools.agent_library_tools import (
+        register_agent_library_tool,
+    )
+
+    register_agent_library_tool(mcp)

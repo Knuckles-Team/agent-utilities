@@ -21,15 +21,16 @@ dense/sparse retrieval-index signal, ontology integrity-policy activation
 (CONCEPT:AU-KG.ontology.integrity-bootstrap — ``ontology_activation``, closing the
 sibling defect class where the engine's RDF write guard rejects every
 ontology load with no registered SHACL/ICV policy and the process keeps
-serving anyway; see :mod:`agent_utilities.knowledge_graph.ontology.activation`),
-and — the check that actually proves the
+serving anyway; currently always ``unavailable`` pending a replacement status
+source backed by the epistemic-graph-owned authority — see that check's own
+module-level comment), and — the check that actually proves the
 defect class above is closed — a **synthetic query canary** that runs the SAME
 ``build_code_context`` implementation the live ``graph_code(action=
 "code_context")`` MCP/REST route dispatches to
 (:mod:`agent_utilities.knowledge_graph.retrieval.code_context`,
 :mod:`agent_utilities.mcp.tools.analysis_tools`) — the same live route, never a
 substitute for it: a broken/degraded engine flows through the real ``EngineReadDegraded``
-path and a genuinely empty index flows through the real "zero citations" path,
+path and insufficient grounding flows through the real "zero citations" path,
 and this module reports each honestly (``unavailable`` / ``degraded``) rather
 than folding either into a false "ready".
 
@@ -380,6 +381,18 @@ def _run_with_deadline(fn: Any, deadline_s: float) -> tuple[Any, str | None]:
         return None, f"synthetic_query_error:{type(exc).__name__}"
 
 
+def _synthetic_retrieval_detail(result: dict[str, Any]) -> dict[str, Any]:
+    """Report retrieval observations without certifying grounding or coverage."""
+    documents = (result.get("sections") or {}).get("docs") or []
+    return {
+        "retrieval_status": result.get("status"),
+        "retrieved_document_count": len(documents),
+        "documents_with_source_count": sum(
+            bool(doc.get("source")) for doc in documents
+        ),
+    }
+
+
 def _check_synthetic_query(
     engine: Any, *, query: str, node_id: str, deadline_s: float
 ) -> ReadinessCheckDict:
@@ -414,6 +427,7 @@ def _check_synthetic_query(
     status = result.get("status")
     error = result.get("error") or {}
     citations = result.get("citations") or []
+    retrieval_detail = _synthetic_retrieval_detail(result)
 
     if status == "degraded":
         # BUG-004: the engine itself was unreachable — this is NOT evidence
@@ -434,12 +448,14 @@ def _check_synthetic_query(
             route="graph_code_context",
             evidence_count=0,
             reason="evidence_coverage_zero",
+            detail=retrieval_detail,
             latency_ms=latency_ms,
         )
     return _check(
         "ready",
         route="graph_code_context",
         evidence_count=len(citations),
+        detail=retrieval_detail,
         capability_id=result.get("capability_id") or None,
         latency_ms=latency_ms,
     )
@@ -448,24 +464,21 @@ def _check_synthetic_query(
 def _check_sparse_index(
     synthetic_query_check: ReadinessCheckDict,
 ) -> ReadinessCheckDict:
-    """Sparse/lexical index signal — a thin projection of the synthetic-query
-    canary's own evidence count, not a second index-scanning subsystem
-    (no dedicated sparse-index coverage API exists yet in this codebase; see
-    the module docstring). ``engine_degraded``/timeout carries no evidence
-    about the index at all (BUG-004) and is reported ``not_configured`` here
-    rather than a false ``0.0%`` empty-index verdict.
+    """The query canary does not measure sparse-index coverage.
+
+    Zero citations can coexist with retrieved documents; a cited answer also
+    supplies no index-wide denominator. Keep the canary observation visible,
+    but leave coverage unknown until an authoritative index metric exists.
     """
-    state = synthetic_query_check.get("state")
-    reason = synthetic_query_check.get("reason")
-    if state == "unavailable" and reason not in {"evidence_coverage_zero"}:
-        return _check(
-            "not_configured",
-            reason="synthetic query could not run; sparse-index coverage is unknown",
-        )
-    evidence_count = int(synthetic_query_check.get("evidence_count") or 0)
-    if evidence_count <= 0:
-        return _check("unavailable", coverage_pct=0.0, reason="compiled_index_empty")
-    return _check("ready", coverage_pct=100.0)
+    return _check(
+        "not_configured",
+        reason="sparse_index_coverage_unmeasured",
+        detail={
+            "source": "synthetic_query",
+            "synthetic_query_state": synthetic_query_check.get("state"),
+            "citation_count": int(synthetic_query_check.get("evidence_count") or 0),
+        },
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -479,13 +492,35 @@ def _check_sparse_index(
 # NEVER attempted, or whose attempt gave up, reads ``unavailable`` here —
 # fails closed, never silently ``ready``, mirroring ``synthetic_query``'s own
 # "never trust a signal about state; check state" contract.
+#
+# 43197d7c6 ("refactor: move semantic authority to epistemic graph") deleted
+# agent_utilities/knowledge_graph/ontology/activation.py, the module this
+# check reads, without providing a replacement status source backed by the
+# epistemic-graph-owned authority. Until that replacement exists, this check
+# can only ever report "unavailable" — in plain words: ``ready`` is NOT
+# currently reachable for this leg, by design, because there is nothing yet
+# to read a real activation status from. That is intentionally different
+# from deleting the check outright: the check's CONTRACT (fail closed, never
+# silently "ready") still holds and still shows up in every snapshot, so a
+# future PR that wires a real epistemic-graph-backed status read only has to
+# replace the body of this function, not reintroduce the check itself or
+# relearn why it exists.
 # --------------------------------------------------------------------------- #
 def _check_ontology_activation(engine: Any, tenant: str) -> ReadinessCheckDict:
     if engine is None:
         return _check("unavailable", reason="no_engine_supplied")
 
     from .core.shard_topology import tenant_graph_name
-    from .ontology.activation import get_activation_status
+
+    try:
+        from .ontology.activation import get_activation_status
+    except ImportError:
+        # See the module-level note above: the status-read module this
+        # function depends on was deleted without a replacement authority.
+        # Fail closed exactly like every other branch of this function
+        # (never silently "ready") instead of raising ImportError out of a
+        # readiness snapshot.
+        return _check("unavailable", reason="ontology_activation_status_source_removed")
 
     graph_name = tenant_graph_name(tenant or "", base="ontology")
     status = get_activation_status(graph_name)

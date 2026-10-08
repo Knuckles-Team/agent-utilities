@@ -8,6 +8,9 @@
 | Privacy/docs | Exact allowed automation authors pass; public Pages links and moved markers resolve | Credential, internal hostname and near-match author are rejected; unrelated docs deployment failure does not block code PR |
 | Cleanup | No live entry point imports legacy publisher or retired modules | Static gate catches a reintroduced legacy route or duplicate authority |
 | Pruning | Candidate diff/commits are reachable and clean before deletion | Dirty or unique branch state prevents pruning |
+| Messaging budget | Configured direct budget applies; an overrun delivers one follow-up reply | Invalid setting falls back to 60 s; no follow-up path keeps the graceful timeout text |
 | AI benchmark | Tenant-scoped typed query and model-serving baseline is measured reproducibly | Query shortcut bypassing purpose scope or second data authority is rejected |
 
 Run `python3 scripts/uv_workspace.py doctor`, focused Pytest, full `python3 scripts/uv_workspace.py run --all-extras pytest -q`, `python3 scripts/check_tracked_privacy.py`, `python3 scripts/check_version_consistency.py`, and `agent-utilities lane lease --resource precommit-all-files --operation gate -- python3 scripts/safe_precommit_all_files.py`. PR tests use public deterministic fixtures; live certification names its independently provisioned prerequisites. Record CCCC, jscpd, dupehound and KISS results on the exact commit.
+
+- AU-INTEGRATION-R020: `tests/unit/messaging/test_run_envelope_unwrap.py` feeds the exact leaked Telegram envelope. It asserts only `output` reaches the user.

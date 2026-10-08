@@ -29,8 +29,8 @@ drift between layers — follows a fixed build order:
    surface-parity gate stays green (see *Two surfaces by default*).
 3. **Wrapping skill.** Author or extend the domain skill covering the new verb so
    operators can discover it. The naming/coverage contract and the doctor that
-   enforces it are documented in `graph-runtime-and-governance`'s "Coverage
-   governance" section — run it as part of closing this out.
+   enforces it are documented in graph-os's own `graph-runtime-and-governance`
+   skill's "Coverage governance" section — run it as part of closing this out.
 
 Verify the whole chain in one pass:
 

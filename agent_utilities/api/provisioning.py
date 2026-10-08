@@ -28,12 +28,21 @@ import re
 import secrets
 import time
 from collections.abc import Awaitable, Callable
-from typing import Any, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
-from epistemic_graph.generated.connector_pack import (
-    AgentLibraryMutationContext,
-    McpCatalogSnapshotBinding,
-)
+if TYPE_CHECKING:
+    # Deferred to a runtime import inside `resolve()` below: this module must
+    # stay importable on a profile with no epistemic-graph installed (the
+    # no-engine CI job collects every test that imports `agent_utilities.api`
+    # transitively, without ever calling this provisioning resolver). The
+    # generated contract is still a hard runtime dependency of `resolve()`
+    # itself -- `from __future__ import annotations` already makes every
+    # annotation below a lazy string, so only the `isinstance`/construction
+    # uses inside the function body need the real names.
+    from epistemic_graph.generated.connector_pack import (
+        AgentLibraryMutationContext,
+        McpCatalogSnapshotBinding,
+    )
 
 from agent_utilities.knowledge_graph.core.session import GraphSession, resolve_session
 from agent_utilities.orchestration.action_policy import (
@@ -67,9 +76,18 @@ class _Policy(Protocol):
 
 T = TypeVar("T")
 ProvisioningProvider = Callable[[], T | Awaitable[T]]
-PackImportAuthorityResolver = Callable[
-    [str], Awaitable[tuple[McpCatalogSnapshotBinding, AgentLibraryMutationContext]]
-]
+# A plain (non-annotation) type-alias assignment is evaluated at import time
+# even under `from __future__ import annotations`, so the generated names
+# cannot appear here directly without forcing the top-of-module import this
+# file deliberately defers (see the `TYPE_CHECKING` import above). Static
+# checkers see the exact alias; runtime gets an equivalent untyped one.
+if TYPE_CHECKING:
+    PackImportAuthorityResolver = Callable[
+        [str],
+        Awaitable[tuple[McpCatalogSnapshotBinding, AgentLibraryMutationContext]],
+    ]
+else:
+    PackImportAuthorityResolver = Callable[[str], Awaitable[tuple[Any, Any]]]
 
 _REQUIRED_SCOPE = "agent:pack-control"
 _ACTION_KIND = "connector_pack_import"
@@ -165,6 +183,11 @@ def pack_import_authority(
     async def resolve(
         connector: str,
     ) -> tuple[McpCatalogSnapshotBinding, AgentLibraryMutationContext]:
+        from epistemic_graph.generated.connector_pack import (
+            AgentLibraryMutationContext,
+            McpCatalogSnapshotBinding,
+        )
+
         connector_id = _connector_name(connector)
         verified = resolve_session(bound, required_scope=_REQUIRED_SCOPE)
         request = ActionRequest(

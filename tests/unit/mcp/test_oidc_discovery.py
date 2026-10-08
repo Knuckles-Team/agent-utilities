@@ -51,18 +51,17 @@ def test_trailing_slash_normalized() -> None:
 
 
 def test_discovery_failure_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _Boom:
-        def __init__(self, *a: object, **k: object) -> None: ...
-        def __enter__(self) -> _Boom:
-            return self
+    # `discover()` builds its transport via `oidc_http_client()` (which wraps
+    # `agent_utilities.core.http_client.create_http_client` -- `httpx` itself
+    # is only a TYPE_CHECKING import here, never a runtime module attribute)
+    # and reads the response via `client.stream("GET", url)`, not `.get()`.
+    # Faking the failure at `oidc_http_client()` itself -- the one
+    # module-level seam `discover()` actually calls through -- survives
+    # either transport detail changing again, instead of re-pinning to one.
+    def _boom(*, timeout: float = 15.0) -> object:
+        raise RuntimeError("network down")
 
-        def __exit__(self, *a: object) -> bool:
-            return False
-
-        def get(self, url: str) -> object:
-            raise RuntimeError("network down")
-
-    monkeypatch.setattr(oidc_discovery.httpx, "Client", _Boom)
+    monkeypatch.setattr(oidc_discovery, "oidc_http_client", _boom)
     assert oidc_discovery.jwks_uri_for("http://unreachable.test/iss") is None
     assert oidc_discovery.token_endpoint_for("http://unreachable.test/iss") is None
 

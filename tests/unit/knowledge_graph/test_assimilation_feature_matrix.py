@@ -14,42 +14,27 @@ from agent_utilities.knowledge_graph.assimilation import (
     materialize_feature_matrix,
     render_markdown,
 )
+from tests.unit.assimilation_graph_fakes import (
+    AssimilationEngine,
+    AssimilationGraph,
+)
 
 pytestmark = pytest.mark.concept("AU-KG.research.default-so-every-cycle")
 
 
-class _Graph:
-    def __init__(self, nodes):
-        self._n = nodes
-        self._out: dict = {}
-        self._in: dict = {}
-
+class _Graph(AssimilationGraph):
     def nodes(self, data=False):
         # data=True → NX-style (id, data) items; data=False → the dict itself, which
         # supports BOTH iteration (keys) AND [id] lookup (the per-id scoped fetch path,
         # CONCEPT:AU-KG.ingest.fetch-only-requested-ids) so build_feature_matrix(restrict_to=...) stays O(cohort).
         return list(self._n.items()) if data else self._n
 
-    def add_edge(self, src, dst, props):
-        self._out.setdefault(src, []).append((src, dst, props))
-        self._in.setdefault(dst, []).append((src, dst, props))
 
-    def out_edges(self, nid, data=False):
-        e = self._out.get(nid, [])
-        return e if data else [(s, t) for s, t, _ in e]
-
-    def in_edges(self, nid, data=False):
-        e = self._in.get(nid, [])
-        return e if data else [(s, t) for s, t, _ in e]
-
-
-class _Engine:
+class _Engine(AssimilationEngine):
     def __init__(self, nodes):
+        super().__init__()
         self.graph = _Graph(nodes)
         self.added: dict = {}
-
-    def link_nodes(self, src, dst, rel_type, properties=None, ephemeral=False):
-        self.graph.add_edge(src, dst, properties or {})
 
     def add_node(self, node_id, node_type=None, properties=None, **_kw):
         self.added[node_id] = {"node_type": node_type, "properties": properties or {}}

@@ -291,6 +291,88 @@ def test_jscpd_clone_keys_distinguish_same_file_ranges(tmp_path):
     assert len(jscpd._clone_keys(report, root)) == 2
 
 
+def _pair_report(root: Path, pairs: list[tuple[str, str]]) -> dict:
+    report = _valid_jscpd_report(root)
+    template = report["duplicates"][0]
+    report["duplicates"] = []
+    for first, second in pairs:
+        clone = deepcopy(template)
+        clone["firstFile"]["name"] = str(root / first)
+        clone["secondFile"]["name"] = str(root / second)
+        report["duplicates"].append(clone)
+    report["statistics"]["total"]["clones"] = len(pairs)
+    return report
+
+
+def test_jscpd_enforce_attributes_new_pairs_only_to_changed_files(tmp_path):
+    """Deleting the occurrence jscpd paired every copy against re-pairs the
+    survivors with each other. Those survivors are unchanged, so their pair is
+    pre-existing duplication; a pair touching a changed file is still NEW."""
+    jscpd = _load_script("check_duplication")
+    root = tmp_path / "repo"
+    root.mkdir()
+    before = jscpd._clone_keys(
+        _pair_report(
+            root, [("src/removed.py", "src/a.py"), ("src/removed.py", "src/b.py")]
+        ),
+        root,
+    )
+    after = jscpd._clone_keys(
+        _pair_report(root, [("src/a.py", "src/b.py"), ("src/added.py", "src/a.py")]),
+        root,
+    )
+
+    introduced, repaired = jscpd._split_new_pairs(
+        after - before, frozenset({"src/removed.py", "src/added.py"})
+    )
+
+    assert {jscpd._format_clone_pair(key[2]) for key in introduced} == {
+        "src/a.py  <->  src/added.py"
+    }
+    assert {jscpd._format_clone_pair(key[2]) for key in repaired} == {
+        "src/a.py  <->  src/b.py"
+    }
+
+
+def test_jscpd_enforce_changed_tree_paths_cover_deletes_and_edits(
+    tmp_path, monkeypatch
+):
+    jscpd = _load_script("check_duplication")
+    root = tmp_path / "repo"
+    root.mkdir()
+    env = _fixture_commit_env()
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    for name in ("kept.md", "edited.md", "removed.md"):
+        (root / name).write_text(f"{name}\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "--", "kept.md", "edited.md", "removed.md"], cwd=root, check=True
+    )
+    subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=root, check=True, env=env)
+    base = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    (root / "edited.md").write_text("changed\n", encoding="utf-8")
+    subprocess.run(["git", "rm", "-q", "--", "removed.md"], cwd=root, check=True)
+    subprocess.run(["git", "add", "--", "edited.md"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "head"], cwd=root, check=True, env=env)
+    tree = subprocess.run(
+        ["git", "rev-parse", "HEAD^{tree}"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    monkeypatch.setattr(jscpd, "_AU_ROOT", root)
+
+    assert jscpd._tree_changed_paths(base, tree) == frozenset(
+        {"edited.md", "removed.md"}
+    )
+
+
 def test_jscpd_clone_pair_renderer_fails_closed_on_missing_location():
     jscpd = _load_script("check_duplication")
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -197,3 +198,81 @@ def test_cypher_literal_renders_bool_and_number() -> None:
 
 def test_cypher_literal_renders_list_for_in_clause() -> None:
     assert _cypher_literal(["a", "b"]) == "['a', 'b']"
+
+
+@pytest.fixture
+def native_error_contract(tmp_path, monkeypatch):
+    from agent_utilities.security import error_surface
+
+    (tmp_path / "errors.json").write_text(
+        json.dumps({"contract_version": 1, "errors": [{"code": "ACCESS_DENIED"}]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(error_surface, "files", lambda package: tmp_path)
+    error_surface._engine_error_codes.cache_clear()
+    yield tmp_path
+    error_surface._engine_error_codes.cache_clear()
+
+
+@pytest.mark.parametrize(
+    "wire_code", ["ACCESS_DENIED", "UNKNOWN_PRIVATE_CODE", None, 42, ["ACCESS_DENIED"]]
+)
+def test_native_refusal_retains_only_declared_code(
+    native_error_contract, wire_code, caplog
+) -> None:
+    from agent_utilities.security.error_surface import public_error_payload
+
+    class EngineResponseError(RuntimeError):
+        def __init__(self, code):
+            self.code = code
+            self.detail = "private native diagnostic"
+            super().__init__(self.detail)
+
+    graph = MagicMock()
+    graph.query_cypher.side_effect = EngineResponseError(wire_code)
+    with pytest.raises(CypherEngineError) as caught:
+        _backend(graph).execute_read("MATCH (w:WorkItem) RETURN w.id AS id LIMIT 1")
+    payload = public_error_payload(caught.value)
+    expected = "ACCESS_DENIED" if wire_code == "ACCESS_DENIED" else None
+    assert caught.value.engine_error_code == expected
+    assert payload.get("engine_error_code") == expected
+    assert payload["status"] == "failed"
+    assert payload["error"]["code"] == "operation_failed"
+    assert payload["error"]["retryable"] is False
+    assert caught.value.__cause__ is None
+    output = json.dumps(payload) + str(caught.value) + caplog.text
+    assert "private native diagnostic" not in output
+    assert "UNKNOWN_PRIVATE_CODE" not in output
+    assert "MATCH" not in output
+
+
+@pytest.mark.parametrize(
+    "broken_contract, cause",
+    [
+        ("missing", "No such file or directory"),
+        ("malformed", "Expecting value"),
+        ("wrong_shape", "not iterable"),
+    ],
+)
+def test_native_refusal_omits_code_without_valid_contract(
+    native_error_contract, broken_contract, cause, caplog
+) -> None:
+    from agent_utilities.security.error_surface import validated_engine_error_code
+
+    contract = native_error_contract / "errors.json"
+    if broken_contract == "missing":
+        contract.unlink()
+    else:
+        content = (
+            "invalid contract" if broken_contract == "malformed" else '{"errors":null}'
+        )
+        contract.write_text(content, encoding="utf-8")
+    assert validated_engine_error_code("ACCESS_DENIED") is None
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "agent_utilities.security.error_surface"
+    ]
+    assert len(records) == 1
+    assert records[0].levelname == "WARNING"
+    assert cause in records[0].getMessage()

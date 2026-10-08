@@ -96,7 +96,7 @@ Building, exposing, and tuning MCP servers and their tool modes.
 
 - [Building MCP Servers & API Wrappers](building-mcp-servers.md)
 - [Building Fleet API Clients](building-fleet-api-clients.md)
-- [MCP Tool Modes (condensed/verbose/both)](mcp-tool-modes.md)
+- [MCP Tool Surface (intent tools)](mcp-tool-modes.md)
 - [MCP Fleet Auth & Monitoring Runbook](mcp-fleet-auth-and-monitoring-runbook.md)
 
 ## Enterprise & external-system integration

@@ -620,23 +620,22 @@ def generate(
     # the same canonical order, so live-render == cache-render byte-for-byte.
     ledger = dict(sorted(ledger.items()))
 
-    # Generate CPDs over the FULL canonical surface — every granular tool AND
-    # the six intent verbs (they are first-class MCP/REST entry points with
-    # their own CPDs, even though they are never resolver targets themselves;
-    # see intent_tools.py's module docstring) — independent of the ambient
-    # deployment's ``MCP_TOOL_MODE``/feature toggles. ``tool_profile="intent"``
-    # is the one mode whose ``mcp.list_tools()`` returns BOTH surfaces
-    # together (the granular tools stay fully registered under intent mode,
-    # merely tagged "gated" for the default client view — see
-    # verbose_tools.py); ``canonical_surface=True`` registers every condensed
-    # domain regardless of deployment toggles, so an optional/disabled family
-    # on THIS box can't silently drop out of the catalog. Mirrors
-    # ``gen_graphos_manifest.py::build_manifest()``'s identical save/rebuild/
-    # restore of the global tool registries — same reason: a script import
-    # must never leave ``kg_server.REGISTERED_TOOLS``/``ACTION_TOOL_ROUTES``
-    # (or the ambient ``MCP_TOOL_MODE``) mutated for whatever process imports
-    # this module next (a test process, or a second generator run in the same
-    # interpreter).
+    # Generate CPDs over the FULL canonical surface — every backing granular
+    # tool AND the six intent verbs (they are first-class MCP/REST entry points
+    # with their own CPDs, even though they are never resolver targets
+    # themselves; see intent_tools.py's module docstring). The backing tools
+    # live on the surface's private backing server (graphos_surface.py); the
+    # served job-based domain tools and MCP Apps launchers are projections over
+    # them, not capabilities of their own. ``canonical_surface=True`` registers
+    # every backing family regardless of deployment toggles, so an
+    # optional/disabled family on THIS box can't silently drop out of the
+    # catalog. Mirrors ``gen_graphos_manifest.py::build_manifest()``'s identical
+    # save/rebuild/restore of the global tool registries — a script import must
+    # never leave ``kg_server.REGISTERED_TOOLS``/``ACTION_TOOL_ROUTES`` mutated
+    # for whatever process imports this module next.
+    from agent_utilities.mcp.graphos_surface import backing_server
+    from agent_utilities.mcp.tool_specs import INTENT_VERBS
+
     registered_before = dict(kg_server.REGISTERED_TOOLS)
     routes_before = dict(kg_server.ACTION_TOOL_ROUTES)
     try:
@@ -645,22 +644,11 @@ def generate(
         kg_server.ACTION_TOOL_ROUTES.update(kg_server.BASE_ACTION_TOOL_ROUTES)
         args, mcp, _mw = kg_server._build_server(
             bootstrap=False,
-            tool_profile="intent",
             canonical_surface=True,
         )
-        tools = asyncio.run(_list_tools(mcp))
-        # MCP Apps entry-point tools (``mcp/tools/mcp_apps.py``, tagged
-        # ``mcp-apps``) are UI launchers over an EXISTING host-mediated tool —
-        # the task-progress app drives ``graph_jobs``, the trace-waterfall app
-        # drives ``graph_traces action=waterfall``. They are not capabilities in
-        # their own right (the capability they expose already has a CPD), and
-        # they are deliberately absent from ``canonical_tool_names``, so
-        # emitting a CPD for them makes the generated catalog disagree with the
-        # canonical tool universe — which surfaced as a CPD-gate KeyError on
-        # ``TOOL_VERBS[cpd.id]`` when the MCP Apps lane merged. Excluded here so
-        # the catalog stays a function of the canonical surface.
-        tools = [
-            t for t in tools if "mcp-apps" not in (getattr(t, "tags", None) or set())
+        served = asyncio.run(_list_tools(mcp))
+        tools = asyncio.run(_list_tools(backing_server(mcp))) + [
+            t for t in served if t.name in INTENT_VERBS
         ]
         action_tool_routes = dict(kg_server.ACTION_TOOL_ROUTES)
     finally:

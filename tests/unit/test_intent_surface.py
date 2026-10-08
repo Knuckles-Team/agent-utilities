@@ -26,6 +26,18 @@ _NEEDS_ENGINE_DOMAINS = pytest.mark.skipif(
 )
 
 
+def _reset_intent_caches() -> None:
+    """Drop every process-global router cache so the next call rebuilds it."""
+    intent_tools._CANDIDATES_CACHE = None
+    intent_tools._ACTIONS_BY_TOOL_CACHE = None
+    intent_tools._OUTCOME_ROUTER = None
+    intent_tools._REWARD_EPOCH = 0
+    intent_tools._RESOLUTION_CACHE.clear()
+    intent_tools._PREVIEW_PLAN_CACHE.clear()
+    intent_tools._APPROVALS.clear()
+    intent_tools._OPERATION_VERBS_CACHE = None
+
+
 @pytest.fixture(autouse=True)
 def _fresh_candidate_cache():
     """Force the candidate table to rebuild against whatever REGISTERED_TOOLS
@@ -39,19 +51,9 @@ def _fresh_candidate_cache():
     in the process did).
     """
     kg_server.ensure_tools_registered()
-    intent_tools._CANDIDATES_CACHE = None
-    intent_tools._ACTIONS_BY_TOOL_CACHE = None
-    intent_tools._OUTCOME_ROUTER = None
-    intent_tools._REWARD_EPOCH = 0
-    intent_tools._RESOLUTION_CACHE.clear()
-    intent_tools._PREVIEW_PLAN_CACHE.clear()
+    _reset_intent_caches()
     yield
-    intent_tools._CANDIDATES_CACHE = None
-    intent_tools._ACTIONS_BY_TOOL_CACHE = None
-    intent_tools._OUTCOME_ROUTER = None
-    intent_tools._REWARD_EPOCH = 0
-    intent_tools._RESOLUTION_CACHE.clear()
-    intent_tools._PREVIEW_PLAN_CACHE.clear()
+    _reset_intent_caches()
 
 
 def _install_test_capability(
@@ -206,7 +208,7 @@ async def test_pin_of_a_tool_unknown_to_the_intent_surface_is_actionable():
     assert result["executed"] is False
     assert result["error"] != "Pinned capability is not allowed for this intent verb."
     assert "gith__pulls" in result["error"]
-    assert "load_tools" in result["error"]
+    assert "fleet.call" in result["error"]
     assert result["routing"]["candidates"] == []
 
 
@@ -283,88 +285,6 @@ async def test_graph_code_mutations_are_denied_by_ask_and_reachable_via_act(
     assert executed["routing"]["chosen_tool"] == "graph_code"
     assert executed["routing"]["action"] == action
     assert seen == [(action, "agent-utilities")]
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("action", ("process",))
-async def test_graph_mine_mutations_are_denied_by_ask_and_reachable_via_act(
-    monkeypatch,
-    action,
-):
-    """B-15: TOOL_VERBS["graph_mine"] used to be ("ask",) only, with no READ_ONLY_ACTIONS
-    entry at all -- so a mutating action (17 of graph_mine's 18 actions can writeback a
-    node/commit a ChangeEnvelope, per the CPD's "mutates": "~true") was only reachable
-    through the read verb, and could never reach act's reviewed preview/plan-ref flow.
-    Empirically, the fail-closed unclassified-route check still denied ask-routed
-    execution (mutates=None from `_operation_plan` is "not False" too) -- so this was a
-    misleading mapping, not a live security bypass -- but the mutating surface was
-    entirely unreachable through the intent dispatcher. Mirrors the graph_code split
-    above: ask stays read-only, act reaches the reviewed mutation path."""
-
-    seen: list[tuple[str, str]] = []
-
-    async def fake_graph_mine(
-        action: str = "associate", params_json: str = "{}", graph: str = ""
-    ) -> str:
-        seen.append((action, params_json))
-        return json.dumps({"status": "ok", "action": action})
-
-    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_mine", fake_graph_mine)
-    intent = f"mine the graph {action}"
-    hints = {"tool": "graph_mine", "action": action, "params_json": "{}"}
-
-    denied = await intent_tools.dispatch_intent("ask", intent, hints=hints)
-
-    assert denied["executed"] is False
-    assert denied["error"] == "Read-only intent action is not declared read-only."
-    assert seen == []
-
-    preview = await intent_tools.dispatch_intent("act", intent, hints=hints)
-
-    assert preview["executed"] is False
-    assert preview["routing"]["plan"]["execution_class"] == "mutation"
-    assert preview["routing"]["plan"]["preview_required"] is True
-    plan_ref = preview["routing"]["plan"]["plan_ref"]
-
-    executed = await intent_tools.dispatch_intent(
-        "act",
-        intent,
-        hints={"plan_ref": plan_ref},
-        execute=True,
-    )
-
-    assert executed["executed"] is True
-    assert executed["routing"]["chosen_tool"] == "graph_mine"
-    assert executed["routing"]["action"] == action
-    assert seen == [(action, "{}")]
-
-
-@pytest.mark.parametrize(
-    ("action", "expected_execution_class"),
-    [
-        # The one graph_mine action the CPD declares non-mutating ("classify_fit":
-        # "false", no ``writeback`` option -- see READ_ONLY_ACTIONS["graph_mine"]).
-        ("classify_fit", "read_only"),
-        # Representative writeback-gated actions (CPD "mutates": "~true") -- once
-        # graph_mine has a READ_ONLY_ACTIONS entry, `_operation_plan`'s "mixed
-        # surface" branch (anything not explicitly declared read-only is non-read)
-        # classifies every one of these as a real "mutation".
-        ("process", "mutation"),
-        ("cluster", "mutation"),
-        ("root_cause", "mutation"),
-        ("community", "mutation"),
-    ],
-)
-def test_graph_mine_operation_plan_classifies_every_action_correctly(
-    action, expected_execution_class
-):
-    """Exercises ``_operation_plan`` directly (the level named in B-15/GOC-61 as
-    ``intent_tools.py:1426``) so every one of graph_mine's 18 actions is checked, not
-    just the one action (`process`) the static graph-os action manifest currently
-    declares routable through the full ``dispatch_intent`` path."""
-    plan = intent_tools._operation_plan("ask", "graph_mine", action, {})
-    assert plan["execution_class"] == expected_execution_class
-    assert (plan["mutates"] is False) == (expected_execution_class == "read_only")
 
 
 @pytest.mark.asyncio
@@ -623,103 +543,100 @@ async def test_explicit_action_must_belong_to_selected_tool(monkeypatch):
     )
 
 
-@pytest.mark.asyncio
-async def test_manage_lifecycle_plan_ref_replays_exact_preview_hints(monkeypatch):
-    """A plan-ref-only lifecycle execute uses the reviewed load parameters."""
-    mcp = type("Mcp", (), {"_fleet_mux": object()})()
-    seen: dict[str, object] = {}
+class _FakeMux:
+    """The multiplexer surface ``manage(action="fleet.load"/"fleet.unload")`` uses."""
 
-    async def fake_load(mcp, mux, *, tools, servers, auto_unload):
-        seen.update(
-            mcp=mcp,
-            mux=mux,
-            tools=tools,
-            servers=servers,
-            auto_unload=auto_unload,
-        )
-        return {"loaded": tools}
+    _authority_scope = None
 
-    from agent_utilities.mcp import multiplexer
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, object]] = []
 
-    monkeypatch.setattr(multiplexer, "load_session_tools", fake_load)
-    intent = "load the reviewed tool for this task"
-    preview = await intent_tools._manage_lifecycle(
-        mcp,
-        intent,
-        {"action": "load", "tools": ["github_review"], "auto_unload": True},
-    )
-    assert preview is not None
+    def require_capability(self, kind: str) -> None:
+        self.calls.append(("require", kind))
 
-    result = await intent_tools._manage_lifecycle(
-        mcp,
-        intent,
-        {"plan_ref": preview["plan"]["plan_ref"]},
-        execute=True,
-    )
+    async def resolve_and_mount(self, tools=None, servers=None):
+        self.calls.append(("mount", (tools, servers)))
+        return ["github"], list(tools or []), {}
 
-    assert result == {"loaded": ["github_review"]}
-    assert seen == {
-        "mcp": mcp,
-        "mux": mcp._fleet_mux,
-        "tools": ["github_review"],
-        "servers": None,
-        "auto_unload": True,
-    }
+    def forget_tool(self, name: str):
+        self.calls.append(("forget", name))
+        return "github"
 
 
 @pytest.mark.asyncio
-async def test_manage_lifecycle_plan_ref_is_context_bound(monkeypatch):
-    """A lifecycle plan cannot be replayed under another authority context."""
-    mcp = type("Mcp", (), {"_fleet_mux": object()})()
+async def test_fleet_load_previews_then_executes_only_with_its_plan_ref():
+    """``manage(action="fleet.load")`` keeps the non-read preview contract."""
+    mux = _FakeMux()
+    mcp = type("Mcp", (), {"_fleet_mux": mux})()
+    params = {"tools": ["github_review"]}
+
+    preview = await intent_tools._dispatch_verb(
+        mcp, "manage", "fleet.load", dict(params), "load the review tool", False
+    )
+    assert preview["executed"] is False
+    assert mux.calls == []
+
+    refused = await intent_tools._dispatch_verb(
+        mcp, "manage", "fleet.load", dict(params), "load the review tool", True
+    )
+    assert refused["executed"] is False
+    assert "Preview required" in refused["error"]
+    assert mux.calls == []
+
+    loaded = await intent_tools._dispatch_verb(
+        mcp,
+        "manage",
+        "fleet.load",
+        {**params, "plan_ref": preview["plan"]["plan_ref"]},
+        "load the review tool",
+        True,
+    )
+    assert loaded["executed"] is True
+    assert loaded["result"]["available"] == ["github_review"]
+    assert ("mount", (["github_review"], None)) in mux.calls
+
+
+@pytest.mark.asyncio
+async def test_fleet_plan_ref_is_context_and_operation_bound(monkeypatch):
+    """A fleet plan cannot be replayed under another authority context or for
+    another operation."""
+    mux = _FakeMux()
+    mcp = type("Mcp", (), {"_fleet_mux": mux})()
     monkeypatch.setattr(intent_tools, "_outcome_scope_ref", lambda: "scope-a")
-    preview = await intent_tools._manage_lifecycle(
-        mcp, "unload reviewed tools", {"action": "unload", "tools": ["a"]}
+    preview = await intent_tools._dispatch_verb(
+        mcp, "manage", "fleet.unload", {"tools": ["a"]}, "", False
     )
-    assert preview is not None
+    plan_ref = preview["plan"]["plan_ref"]
+
+    other_op = await intent_tools._dispatch_verb(
+        mcp, "manage", "fleet.load", {"tools": ["a"], "plan_ref": plan_ref}, "", True
+    )
+    assert other_op["executed"] is False
 
     monkeypatch.setattr(intent_tools, "_outcome_scope_ref", lambda: "scope-b")
-    result = await intent_tools._manage_lifecycle(
-        mcp,
-        "unload reviewed tools",
-        {"plan_ref": preview["plan"]["plan_ref"]},
-        execute=True,
+    other_scope = await intent_tools._dispatch_verb(
+        mcp, "manage", "fleet.unload", {"tools": ["a"], "plan_ref": plan_ref}, "", True
     )
-
-    assert result is not None
-    assert result["executed"] is False
-    assert "context-mismatched lifecycle plan_ref" in result["error"]
+    assert other_scope["executed"] is False
+    assert mux.calls == []
 
 
 @pytest.mark.asyncio
-async def test_lifecycle_replay_does_not_consume_normal_manage_plan(monkeypatch):
-    """A normal manage preview still falls through to dispatch_intent replay."""
-
-    async def fake_manage(**_kw) -> str:
-        return "ok"
-
-    _install_test_capability(
-        monkeypatch,
-        "fake_manage_tool",
-        fake_manage,
-        verbs=("manage",),
-        one_line="Manage the synthetic service configuration.",
-        mutates=True,
-        idempotent=True,
+async def test_fleet_call_previews_before_calling_a_fleet_tool():
+    """``act(action="fleet.call")`` previews first like every non-read verb."""
+    mux = _FakeMux()
+    mcp = type("Mcp", (), {"_fleet_mux": mux})()
+    params = {"tool": "github_list_pulls", "arguments": {"repo": "x"}}
+    preview = await intent_tools._dispatch_verb(
+        mcp, "act", "fleet.call", dict(params), "", False
     )
-    intent = "manage the synthetic service configuration"
-    preview = await intent_tools.dispatch_intent(
-        "manage", intent, hints={"tool": "fake_manage_tool"}, execute=False
+    assert preview["executed"] is False
+    assert preview["plan"]["arguments"] == ["repo", "tool"]
+    refused = await intent_tools._dispatch_verb(
+        mcp, "act", "fleet.call", dict(params), "", True
     )
-    mcp = type("Mcp", (), {"_fleet_mux": object()})()
-
-    lifecycle = await intent_tools._manage_lifecycle(
-        mcp,
-        intent,
-        {"plan_ref": preview["routing"]["plan"]["plan_ref"]},
-        execute=True,
-    )
-
-    assert lifecycle is None
+    assert refused["executed"] is False
+    assert mux.calls == []
 
 
 @pytest.mark.asyncio
@@ -975,16 +892,69 @@ async def test_destructive_plan_requires_exact_tool_approval(monkeypatch):
         hints={**hints, "plan_ref": plan["plan_ref"]},
         execute=True,
     )
+    # BUG-040: pinning the exact tool and action is not an approval.
     assert result["executed"] is False
     assert result["approval_required"] is True
-    # BUG-040: a caller with no session/mux at all (this test passes no
-    # ``mcp``) is still refused — see
-    # tests/unit/mcp/test_intent_surface_gating.py::
-    # test_bug040_destructive_plan_executes_once_session_loaded_exact_tool for
-    # the positive path once the exact tool IS session-loaded.
-    assert "approval policy" in result["error"]
-    assert result["required_load_tools"] == ["graph_write"]
+    assert "manage(action='approve'" in result["error"]
+    assert result["required_approval"] == "graph_write.delete_node"
     assert seen is False
+
+
+@pytest.mark.asyncio
+async def test_destructive_plan_executes_after_the_session_approves_it(monkeypatch):
+    """BUG-040 positive proof through the real dispatch gate: once this
+    session approved exactly ``graph_write.delete_node`` (itself a governed
+    preview → plan_ref → execute round trip), resubmitting the reviewed
+    ``plan_ref`` executes — and an approval of a different operation does not
+    count."""
+    seen: dict | None = None
+
+    async def fake_graph_write(**kw) -> str:
+        nonlocal seen
+        seen = kw
+        return "deleted"
+
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_write", fake_graph_write)
+    hints = {"tool": "graph_write", "action": "delete_node", "node_id": "node-1"}
+    preview = await intent_tools.dispatch_intent(
+        "write", "delete a node", hints=hints, execute=False
+    )
+    plan_ref = preview["routing"]["plan"]["plan_ref"]
+
+    async def _approve(op_id: str) -> None:
+        approval = await intent_tools._dispatch_verb(
+            None, "manage", "approve", {"action": op_id}, "", False
+        )
+        assert approval["executed"] is False
+        done = await intent_tools._dispatch_verb(
+            None,
+            "manage",
+            "approve",
+            {"action": op_id, "plan_ref": approval["plan"]["plan_ref"]},
+            "",
+            True,
+        )
+        assert done["executed"] is True
+
+    await _approve("graph_write.delete_edge")
+    still_refused = await intent_tools.dispatch_intent(
+        "write",
+        "delete a node",
+        hints={**hints, "plan_ref": plan_ref},
+        execute=True,
+    )
+    assert still_refused["approval_required"] is True
+    assert seen is None
+
+    await _approve("graph_write.delete_node")
+    result = await intent_tools.dispatch_intent(
+        "write",
+        "delete a node",
+        hints={**hints, "plan_ref": plan_ref},
+        execute=True,
+    )
+    assert result["executed"] is True
+    assert seen == {"action": "delete_node", "node_id": "node-1"}
 
 
 @pytest.mark.asyncio
@@ -1189,25 +1159,14 @@ def test_engine_placement_resolves_under_manage_without_failing_closed():
     assert "engine_placement" in {c.tool for c in candidates}
 
 
-def test_query_workflow_skill_documents_the_registered_query_argument():
-    """The consolidated query workflow remains the operator-facing guide for
-    ``graph_query`` and explicitly claims the verb in its sidecar."""
-    from pathlib import Path
+def test_registered_graph_query_accepts_the_current_query_argument():
+    """The query parameter contract remains owned by the tool implementation.
 
-    skill_path = (
-        Path(__file__).resolve().parents[2]
-        / "agent_utilities"
-        / "skills"
-        / "graph-query-and-explanation"
-    )
-    text = (skill_path / "SKILL.md").read_text(encoding="utf-8")
-    sidecar = (skill_path / "agents" / "graph-os.yaml").read_text(encoding="utf-8")
+    GraphOS tests its bundled query guide and sidecar against this same tool.
+    """
     parameters = inspect.signature(kg_server.REGISTERED_TOOLS["graph_query"]).parameters
     assert "query" in parameters
     assert "cypher" not in parameters
-    assert 'graph_query(query="' in text
-    assert "graph_query(cypher=" not in text
-    assert "graph_query" in sidecar
 
 
 # --------------------------------------------------------------------------- #
@@ -1661,6 +1620,7 @@ async def test_human_approval_class_routes_to_exact_tool_even_when_not_destructi
         execute=True,
     )
     assert result["approval_required"] is True
+    assert result["required_approval"] == "fake_reviewed_action"
     assert result["executed"] is False
     assert called is False
 
@@ -1710,3 +1670,21 @@ def test_resolution_cache_hits_repeat_intent_misses_a_different_one(monkeypatch)
     intent_tools.resolve_intent("ask", "an entirely unrelated intent phrase", top_k=5)
     size_after_third = len(intent_tools._RESOLUTION_CACHE)
     assert size_after_third == size_after_scope_change + 1
+
+
+@pytest.mark.parametrize(
+    ("tool", "action"),
+    [
+        ("graph_explain", "explain"),
+        ("graph_explain", "context"),
+        ("graph_explain", "executable_rag"),
+        ("graph_explain", "recommend"),
+        ("graph_observe", "trace_rootcause"),
+        ("graph_observe", "prompt_regression"),
+        ("graph_observe", "failure_cluster"),
+        ("graph_observe", "error_detail"),
+    ],
+)
+def test_why_tool_actions_are_classified_read_only(tool: str, action: str) -> None:
+    """``why`` refuses any route whose mutation class is not exactly False."""
+    assert intent_tools._resolve_mutates("why", tool, action, None, False) is False

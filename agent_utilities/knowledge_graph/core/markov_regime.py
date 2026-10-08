@@ -33,11 +33,21 @@ import math
 import warnings
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
-
-from agent_utilities.numeric import NDArray, xp
+from typing import TYPE_CHECKING, Any
 
 from .formal_reasoning_core import MarkovTransitionModel
+
+if TYPE_CHECKING:
+    # Type-only: with `from __future__ import annotations` above, annotations
+    # are never evaluated at runtime, so this name needs no runtime import.
+    from agent_utilities.numeric import NDArray
+
+# agent_utilities.numeric always imports successfully -- it defers the
+# certified epistemic_graph.numeric kernel's absence to first actual use
+# (agent_utilities/numeric/__init__.py's _require_kernel()), which raises
+# a clear ImportError naming the missing kernel instead of failing this
+# module's own import. No try/except/None-fallback needed here anymore.
+from agent_utilities.numeric import xp
 
 logger = logging.getLogger(__name__)
 

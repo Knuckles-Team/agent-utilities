@@ -3074,6 +3074,11 @@ class AgentConfig(BaseSettings):
         default="2.5", alias="MESSAGING_BURST_WINDOW_S"
     )
     messaging_burst_max_s: str = Field(default="12", alias="MESSAGING_BURST_MAX_S")
+    # Direct/chat-turn reply budget in seconds (direct-reply budget spec): one grounding compile
+    # plus one full local-model answer. A turn past it is delivered as a follow-up.
+    messaging_direct_reply_budget_s: str = Field(
+        default="60.0", alias="MESSAGING_DIRECT_REPLY_BUDGET_S"
+    )
     # Post-conversation enrichment (CONCEPT:AU-ECO.messaging.post-conversation-enrichment): mine chats → KG concepts (opt-out).
     messaging_enrich: str = Field(default="1", alias="MESSAGING_ENRICH")
     # Surface goals / SDD specs from chats (CONCEPT:AU-ECO.messaging.surfaced, opt-out).
@@ -3170,6 +3175,26 @@ class AgentConfig(BaseSettings):
     # embedding backfill). Production keeps them all on; this replaces the old
     # per-daemon KG_*_DAEMON env toggles (CONCEPT:EG-KG.storage.nonblocking-checkpoint, config discipline).
     kg_dev_mode: bool = Field(default=False, alias="KG_DEV_MODE")
+
+    # Baseline ingest after daemon boot (spec: baseline-ingestion). The daemon role
+    # enqueues the core skills, the prompt library and the workspace code as
+    # durable background WorkItems, so a fresh store grounds chat without a
+    # manual source_sync. KG_DEV_MODE silences it with the other daemons.
+    kg_baseline_ingest: bool = Field(default=True, alias="KG_BASELINE_INGEST")
+    # Skill providers whose corpora are baseline content (comma-separated names
+    # of ``agent_utilities.skill_providers`` entry points).
+    kg_baseline_skill_providers: str = Field(
+        default="agent-utilities,graph-os,universal-skills",
+        alias="KG_BASELINE_SKILL_PROVIDERS",
+    )
+    # Workspace code scope: ``core`` (agent-packages top level plus skills),
+    # ``all`` (every agent-packages repository), ``none``, or a comma-separated
+    # list of repository names from workspace.yml.
+    kg_baseline_codebases: str = Field(default="core", alias="KG_BASELINE_CODEBASES")
+    # Upper bound on codebase WorkItems one boot enqueues.
+    kg_baseline_max_codebases: int = Field(
+        default=32, ge=0, le=512, alias="KG_BASELINE_MAX_CODEBASES"
+    )
 
     # --- Observability / usage analytics (CONCEPT:AU-OS.observability.usage-analytics-store / ECO-4.40 / OS-5.31) ---
     # Backend for the usage/cost/session fact store. Zero-config default is a
@@ -3549,9 +3574,14 @@ class AgentConfig(BaseSettings):
             validated[domain] = threshold
         return validated
 
-    mcp_tool_mode: Literal["intent", "condensed", "verbose", "both"] = Field(
-        default="intent", alias="MCP_TOOL_MODE"
+    grounding_policy_default: Literal["required", "best_effort", "none"] = Field(
+        default="required", alias="AGENT_GROUNDING_POLICY"
     )
+    """Grounding policy for model calls outside an explicit grounding scope.
+
+    ``best_effort`` lets an interactive assistant answer while the evidence index
+    is sparse; each degraded call still carries the degraded-evidence marker."""
+
     mcp_http_allowed_private_hosts: list[str] = Field(
         default_factory=list, alias="MCP_HTTP_ALLOWED_PRIVATE_HOSTS"
     )
@@ -4154,14 +4184,14 @@ class AgentConfig(BaseSettings):
     graph_mirror_targets: list[str] | None = Field(
         default=None, alias="GRAPH_MIRROR_TARGETS"
     )
-    # Continuous Stardog mirroring (CONCEPT:AU-KG.backend.continuous-stardog-mirror). OFF by default:
-    # Stardog is used for EXPLICIT, on-demand per-source push/pull (``stardog_sync``), NOT a
-    # live write mirror. Set this to opt IN to continuous mirroring — the engine authority
-    # then fans every write out to Stardog (as a first-class fanout mirror, via the same
-    # durable outbox + replay machinery), partitioned into ``urn:source:<system>`` named
-    # graphs. A Stardog connection must be configured
-    # (``kg_connections`` ``stardog`` entry / ``STARDOG_*`` env). This is the ONE switch —
-    # no need to also list ``stardog`` in ``GRAPH_MIRROR_TARGETS``.
+    # Continuous Stardog mirroring (CONCEPT:AU-KG.backend.continuous-stardog-mirror). OFF by
+    # default. The Stardog SPARQL data backend this switch targeted was retired outright
+    # (external SPARQL federation is now owned by the epistemic-graph engine): turning this
+    # on still names "stardog" as a fan-out mirror target, but ``create_backend`` now raises
+    # ``LegacyGraphBackendRemovedError`` for that backend type, so the mirror build isolates
+    # the failure and logs it as degraded/skipped (CONCEPT:AU-KG.backend.mirror-health-repair)
+    # rather than connecting. Kept for ``runtime_health.py``'s health probe and characterization
+    # coverage; no production path currently makes it functional.
     continuous_stardog_mirror: bool = Field(
         default=False, alias="CONTINUOUS_STARDOG_MIRROR"
     )
@@ -4567,12 +4597,12 @@ class AgentConfig(BaseSettings):
     )
     """THE canonical Fuseki endpoint (CONCEPT:AU-KG.ontology.authoritative-tbox) — the single field every
     Fuseki reader resolves through: the ontology-publish tick
-    (``engine_tasks._tick_fuseki_publish``), ``publish_ontology_to_fuseki``'s
-    endpoint fallback, the ``fuseki``-kind SPARQL smoke query
-    (``database_environment.py``), and the ``jena_fuseki`` query backend
-    (``backends/sparql/jena_fuseki_backend.py`` via ``create_backend``).
-    Explicit callers may pass an ``endpoint=``/``jena_fuseki_url=`` argument
-    to override this per call."""
+    (``engine_tasks._tick_fuseki_publish``) and ``publish_ontology_to_fuseki``'s
+    endpoint fallback. (The ``jena_fuseki`` query backend and its database-setup
+    smoke query were retired outright; ``create_backend`` now raises
+    ``LegacyGraphBackendRemovedError`` for that backend type — external SPARQL
+    federation is owned by the epistemic-graph engine.) Explicit callers may
+    pass an ``endpoint=`` argument to override this per call."""
     graph_fuseki_dataset: str = Field(default="agent_kg", alias="GRAPH_FUSEKI_DATASET")
     graph_fuseki_user: str | None = Field(default=None, alias="GRAPH_FUSEKI_USER")
     graph_fuseki_password_ref: str | None = Field(

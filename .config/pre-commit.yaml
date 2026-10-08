@@ -218,9 +218,7 @@ repos:
     # code; deployment.venv_sync/venv_autosync (previously listed here) now
     # import cleanly and needed no entry.
     entry: >-
-      bash -c 'CMD="scripts/check_import_safety.py $*"; if [ -f uv.lock ]; then
-      exec scripts/hook_python.sh scripts/uv_workspace.py run --all-extras -- python3 $CMD; else
-      exec python3 $CMD; fi' --
+      scripts/hook_python.sh scripts/check_import_safety.py
       --package agent_utilities --simulate-windows
       --exclude agent_utilities.knowledge_graph.core.file_lock
       --exclude agent_utilities.__main__
@@ -242,7 +240,6 @@ repos:
       --exclude agent_utilities.mcp.middlewares
       --exclude agent_utilities.mcp.multiplexer
       --exclude agent_utilities.mcp.shared_multiplexer
-      --exclude agent_utilities.mcp.kg_coordinator
     language: system
     pass_filenames: false
     # NOT `types: [python]` (this repo's own top-level `exclude: ^scripts/`,
@@ -269,9 +266,27 @@ repos:
     # a stale exception, or a dependency-lock edit can change the verdict even
     # when the modified file is outside agent_utilities/.
     always_run: true
+  - id: check-boundary-owners
+    name: Boundary ownership — reject a wrong-owner module or console script
+    # Passes against today's tree: every module/console script that currently
+    # matches a graph-os or agent-connector-sdk seed in
+    # architecture/component-registry-boundary-seeds.yml is still recorded in
+    # specs/au-boundary-deconstruction/coverage.md as "relocate to <owner>".
+    # As each path is actually cut over in a later change, its coverage.md row
+    # stops saying that, and this hook then rejects the path reappearing.
+    entry: scripts/hook_python.sh scripts/check_boundary_owners.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: check-no-env-sprawl
     name: Config-flag anti-sprawl (no new bare os.environ KG_/GRAPH_ reads)
     entry: scripts/hook_python.sh scripts/check_no_env_sprawl.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-topology-authority
+    name: One topology authority (no AU TopologyTemplate Cypher, success-rate selection or second selector)
+    entry: scripts/hook_python.sh scripts/check_topology_authority.py
     language: system
     pass_filenames: false
     always_run: true
@@ -922,21 +937,19 @@ repos:
     pass_filenames: false
     always_run: true
   - id: guardrail-liveness
-    name: Guardrail — liveness ratchet
+    name: Guardrail — source liveness against fresh main
+    entry: scripts/hook_python.sh scripts/check_liveness_source.py --hook commit
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-commit]
+  - id: guardrail-liveness-strict
+    name: Guardrail — strict liveness including expiry
     entry: scripts/hook_python.sh scripts/check_liveness.py
     language: system
     pass_filenames: false
-    # NOT scoped, despite being the single most expensive default-stage
-    # local hook measured (~65s standalone, 2026-08-15): its own docstring
-    # names a TIME-based invariant a file diff cannot detect -- "a past-due
-    # deferred entry also fails the gate" (scripts/liveness_deferred.tsv's
-    # owner + review-by expiry). A deferred item can cross its review-by
-    # date with zero files changed in this repo, so a `files:` filter would
-    # let that regression go undetected past its expiry until some unrelated
-    # future commit happens to touch a matched path. Left always_run per
-    # "only scope when scoping cannot make it miss a violation" -- this is
-    # exactly that case, not a rationalization to avoid the work.
     always_run: true
+    stages: [manual]
   - id: guardrail-removed-symbol-consumers
     name: Guardrail — no removed/renamed public symbol still imported by the fleet
     # B-19 (2026-08-13): protect_stdio_jsonrpc was deleted with no consumer

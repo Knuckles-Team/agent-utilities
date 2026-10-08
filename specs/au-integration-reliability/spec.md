@@ -1,7 +1,7 @@
 # AU integration and release reliability
 
 **ID:** AU-INTEGRATION-001 · **Owner:** agent-utilities · **Delivery:** SPECIFIED; item-level historical state requires an exact-head audit.
-**Items:** AU-INTEGRATION-R001, AU-INTEGRATION-R002, AU-INTEGRATION-R003, AU-INTEGRATION-R004–AU-INTEGRATION-R006, AU-INTEGRATION-R007, AU-INTEGRATION-R008–AU-INTEGRATION-R009, AU-INTEGRATION-R010 (cross-owner gate), AU-INTEGRATION-R011, AU-INTEGRATION-R012, AU-INTEGRATION-R013, AU-INTEGRATION-R014, AU-INTEGRATION-R015. See [requirements.md](requirements.md) for the definition of every requirement ID, including AU-INTEGRATION-R016–AU-INTEGRATION-R018, and [status.json](status.json) for delivery state and evidence. Additional named workstreams: AU final composition, AU ontology/SHACL/OWL clean cut, AU public application control plane, and AU public docs. These workstream labels need stable IDs assigned through review; no synthetic ID is treated as authoritative.
+**Items:** AU-INTEGRATION-R001, AU-INTEGRATION-R002, AU-INTEGRATION-R003, AU-INTEGRATION-R004–AU-INTEGRATION-R006, AU-INTEGRATION-R007, AU-INTEGRATION-R008–AU-INTEGRATION-R009, AU-INTEGRATION-R010 (cross-owner gate), AU-INTEGRATION-R011, AU-INTEGRATION-R012, AU-INTEGRATION-R013, AU-INTEGRATION-R014, AU-INTEGRATION-R015. See [requirements.md](requirements.md) for the definition of every requirement ID, including AU-INTEGRATION-R016–AU-INTEGRATION-R019, AU-INTEGRATION-R020, and [status.json](status.json) for delivery state and evidence. Additional named workstreams: AU final composition, AU ontology/SHACL/OWL clean cut, AU public application control plane, and AU public docs. These workstream labels need stable IDs assigned through review; no synthetic ID is treated as authoritative.
 
 ## Outcome
 
@@ -17,6 +17,7 @@ AU's final composition has no silent fallback, stale provider contract, red base
 6. **Research gate:** AI predicate grouping, prompt/KV reuse and GPU fairness are measured against the typed EG/AU serving path with tenant/purpose constraints before integration. A benchmark proposal is not an accepted implementation (AU-INTEGRATION-R014).
 7. **Lane integrity:** before pruning a branch/worktree, prove its commits and uncommitted diff are represented in an accepted public branch or an explicit recovery artifact. AU final composition, AU ontology/SHACL/OWL clean cut, AU public application control plane, and AU public docs record exact merged commits and tests per item. A zero-ahead branch alone does not prove it is disposable (AU-INTEGRATION-R011).
 8. **Disposition:** AU-INTEGRATION-R007 is superseded only when its replacement has independent ground-truth proof; a prior rejected disposition in this area is not silently reopened without that same independent proof. AU-INTEGRATION-R003 is a historical composition claim that must be checked against exact main history. AU-INTEGRATION-R010's EG-owned Kafka gate is reported as dependency evidence, never misrepresented as AU code proof.
+9. **Messaging reply budget:** the direct chat budget is a declared setting. An over-budget messaging turn keeps running and delivers its reply as a follow-up (AU-INTEGRATION-R019).
 
 ## Acceptance
 

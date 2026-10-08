@@ -22,6 +22,7 @@ no-collision contract) without depending on the Rust wheel.
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
 import socket
@@ -717,8 +718,6 @@ def test_fresh_local_engine_bootstraps_exact_verified_identity(monkeypatch):
                 "graph",
                 0,
             )
-            if route_calls == 1:
-                raise PermissionError("empty identity policy")
             return {
                 "schema_version": "1",
                 "route_id": "route:opaque",
@@ -732,8 +731,21 @@ def test_fresh_local_engine_bootstraps_exact_verified_identity(monkeypatch):
                 "leader_ref": None,
             }
 
+    read_calls = 0
+
+    class _Query:
+        def cypher_read(self, query):
+            nonlocal read_calls
+            read_calls += 1
+            if read_calls == 1:
+                raise RuntimeError(
+                    "ACCESS_DENIED: a provisioned identity/RBAC policy is required"
+                )
+            return []
+
     class _MainClient:
         placement = _Placement()
+        query = _Query()
 
         @contextlib.contextmanager
         def use_verified_context(self, context):
@@ -782,8 +794,9 @@ def test_fresh_local_engine_bootstraps_exact_verified_identity(monkeypatch):
         },
     )
 
-    assert route_calls == 2
-    assert route_contexts == [verified_context, verified_context]
+    assert read_calls == 2
+    assert route_calls == 1
+    assert route_contexts == [verified_context] * 3
     assert len(connect_calls) == 1
     assert connect_calls[0]["graph_name"] == "__commons__"
     assert connect_calls[0]["verified_context"] == {
@@ -800,6 +813,72 @@ def test_fresh_local_engine_bootstraps_exact_verified_identity(monkeypatch):
         }
     ]
     assert closed == 1
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        None,
+        "verified principal lacks Read access to graph 'tenant-verified:graph'",
+    ],
+)
+def test_initialized_local_engine_is_never_rebootstrapped(monkeypatch, refusal):
+    """Only the unprovisioned-policy refusal identifies an empty store.
+
+    Placement routing answers before any policy exists, so it cannot be the
+    probe; an admitted read or any other refusal leaves the store untouched.
+    """
+    from epistemic_graph.client import SyncEpistemicGraphClient
+
+    from agent_utilities.knowledge_graph.core import graph_compute as gc
+
+    class _Query:
+        def cypher_read(self, query):
+            if refusal is not None:
+                raise RuntimeError(f"ACCESS_DENIED: {refusal}")
+            return []
+
+    class _MainClient:
+        placement = SimpleNamespace(route=lambda *a, **k: {"placed": False})
+        query = _Query()
+
+        @contextlib.contextmanager
+        def use_verified_context(self, context):
+            yield self
+
+    def _connect(**_kwargs):
+        raise AssertionError("an initialized store must not be bootstrapped")
+
+    monkeypatch.setattr(SyncEpistemicGraphClient, "connect", staticmethod(_connect))
+    engine = object.__new__(gc.GraphComputeEngine)
+    engine._local_bootstrap_identity = (
+        "subject:verified",
+        "0123456789abcdef0123456789abcdef",
+        {"agent_id": "subject:verified"},
+    )
+
+    engine._bootstrap_autostarted_engine_identity(
+        _MainClient(),
+        {"tcp_addr": "127.0.0.1:8765", "graph_name": "tenant-verified:graph"},
+    )
+
+
+def test_scoped_signer_registry_entry_yields_its_key():
+    """A scoped ``{"key": ...}`` entry signs with its key, never its JSON text."""
+    from agent_utilities.knowledge_graph.core import graph_compute as gc
+
+    key = "0123456789abcdef0123456789abcdef"
+    registry = json.dumps(
+        {
+            "subject:verified": {
+                "key": key,
+                "allowed_roles": ["System"],
+                "may_grant_system": True,
+            }
+        }
+    )
+
+    assert gc._signer_key_from_registry(registry, "subject:verified") == key
 
 
 def _local_graph_session(context, *, admin=True):

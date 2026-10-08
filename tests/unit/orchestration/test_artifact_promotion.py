@@ -21,6 +21,7 @@ from agent_utilities.orchestration.artifact_promotion import (
     evaluate_promotion,
     promote,
 )
+from tests.unit.fleet_autonomy_fakes import FakePolicy as _FakePolicy
 
 
 def _candidate(
@@ -41,36 +42,6 @@ def _candidate(
         ),
         **kw,
     )
-
-
-class _FakePolicy:
-    """Recording ActionPolicy double returning a canned decision — mirrors
-    ``test_auto_merge_action_policy.py``'s ``_FakePolicy``."""
-
-    def __init__(self, decision: str, *, reason: str = "r", approval_id=None):
-        self._decision = decision
-        self._reason = reason
-        self._approval_id = approval_id
-        self.requests: list[ActionRequest] = []
-
-    def decide(self, request: ActionRequest) -> ActionDecision:
-        self.requests.append(request)
-        decision = ActionDecision(
-            decision=self._decision,
-            tier="approval_required",
-            request=request,
-            reason=self._reason,
-            approval_id=self._approval_id,
-            audit_id="action_decision:fixture",
-        )
-        decision.receipt = PolicyReceipt(
-            receipt_id=decision.audit_id,
-            request_digest=request.digest(),
-            disposition=decision.disposition,
-            policy_origin="fixture",
-            approval_id=decision.approval_id,
-        )
-        return decision
 
 
 class _BoomPolicy:

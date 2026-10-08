@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from agent_utilities.core import config
+from tests.unit.fstat_support import fstat_changing_on_second_call
 
 
 @pytest.fixture(autouse=True)
@@ -644,25 +645,7 @@ def test_source_mutation_during_read_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source = _write_secrets(tmp_path, {"TEST_MUTATION": "material"})
-    real_fstat = os.fstat
-    calls = 0
-
-    def changed_fstat(descriptor: int):
-        nonlocal calls
-        calls += 1
-        metadata = real_fstat(descriptor)
-        if calls != 2:
-            return metadata
-        return SimpleNamespace(
-            st_mode=metadata.st_mode,
-            st_size=metadata.st_size,
-            st_uid=metadata.st_uid,
-            st_dev=metadata.st_dev,
-            st_ino=metadata.st_ino,
-            st_mtime_ns=metadata.st_mtime_ns + 1,
-        )
-
-    monkeypatch.setattr(config.os, "fstat", changed_fstat)
+    monkeypatch.setattr(config.os, "fstat", fstat_changing_on_second_call())
 
     with pytest.raises(config.ConfigurationSourceError, match="PermissionError"):
         config._read_runtime_secret_source(
@@ -691,18 +674,18 @@ def test_durable_secret_target_collision_is_rejected_without_names(
     _write_config(
         root,
         {
-            "LANGFUSE_SECRET_KEY_REF": "env://MCP_TOOL_MODE",
-            "MCP_TOOL_MODE": "intent",
+            "LANGFUSE_SECRET_KEY_REF": "env://REACTIONS",
+            "REACTIONS": "intent",
         },
     )
-    _write_secrets(root, {"MCP_TOOL_MODE": "runtime-material"})
+    _write_secrets(root, {"REACTIONS": "runtime-material"})
     _select_root(monkeypatch, root)
 
     with pytest.raises(config.ConfigurationSourceError) as caught:
         config.load_config(reload=True)
 
     assert caught.value.error_class == "SecretTargetCollisionError"
-    assert "MCP_TOOL_MODE" not in str(caught.value)
+    assert "REACTIONS" not in str(caught.value)
     assert str(root) not in str(caught.value)
 
 

@@ -5,7 +5,6 @@
       "command": "graph-os",
       "args": [],
       "env": {
-        "MCP_TOOL_MODE": "condensed",
         "AGENT_EXECUTIONTOOL": "false",
         "ANALYSISTOOL": "false",
         "ANALYZE_SUITETOOL": "false",

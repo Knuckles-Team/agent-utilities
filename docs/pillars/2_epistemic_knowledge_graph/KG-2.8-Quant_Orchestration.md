@@ -18,14 +18,8 @@ An extensible protocol-based data provider system with automatic fallback chains
   - `YFinanceProvider`: Global equities, ETFs, indices.
   - `AKShareProvider`: Chinese equities (A-shares) and index data.
   - `CryptoProvider`: Global cryptocurrency exchange data via CCXT (e.g., Binance).
-  - `PredictionMarketProvider`: Polymarket/Kalshi prediction market probability data.
-  - `SyntheticProvider`: Geometric Brownian Motion generation for testing.
 
-### 3. Strategy & Execution Engine
-- **Strategy Lifecycle Engine**: Tracks trading strategies through discrete stages (`DRAFT` → `BACKTESTING` → `PAPER_TRADING` → `LIVE`) using Knowledge Graph nodes and heuristics (e.g., Sharpe > 1.0, Max Drawdown > -0.15).
-- **Exchange Bridge**: Unified execution routing abstracting live CCXT/Alpaca connections versus Paper Trading environments.
-
-### 4. Bayesian Signal Fusion & Regime Detection
+### 3. Bayesian Signal Fusion & Regime Detection
 - **Regime Detector**: Uses moving averages and volatility heuristics (extensible to HMMs) to classify the market state (e.g., `bull_market`, `high_volatility`).
 - **Bayesian Fusion**: Combines discrete signals from multiple agents (fundamental, technical, sentiment) into a unified directional conviction using Bayesian inference based on the historical accuracy of the sources.
 
@@ -47,8 +41,6 @@ The framework registers several new `OntologySchema` types into the core KG engi
   - `agent_utilities/domains/finance/debate_engine.py`
   - `agent_utilities/domains/finance/trading_swarm.py`
   - `agent_utilities/domains/finance/research_autopilot.py`
-  - `agent_utilities/domains/finance/strategy_engine.py`
-  - `agent_utilities/domains/finance/exchange_bridge.py`
   - `agent_utilities/domains/finance/signal_fusion.py`
   - `agent_utilities/domains/finance/regime_detector.py`
   - `agent_utilities/domains/finance/quant_mcp_tools.py`

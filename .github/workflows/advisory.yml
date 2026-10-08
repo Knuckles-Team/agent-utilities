@@ -241,6 +241,17 @@ jobs:
         continue-on-error: true
         run: python3 scripts/check_context_compiler_boundary.py
 
+      # Report-only until the 17 undecided coverage.md rows (images/, data/,
+      # protocols/voice_supply_chain/, and 14 skill-content directories) get
+      # an owner ruling -- see this script's module docstring and
+      # tests/gates/test_boundary_coverage_gate.py for the exact list. The
+      # owning boundary requirement forbids inventing a disposition for them,
+      # so this step stays red until an owner resolves each row; it is
+      # deliberately not in the blocking commit-stage hook set until then.
+      - name: Boundary deletion/relocation coverage inventory (report only)
+        continue-on-error: true
+        run: python3 scripts/check_boundary_coverage.py
+
       - name: Governed HTTP egress boundary
         continue-on-error: true
         run: python3 scripts/check_http_egress_boundary.py
@@ -366,13 +377,14 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          fetch-depth: 100
           persist-credentials: false
 
       - name: Checkout shared documentation theme
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: Knuckles-Team/pipelines
-          ref: 444b232c7975e125a24b17d53ff615f5ad26a4cd
+          ref: eb77612bd3b67375e59a6326c4ab5bc44152eed2
           path: .pipeline-theme
           persist-credentials: false
 
@@ -399,6 +411,7 @@ jobs:
         if: steps.docs_tooling.outcome == 'success'
         continue-on-error: true
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           PROHIBITED_IDENTITY_CATALOG: ${{ vars.PROHIBITED_IDENTITY_CATALOG }}
         run: |
           python .pipeline-theme/scripts/sync_mkdocs_theme.py check --root . --source-root .pipeline-theme --content-source docs
@@ -412,6 +425,9 @@ jobs:
           fi
           python3 scripts/check_tracked_privacy.py --identity-catalog "$policy"
           mkdocs build --strict
+          python .pipeline-theme/scripts/spec_dashboard.py \
+            --root . --config .config/spec-dashboard.json \
+            --output site/spec-delivery --repository "$GITHUB_REPOSITORY"
 
       - name: Setup Pages
         if: steps.build.outcome == 'success'

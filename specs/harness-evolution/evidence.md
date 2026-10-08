@@ -8,6 +8,7 @@
 | HE-04 | `knowledge_graph/research/gaps.py` has canonical Gap helpers, direct Cypher and local sorting; `loops.py` has native WorkItem claim integration | typed atomic Gap/WorkItem and served Decide→commit→claim fixture |
 | HE-05 | AU evolution publication path still has local Git and publication shapes | source deletion scan and approved materialization receipt fixture |
 | HE-06 | no accepted held-out policy promotion receipt identified | frozen set, independent evaluator, CAS canary and rollback evidence |
+| HE-09–HE-12 | `agent_utilities/layers/harness_*.py` and `AgentSpec.harness` on a review branch; focused tests in `tests/unit/layers/test_harness_port.py` | merged-head CI run and one operator run of the `claude-code` harness against graph-os |
 | HE-07 | deferred requirement | absence of in-engine generative/autograd code and a separate approved Gap before reconsideration |
 
 When work lands, record merged commit SHA, generated-client version, exact test command and CI URL, receipt digests, measured capture/training resource use and limitations. A branch-only or fixture-only result does not change acceptance status.

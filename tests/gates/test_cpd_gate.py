@@ -19,6 +19,7 @@ from agent_utilities.mcp.tool_specs import (
     TOOL_VERBS,
     canonical_tool_names,
 )
+from agent_utilities.numeric import kernel_available
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
@@ -33,14 +34,6 @@ PACKAGE_JSON_PATH = (
 )
 
 
-def _numeric_kernel_available() -> bool:
-    try:
-        import agent_utilities.numeric  # noqa: F401
-    except ImportError:
-        return False
-    return True
-
-
 # The CPD gate builds the FULL MCP tool registry (`kg_server`) to prove every
 # tool has exactly one CPD — that pulls BOTH the serving stack (starlette/fastmcp)
 # AND the numeric kernel. CI's guardrails job installs only the package core
@@ -49,7 +42,7 @@ def _numeric_kernel_available() -> bool:
 # a partial registry anyway. It runs in the FULL-env pre-commit (the
 # `guardrail-cpd-drift` hook) instead. Skip when either piece is absent.
 _needs_server_stack = pytest.mark.skipif(
-    importlib.util.find_spec("starlette") is None or not _numeric_kernel_available(),
+    importlib.util.find_spec("starlette") is None or not kernel_available(),
     reason="CPD gate needs the full MCP tool registry (serving stack "
     "starlette/fastmcp + numeric kernel); runs in the full-env pre-commit, "
     "not the lean CI job",
@@ -291,9 +284,7 @@ def test_generation_timestamp_honors_source_date_epoch(monkeypatch) -> None:
 
 
 @_needs_server_stack
-def test_generation_uses_one_timestamp_deterministically(
-    tmp_path, monkeypatch
-) -> None:
+def test_generation_uses_one_timestamp_deterministically(tmp_path, monkeypatch) -> None:
     sys.path.insert(0, str(SCRIPTS))
     import gen_capability_power as generator
 
@@ -355,7 +346,7 @@ def test_generation_restores_environment_and_runtime_registries(monkeypatch):
     async def _probe() -> str:
         return "probe"
 
-    monkeypatch.setenv("MCP_TOOL_MODE", "verbose")
+    monkeypatch.setenv("REACTIONS", "gpu-a100")
     original_registered = dict(kg_server.REGISTERED_TOOLS)
     original_routes = dict(kg_server.ACTION_TOOL_ROUTES)
     try:
@@ -375,7 +366,7 @@ def test_generation_restores_environment_and_runtime_registries(monkeypatch):
                 [cpd.id] if cpd.id in INTENT_VERBS else list(TOOL_VERBS[cpd.id])
             )
             assert cpd.intent_verbs == expected_verbs
-        assert os.environ["MCP_TOOL_MODE"] == "verbose"
+        assert os.environ["REACTIONS"] == "gpu-a100"
         assert kg_server.REGISTERED_TOOLS == registered_before
         assert kg_server.ACTION_TOOL_ROUTES == routes_before
     finally:

@@ -556,3 +556,43 @@ deliberately non-blocking and verifies **nothing** — verification happens once
 the head of the queue, against the `main` that actually exists then. Verifying at
 enqueue time would re-create the stale-premise problem the whole design exists to
 kill.
+
+## Source liveness and unresolved expiry
+
+The normal commit hook freezes Git's actual staged index, including a partial
+commit's alternate index. The native push adapter checks every outgoing ref from Git's input, including
+release tags already reachable on the remote, before delegating unchanged to
+pre-commit. Bootstrap installs this adapter into pre-commit's generated hook;
+re-run normal bootstrap to update an existing installation. The queue checks the materialized merged commit.
+Each invokes `scripts/check_liveness_source.py` against freshly verified remote
+`main`; missing objects, missing push metadata, analyzer failure, a moving main,
+or a date rollover fail closed. Fetch and rebase before retrying stale evidence.
+
+Both snapshots use the same interpreter and analyzer on the same evaluation
+date. The checker rejects added census identities and content hashes from the
+existing fake-code detector, so replacing a finding at the same symbol cannot
+hide a new defect. It retains the absolute `never_executed` invariant. Available
+working-tree coverage must not silently disappear into an uncovered comparison;
+unpaired `coverage.json` requires strict enforcement.
+
+Unchanged expired obligations remain visibly reported as `UNRESOLVED EXPIRY`.
+A source differential pass permits source delivery, not a clean liveness or
+release claim. No dates, obligations, accepted-finding files, or persistent
+waivers are changed. Normal tests, lint, types, security, and native checks retain
+their own authority.
+
+Changes to deferred API paths (including deletion or rename), deferral records,
+the strict checker and its analyzer/reconciler dependencies, service registry,
+or release tooling use strict enforcement against the exact candidate.
+Release-tag pushes also use strict enforcement. The existing release test suite
+still includes the absolute expiry regression test; no release workflow or
+native gate is weakened. The manual `guardrail-liveness-strict` hook and direct
+`scripts/check_liveness.py` command remain strict.
+
+The reviewed source-policy implementation itself follows the approved source
+comparison policy; it does not disable the normal hook to bootstrap publication.
+Policy changes require independent review before publication. The paired census
+has a 300-second queue ceiling and fails closed on timeout rather than deferring
+missing evidence to a post-merge run. This adds an explicit liveness check to the
+existing fast checks; the original tests, contract checks, dirty-checkout guards,
+and serialized landing lease remain in place.

@@ -114,6 +114,19 @@ SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
 # application role named ``admin`` is not equivalent.
 _GRAPH_AUTH_SCOPES: frozenset[str] = SESSION_SCOPES
 
+# Exact, non-hierarchical engine capabilities that the GraphOS service identity
+# needs to provision its own semantic connector packs (attest the self-served
+# catalog, import, reproject and attach). They project only when the validated
+# JWT carries the matching role; no other role implies them.
+_PACK_PROVISIONING_SCOPES: frozenset[str] = frozenset(
+    {
+        "connector:catalog-attest",
+        "admin:connector-pack",
+        "agent:pack-control",
+        "security:admin",
+    }
+)
+
 _MAX_AUTHORITY_TEXT_LENGTH = 512
 _MAX_AUTHORITY_GROUPS = 128
 _MAX_CREDENTIAL_EXPIRY = (1 << 63) - 1
@@ -430,12 +443,14 @@ def _resolve_authenticated_scopes(actor: ActorContext) -> frozenset[str]:
     authorization-safe precondition reads, while an administrator may do
     both. Expand the hierarchy once at the trusted claims boundary so the
     facade and the engine receive the same capability set."""
-    scopes = frozenset(str(role) for role in actor.roles) & _GRAPH_AUTH_SCOPES
+    roles = frozenset(str(role) for role in actor.roles)
+    scopes = roles & _GRAPH_AUTH_SCOPES
+    provisioning = roles & _PACK_PROVISIONING_SCOPES
     if "kg:admin" in scopes:
-        return scopes | frozenset({"kg:read", "kg:write"})
+        return scopes | provisioning | frozenset({"kg:read", "kg:write"})
     if "kg:write" in scopes:
-        return scopes | frozenset({"kg:read"})
-    return scopes
+        return scopes | provisioning | frozenset({"kg:read"})
+    return scopes | provisioning
 
 
 def _resolve_verified_tenant(actor: ActorContext) -> str:

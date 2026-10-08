@@ -257,7 +257,9 @@ async def test_actual_harness_script_reenters_graphos_with_shared_lineage(
 
     assert result.output == "workflow complete"
     assert result.backend == "pydantic-ai-harness.dynamic_workflow.DynamicWorkflow"
-    assert result.upstream_version == "0.14.0"
+    from importlib.metadata import version as _pkg_version
+
+    assert result.upstream_version == _pkg_version("pydantic-ai-harness")
     assert len(result.script_evidence) == 1
     assert result.script_evidence[0].byte_count > 0
     assert len(result.script_evidence[0].sha256) == 64

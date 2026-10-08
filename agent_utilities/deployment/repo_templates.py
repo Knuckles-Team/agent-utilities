@@ -547,7 +547,7 @@ def manifest_summary() -> dict:
         "git_mode": dict(_GIT_MODE),
         "ci_templates": sorted(CI_TEMPLATES),
         "runners": {p: _RUNNER_COUNT[p] for p in PROFILES},
-        "step": "agent-utilities-deployment enterprise workflow (CONCEPT:AU-OS.deployment.concept-2)",
+        "step": "graphos-deployment enterprise workflow (CONCEPT:AU-OS.deployment.concept-2)",
         "tokens": list(PLACEHOLDER_TOKENS),
     }
 

@@ -12,10 +12,10 @@ regenerated to match. That let ``graph_engineering`` and ``graph_argument``
 ship as live, callable MCP tools that were entirely absent from the manifest
 skill-validation harness checks skills against, and (downstream, since the
 CPD catalog is built by walking the SAME manifest) absent from the packaged
-Capability Power Descriptor catalog — which made the whole default
-``MCP_TOOL_MODE=intent`` surface fail closed with a ``RuntimeError`` the
-moment either tool was live-registered, since ``_build_candidates`` requires
-every registered tool to have a CPD.
+Capability Power Descriptor catalog — which made the whole intent-tool
+surface fail closed with a ``RuntimeError`` the moment either tool was
+live-registered, since ``_build_candidates`` requires every registered tool
+to have a CPD.
 
 This is the general form of
 ``tests/unit/test_engine_api_coverage.py::test_every_verbose_engine_op_exists_in_manifest``
@@ -27,8 +27,6 @@ or a skill-validation-harness FAIL.
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
 
@@ -39,34 +37,15 @@ def _manifest_tool_families() -> set[str]:
 
 
 def _live_condensed_tool_families() -> set[str]:
-    """Rebuild the condensed/canonical action-routed tool surface in isolation
-    (mirrors ``scripts/gen_graphos_manifest.py::build_manifest``) and return
-    every tool family name it registers, restoring global registries after.
-    """
-    from agent_utilities.mcp import kg_server
+    """Every tool family the canonical action-routed surface registers.
 
-    registered_before = dict(kg_server.REGISTERED_TOOLS)
-    routes_before = dict(kg_server.ACTION_TOOL_ROUTES)
-    prior_mode = os.environ.get("MCP_TOOL_MODE")
-    try:
-        kg_server.REGISTERED_TOOLS.clear()
-        kg_server.ACTION_TOOL_ROUTES.clear()
-        kg_server.ACTION_TOOL_ROUTES.update(kg_server.BASE_ACTION_TOOL_ROUTES)
-        kg_server._build_server(
-            bootstrap=False,
-            tool_profile="intent",
-            canonical_surface=True,
-        )
+    Reuses ``scripts/gen_graphos_manifest.py::canonical_surface``, the exact
+    isolated build the generator walks.
+    """
+    from scripts.gen_graphos_manifest import canonical_surface
+
+    with canonical_surface() as kg_server:
         return set(kg_server.ACTION_TOOL_ROUTES)
-    finally:
-        if prior_mode is None:
-            os.environ.pop("MCP_TOOL_MODE", None)
-        else:
-            os.environ["MCP_TOOL_MODE"] = prior_mode
-        kg_server.REGISTERED_TOOLS.clear()
-        kg_server.REGISTERED_TOOLS.update(registered_before)
-        kg_server.ACTION_TOOL_ROUTES.clear()
-        kg_server.ACTION_TOOL_ROUTES.update(routes_before)
 
 
 def test_every_registered_tool_family_is_in_the_generated_manifest():
@@ -176,7 +155,6 @@ def test_focused_analysis_actions_are_declared_in_the_generated_manifest():
             "causal",
             "check_constraints",
             "evaluate",
-            "evaluate_alpha",
             "evaluate_harness",
             "evolve_code",
             "evolve_model",
@@ -186,11 +164,9 @@ def test_focused_analysis_actions_are_declared_in_the_generated_manifest():
             "invariant",
             "latent_efficiency_benchmark",
             "quant_crypto",
-            "quant_exchange",
             "quant_insider",
             "quant_microstructure",
             "quant_regime",
-            "quant_strategy",
             "specialize",
             "world_model_rollout",
         },
