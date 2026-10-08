@@ -57,7 +57,7 @@ Start at the [Agent Utilities documentation](https://knuckles-team.github.io/age
 
 <!-- BEGIN GENERATED: concepts -->
 
-Synthesized from concept markers in the codebase into **1196 canonical concepts** across **9 pillars**.
+Synthesized from concept markers in the codebase into **1194 canonical concepts** across **9 pillars**.
 
 > Generated from [`docs/concepts.yaml`](docs/concepts.yaml); see [`docs/status.md`](docs/status.md) for the release-aware breakdown and [`docs/pillars/`](docs/pillars/) for the architecture map.
 
