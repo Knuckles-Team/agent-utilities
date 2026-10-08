@@ -1,13 +1,13 @@
 # Genesis standard private repos + CI (per profile)
 
 > **CONCEPT:AU-OS.deployment.standard-repo-templates / OS-5.75.** What private repos (and CI/runners) genesis provisions
-> for the operator, per profile — so the operator's environment lives in *the operator's* repos + XDG config, never
+> for you, per profile — so your environment lives in *your* repos + XDG config, never
 > in the public agent-utilities repo.
 
 Genesis Step 9b provisions a consistent, **abstract** set of operator-owned **private**
-git repos. The public framework repo ships only placeholder skeletons; the operator's concrete
+git repos. The public framework repo ships only placeholder skeletons; your concrete
 inventory/networks/secrets/manifests are read from `~/.config/agent-utilities/`
-(`inventory.yaml`, `workspace.yml`) at deploy time and committed into **the operator's** private
+(`inventory.yaml`, `workspace.yml`) at deploy time and committed into **your** private
 repos. The standard is defined once in
 [`agent_utilities/deployment/repo_templates.py`](https://github.com/) and surfaced in
 `genesis.yaml → private_repos`.
@@ -40,7 +40,7 @@ git host or CI runner.
 **idempotent** plan (already-present repos → `action="skip"`). Each `create` repo is
 made **private**, then its skeleton is rendered (`render_skeleton`) — resolving
 `${GIT_NAMESPACE}` / `${RUNNER_TAG}` / `${CI_TEMPLATES_PROJECT}` / `${REGISTRY}` from
-the operator's config at deploy time — and committed. Generalized CI templates (`stages.yml`,
+your config at deploy time — and committed. Generalized CI templates (`stages.yml`,
 `agent-package-ci.yml`, `service-deploy.yml`) and `runner_plan(profile)` runners are
 seeded for non-tiny profiles.
 
@@ -79,7 +79,7 @@ and registration tokens are read from the secret store at deploy time, never com
 ## How an operator gets these provisioned during genesis
 
 This is **Step 9b** of the `agent-utilities-deployment` workflow, driven entirely off
-`repo_templates.py` (the genesis skill runs the plan; `genesis.yaml → private_repos`
+`repo_templates.py` (the genesis skill executes the plan; `genesis.yaml → private_repos`
 is the generated, machine-readable mirror via `manifest_summary()`). The flow:
 
 ```python

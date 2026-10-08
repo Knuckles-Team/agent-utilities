@@ -40,7 +40,7 @@ long-lived container that the gateway and connectors share.
 | Kafka / Keycloak / an orchestrator (Kubernetes or Swarm) | **not** in this tier (see [Enterprise](enterprise.md)) |
 
 > **Postgres mirror extension requirement.** Postgres here is an **optional
-> write-only mirror** of the engine authority (not the system of record). If the operator
+> write-only mirror** of the engine authority (not the system of record). If you
 > enable it, the Postgres must carry **Apache AGE** (`age`, native openCypher —
 > the `backend: "age"` path), **pgvector** (`vector`), and **ParadeDB**
 > (`pg_search`), with `age` and `pg_search` in `shared_preload_libraries`. The

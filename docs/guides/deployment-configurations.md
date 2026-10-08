@@ -12,7 +12,7 @@ copy-paste-ready configurations, from a laptop with no separately managed graph
 infrastructure to an autonomous multi-host fleet. Each rung builds on the
 previous one and states its delta explicitly.
 
-Every flag name, default, and behavior on this page is checked against
+Every flag name, default, and behavior on this page is verified against
 `agent_utilities/core/config.py` (`AgentConfig`), the shipped
 `docker/*.compose.yml` files, and the module that reads the flag. The
 authoritative flag inventory (with per-flag verdicts) is
@@ -40,7 +40,7 @@ Three layers, in precedence order:
    `AgentConfig` (`agent_utilities/core/config.py`); the env alias is the
    flag's canonical name. The CI gate `scripts/check_no_env_sprawl.py` keeps
    new flags on `AgentConfig` instead of scattered `os.environ` reads. AgentConfig
-   never searches a repository or start directory for a dotenv file.
+   never searches a repository or launch directory for a dotenv file.
 2. **XDG `config.json`** — discovered under
    `$XDG_CONFIG_HOME/agent-utilities/config.json` (override the directory with
    `AGENT_UTILITIES_CONFIG_DIR`; resolution lives in
@@ -60,7 +60,7 @@ Three layers, in precedence order:
 
 Data lives under XDG paths: config `$XDG_CONFIG_HOME/agent-utilities/`, data
 `$XDG_DATA_HOME/agent-utilities/` (`AGENT_UTILITIES_DATA_DIR` override), and
-cache `$XDG_CACHE_HOME/agent-utilities/`. The runtime provides platform defaults
+cache `$XDG_CACHE_HOME/agent-utilities/`. The runtime supplies platform defaults
 when an XDG variable is unset.
 
 The relevant processes (console scripts from `pyproject.toml
@@ -70,7 +70,7 @@ The relevant processes (console scripts from `pyproject.toml
 |---|---|
 | `graph-os` | MCP tool surface (stdio default; `--transport streamable-http --port <p>` for HTTP; compose: `docker/mcp.compose.yml`, port 8004) |
 | `graph-os-daemon` | Standalone KG host daemon: holds the flock host lock, drains the durable task queue, runs all maintenance/autonomy ticks. `--status` and `--drain-queue` flags. It serves no HTTP. |
-| `python -m agent_utilities` | The REST gateway (FastAPI agent server): `/health`, `/api/graph/*`, `/api/sessions`, `/api/goals`, `/api/fleet/*`, `/api/dashboard/*`, `/metrics`. Binds `HOST`:`PORT` (defaults `0.0.0.0`:`9000`). `GATEWAY_WORKERS` pre-forks it. When it runs, it hosts the KG daemon itself (flock-elected) — the operator do not also need `graph-os-daemon`. |
+| `python -m agent_utilities` | The REST gateway (FastAPI agent server): `/health`, `/api/graph/*`, `/api/sessions`, `/api/goals`, `/api/fleet/*`, `/api/dashboard/*`, `/metrics`. Binds `HOST`:`PORT` (defaults `0.0.0.0`:`9000`). `GATEWAY_WORKERS` pre-forks it. When it runs, it hosts the KG daemon itself (flock-elected) — you do not also need `graph-os-daemon`. |
 | `kg-ingest-worker` | Decoupled ingest consumer (`kg-ingest` group), engine client only (AU-KG.ingest.decoupled-kg-ingest-consumer) |
 | `agent-dispatch-worker` | Stateless agent-turn consumer (`agent-dispatch` group), engine client only (ORCH-1.45) |
 
@@ -78,18 +78,18 @@ The relevant processes (console scripts from `pyproject.toml
 
 ## Rung (a): Zero-infra dev
 
-**What the operator get:** the full platform on one machine with no separately managed
+**What you get:** the full platform on one machine with no separately managed
 graph database or engine service. The knowledge graph runs on the default
 `epistemic_graph` backend — the
 `epistemic-graph` Rust engine is the one database (the authority), providing
 durable persistence, in-memory cache, graph compute, and ontology reasoning in a
 packaged, supervised out-of-process engine with no mirrors — all platform state in per-host
 SQLite files under the XDG data dir, agent turns queued to a local dispatch
-worker, a checked neutral process session for the exact local stdio boundary,
+worker, a verified neutral process session for the exact local stdio boundary,
 and authenticated engine traffic. GraphOS signs and validates a short-lived JWT
 with an in-memory key as a one-time proof, destroys both, and returns a
 process-lifetime session. It is not anonymous and contains no personal, host,
-endpoint, filesystem, credential, or proof identity. **What the operator don't get:** durability
+endpoint, filesystem, credential, or proof identity. **What you don't get:** durability
 beyond this host, more than one host, or autonomous operations (all autonomy flags default off;
 the shipped ActionPolicy marks every mutating operational action
 `approval_required`).
@@ -150,7 +150,7 @@ Generate the XDG file with `setup-config`; do not add an external process identi
 for the exact tiny packaged-local stdio path. A model registry
 (`chat_models` / `embedding_models`) is optional for graph-only operations; see
 [`docs/examples/config.json`](../examples/config.json). Run
-`agent-utilities-doctor --only graph_identity auth` before start. Add `secrets`
+`agent-utilities-doctor --only graph_identity auth` before launch. Add `secrets`
 to that doctor selection when validating an external identity source.
 
 ### Process and engine auth on this rung
@@ -169,7 +169,7 @@ and persisted as `engine_secret` in the discovered XDG data directory (mode 0600
 any engine this install spawns — agrees on it (CONCEPT:AU-OS.identity.authenticated-identity-enforcement).
 The native transport has no unauthenticated development mode.
 
-### Check
+### Verify
 
 ```bash
 # 1. Prove the neutral local authority boundary before launch.
@@ -189,11 +189,11 @@ Recipe form: [Tiny](../recipes/tiny.md). MCP consumption patterns:
 
 ## Rung (b): Secured single node
 
-**What the operator get:** everything from (a) plus a network-serving identity perimeter.
+**What you get:** everything from (a) plus a network-serving identity perimeter.
 The process JWT remains mandatory, and every REST or HTTP MCP graph request must
 present its own validated Bearer JWT; the server never substitutes process
 authority for a network caller. This rung also enables brain enforcement and
-fail-closed node-level permissions. **What the operator don't get:** durability beyond
+fail-closed node-level permissions. **What you don't get:** durability beyond
 this host, scale-out, or autonomy.
 
 The pieces (all CONCEPT:AU-OS.identity.authenticated-identity-enforcement, validated in
@@ -203,7 +203,7 @@ The pieces (all CONCEPT:AU-OS.identity.authenticated-identity-enforcement, valid
 - **Engine HMAC** — automatic per-install secret as in rung (a); set
   `GRAPH_SERVICE_AUTH_SECRET` explicitly only when multiple installs/hosts
   must share one engine.
-- **Checked GraphSession identity** — `ActorIdentityMiddleware` validates
+- **Verified GraphSession identity** — `ActorIdentityMiddleware` validates
   `Authorization: Bearer <JWT>` against `AUTH_JWT_JWKS_URI` (JWKS cached 5
   minutes), checks the required `AUTH_JWT_AUDIENCE` plus the pinned issuer, and mints
   the server-side `ActorContext` from the claims (`sub`/`client_id`/`azp` →
@@ -214,7 +214,7 @@ The pieces (all CONCEPT:AU-OS.identity.authenticated-identity-enforcement, valid
   Liveness and readiness share the same non-secret runtime report; readiness
   maps engine reachability onto HTTP 200/503 while liveness remains 200.
   Identity and raw topology detail are never included.
-  Caller-provided `_actor`/`_roles`/`_tenant` kwargs are rejected.
+  Caller-supplied `_actor`/`_roles`/`_tenant` kwargs are rejected.
   `KG_POLICY_VERSION` is required and stamped into the session. Only an explicit
   or identity-mapped `kg:admin` capability grants graph administration; a generic
   `admin` application role does not.
@@ -227,7 +227,7 @@ The pieces (all CONCEPT:AU-OS.identity.authenticated-identity-enforcement, valid
   actor type, capabilities, tenant, authentication state, and groups. Drift is
   rejected; failed renewal retries without extending the lease, and all graph
   work fails closed at expiry.
-- **Mandatory graph authority** — every operation inherits the server-checked
+- **Mandatory graph authority** — every operation inherits the server-verified
   actor, tenant, scopes, audience, and policy revision from its ambient
   `GraphSession`. Tenant/ACL enforcement is always active, missing ACLs deny,
   and authorization failures never return unfiltered data. These are compiled
@@ -273,7 +273,7 @@ KG_AUTH_TOKEN_REF=secret://graph-os/stdio-token
 #GRAPH_SERVICE_AUTH_SECRET=${GRAPH_SERVICE_AUTH_SECRET_FROM_SUPERVISOR}
 ```
 
-### Check
+### Verify
 
 ```bash
 python -m agent_utilities &
@@ -300,7 +300,7 @@ ls -l "$XDG_DATA_HOME/agent-utilities/engine_secret"    # mode 0600
 
 JWT validation (JWKS fetch/cache, claim mapping, 401 paths) is unit-tested;
 **a live identity provider is not exercised in CI** — validate the issuer
-wiring against the operator's IdP once per environment. Worked example:
+wiring against your IdP once per environment. Worked example:
 [identity-jwt](../examples/identity-jwt.md). Background:
 [Secrets & auth](secrets-auth.md).
 
@@ -308,7 +308,7 @@ wiring against the operator's IdP once per environment. Worked example:
 
 ## Rung (c): Durable single node
 
-**What the operator get:** everything from (b) plus durability that survives the host
+**What you get:** everything from (b) plus durability that survives the host
 process — and the schema/locking groundwork for multi-host. One flag,
 `STATE_DB_URI`, externalizes ALL durable platform state (durable-execution
 checkpoints, sessions/turns/goals, the KG task + staging queue) onto one
@@ -317,7 +317,7 @@ shared Postgres through a single connection pool (CONCEPT:AU-OS.state.unified-du
 remains the graph authority; declaring `GRAPH_MIRROR_TARGETS` with a
 `GRAPH_DB_CONNECTION_PROFILE_REF` adds an asynchronous Postgres/pg-age **projection** for interop and DR
 (never on the read path).
-**What the operator don't get:** horizontal scale-out of ingest or agent execution
+**What you don't get:** horizontal scale-out of ingest or agent execution
 (still one host doing the work), autonomy.
 
 What turns on, with no further flags:
@@ -348,7 +348,7 @@ docker compose -f docker/pg-age.compose.yml up -d
 docker exec agent-pg-age psql -U agent -d agent_kg -c 'CREATE DATABASE agent_state'
 ```
 
-Any Postgres the operator already run works the same way; the compose file is the
+Any Postgres you already run works the same way; the compose file is the
 worked single-host example.
 
 ### AgentConfig projection
@@ -378,7 +378,7 @@ GRAPH_DB_CONNECTION_PROFILE_REF=vault://platform/graph#profile
 #TASK_QUEUE_BACKEND=postgres
 ```
 
-### Check
+### Verify
 
 ```bash
 graph-os-daemon --status     # or run the gateway; queue backend should be postgres
@@ -400,7 +400,7 @@ STATE_DB_URI="$STATE_DB_URI" \
 pools/connections; the live suite `tests/integration/test_state_postgres_live.py`
 exercises the real SKIP LOCKED claims, advisory leadership, and schema, but
 only runs when `STATE_DB_URI` points at a reachable Postgres — run it once
-against the operator's database.
+against your database.
 
 Recipe form: [Single-node prod](../recipes/single-node-prod.md).
 
@@ -408,12 +408,12 @@ Recipe form: [Single-node prod](../recipes/single-node-prod.md).
 
 ## Rung (d): Scaled multi-host
 
-**What the operator get:** everything from (c) plus horizontal scale-out of all three
+**What you get:** everything from (c) plus horizontal scale-out of all three
 work planes — ingest (Kafka-partitioned task queue + `kg-ingest-worker`
 fleet), agent execution (session-keyed `agent_turns` queue +
 `agent-dispatch-worker` fleet), and the graph engine itself (a replicated cell
 whose catalog assigns tenant graphs to fenced MultiRaft groups) — with N gateway workers/replicas behind a load
-balancer and Prometheus scraping every tier. **What the operator don't get:**
+balancer and Prometheus scraping every tier. **What you don't get:**
 autonomy (rung e). Placement movement is governed by the engine catalog and
 online reshard workflow; clients never reassign data from an endpoint-list hash.
 
@@ -569,7 +569,7 @@ Key series: `agent_utilities_gateway_requests_total`, native
 `agent_utilities_dispatch_workers`. Full walkthrough:
 [observability](../examples/observability.md).
 
-### Check
+### Verify
 
 ```bash
 # Kafka topics exist with the right partition counts (created/grown at startup)
@@ -600,16 +600,16 @@ Deep dives: [engine sharding](../architecture/engine_sharding.md),
 
 ## Rung (e): Autonomous operations
 
-**What the operator get:** everything from (d) plus the platform operating on itself:
+**What you get:** everything from (d) plus the platform operating on itself:
 the golden-loop research/remediation cycle, failure-driven evolution from
 Langfuse telemetry, the desired-state fleet reconciler with a policy-gated
 Docker/Kubernetes/injected actuator,
 the reactive replica autoscaler, and webhook ingress for monitoring events.
 Every mutating action still flows through the ONE ActionPolicy gate — the
 shipped default policy queues all of it for human approval, so "autonomous"
-is opt-in per action kind. **What the operator don't get:** unattended mutation out of
-the box (the operator must relax the policy rule-by-rule), and auto-merge of evolution
-proposals unless the operator explicitly enable `KG_GOLDEN_AUTO_MERGE`.
+is opt-in per action kind. **What you don't get:** unattended mutation out of
+the box (you must relax the policy rule-by-rule), and auto-merge of evolution
+proposals unless you explicitly enable `KG_GOLDEN_AUTO_MERGE`.
 
 All ticks below run in the KG host daemon and are **leader-only** under
 `STATE_DB_URI` (rung c) — exactly one host in the fleet runs them.
@@ -691,7 +691,7 @@ from agent_utilities.orchestration.fleet_actuation import set_fleet_actuator
 set_fleet_actuator(MyPortainerActuator())   # real actuation behind the policy gate
 ```
 
-### Check
+### Verify
 
 ```bash
 # Reconciler/autoscaler proposals land in the approval queue (default policy

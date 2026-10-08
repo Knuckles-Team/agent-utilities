@@ -96,7 +96,7 @@ await kg_server._execute_tool("graph_orchestrate",
 
 `graph_orchestrate` delegates one named agent. Focused current surfaces own the
 rest: `graph_agents` (swarm, computer use, runtime orgs), `graph_jobs` (dispatch
-and status), `graph_workflows` (compile, run, dispatch, inspect, export),
+and status), `graph_workflows` (compile, execute, dispatch, inspect, export),
 `graph_governance` (approvals, vetoes, policy checks), `graph_evolution`,
 `graph_rlm`, and `graph_domain_ops`.
 Recursive nesting, circuit breakers, cognitive-scheduler quotas, and
@@ -242,7 +242,7 @@ exposes its own `epistemic_graph_*` series on its `--metrics-addr` listener.
 Catalog: [metrics reference](reference/metrics.md) ·
 [observability example](examples/observability.md).
 
-## Expose the operator's own tools as MCP
+## Expose your own tools as MCP
 
 Any `agent-packages/agents/*` connector follows the same template
 (`create_mcp_server()` in `agent_utilities/mcp/server_factory.py`) and can run

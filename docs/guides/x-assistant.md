@@ -36,7 +36,7 @@ graph TD
 
 ### xAI OAuth 2.0 PKCE Flow
 
-The X integration uses the xAI OAuth system, which counts against the operator's
+The X integration uses the xAI OAuth system, which counts against your
 **subscription quota** (SuperGrok/X Premium+), NOT paid API credits.
 
 **Configuration:**
@@ -101,7 +101,7 @@ POST https://api.x.ai/v1/responses
 
 ### `browse_x_post`
 
-Fetch a specific X post by URL.
+Retrieve a specific X post by URL.
 
 ```python
 @tool
@@ -150,7 +150,7 @@ class KnowledgeClassification(BaseModel):
 |------|-------|----------|----------|
 | `critical` | ≥ 0.9 | Permanent + auto-evolve | Breakthrough AI research, novel agent architectures |
 | `high_value` | 0.7–0.9 | Permanent | Technical frameworks, quant analysis, implementation guides |
-| `standard` | 0.4–0.7 | Persisted but may decay | Product starts, dev threads, perspectives |
+| `standard` | 0.4–0.7 | Persisted but may decay | Product launches, dev threads, perspectives |
 | `ephemeral` | ≤ 0.3 | Decays via GraphMaintainer | Memes, promo, engagement bait |
 
 **Implementation:** [knowledge_classifier.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/knowledge_graph/kb/knowledge_classifier.py)
