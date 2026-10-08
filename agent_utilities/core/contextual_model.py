@@ -98,8 +98,8 @@ _bound_tool_grounding: ContextVar[bool] = ContextVar(
 # record a degraded run as a plain success for reward/learning purposes.
 GroundingPolicy = Literal["required", "best_effort", "none"]
 
-_grounding_policy: ContextVar[str] = ContextVar(
-    "agent_utilities_grounding_policy", default="required"
+_grounding_policy: ContextVar[str | None] = ContextVar(
+    "agent_utilities_grounding_policy", default=None
 )
 # Aggregate, run-scoped outcome: was ANY model call in the current grounding_scope
 # degraded, and why (the FIRST reason is kept — the earliest/root cause).
@@ -548,9 +548,16 @@ def use_grounding_policy(policy: GroundingPolicy = "required") -> Iterator[None]
 
 
 def current_grounding_policy() -> str:
-    """The ambient :data:`GroundingPolicy` for the current scope (default ``"required"``)."""
+    """The ambient :data:`GroundingPolicy` for the current scope.
 
-    return _grounding_policy.get()
+    Outside a :func:`use_grounding_policy` scope, the deployment default
+    ``AGENT_GROUNDING_POLICY`` applies (``"required"`` unless configured).
+    """
+
+    scoped = _grounding_policy.get()
+    if scoped is not None:
+        return scoped
+    return str(setting("AGENT_GROUNDING_POLICY", "required") or "required")
 
 
 def grounding_snapshot() -> tuple[bool, str]:
@@ -1016,7 +1023,7 @@ def _degrade_for_policy(
     traceback and the ``__cause__`` behind it, which is precisely what made a
     grounding failure undiagnosable from the caller's side.
     """
-    policy = _grounding_policy.get()
+    policy = current_grounding_policy()
     _mark_grounding_degraded(reason)
     if policy == "required":
         raise GroundingUnavailableError(
