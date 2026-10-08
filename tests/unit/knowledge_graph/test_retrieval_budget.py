@@ -26,12 +26,15 @@ def test_budget_never_exceeds_and_keeps_best_first():
     assert res.kept[0]["id"] == 0
 
 
-def test_budget_keeps_at_least_one_even_if_oversized():
+def test_budget_abstains_when_no_candidate_fits():
     cands = [{"id": 0, "content": _text(1000)}]
     res = RetrievalBudgetManager(token_budget=10).fit(
         cands, text_of=lambda c: c["content"]
     )
-    assert len(res.kept) == 1  # never return nothing
+    assert res.kept == []
+    assert res.tokens_used == 0
+    assert res.dropped == 1
+    assert res.truncated
 
 
 def test_fit_within_no_budget_is_passthrough():
@@ -105,3 +108,24 @@ def test_retrieve_hybrid_budgeted_applies_budget():
     assert 0 < len(out) < 6
     # no budget -> all
     assert len(r.retrieve_hybrid_budgeted("q")) == 6
+
+
+
+def test_budget_skips_oversized_candidates_but_keeps_smaller_ranked_items():
+    cands = [
+        {"id": "large", "content": _text(1000)},
+        {"id": "small-first", "content": _text(2)},
+        {"id": "large-again", "content": _text(1000)},
+        {"id": "small-second", "content": _text(2)},
+    ]
+    result = RetrievalBudgetManager(20).fit(cands, text_of=lambda c: c["content"])
+    assert [item["id"] for item in result.kept] == ["small-first", "small-second"]
+    assert result.tokens_used <= result.token_budget
+    assert result.dropped == 2
+
+
+def test_explicit_zero_manager_capacity_keeps_no_positive_cost_item():
+    result = RetrievalBudgetManager(0).fit(["some evidence"])
+    assert result.kept == []
+    assert result.tokens_used == 0
+    assert result.dropped == 1
