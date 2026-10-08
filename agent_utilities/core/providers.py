@@ -507,21 +507,43 @@ def resolve_base_prompt_dir() -> Path:
     )
 
 
+def _resolve_leg_dirs(
+    group: str, *, leg: str, root: Path, exclude: frozenset[str] = frozenset()
+) -> list[tuple[str, Path]]:
+    """Resolve each current provider of ``group`` to its generation or source."""
+
+    resolved = [
+        (
+            assets.registration.name,
+            _managed_or_source(assets, leg=leg, root=root),
+        )
+        for assets in current_provider_assets(group)
+        if assets.registration.name not in exclude
+    ]
+    return sorted(resolved, key=lambda item: item[0].casefold())
+
+
 def resolve_prompt_provider_dirs() -> list[tuple[str, Path]]:
     """Resolve each current prompt provider to a verified generation or live source."""
 
     from agent_utilities.core.paths import unified_prompts_dir
 
-    root = unified_prompts_dir()
-    resolved = [
-        (
-            assets.registration.name,
-            _managed_or_source(assets, leg="prompts", root=root),
-        )
-        for assets in current_provider_assets(PROMPT_PROVIDER_GROUP)
-        if assets.registration.name != "agent-utilities"
-    ]
-    return sorted(resolved, key=lambda item: item[0].casefold())
+    return _resolve_leg_dirs(
+        PROMPT_PROVIDER_GROUP,
+        leg="prompts",
+        root=unified_prompts_dir(),
+        exclude=frozenset({"agent-utilities"}),
+    )
+
+
+def resolve_ontology_provider_dirs() -> list[tuple[str, Path]]:
+    """Resolve each current ontology provider to a verified generation or live source."""
+
+    from agent_utilities.core.paths import ontology_dir
+
+    return _resolve_leg_dirs(
+        ONTOLOGY_PROVIDER_GROUP, leg="ontologies", root=ontology_dir()
+    )
 
 
 #: ``skill_graphs``/``skill-graphs`` subtrees are KG-ingestion reference corpora

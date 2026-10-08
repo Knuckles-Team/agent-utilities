@@ -2604,6 +2604,9 @@ def create_mcp_server(
 
     _register_skill_providers(mcp)
     _register_prompt_providers(mcp)
+    from agent_utilities.mcp.content_resources import register_ontology_providers
+
+    register_ontology_providers(mcp)
 
     return args, mcp, middlewares
 
