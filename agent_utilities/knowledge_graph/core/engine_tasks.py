@@ -2632,6 +2632,18 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         )
         self._embed_backfill_thread.start()
 
+        # Baseline ingest (spec: baseline-ingestion): enqueue the grounding corpus
+        # once per boot on its own thread; never blocks or fails startup.
+        from ..ingestion.baseline_ingest import start_baseline_ingest
+
+        start_baseline_ingest(self, self._background_worker_session)
+
+    def _tick_baseline_prompts(self) -> None:
+        """Ingest the prompt library for the baseline WorkItem (spec: baseline-ingestion)."""
+        from ..ingestion.baseline_items import ingest_prompt_library
+
+        ingest_prompt_library()
+
     def _background_session_for_spawn(self) -> Any:
         """Return the immutable daemon authority, capturing it exactly once."""
         session = getattr(self, "_background_worker_session", None)
@@ -6076,12 +6088,17 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         from agent_utilities.knowledge_graph.core.engine import (
             IntelligenceGraphEngine,
         )
+        from agent_utilities.knowledge_graph.ingestion.baseline_items import (
+            resolve_skill_corpus_root,
+        )
         from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
             ingest_atomic_skills,
             ingest_skill_workflows,
         )
 
-        root = None if str(target) == "universal-skills" else str(target)
+        # ``universal-skills`` = installed package; ``skill-provider:<name>``
+        # = that provider's verified root (spec: baseline-ingestion).
+        root = resolve_skill_corpus_root(str(target))
         # ``self`` is the engine (this mixin is mixed into it).
         typed_engine = cast(IntelligenceGraphEngine, self)
         summary = ingest_skill_workflows(typed_engine, root=root)

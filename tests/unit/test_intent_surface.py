@@ -1107,12 +1107,11 @@ def test_engine_placement_resolves_under_manage_without_failing_closed():
     assert "engine_placement" in {c.tool for c in candidates}
 
 
-def test_registered_query_tool_uses_the_query_argument_not_cypher():
-    """``graph_query`` keeps its renamed ``query`` argument (not the legacy
-    ``cypher`` name). The consolidated query workflow that used to be checked
-    here for matching documentation (``graph-query-and-explanation``) has
-    moved to graph-os's own skill pack and is deleted from agent-utilities, so
-    this test now pins only the AU-owned registered-tool signature."""
+def test_registered_graph_query_accepts_the_current_query_argument():
+    """The query parameter contract remains owned by the tool implementation.
+
+    GraphOS tests its bundled query guide and sidecar against this same tool.
+    """
     parameters = inspect.signature(kg_server.REGISTERED_TOOLS["graph_query"]).parameters
     assert "query" in parameters
     assert "cypher" not in parameters

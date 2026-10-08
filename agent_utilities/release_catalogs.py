@@ -22,14 +22,14 @@ _TRANSIENT_DIRECTORIES = frozenset({"__pycache__"})
 # themselves an installable skill (no ``SKILL.md`` at that level), so
 # ``_skill_directories`` must not require one there: ``skill_graphs`` is a
 # KG-ingestion reference corpus (mirrors ``providers.py``'s
-# ``_SKILL_GRAPH_SEGMENTS``/``is_skill_graph_reference_path``), ``workflows``
-# is a container for nested workflow-type skills (each nested dir, e.g.
-# ``workflows/agent-os-genesis/``, has its own ``SKILL.md``), and
+# ``_SKILL_GRAPH_SEGMENTS``/``is_skill_graph_reference_path``), and
 # ``fleet_harness`` is the skill-validation harness's own support code, not a
-# skill.
-_NON_SKILL_STRUCTURAL_DIRECTORIES = frozenset(
-    {"skill_graphs", "workflows", "fleet_harness"}
-)
+# skill. A name here must exist on disk: ``check_release_wheel.py``'s
+# ``_structural_skill_assets()`` scans each one directly and raises on a
+# missing directory, so a moved-out structural tree (``workflows``, which
+# moved to graph-os) is removed from this set, not merely left as a stale
+# entry.
+_NON_SKILL_STRUCTURAL_DIRECTORIES = frozenset({"skill_graphs", "fleet_harness"})
 _TRANSIENT_SUFFIXES = frozenset({".pyc", ".pyo"})
 
 
@@ -253,7 +253,7 @@ def prebundled_skill_catalog(
     *,
     skill_names: Iterable[str] = BUNDLED_SKILLS,
 ) -> dict[str, Any]:
-    """Build the exact, content-addressed four-skill release catalog."""
+    """Build the content-addressed release catalog of exactly ``BUNDLED_SKILLS``."""
 
     names = _safe_skill_names(skill_names)
     if _skill_directories(skills_root) != names:
@@ -284,7 +284,7 @@ def prebundled_skill_catalog_bytes(
     *,
     skill_names: Iterable[str] = BUNDLED_SKILLS,
 ) -> bytes:
-    """Render the exact retained bytes for the four-skill catalog."""
+    """Render the exact retained bytes for the ``BUNDLED_SKILLS`` catalog."""
 
     return canonical_json_bytes(
         prebundled_skill_catalog(skills_root, skill_names=skill_names)

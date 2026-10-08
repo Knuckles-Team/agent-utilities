@@ -70,6 +70,7 @@ _SCHEDULE_KINDS = frozenset(
 _MAINTENANCE_REF_ALLOWLIST = frozenset(
     {
         "anomaly_consumer",
+        "baseline_prompts",
         "compaction",
         "enrich_concepts",
         "enrichment",
