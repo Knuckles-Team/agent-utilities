@@ -12,7 +12,8 @@
     "AU-HARNESS-R007",
     "AU-HARNESS-R008",
     "AU-HARNESS-R009",
-    "AU-HARNESS-R010"
+    "AU-HARNESS-R010",
+    "AU-HARNESS-R011"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -141,6 +142,12 @@
           "description": "Implementation and focused tests (tests/unit/layers/test_harness_port.py, 26 passed) on a review branch; not merged."
         }
       ]
+    },
+    {
+      "id": "AU-HARNESS-R011",
+      "title": "Run outcomes feed propose-only prompt evolution",
+      "delivery_state": "BUILDING",
+      "evidence": []
     }
   ]
 }

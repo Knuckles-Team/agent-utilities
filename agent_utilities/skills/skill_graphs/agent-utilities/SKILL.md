@@ -65,12 +65,12 @@ See `docs/concept_map.md` for the complete registry.
 - Every code module has a `CONCEPT:X.Y` tag in its docstring — use this for traceability
 - All prompts live in `agent_utilities/prompts/*.json` — reference by agent name
 - OWL ontologies are in `knowledge_graph/ontology_*.ttl`
-- The KG MCP server (`graph-os`) exposes `graph_query`, `graph_search`, `graph_write`,
-  `graph_analyze`, `graph_ingest`, and `graph_orchestrate` (full reference:
-  [tools/SKILL.md](tools/SKILL.md)) — condensed by default (`MCP_TOOL_MODE=condensed`,
-  ~95 tools); a small/cheap-LLM deployment can instead set `MCP_TOOL_MODE=intent`
-  (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse, Seam 8) to collapse them behind six
-  `ask`/`find`/`write`/`act`/`manage`/`why` verbs — see
+- The KG MCP server (`graph-os`) registers `graph_query`, `graph_search`, `graph_write`,
+  `graph_analyze`, `graph_ingest`, `graph_orchestrate`, and ~90 more granular operations
+  (full reference: [tools/SKILL.md](tools/SKILL.md)) on a private backing server, reached
+  through the single listed intent-tool contract
+  (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse, Seam 8): `ask`/`find`/`write`/
+  `act`/`manage`/`why`, each taking `action` + `params` — see
   `docs/architecture/intent-surface.md`
 
 ## 📦 Package Structure

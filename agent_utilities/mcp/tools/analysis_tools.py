@@ -73,6 +73,8 @@ _SAFE_INLINE_MCP_ENV_KEYS = frozenset(
         "FASTMCP_LOG_LEVEL",
         "LOG_LEVEL",
         "MCP_CLIENT_AUTH",
+        # Retired surface selector still present in older fleet configs: accepted
+        # inline so those configs register, and never read.
         "MCP_TOOL_MODE",
         "NO_COLOR",
         "PYTHONUNBUFFERED",

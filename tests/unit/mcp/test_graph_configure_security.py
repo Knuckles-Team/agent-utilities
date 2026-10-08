@@ -55,7 +55,6 @@ def test_mcp_registration_accepts_runtime_references() -> None:
             "AGENT_ID": "${GRAPH_OS_AGENT_ID}",
             "AUTH_TOKEN": "vault://apps/graph-os/token",
             "MCP_CLIENT_AUTH": "oidc-client-credentials",
-            "MCP_TOOL_MODE": "intent",
             "REQUESTS_CA_BUNDLE": "${GRAPH_OS_CA_BUNDLE}",
         },
     }

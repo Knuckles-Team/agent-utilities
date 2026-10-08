@@ -126,11 +126,12 @@ A delegate (or the harness) reaches it through the multiplexer like any other to
   `tenants`, `resharding`, `consensus`, `finance`, `datascience`, `query`, `txn`,
   `timeseries`, `rdf`, `streaming`, `blob` — ~222 methods). A new engine method shows up
   automatically once the client wraps it; no hand-maintained list to rot.
-- **Verbose 1:1 surface** — `MCP_TOOL_MODE=verbose`/`both` emits one
-  `engine_<domain>_<method>` tool per method (generated from `ENGINE_DOMAINS` by the
-  graph-os verbose builder / `gen_graphos_manifest`). The default `intent` mode
-  keeps these granular operations reachable through `find_tools`/`load_tools`
-  without placing the full set in the resident model context.
+- **Granular 1:1 surface, never listed** — one `engine_<domain>_<method>`
+  operation per method is still generated (from `ENGINE_DOMAINS`, via
+  `gen_graphos_manifest`) and registered on graph-os's private backing server,
+  reachable as `act(action="engine_<domain>.<method>")` or through `ask`'s
+  natural-language routing — without placing the full set in `tools/list` or
+  the resident model context.
 
 This is why the delegation-first model can push **heavy compute to the engine** (vector
 similarity, ANN, graph algorithms, ML math, finance) instead of writing an O(N) loop in

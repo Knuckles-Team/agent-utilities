@@ -88,7 +88,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Loop Engine — running the self-improvement / research / goal loop](../guides/loop-engine.md) — catalog
 - [Mathematical Foundations & Financial Engineering Reference](../guides/mathematical_foundations.md) — catalog
 - [MCP fleet authentication and monitoring runbook](../guides/mcp-fleet-auth-and-monitoring-runbook.md) — catalog
-- [MCP Tool Modes — intent, condensed, verbose, or both](../guides/mcp-tool-modes.md) — catalog
+- [MCP Tool Surface — the single intent-tool contract](../guides/mcp-tool-modes.md) — catalog
 - [Multi-Model Registry & Configuration](../guides/models.md) — catalog
 - [AU native numeric call-site gap report](../guides/numeric-kernel-callsite-gaps.md) — catalog
 - [Native numeric kernel contract](../guides/numeric-kernel.md) — catalog

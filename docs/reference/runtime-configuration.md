@@ -237,7 +237,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `MCP_CONFIG` | `str \| None` | `unset` |
 | `MCP_FLEET_SECRET_REFS` | `dict` | `{}` |
 | `INGESTION_CONFIDENCE_THRESHOLDS` | `dict` | `{}` |
-| `MCP_TOOL_MODE` | `Literal` | `intent` |
+| `AGENT_GROUNDING_POLICY` | `Literal` | `required` |
 | `MCP_HTTP_ALLOWED_PRIVATE_HOSTS` | `list` | `[]` |
 | `FASTMCP_SERVER_AUTH_STATIC_TOKENS_REF` | `str \| None` | `unset` |
 | `AUTH_TYPE` | `Literal` | `none` |

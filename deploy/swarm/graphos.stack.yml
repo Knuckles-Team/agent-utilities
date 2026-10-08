@@ -71,7 +71,6 @@ services:
       PORT: "8000"
       AUTH_TYPE: jwt
       KG_DAEMON_ROLE: client
-      MCP_TOOL_MODE: intent
       MCP_CLIENT_AUTH: oidc-client-credentials
       REQUESTS_CA_BUNDLE: /run/secrets/ca-bundle.pem
       SSL_CERT_FILE: /run/secrets/ca-bundle.pem
