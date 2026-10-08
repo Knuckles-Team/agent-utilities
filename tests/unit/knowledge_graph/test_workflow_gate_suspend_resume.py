@@ -244,12 +244,12 @@ async def test_grounding_policy_threads_into_each_step(monkeypatch):
     """D-38: ``grounding`` opens the same ``use_grounding_policy`` scope
     ``Orchestrator.execute_agent`` already does, per step — symmetric with the
     agent/skill resolution path (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract)."""
-    from agent_utilities.core.contextual_model import _grounding_policy
+    from agent_utilities.core.contextual_model import current_grounding_policy
 
     policies_read: list[str] = []
 
     async def _policy_spy(agent_name, task, engine=None, **kw):
-        policies_read.append(_grounding_policy.get())
+        policies_read.append(current_grounding_policy())
         return f"ok:{agent_name}"
 
     monkeypatch.setattr(
@@ -265,7 +265,8 @@ async def test_grounding_policy_threads_into_each_step(monkeypatch):
     assert result.status == "completed"
     assert policies_read == ["best_effort"]
 
-    # Default (no grounding kwarg) still gets the process-wide fail-closed default.
+    # Default (no grounding kwarg) defers to the deployment default, which is
+    # fail-closed "required" unless AGENT_GROUNDING_POLICY says otherwise.
     policies_read.clear()
     await runner._execute_plan_via_agents(
         plan, engine, "wf", trace_session="run-grounding-2"

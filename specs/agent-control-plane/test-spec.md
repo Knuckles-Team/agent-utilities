@@ -12,6 +12,11 @@
 | Continuation asks for greater width/depth/rounds | topology unit | refuse; new decision and lease needed |
 | Fence loss, timeout after dispatch, missing event, unavailable usage | fault injection | stop/reconcile; `outcome-uncertain`/`trace-incomplete`; no blind retry or zero cost |
 | Self-reported success or unpromoted model | routing negative | no selection authority or promotion |
+| Planning question with scripted solved EG answers | unit, `tests/unit/decide/test_task_planner.py` | decided topology, per-agent components, reuse sources, policy guardrails, compiled workflow; decision provenance per element; goal text absent from EG requests |
+| Planning question with EG abstention or no ports | unit | named gaps; no model composition; fallback template labelled `fallback` |
+| Bare, non-planning and hinted `ask` | unit routing | plan for bare planning text; no route for code questions or hinted calls |
+| Cross-source question over two fake sources | unit, `tests/unit/knowledge_graph/test_virtual_graph.py` | ontology selects both sources; live bind joins; zero materialized rows; key filter pushed only with `filter:in` |
+| Unapproved mapping, row budget, credential ref, undiscovered field | unit negative | uncovered class with no reads; incomplete report; refused connection; refused mapping |
 
 Fresh checkout: `python3 scripts/uv_workspace.py doctor`; install locked extras using the repository helper, then run `python3 scripts/uv_workspace.py run --all-extras pytest tests/unit tests/orchestration -q` and the focused new conformance tests. Tests must provide fake EG/gateway/provider adapters and temporary directories; ordinary PR checks must need no pre-existing deployment, vendor account or GPU. Live certification is a separately labelled optional environment test with captured receipts.
 

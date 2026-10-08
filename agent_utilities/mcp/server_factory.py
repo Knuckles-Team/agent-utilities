@@ -2693,6 +2693,7 @@ def _register_prompt_providers(mcp: Any) -> None:
     """
     try:
         from fastmcp.resources import FileResource
+        from pydantic import AnyUrl
 
         from agent_utilities.core.providers import resolve_prompt_provider_dirs
 
@@ -2715,7 +2716,7 @@ def _register_prompt_providers(mcp: Any) -> None:
                 try:
                     mcp.add_resource(
                         FileResource(
-                            uri=f"prompt://{provider_name}/{json_file.stem}",
+                            uri=AnyUrl(f"prompt://{provider_name}/{json_file.stem}"),
                             path=json_file,
                             name=json_file.stem,
                             mime_type="application/json",

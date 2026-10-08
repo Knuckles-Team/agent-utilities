@@ -34,8 +34,8 @@ as independent or dependency-ordered work.
 
 ### 2. Assemble and assess evidence
 
-- Ingest new sources with `graph-ingestion-and-integration` when necessary.
-- Use `graph-research-and-analysis` to compare the evidence with current code,
+- Ingest new sources with graph-os's own `graph-ingestion-and-integration` when necessary.
+- Use graph-os's own `graph-research-and-analysis` to compare the evidence with current code,
   concepts, tests, and measured behavior.
 - Separate demonstrated gaps from interesting but unsupported ideas.
 - Record provenance, uncertainty, and expected leverage.
@@ -54,7 +54,7 @@ Do not turn mined patterns or generated text directly into production changes.
 
 ### 4. Route the work
 
-Use `graph-orchestration-and-automation` for a multi-stage loop. Run deterministic
+Use graph-os's own `graph-orchestration-and-automation` for a multi-stage loop. Run deterministic
 extraction, classification, and formatting with an economical model class. Use
 stronger reasoning for comparative judgment, architecture, adversarial review,
 and final synthesis.

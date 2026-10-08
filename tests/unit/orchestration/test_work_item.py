@@ -32,6 +32,7 @@ from typing import Any
 import pytest
 
 from agent_utilities.knowledge_graph.core import work_durability as wi
+from tests.unit.graph_double_fakes import NodeEdgeStore
 
 
 class FakeStatechartClient:
@@ -939,14 +940,13 @@ def test_reaper_has_no_python_transition_writer(engine: NativeEngine) -> None:
 # ---------------------------------------------------------------------------
 
 
-class CasEngine:
+class CasEngine(NodeEdgeStore):
     """Minimal engine double: add_node/link_nodes/query_cypher/CAS over an
     in-memory node store, with just enough Cypher pattern recognition to
     answer the exact queries ``work_durability.py`` issues."""
 
     def __init__(self) -> None:
-        self.nodes: dict[str, dict[str, Any]] = {}
-        self.edges: list[tuple[str, str, str]] = []
+        super().__init__()
         self._lock = threading.Lock()
 
     # -- write surface (GraphEngineProtocol-shaped) --------------------

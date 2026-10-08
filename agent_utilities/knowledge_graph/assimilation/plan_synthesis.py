@@ -248,16 +248,24 @@ def synthesize_plans(
             )
         ]
 
+    import contextvars
     from concurrent.futures import ThreadPoolExecutor
 
+    # Each worker runs in a copy of THIS context, so the ambient verified session every
+    # typed EG write binds its tenant to (e.g. the Gap upsert) reaches the thread.
+    jobs = [(contextvars.copy_context(), fid) for fid in targets]
     with ThreadPoolExecutor(max_workers=min(len(targets), 8)) as ex:
         # ``map`` preserves input order, so proposals stay rank-ordered.
         return list(
             ex.map(
-                lambda fid: synthesize_plan_for_feature(
-                    engine, fid, synth_fn=synth_fn, write=write
+                lambda job: job[0].run(
+                    synthesize_plan_for_feature,
+                    engine,
+                    job[1],
+                    synth_fn=synth_fn,
+                    write=write,
                 ),
-                targets,
+                jobs,
             )
         )
 

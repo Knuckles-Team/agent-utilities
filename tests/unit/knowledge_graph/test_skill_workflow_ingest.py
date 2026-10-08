@@ -395,7 +395,7 @@ def test_delegated_ingest_failure_report_does_not_leak_local_path(corpus):
 
 def test_live_ingest_into_memory_engine_discoverable_by_name(corpus):
     """The ingested workflow is retrievable from a real engine the way
-    ``execute_workflow`` / ``graph-orchestration-and-automation`` look it up: a
+    ``execute_workflow`` / graph-os's own ``graph-orchestration-and-automation`` look it up: a
     ``WorkflowDefinition`` queryable by ``name`` with its ``WorkflowStep`` DAG.
     """
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -456,7 +456,7 @@ def test_discover_explicit_root_does_not_redirect_into_nested_workflows_dir(tmp_
     """KG-2.97 §5a regression: an explicit root must be searched AS-IS. The old
     code silently redirected into ``root/workflows/`` whenever that subdir
     happened to exist, discarding every sibling SKILL.md — exactly the real
-    ``agent_utilities/skills`` shape (13 domain skills + skill_graphs/ + ONE
+    ``agent_utilities/skills`` shape (4 domain skills + skill_graphs/ + ONE
     real workflow that happens to live under ``skills/workflows/
     agent-os-genesis``), which made the explicit-root call find only 1 of 20
     real files.

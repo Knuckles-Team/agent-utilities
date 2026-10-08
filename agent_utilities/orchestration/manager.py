@@ -537,7 +537,7 @@ class Orchestrator:
         skill_name: str | None = None,
         tool_server: str | None = None,
         execution_mode: ExecutionMode = "auto",
-        grounding: GroundingPolicy = "required",
+        grounding: GroundingPolicy | None = None,
     ) -> str:
         """Execute a single agent against a task.
 
@@ -974,7 +974,7 @@ class Orchestrator:
         reasoning_effort: str | None = None,
         model_class: str = "standard",
         response_format: ResponseFormat = "text",
-        grounding: GroundingPolicy = "required",
+        grounding: GroundingPolicy | None = None,
     ) -> dict[str, Any]:
         """Resolve and execute one task through the bounded GraphOS skill gateway.
 
@@ -1103,7 +1103,7 @@ class Orchestrator:
         workflow_id: str,
         task: str = "",
         max_steps: int = 30,
-        grounding: GroundingPolicy = "required",
+        grounding: GroundingPolicy | None = None,
     ) -> dict[str, Any]:
         """Execute a compiled workflow by running its STORED step-DAG.
 

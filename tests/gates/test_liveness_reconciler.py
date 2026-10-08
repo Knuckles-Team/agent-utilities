@@ -19,6 +19,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "liveness_reconciler.py"
 
@@ -290,3 +292,100 @@ def test_generated_docstring_excludes_but_mention_in_body_does_not(tmp_path):
     # generator_tool.py's `emit` is unrescued by any mechanism and its file is
     # NOT generated, so it stays a genuine (if synthetic) still-flagged finding.
     assert "gen.generator_tool" in recon["orphan_modules"]["still"]
+
+
+def test_effective_service_registry_targets_are_exact(tmp_path):
+    lr = _reconciler_for(
+        tmp_path,
+        extra_files={
+            "agent_utilities/core/registry/service_adapter.py": (
+                "_SERVICE_DEFINITIONS: list[dict[str, str]] = [\n"
+                " {'module': 'agent_utilities.pkg.old', 'entry': 'Old', 'capability': 'shared'},\n"
+                " {'module': 'agent_utilities.pkg.live', 'entry': 'Live', 'capability': 'shared'},\n"
+                " {'module': 'agent_utilities.pkg.other', 'entry': 'Other', 'capability': 'distinct'},\n"
+                "]\n"
+                "UNUSED = [{'module': 'agent_utilities.pkg.unused', 'entry': 'Unused', 'capability': 'unused'}]\n"
+            ),
+            "agent_utilities/pkg/live.py": "class Live: pass\n",
+            "agent_utilities/pkg/old.py": "class Old: pass\n",
+            "agent_utilities/pkg/other.py": "class Other: pass\nclass Live: pass\n",
+            "agent_utilities/pkg/unused.py": "class Unused: pass\n",
+        },
+    )
+    result = lr.reconcile(
+        {
+            "dead_definitions": [
+                "pkg.old:Old",
+                "pkg.live:Live",
+                "pkg.other:Other",
+                "pkg.other:Live",
+                "pkg.unused:Unused",
+            ]
+        }
+    )["dead_definitions"]
+    assert result["rescued"] == [
+        {"definition": "pkg.live:Live", "mechanism": "service-registry-exact-target"},
+        {"definition": "pkg.other:Other", "mechanism": "service-registry-exact-target"},
+    ]
+    assert result["still"] == ["pkg.old:Old", "pkg.other:Live", "pkg.unused:Unused"]
+
+
+def test_nonliteral_service_registry_does_not_guess_targets(tmp_path):
+    lr = _reconciler_for(
+        tmp_path,
+        extra_files={
+            "agent_utilities/core/registry/service_adapter.py": (
+                "_SERVICE_DEFINITIONS = build_registry()\n"
+            ),
+            "agent_utilities/pkg/target.py": "class Target: pass\n",
+        },
+    )
+    result = lr.reconcile({"dead_definitions": ["pkg.target:Target"]})
+    assert result["dead_definitions"]["still"] == ["pkg.target:Target"]
+
+
+def test_service_targets_match_real_registry_dispatch():
+    """Keep the static adapter aligned with actual last-write dispatch."""
+    path = ROOT / "agent_utilities/core/registry/service_adapter.py"
+    spec = importlib.util.spec_from_file_location("_service_dispatch_under_test", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        registry = module.ServiceRegistry()
+        registry.initialize()
+        expected = {
+            f"{desc.module_path.removeprefix('agent_utilities.')}:{desc.function_name}"
+            for desc in registry._services.values()
+            if desc.module_path.startswith("agent_utilities.")
+        }
+        assert _load_reconciler()._service_registry_definitions() == expected
+    finally:
+        sys.modules.pop(spec.name, None)
+
+
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        "{'module': 'external.pkg', 'entry': 'Target', 'capability': 'same'}",
+        "{'module': 'agent_utilities.pkg.target', 'entry': 'bad.name', 'capability': 'same'}",
+        "{'module': 'agent_utilities.pkg.target', 'entry': None, 'capability': 'same'}",
+        "None",
+    ],
+)
+def test_invalid_registry_row_does_not_rescue_overwritten_target(tmp_path, replacement):
+    lr = _reconciler_for(
+        tmp_path,
+        extra_files={
+            "agent_utilities/core/registry/service_adapter.py": (
+                "_SERVICE_DEFINITIONS = ["
+                "{'module': 'agent_utilities.pkg.target', 'entry': 'Target', 'capability': 'same'},"
+                + replacement
+                + "]\n"
+            ),
+            "agent_utilities/pkg/target.py": "class Target: pass\n",
+        },
+    )
+    result = lr.reconcile({"dead_definitions": ["pkg.target:Target"]})
+    assert result["dead_definitions"]["still"] == ["pkg.target:Target"]

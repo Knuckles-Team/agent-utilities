@@ -12,6 +12,16 @@
 | Offer with open dependency, cooldown, over-budget or other tenant | decision contract | candidate excluded with reason; no AU fallback sort |
 | Decide unavailable, commit replay mismatch, claim fence lost | integration fault | no execution and no second scheduler |
 | Proposal missing approval, stale base, dirty tree, path escape, gate failure, uncertain remote result | graph-os/RM contract fakes | no unauthorized commit; pending proposal with typed reason |
+| L4 conformance | native adapter with injected runner; Claude Code adapter with fake executable | both satisfy `HarnessPort`; outcome names the port, keeps the run identifier and uses a known status |
+| Native envelope | injected `run_agent` returning the run-summary envelope | summary requested; JSON output parsed; degraded failure text kept; outcome marked recorded |
+| Native timeout | runner slower than `timeout_s` | typed `timeout` outcome |
+| Claude Code launch | fake executable records arguments, directory, input and environment | pinned flags first; MCP configuration last; prompt on input only; directory is the worktree; parent secrets absent |
+| Claude Code result | fake success, error, unparseable and sleeping modes | typed usage, cost, model and transcript reference; `failed` with exit code; `timeout` with the child killed |
+| Claude Code refusal | no worktree, no configuration file, no executable | `refused` outcome; child never starts |
+| Diff stat | temporary Git repository with one changed file | exact files, insertions and deletions; no repository write |
+| Selection | registry with fake ports | `native` by default; field selects the port; unknown name raises |
+| L5 recording | patched RunTrace writer and usage recorder | non-native outcome written once with `harness:<name>` mode; native outcome not written again |
+| Parallel engine dispatch | `AgentSpec(harness="claude-code")` with a fake port | node runs through the port and returns its result |
 | Successful approved proposal | public contract integration | exact commit/gate/receipt digests; Gap resolves only after receipt re-ingest |
 
 Fresh checkout: `python3 scripts/uv_workspace.py doctor`, then focused `python3 scripts/uv_workspace.py run --all-extras pytest tests/harness tests/unit -q`. New tests must inject fake EG, graph-os, provider, trainer and repository-manager boundaries; normal PR CI needs no live graph, vendor credentials, model server, GPU or private network. Optional live certification records exact receipts and is not a prerequisite for contribution PRs unless the changed contract requires it.

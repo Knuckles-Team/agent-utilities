@@ -75,7 +75,7 @@ _RUN_REF = normalize_run_id(_RUN_ID, tenant_id=_TENANT_ID)
 _TRACE_NAME = f"graph_run:{_RUN_REF}"
 _MODEL_REF = "pref_model_" + "b" * 64
 _SKILL_REF = persistence_reference(
-    "skill", "graph-query-and-explanation", namespace="execution-trace"
+    "skill", "agent-utilities-evolution", namespace="execution-trace"
 )
 _SKILL_BODY_REF = "pref_skill_body_" + "c" * 64
 _TRACE_EVIDENCE = {
@@ -90,7 +90,7 @@ _TRACE_EVIDENCE = {
 def _delegated_case() -> ValidationCase:
     return ValidationCase(
         case_id="synthetic-delegated",
-        skill="graph-query-and-explanation",
+        skill="agent-utilities-evolution",
         mode="delegated",
         model_class="economy",
         task="Synthetic task.",
@@ -120,7 +120,7 @@ def _direct_semantic_payload(
 
 def _semantic_payload() -> dict[str, Any]:
     return {
-        "skill": "graph-query-and-explanation",
+        "skill": "agent-utilities-evolution",
         "mode": "delegated",
         "selected_routes": ["graph_orchestrate", "graph_query"],
         "read_only": True,
@@ -132,14 +132,14 @@ def _semantic_payload() -> dict[str, Any]:
 def test_contract_instruction_binds_exact_skill_identity() -> None:
     instruction = _contract_instruction(_delegated_case())
 
-    assert "Set skill to 'graph-query-and-explanation'." in instruction
+    assert "Set skill to 'agent-utilities-evolution'." in instruction
     assert "acceptance_summary to one plain sentence of at most 240 characters" in (
         instruction
     )
 
 
 def test_direct_execution_prompt_places_closed_contract_after_original_task() -> None:
-    case = _matrix_case("orchestration-direct")
+    case = _matrix_case("evolution-direct")
     contract = _contract_instruction(case)
 
     prompt = _direct_execution_prompt(case)
@@ -154,7 +154,7 @@ def test_direct_execution_prompt_places_closed_contract_after_original_task() ->
 def test_direct_semantic_contract_uses_prompted_json_not_tool_output() -> None:
     from pydantic_ai import PromptedOutput
 
-    output_type = _direct_semantic_output_type(_matrix_case("engine-direct"))
+    output_type = _direct_semantic_output_type(_matrix_case("evolution-direct"))
 
     assert isinstance(output_type, PromptedOutput)
     assert issubclass(output_type.outputs, SemanticOutput)
@@ -164,7 +164,7 @@ def test_direct_semantic_contract_uses_prompted_json_not_tool_output() -> None:
 
 
 def test_direct_prompted_output_accepts_exact_case_route_set() -> None:
-    case = _matrix_case("query-direct")
+    case = _matrix_case("evolution-direct")
     output_type = _direct_semantic_output_type(case)
 
     output = output_type.outputs.model_validate(
@@ -178,7 +178,7 @@ def test_direct_prompted_output_accepts_exact_case_route_set() -> None:
 
 
 def test_direct_prompted_output_rejects_engine_route_expansion() -> None:
-    case = _matrix_case("engine-direct")
+    case = _matrix_case("evolution-direct")
     output_type = _direct_semantic_output_type(case)
     expanded_routes = [*case.expected_routes, "engine_datascience"]
 
@@ -189,15 +189,15 @@ def test_direct_prompted_output_rejects_engine_route_expansion() -> None:
 
 
 def test_direct_validation_evidence_is_bounded_and_privacy_safe() -> None:
-    source = _SkillValidationEvidenceSource("graph-query-and-explanation")
+    source = _SkillValidationEvidenceSource("agent-utilities-evolution")
 
     rows = source.search_hybrid("synthetic query", top_k=40)
 
     assert len(rows) == 1
     assert rows[0]["kind"] == "skill_instruction"
-    assert rows[0]["source_refs"] == ["skill://graph-query-and-explanation"]
+    assert rows[0]["source_refs"] == ["skill://agent-utilities-evolution"]
     assert rows[0]["id"].startswith("pref_skill_")
-    assert "graph-query-and-explanation" not in rows[0]["id"]
+    assert "agent-utilities-evolution" not in rows[0]["id"]
     assert source.search_hybrid("synthetic query", top_k=0) == []
     assert source.retrieve_epistemic_view("synthetic query") == {}
 
@@ -230,7 +230,7 @@ def test_direct_authority_restores_exact_state_on_cancellation() -> None:
 
     sentinel_engine = object()
     sentinel_store = object()
-    source = _SkillValidationEvidenceSource("graph-query-and-explanation")
+    source = _SkillValidationEvidenceSource("agent-utilities-evolution")
     sentinel_acl = NodeACL(
         node_id=source.node_id,
         classification=DataClassification.CONFIDENTIAL,
@@ -250,7 +250,7 @@ def test_direct_authority_restores_exact_state_on_cancellation() -> None:
         }
         with pytest.raises(asyncio.CancelledError):
             with runtime_harness._direct_evidence_authority(
-                "graph-query-and-explanation"
+                "agent-utilities-evolution"
             ):
                 raise asyncio.CancelledError
 
@@ -1768,7 +1768,7 @@ def test_economy_validation_omits_nonportable_reasoning_none() -> None:
 def test_semantic_contract_rejects_missing_routes() -> None:
     case = ValidationCase(
         case_id="synthetic-direct",
-        skill="graph-query-and-explanation",
+        skill="agent-utilities-evolution",
         mode="direct",
         model_class="economy",
         task="synthetic",
@@ -1791,7 +1791,7 @@ def test_semantic_contract_rejects_missing_routes() -> None:
 def test_semantic_contract_rejects_unexpected_routes() -> None:
     case = ValidationCase(
         case_id="synthetic-direct",
-        skill="graph-query-and-explanation",
+        skill="agent-utilities-evolution",
         mode="direct",
         model_class="economy",
         task="synthetic",
@@ -1840,7 +1840,7 @@ def test_report_contains_only_controlled_evidence_fields() -> None:
     }
     direct = CaseResult(
         case_id="synthetic-direct",
-        skill="graph-query-and-explanation",
+        skill="agent-utilities-evolution",
         mode="direct",
         model_class="economy",
         semantic="pass",
@@ -1857,7 +1857,7 @@ def test_report_contains_only_controlled_evidence_fields() -> None:
     )
     delegated = CaseResult(
         case_id="synthetic-delegated",
-        skill="graph-query-and-explanation",
+        skill="agent-utilities-evolution",
         mode="delegated",
         model_class="standard",
         semantic="pass",
@@ -2122,8 +2122,8 @@ def test_delegation_rejects_short_or_removed_response_shapes(
 @pytest.mark.parametrize(
     "output",
     (
-        '```json\n{"skill":"graph-query-and-explanation"}\n```',
-        'Result: {"skill":"graph-query-and-explanation"}',
+        '```json\n{"skill":"agent-utilities-evolution"}\n```',
+        'Result: {"skill":"agent-utilities-evolution"}',
     ),
 )
 def test_delegation_rejects_fenced_or_prose_wrapped_json(output: str) -> None:

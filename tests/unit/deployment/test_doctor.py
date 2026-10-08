@@ -2094,8 +2094,8 @@ def test_skills_check_requires_exact_suite_without_persisting_local_path(
     from agent_utilities.core.provider_materialization import build_asset_manifest
 
     source = tmp_path / "source"
-    (source / "graph-query-and-explanation").mkdir(parents=True)
-    (source / "graph-query-and-explanation" / "SKILL.md").write_text(
+    (source / "agent-utilities-deployment").mkdir(parents=True)
+    (source / "agent-utilities-deployment" / "SKILL.md").write_text(
         "synthetic", encoding="utf-8"
     )
     xdg = tmp_path / "xdg"
@@ -2112,7 +2112,7 @@ def test_skills_check_requires_exact_suite_without_persisting_local_path(
     result = D._check_skills()
 
     assert result["status"] == "warn"
-    assert "graph-ingestion-and-integration" in result["data"]["missing"]
+    assert "agent-utilities-development" in result["data"]["missing"]
     assert str(tmp_path) not in json.dumps(result)
 
 
