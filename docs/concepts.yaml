@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1193
+total_concepts: 1192
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -7426,6 +7426,7 @@ concepts:
   - agent_utilities/orchestration/engine.py
   - agent_utilities/orchestration/failure_translation.py
   - agent_utilities/orchestration/manager.py
+  - agent_utilities/orchestration/run_envelope.py
   doc: every terminal outcome of
 - id: AU-ORCH.execution.nl-compilation-pipeline
   name: Semantic Workflow Retrieval
@@ -8618,7 +8619,6 @@ concepts:
   - agent_utilities/graph/state.py
   - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/messaging/agent_channel.py
-  - agent_utilities/messaging/router.py
   - agent_utilities/models/agent.py
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/engine.py
