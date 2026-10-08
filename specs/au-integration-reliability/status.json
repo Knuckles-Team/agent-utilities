@@ -21,7 +21,8 @@
     "AU-INTEGRATION-R016",
     "AU-INTEGRATION-R017",
     "AU-INTEGRATION-R018",
-    "AU-INTEGRATION-R019"
+    "AU-INTEGRATION-R019",
+    "AU-INTEGRATION-R020"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -228,9 +229,15 @@
       "id": "AU-INTEGRATION-R019",
       "title": "Messaging direct turns use a configured budget and deliver over-budget replies as a follow-up",
       "delivery_state": "BUILDING",
-      "evidence": [
-        "tests/unit/messaging/test_direct_reply_budget.py"
-      ]
+      "evidence": [],
+      "remaining": "Regression tests in tests/unit/messaging/test_direct_reply_budget.py; merged-head evidence pending."
+    },
+    {
+      "id": "AU-INTEGRATION-R020",
+      "title": "Outbound chat text never carries the run envelope",
+      "delivery_state": "BUILDING",
+      "evidence": [],
+      "remaining": "Regression test tests/unit/messaging/test_run_envelope_unwrap.py lands with this PR; PR #60 late-reply path reuses unwrap_run_envelope after both merge."
     }
   ]
 }

@@ -22,3 +22,5 @@
 - [ ] Run the full test baseline, CCCC, jscpd, Dupehound, KISS review, Ruff/mypy, and the privacy/version-consistency scripts; record exact merged-head and hosted CI evidence against every requirement above before any `ACCEPTED` claim.
 
 Four additional AU workstreams (final composition, ontology/SHACL/OWL clean cut, public application control plane, public docs) are named in `spec.md` but still await stable requirement IDs through review; track them there rather than inventing a synthetic ID here.
+- [ ] Unwrap the run envelope at one chokepoint for outbound chat text. Closes AU-INTEGRATION-R020.
+- [ ] Reuse `unwrap_run_envelope` in the PR #60 late-reply delivery path once both PRs land. Tracks AU-INTEGRATION-R020.

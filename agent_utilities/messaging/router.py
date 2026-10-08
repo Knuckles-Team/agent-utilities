@@ -1570,40 +1570,17 @@ def _resolve_reply_timeout(budget: float | None) -> float:
     return float(setting("MESSAGING_REPLY_TIMEOUT", "45"))
 
 
-def _unwrap_agent_envelope(text: str) -> tuple[str, dict[str, Any] | None]:
-    """Unwrap ``run_agent``'s JSON envelope
-    (CONCEPT:AU-ORCH.session.session-anchored-collections-native/1.37), if
-    ``text`` is one, for ``_graph_agent_reply``.
+def _unwrap_agent_envelope(text: Any) -> tuple[str, dict[str, Any] | None]:
+    """Unwrap ``run_agent``'s JSON envelope for ``_graph_agent_reply``.
 
-    When the run opened a native message channel (or carries a mermaid
-    diagram / run_summary), ``run_agent`` returns a JSON envelope string
-    ``{"output", "channel_id"?, "mermaid"?, "run_summary"?}`` rather than the
-    bare reply. The chat reply is the ``output`` field; unwrap it so the user
-    sees the rendered text, not raw JSON. The membership check is exact
-    (keys subset of the envelope's allow-set) so a genuine JSON reply from
-    the agent is never mis-unwrapped.
-
-    Extracted verbatim (pure extract-method, no behaviour change). Returns
-    ``(text, run_summary)`` — unchanged if ``text`` is not this envelope shape.
+    Delegates to :func:`agent_utilities.orchestration.run_envelope.unwrap_run_envelope`,
+    the single chokepoint that turns a run result into outbound message text
+    (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency). Returns
+    ``(text, run_summary)`` — unchanged text if ``text`` is not an envelope.
     """
-    if not (text.startswith("{") and '"output"' in text):
-        return text, None
-    import json
+    from agent_utilities.orchestration.run_envelope import unwrap_run_envelope
 
-    try:
-        _env = json.loads(text)
-    except (ValueError, TypeError):
-        return text, None
-    if not (
-        isinstance(_env, dict)
-        and "output" in _env
-        and set(_env) <= {"output", "run_id", "channel_id", "mermaid", "run_summary"}
-    ):
-        return text, None
-    unwrapped = str(_env["output"]).strip()
-    _rs = _env.get("run_summary")
-    run_summary = _rs if isinstance(_rs, dict) else None
-    return unwrapped, run_summary
+    return unwrap_run_envelope(text)
 
 
 def _classify_unusable_agent_reply(
@@ -1731,14 +1708,10 @@ async def _graph_agent_reply(
         # direct-reply budget spec — shield the run so the budget wall does not cancel it; the
         # overrun branch below decides between follow-up delivery and cancellation.
         out = await asyncio.wait_for(asyncio.shield(run_task), timeout=reply_timeout)
-        text = str(out).strip() if out else ""
-        # ``run_id`` is ALWAYS present once ANY envelope trigger fires
-        # (_render_agent_result's base payload) — it was missing from
-        # _unwrap_agent_envelope's allow-set before, which meant the unwrap
-        # could silently fail (and leak raw JSON into the chat) the moment a
-        # caller actually got an envelope back
-        # (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency).
-        text, run_summary = _unwrap_agent_envelope(text)
+        # The envelope key set is shared with the renderer (run_envelope.py), so a
+        # new additive key (e.g. ``provenance_recorded``) can no longer leak raw
+        # JSON into the chat (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency).
+        text, run_summary = _unwrap_agent_envelope(out if out else "")
         if text and not text.startswith("Agent execution failed"):
             return _with_transparency(text, run_summary)
         # The run completed but returned a failure string. If that failure was a backend
@@ -1821,7 +1794,7 @@ async def _deliver_late_reply(
             "[CONCEPT:AU-ORCH.routing.chat-budget-routing] late run failed: %s", exc
         )
         return
-    text, run_summary = _unwrap_agent_envelope(str(out).strip() if out else "")
+    text, run_summary = _unwrap_agent_envelope(out if out else "")
     if not text or text.startswith("Agent execution failed"):
         logger.warning(
             "[CONCEPT:AU-ORCH.routing.chat-budget-routing] late run returned no usable reply."
