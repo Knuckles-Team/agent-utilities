@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-579 typed fields · 366 runtime-only call-site inputs.
+578 typed fields · 366 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -238,7 +238,6 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `MCP_FLEET_SECRET_REFS` | `dict` | `{}` |
 | `INGESTION_CONFIDENCE_THRESHOLDS` | `dict` | `{}` |
 | `AGENT_GROUNDING_POLICY` | `Literal` | `required` |
-| `MCP_TOOL_MODE` | `Literal` | `intent` |
 | `MCP_HTTP_ALLOWED_PRIVATE_HOSTS` | `list` | `[]` |
 | `FASTMCP_SERVER_AUTH_STATIC_TOKENS_REF` | `str \| None` | `unset` |
 | `AUTH_TYPE` | `Literal` | `none` |

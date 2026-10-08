@@ -474,8 +474,38 @@ def run_component_optimization(
 # --------------------------------------------------------------------------- #
 # The self-supervised targets the daemon can run unattended (the registry targets —
 # system_prompt/tool_description/skill — are driven by the failure-cluster evolution
-# cycle, not this sweep).
-SCHEDULABLE_TARGETS: tuple[str, ...] = ("extraction", "concept_match", "routing")
+# cycle, not this sweep). ``prompt_evolution`` (CONCEPT:AU-AHE.optimization.run-outcome-prompt-evolution)
+# is the run-outcome leg: per-agent RunTrace outcomes become propose-only
+# PromptVersion candidates (``harness.run_outcome_prompt_evolution``).
+SCHEDULABLE_TARGETS: tuple[str, ...] = (
+    "extraction",
+    "concept_match",
+    "routing",
+    "prompt_evolution",
+)
+
+
+def _run_prompt_evolution_target(engine: Any) -> dict[str, Any]:
+    from .run_outcome_prompt_evolution import run_prompt_evolution_sweep
+
+    return run_prompt_evolution_sweep(engine)
+
+
+# Sweep targets with their own gather+propose runner instead of the generic
+# ``gather_optimization_data`` → ``run_component_optimization`` path.
+_SWEEP_RUNNERS: dict[str, Callable[[Any], dict[str, Any]]] = {
+    "prompt_evolution": _run_prompt_evolution_target,
+}
+
+
+def _run_sweep_target(engine: Any, name: str) -> dict[str, Any]:
+    """Run one sweep target through its dedicated runner or the generic path."""
+    runner = _SWEEP_RUNNERS.get(name)
+    if runner is not None:
+        return runner(engine)
+    data = gather_optimization_data(engine, name)
+    return run_component_optimization(name, data, engine=engine)
+
 
 # --------------------------------------------------------------------------- #
 # U-103/U-135 — bounded backoff-with-jitter for unavailable/transient targets
@@ -833,8 +863,7 @@ def run_optimization_sweep(
             deferred.append(name)
             continue
 
-        data = gather_optimization_data(engine, name)
-        result = run_component_optimization(name, data, engine=engine)
+        result = _run_sweep_target(engine, name)
         report[name] = result
         bucket = _apply_sweep_status(name, result, now)
         if bucket == "optimized":

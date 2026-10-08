@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-10-08T06:04:26Z",
+  "generated_at": "2026-10-08T13:58:19Z",
   "count": 128,
   "capabilities": [
     {
       "id": "act",
       "title": "act",
-      "one_line": "Preview or perform a natural-language ACT/execute intent.",
+      "one_line": "Run work, an operation or a fleet tool; previews first, then execute with plan_ref. action='<tool>.<op>' (see action='describe'), or leave it empty to route `intent`.",
       "intent_verbs": [
         "act"
       ],
@@ -23,48 +23,58 @@
         ],
         "input_params": [
           {
-            "name": "intent",
-            "type": "string",
-            "required": true,
-            "default": null,
-            "description": "Natural-language act intent."
-          },
-          {
-            "name": "hints_json",
+            "name": "action",
             "type": "string",
             "required": false,
-            "default": "{}",
-            "description": "Optional JSON object of structured args forwarded to the resolved tool (e.g. {\"node_id\": \"...\"} for a write, or {\"tool\": \"graph_write\"} to pin the exact tool). For a non-read execution, resubmit the preview's plan_ref here."
+            "default": "",
+            "description": "Operation id ('<tool>.<op>' or '<tool>') or 'describe'; empty routes `intent`."
+          },
+          {
+            "name": "params",
+            "type": "object",
+            "required": false,
+            "default": null,
+            "description": "Operation arguments. With action='describe', {'action': '<id>'} returns that operation's argument schema."
+          },
+          {
+            "name": "intent",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Natural-language request, routed when action is empty."
           },
           {
             "name": "execute",
             "type": "boolean",
             "required": false,
             "default": false,
-            "description": "Execute a read-only plan immediately. Non-read verbs default to preview and require the returned plan_ref before execution."
+            "description": "Run now; when false, return the resolved plan."
           }
         ],
         "input_schema": {
           "additionalProperties": false,
           "properties": {
-            "intent": {
-              "description": "Natural-language act intent.",
+            "action": {
+              "default": "",
+              "description": "Operation id ('<tool>.<op>' or '<tool>') or 'describe'; empty routes `intent`.",
               "type": "string"
             },
-            "hints_json": {
-              "default": "{}",
-              "description": "Optional JSON object of structured args forwarded to the resolved tool (e.g. {\"node_id\": \"...\"} for a write, or {\"tool\": \"graph_write\"} to pin the exact tool). For a non-read execution, resubmit the preview's plan_ref here.",
+            "params": {
+              "additionalProperties": true,
+              "description": "Operation arguments. With action='describe', {'action': '<id>'} returns that operation's argument schema.",
+              "type": "object"
+            },
+            "intent": {
+              "default": "",
+              "description": "Natural-language request, routed when action is empty.",
               "type": "string"
             },
             "execute": {
               "default": false,
-              "description": "Execute a read-only plan immediately. Non-read verbs default to preview and require the returned plan_ref before execution.",
+              "description": "Run now; when false, return the resolved plan.",
               "type": "boolean"
             }
           },
-          "required": [
-            "intent"
-          ],
           "type": "object"
         },
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
@@ -96,7 +106,8 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "act: Preview or perform a natural-language ACT/execute intent."
+        "act: Run work, an operation or a fleet tool; previews first, then execute with",
+        "act action=act"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -115,13 +126,13 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
       "id": "ask",
       "title": "ask",
-      "one_line": "Ask the Knowledge Graph a natural-language READ question.",
+      "one_line": "Read or answer from the Knowledge Graph. action='<tool>.<op>' (see action='describe'), or leave it empty to route `intent`.",
       "intent_verbs": [
         "ask"
       ],
@@ -139,48 +150,58 @@
         ],
         "input_params": [
           {
-            "name": "intent",
-            "type": "string",
-            "required": true,
-            "default": null,
-            "description": "Natural-language ask intent."
-          },
-          {
-            "name": "hints_json",
+            "name": "action",
             "type": "string",
             "required": false,
-            "default": "{}",
-            "description": "Optional JSON object of structured args forwarded to the resolved tool (e.g. {\"node_id\": \"...\"} for a write, or {\"tool\": \"graph_write\"} to pin the exact tool). For a non-read execution, resubmit the preview's plan_ref here."
+            "default": "",
+            "description": "Operation id ('<tool>.<op>' or '<tool>') or 'describe'; empty routes `intent`."
+          },
+          {
+            "name": "params",
+            "type": "object",
+            "required": false,
+            "default": null,
+            "description": "Operation arguments. With action='describe', {'action': '<id>'} returns that operation's argument schema."
+          },
+          {
+            "name": "intent",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Natural-language request, routed when action is empty."
           },
           {
             "name": "execute",
             "type": "boolean",
             "required": false,
             "default": true,
-            "description": "Execute a read-only plan immediately. Non-read verbs default to preview and require the returned plan_ref before execution."
+            "description": "Run now; when false, return the resolved plan."
           }
         ],
         "input_schema": {
           "additionalProperties": false,
           "properties": {
-            "intent": {
-              "description": "Natural-language ask intent.",
+            "action": {
+              "default": "",
+              "description": "Operation id ('<tool>.<op>' or '<tool>') or 'describe'; empty routes `intent`.",
               "type": "string"
             },
-            "hints_json": {
-              "default": "{}",
-              "description": "Optional JSON object of structured args forwarded to the resolved tool (e.g. {\"node_id\": \"...\"} for a write, or {\"tool\": \"graph_write\"} to pin the exact tool). For a non-read execution, resubmit the preview's plan_ref here.",
+            "params": {
+              "additionalProperties": true,
+              "description": "Operation arguments. With action='describe', {'action': '<id>'} returns that operation's argument schema.",
+              "type": "object"
+            },
+            "intent": {
+              "default": "",
+              "description": "Natural-language request, routed when action is empty.",
               "type": "string"
             },
             "execute": {
               "default": true,
-              "description": "Execute a read-only plan immediately. Non-read verbs default to preview and require the returned plan_ref before execution.",
+              "description": "Run now; when false, return the resolved plan.",
               "type": "boolean"
             }
           },
-          "required": [
-            "intent"
-          ],
           "type": "object"
         },
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
@@ -212,7 +233,8 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "ask: Ask the Knowledge Graph a natural-language READ question."
+        "ask: Read or answer from the Knowledge Graph. action='<tool>.<op>' (see",
+        "ask action=ask"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -231,7 +253,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -252,7 +274,6 @@
         "rest_route": "/graph/ask-data",
         "tags": [
           "data-analysis",
-          "gated",
           "granular",
           "graph-os",
           "nl",
@@ -354,7 +375,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "data-analysis",
-          "gated",
           "granular",
           "graph-os",
           "nl",
@@ -369,7 +389,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -391,7 +411,6 @@
         "rest_route": "/concept/registry",
         "tags": [
           "concept",
-          "gated",
           "governance",
           "granular",
           "graph-os",
@@ -528,7 +547,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "concept",
-          "gated",
           "governance",
           "granular",
           "graph-os",
@@ -543,7 +561,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -563,7 +581,6 @@
       "typed_io": {
         "rest_route": "/document/process",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -687,7 +704,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -701,7 +717,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -794,7 +810,6 @@
         "tags": [
           "admin",
           "engine",
-          "gated",
           "granular",
           "graph-os"
         ],
@@ -893,7 +908,6 @@
         "candidate_tags": [
           "admin",
           "engine",
-          "gated",
           "granular",
           "graph-os"
         ]
@@ -906,7 +920,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -981,7 +995,6 @@
         "tags": [
           "analytics",
           "engine",
-          "gated",
           "granular",
           "graph-os"
         ],
@@ -1077,7 +1090,6 @@
         "candidate_tags": [
           "analytics",
           "engine",
-          "gated",
           "granular",
           "graph-os"
         ]
@@ -1090,7 +1102,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -1270,7 +1282,6 @@
         "tags": [
           "blob",
           "engine",
-          "gated",
           "granular",
           "graph-os"
         ],
@@ -1371,7 +1382,6 @@
         "candidate_tags": [
           "blob",
           "engine",
-          "gated",
           "granular",
           "graph-os"
         ]
@@ -1384,7 +1394,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -1760,7 +1770,6 @@
         "tags": [
           "broker",
           "engine",
-          "gated",
           "granular",
           "graph-os"
         ],
@@ -1866,7 +1875,6 @@
         "candidate_tags": [
           "broker",
           "engine",
-          "gated",
           "granular",
           "graph-os"
         ]
@@ -1879,7 +1887,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -2031,7 +2039,6 @@
         "tags": [
           "channels",
           "engine",
-          "gated",
           "granular",
           "graph-os"
         ],
@@ -2131,7 +2138,6 @@
         "candidate_tags": [
           "channels",
           "engine",
-          "gated",
           "granular",
           "graph-os"
         ]
@@ -2144,7 +2150,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -2235,7 +2241,6 @@
           "admin",
           "consensus",
           "engine",
-          "gated",
           "granular",
           "graph-os"
         ],
@@ -2336,7 +2341,6 @@
           "admin",
           "consensus",
           "engine",
-          "gated",
           "granular",
           "graph-os"
         ]
@@ -2349,7 +2353,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -2441,7 +2445,6 @@
         "tags": [
           "datascience",
           "engine",
-          "gated",
           "granular",
           "graph-os"
         ],
@@ -2531,7 +2534,6 @@
         "candidate_tags": [
           "datascience",
           "engine",
-          "gated",
           "granular",
           "graph-os"
         ]
@@ -2544,7 +2546,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -2711,7 +2713,6 @@
         "tags": [
           "edges",
           "engine",
-          "gated",
           "granular",
           "graph-os"
         ],
@@ -2810,7 +2811,6 @@
         "candidate_tags": [
           "edges",
           "engine",
-          "gated",
           "granular",
           "graph-os"
         ]
@@ -2823,7 +2823,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -3985,7 +3985,6 @@
         "tags": [
           "engine",
           "finance",
-          "gated",
           "granular",
           "graph-os"
         ],
@@ -4081,7 +4080,6 @@
         "candidate_tags": [
           "engine",
           "finance",
-          "gated",
           "granular",
           "graph-os"
         ]
@@ -4094,7 +4092,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -4532,7 +4530,6 @@
         "rest_route": "/engine/graph",
         "tags": [
           "engine",
-          "gated",
           "granular",
           "graph",
           "graph-os"
@@ -4637,7 +4634,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "engine",
-          "gated",
           "granular",
           "graph",
           "graph-os"
@@ -4651,7 +4647,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -4704,7 +4700,6 @@
         "rest_route": "/engine/graphlearn",
         "tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "graphlearn"
@@ -4799,7 +4794,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "graphlearn"
@@ -4813,7 +4807,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -4896,7 +4890,6 @@
         "rest_route": "/engine/ledger",
         "tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "ledger"
@@ -4996,7 +4989,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "ledger"
@@ -5010,7 +5002,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -5191,7 +5183,6 @@
         "rest_route": "/engine/lifecycle",
         "tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "lifecycle"
@@ -5296,7 +5287,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "lifecycle"
@@ -5310,7 +5300,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -5640,7 +5630,6 @@
         "rest_route": "/engine/mining",
         "tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "mining"
@@ -5739,7 +5728,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "mining"
@@ -5753,7 +5741,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -5861,7 +5849,6 @@
         "rest_route": "/engine/modalities",
         "tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "modalities"
@@ -5957,7 +5944,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "modalities"
@@ -5971,7 +5957,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -6306,7 +6292,6 @@
         "rest_route": "/engine/nodes",
         "tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "nodes"
@@ -6434,7 +6419,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "nodes"
@@ -6448,7 +6432,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -6498,7 +6482,6 @@
         "tags": [
           "admin",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "placement"
@@ -6595,7 +6578,6 @@
         "candidate_tags": [
           "admin",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "placement"
@@ -6609,7 +6591,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -7038,7 +7020,6 @@
         "rest_route": "/engine/query",
         "tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "query"
@@ -7146,7 +7127,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "query"
@@ -7160,7 +7140,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -7202,7 +7182,6 @@
         "tags": [
           "admin",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "rbac"
@@ -7293,7 +7272,6 @@
         "candidate_tags": [
           "admin",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "rbac"
@@ -7307,7 +7285,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -7524,7 +7502,6 @@
         "rest_route": "/engine/rdf",
         "tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "rdf"
@@ -7627,7 +7604,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "rdf"
@@ -7641,7 +7617,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -7662,7 +7638,6 @@
         "rest_route": "/engine/reasoning",
         "tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "reasoning"
@@ -7750,7 +7725,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "reasoning"
@@ -7764,7 +7738,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -7897,7 +7871,6 @@
         "tags": [
           "admin",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "resharding"
@@ -7997,7 +7970,6 @@
         "candidate_tags": [
           "admin",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "resharding"
@@ -8011,7 +7983,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -8244,7 +8216,6 @@
         "rest_route": "/engine/streaming",
         "tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "streaming"
@@ -8346,7 +8317,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "streaming"
@@ -8360,7 +8330,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -8416,7 +8386,6 @@
         "tags": [
           "admin",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "tenants"
@@ -8513,7 +8482,6 @@
         "candidate_tags": [
           "admin",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "tenants"
@@ -8527,7 +8495,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -8594,7 +8562,6 @@
         "rest_route": "/engine/timeseries",
         "tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "timeseries"
@@ -8684,7 +8651,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "timeseries"
@@ -8698,7 +8664,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -9003,7 +8969,6 @@
         "rest_route": "/engine/txn",
         "tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "txn"
@@ -9116,7 +9081,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "txn"
@@ -9130,7 +9094,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -9157,7 +9121,6 @@
         "rest_route": "/engine/viz",
         "tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "viz"
@@ -9246,7 +9209,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "viz"
@@ -9260,13 +9222,13 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
       "id": "find",
       "title": "find",
-      "one_line": "Discover the graph-os capability (or fleet-wide MCP tool) that matches a natural-language description of a task \u2014 the generalized 'what can do X?' search across ALL verbs (not just reads).",
+      "one_line": "Discover capabilities, operations, fleet tools and the fleet catalog.",
       "intent_verbs": [
         "find"
       ],
@@ -9294,36 +9256,66 @@
         ],
         "input_params": [
           {
-            "name": "intent",
+            "name": "action",
             "type": "string",
-            "required": true,
-            "default": null,
-            "description": "Natural-language description of the capability/task."
+            "required": false,
+            "default": "",
+            "description": "One of the listed actions; 'describe' explains each."
           },
           {
-            "name": "top_k",
-            "type": "integer",
+            "name": "params",
+            "type": "object",
             "required": false,
-            "default": 8,
-            "description": "Max ranked candidates to return."
+            "default": null,
+            "description": "Operation arguments. With action='describe', {'action': '<id>'} returns that operation's argument schema."
+          },
+          {
+            "name": "intent",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Natural-language request, routed when action is empty."
+          },
+          {
+            "name": "execute",
+            "type": "boolean",
+            "required": false,
+            "default": true,
+            "description": "Run now; when false, return the resolved plan."
           }
         ],
         "input_schema": {
           "additionalProperties": false,
           "properties": {
-            "intent": {
-              "description": "Natural-language description of the capability/task.",
+            "action": {
+              "default": "",
+              "description": "One of the listed actions; 'describe' explains each.",
+              "enum": [
+                "",
+                "capabilities",
+                "tools",
+                "catalog",
+                "status",
+                "describe"
+              ],
               "type": "string"
             },
-            "top_k": {
-              "default": 8,
-              "description": "Max ranked candidates to return.",
-              "type": "integer"
+            "params": {
+              "additionalProperties": true,
+              "description": "Operation arguments. With action='describe', {'action': '<id>'} returns that operation's argument schema.",
+              "type": "object"
+            },
+            "intent": {
+              "default": "",
+              "description": "Natural-language request, routed when action is empty.",
+              "type": "string"
+            },
+            "execute": {
+              "default": true,
+              "description": "Run now; when false, return the resolved plan.",
+              "type": "boolean"
             }
           },
-          "required": [
-            "intent"
-          ],
           "type": "object"
         },
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
@@ -9361,7 +9353,8 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "find: Discover the graph-os capability (or fleet-wide MCP tool) that matches a"
+        "find: Discover capabilities, operations, fleet tools and the fleet catalog.",
+        "find action=find"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -9380,7 +9373,7 @@
         "source_method_eg": "FindCycle",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -9423,7 +9416,6 @@
           "agent_execution",
           "agents",
           "computer-use",
-          "gated",
           "granular",
           "graph-os",
           "org",
@@ -9653,7 +9645,6 @@
           "agent_execution",
           "agents",
           "computer-use",
-          "gated",
           "granular",
           "graph-os",
           "org",
@@ -9669,7 +9660,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -9729,7 +9720,6 @@
         "tags": [
           "analysis",
           "analyze",
-          "gated",
           "granular",
           "graph-os"
         ],
@@ -9855,7 +9845,6 @@
         "candidate_tags": [
           "analysis",
           "analyze",
-          "gated",
           "granular",
           "graph-os"
         ]
@@ -9868,7 +9857,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -9910,7 +9899,6 @@
           "argumentation",
           "engine",
           "epistemic",
-          "gated",
           "granular",
           "graph-os"
         ],
@@ -10087,7 +10075,6 @@
           "argumentation",
           "engine",
           "epistemic",
-          "gated",
           "granular",
           "graph-os"
         ]
@@ -10100,7 +10087,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -10120,7 +10107,6 @@
       "typed_io": {
         "rest_route": "/graph/ask",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "nl",
@@ -10233,7 +10219,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "nl",
@@ -10248,7 +10233,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -10291,7 +10276,6 @@
         "rest_route": "/audit",
         "tags": [
           "audit",
-          "gated",
           "governance",
           "granular",
           "graph-os",
@@ -10412,7 +10396,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "audit",
-          "gated",
           "governance",
           "granular",
           "graph-os",
@@ -10427,7 +10410,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -10460,7 +10443,6 @@
           "<lambda>",
           "broker",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "messaging"
@@ -10616,7 +10598,6 @@
           "<lambda>",
           "broker",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "messaging"
@@ -10630,7 +10611,7 @@
         "source_method_eg": "BrokerAck",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -10652,7 +10633,6 @@
         "tags": [
           "a2a",
           "bus",
-          "gated",
           "granular",
           "graph-os",
           "messaging"
@@ -10945,7 +10925,6 @@
         "candidate_tags": [
           "a2a",
           "bus",
-          "gated",
           "granular",
           "graph-os",
           "messaging"
@@ -10959,7 +10938,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -10990,7 +10969,6 @@
           "entity-resolution",
           "epistemic",
           "extraction",
-          "gated",
           "granular",
           "graph-os"
         ],
@@ -11154,7 +11132,6 @@
           "entity-resolution",
           "epistemic",
           "extraction",
-          "gated",
           "granular",
           "graph-os"
         ]
@@ -11167,7 +11144,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -11204,7 +11181,6 @@
       "typed_io": {
         "rest_route": "/graph/catalog",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "introspection",
@@ -11339,7 +11315,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "introspection",
@@ -11354,7 +11329,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -11413,7 +11388,6 @@
           "claim",
           "claims",
           "epistemic",
-          "gated",
           "governance",
           "granular",
           "graph-os"
@@ -11589,7 +11563,6 @@
           "claim",
           "claims",
           "epistemic",
-          "gated",
           "governance",
           "granular",
           "graph-os"
@@ -11603,7 +11576,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -11686,7 +11659,6 @@
         "tags": [
           "analyze_suite",
           "code",
-          "gated",
           "granular",
           "graph-os"
         ],
@@ -11831,7 +11803,6 @@
         "candidate_tags": [
           "analyze_suite",
           "code",
-          "gated",
           "granular",
           "graph-os"
         ]
@@ -11844,7 +11815,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -11865,7 +11836,6 @@
         "rest_route": "/graph/code-nav",
         "tags": [
           "code",
-          "gated",
           "granular",
           "graph-os",
           "query"
@@ -12015,7 +11985,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "code",
-          "gated",
           "granular",
           "graph-os",
           "query"
@@ -12029,7 +11998,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -12057,7 +12026,6 @@
         "tags": [
           "audit",
           "compliance",
-          "gated",
           "governance",
           "granular",
           "graph-os",
@@ -12184,7 +12152,6 @@
         "candidate_tags": [
           "audit",
           "compliance",
-          "gated",
           "governance",
           "granular",
           "graph-os",
@@ -12199,7 +12166,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -12242,7 +12209,6 @@
         "tags": [
           "config",
           "configure",
-          "gated",
           "granular",
           "graph-os"
         ],
@@ -12363,7 +12329,6 @@
         "candidate_tags": [
           "config",
           "configure",
-          "gated",
           "granular",
           "graph-os"
         ]
@@ -12376,7 +12341,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -12624,7 +12589,6 @@
         "tags": [
           "analysis",
           "configure",
-          "gated",
           "granular",
           "graph-os"
         ],
@@ -12726,7 +12690,6 @@
         "candidate_tags": [
           "analysis",
           "configure",
-          "gated",
           "granular",
           "graph-os"
         ]
@@ -12739,7 +12702,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -12786,7 +12749,6 @@
         "rest_route": "/graph/context",
         "tags": [
           "context",
-          "gated",
           "granular",
           "graph-os",
           "orchestrate",
@@ -12919,7 +12881,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "context",
-          "gated",
           "granular",
           "graph-os",
           "orchestrate",
@@ -12934,7 +12895,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -12984,7 +12945,6 @@
           "arrow",
           "data-prep",
           "data_prep",
-          "gated",
           "governance",
           "granular",
           "graph-os"
@@ -13076,7 +13036,6 @@
           "arrow",
           "data-prep",
           "data_prep",
-          "gated",
           "governance",
           "granular",
           "graph-os"
@@ -13090,7 +13049,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -13137,7 +13096,6 @@
         "rest_route": "/graph/document-tree",
         "tags": [
           "document",
-          "gated",
           "granular",
           "graph-os",
           "query",
@@ -13363,7 +13321,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "document",
-          "gated",
           "granular",
           "graph-os",
           "query",
@@ -13379,7 +13336,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -13413,7 +13370,6 @@
           "domain_ops",
           "enterprise",
           "finance",
-          "gated",
           "granular",
           "graph-os",
           "ml"
@@ -13629,7 +13585,6 @@
           "domain_ops",
           "enterprise",
           "finance",
-          "gated",
           "granular",
           "graph-os",
           "ml"
@@ -13643,7 +13598,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -13696,7 +13651,6 @@
         "tags": [
           "durable",
           "durable-execution",
-          "gated",
           "granular",
           "graph-os",
           "orchestration"
@@ -13859,7 +13813,6 @@
         "candidate_tags": [
           "durable",
           "durable-execution",
-          "gated",
           "granular",
           "graph-os",
           "orchestration"
@@ -13873,7 +13826,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -13905,7 +13858,6 @@
         "rest_route": "/graph/engineering",
         "tags": [
           "community",
-          "gated",
           "global-search",
           "granular",
           "graph-os",
@@ -14107,7 +14059,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "community",
-          "gated",
           "global-search",
           "granular",
           "graph-os",
@@ -14125,7 +14076,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -14204,7 +14155,6 @@
           "belief",
           "engine",
           "epistemic",
-          "gated",
           "granular",
           "graph-os",
           "provenance"
@@ -14362,7 +14312,6 @@
           "belief",
           "engine",
           "epistemic",
-          "gated",
           "granular",
           "graph-os",
           "provenance"
@@ -14376,7 +14325,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -14402,7 +14351,6 @@
         "rest_route": "/graph/etl",
         "tags": [
           "etl",
-          "gated",
           "granular",
           "graph-os",
           "ingestion",
@@ -14564,7 +14512,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "etl",
-          "gated",
           "granular",
           "graph-os",
           "ingestion",
@@ -14579,7 +14526,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -14686,7 +14633,6 @@
         "tags": [
           "analyze_suite",
           "evaluate",
-          "gated",
           "granular",
           "graph-os"
         ],
@@ -14832,7 +14778,6 @@
         "candidate_tags": [
           "analyze_suite",
           "evaluate",
-          "gated",
           "granular",
           "graph-os"
         ]
@@ -14845,7 +14790,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -14912,7 +14857,6 @@
         "rest_route": "/graph/evolution",
         "tags": [
           "evolution",
-          "gated",
           "granular",
           "graph-os",
           "optimization",
@@ -15057,7 +15001,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "evolution",
-          "gated",
           "granular",
           "graph-os",
           "optimization",
@@ -15072,7 +15015,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -15119,7 +15062,6 @@
         "tags": [
           "analyze_suite",
           "explain",
-          "gated",
           "granular",
           "graph-os"
         ],
@@ -15257,7 +15199,6 @@
         "candidate_tags": [
           "analyze_suite",
           "explain",
-          "gated",
           "granular",
           "graph-os"
         ]
@@ -15270,7 +15211,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -15293,7 +15234,6 @@
           "<lambda>",
           "engine",
           "federated",
-          "gated",
           "granular",
           "graph-os",
           "search"
@@ -15408,7 +15348,6 @@
           "<lambda>",
           "engine",
           "federated",
-          "gated",
           "granular",
           "graph-os",
           "search"
@@ -15422,7 +15361,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -15444,7 +15383,6 @@
         "rest_route": "/graph/feedback",
         "tags": [
           "feedback",
-          "gated",
           "granular",
           "graph-os",
           "learning",
@@ -15582,7 +15520,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "feedback",
-          "gated",
           "granular",
           "graph-os",
           "learning",
@@ -15597,7 +15534,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -15634,7 +15571,6 @@
         "rest_route": "/graph/feeds",
         "tags": [
           "feeds",
-          "gated",
           "granular",
           "graph-os",
           "state"
@@ -15736,7 +15672,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "feeds",
-          "gated",
           "granular",
           "graph-os",
           "state"
@@ -15750,7 +15685,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -15785,7 +15720,6 @@
           "engine",
           "fanout",
           "fork",
-          "gated",
           "granular",
           "graph-os",
           "warm-fork"
@@ -15929,7 +15863,6 @@
           "engine",
           "fanout",
           "fork",
-          "gated",
           "granular",
           "graph-os",
           "warm-fork"
@@ -15943,7 +15876,7 @@
         "source_method_eg": "Fork",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -15965,7 +15898,6 @@
         "tags": [
           "<lambda>",
           "engine",
-          "gated",
           "geospatial",
           "gis",
           "granular",
@@ -16055,7 +15987,6 @@
         "candidate_tags": [
           "<lambda>",
           "engine",
-          "gated",
           "geospatial",
           "gis",
           "granular",
@@ -16070,7 +16001,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -16105,7 +16036,6 @@
       "typed_io": {
         "rest_route": "/graph/goals",
         "tags": [
-          "gated",
           "goals",
           "granular",
           "graph-os",
@@ -16209,7 +16139,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "goals",
           "granular",
           "graph-os",
@@ -16224,7 +16153,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -16276,7 +16205,6 @@
         "rest_route": "/graph/governance",
         "tags": [
           "approval",
-          "gated",
           "governance",
           "granular",
           "graph-os",
@@ -16499,7 +16427,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "approval",
-          "gated",
           "governance",
           "granular",
           "graph-os",
@@ -16514,7 +16441,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -16566,7 +16493,6 @@
         "rest_route": "/incident",
         "tags": [
           "aiops",
-          "gated",
           "granular",
           "graph-os",
           "incident",
@@ -16729,7 +16655,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "aiops",
-          "gated",
           "granular",
           "graph-os",
           "incident",
@@ -16744,7 +16669,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -16980,7 +16905,6 @@
       "typed_io": {
         "rest_route": "/graph/ingest",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ingest",
@@ -17180,7 +17104,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ingest",
@@ -17195,7 +17118,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -17241,7 +17164,6 @@
       "typed_io": {
         "rest_route": "/graph/jobs",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "job",
@@ -17404,7 +17326,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "job",
@@ -17420,7 +17341,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -17490,7 +17411,6 @@
           "<lambda>",
           "checkpoint",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "kvcache",
@@ -17853,7 +17773,6 @@
           "<lambda>",
           "checkpoint",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "kvcache",
@@ -17868,7 +17787,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -17910,7 +17829,6 @@
         "tags": [
           "<lambda>",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "kvcache"
@@ -18001,7 +17919,6 @@
         "candidate_tags": [
           "<lambda>",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "kvcache"
@@ -18015,7 +17932,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -18069,7 +17986,6 @@
         "tags": [
           "<lambda>",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "graphlearn",
@@ -18168,7 +18084,6 @@
         "candidate_tags": [
           "<lambda>",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "graphlearn",
@@ -18185,7 +18100,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -18207,7 +18122,6 @@
         "tags": [
           "<lambda>",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "logs",
@@ -18357,7 +18271,6 @@
         "candidate_tags": [
           "<lambda>",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "logs",
@@ -18372,7 +18285,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -18452,7 +18365,6 @@
       "typed_io": {
         "rest_route": "/graph/loops",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "loops",
@@ -18719,7 +18631,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "loops",
@@ -18734,7 +18645,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -18772,7 +18683,6 @@
         "tags": [
           "delegation",
           "evidence",
-          "gated",
           "granular",
           "graph-os",
           "media",
@@ -18888,7 +18798,6 @@
         "candidate_tags": [
           "delegation",
           "evidence",
-          "gated",
           "granular",
           "graph-os",
           "media",
@@ -18903,7 +18812,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -18936,7 +18845,6 @@
         "tags": [
           "<lambda>",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "memory",
@@ -19029,7 +18937,6 @@
         "candidate_tags": [
           "<lambda>",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "memory",
@@ -19045,7 +18952,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -19097,7 +19004,6 @@
       "typed_io": {
         "rest_route": "/graph/message",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "messaging",
@@ -19254,7 +19160,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "messaging",
@@ -19270,7 +19175,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -19308,7 +19213,6 @@
         "tags": [
           "analyze_suite",
           "eval",
-          "gated",
           "granular",
           "graph-os",
           "observe"
@@ -19399,7 +19303,6 @@
         "candidate_tags": [
           "analyze_suite",
           "eval",
-          "gated",
           "granular",
           "graph-os",
           "observe"
@@ -19413,7 +19316,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -19455,7 +19358,6 @@
       "typed_io": {
         "rest_route": "/graph/ontology",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "lifecycle",
@@ -19569,7 +19471,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "lifecycle",
@@ -19584,7 +19485,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -19606,7 +19507,6 @@
         "tags": [
           "agent",
           "analysis",
-          "gated",
           "granular",
           "graph-os",
           "orchestrate"
@@ -19895,7 +19795,6 @@
         "candidate_tags": [
           "agent",
           "analysis",
-          "gated",
           "granular",
           "graph-os",
           "orchestrate"
@@ -19909,7 +19808,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -19932,7 +19831,6 @@
         "tags": [
           "<lambda>",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "ml-pipeline",
@@ -20024,7 +19922,6 @@
         "candidate_tags": [
           "<lambda>",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "ml-pipeline",
@@ -20041,7 +19938,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -20061,7 +19958,6 @@
       "typed_io": {
         "rest_route": "/graph/projection",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "query",
@@ -20126,7 +20022,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "query",
@@ -20141,7 +20036,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -20168,7 +20063,6 @@
         "tags": [
           "<lambda>",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "metrics",
@@ -20321,7 +20215,6 @@
         "candidate_tags": [
           "<lambda>",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "metrics",
@@ -20336,7 +20229,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -20367,7 +20260,6 @@
       "typed_io": {
         "rest_route": "/graph/query",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "query"
@@ -20521,7 +20413,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "query"
@@ -20535,7 +20426,7 @@
         "source_method_eg": "CypherQuery",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -20586,7 +20477,6 @@
       "typed_io": {
         "rest_route": "/graph/reach",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "messaging",
@@ -20742,7 +20632,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "messaging",
@@ -20757,7 +20646,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -20850,7 +20739,6 @@
         "rest_route": "/graph/runvcs",
         "tags": [
           "fork",
-          "gated",
           "granular",
           "graph-os",
           "revert",
@@ -21132,7 +21020,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "fork",
-          "gated",
           "granular",
           "graph-os",
           "revert",
@@ -21149,7 +21036,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -21179,7 +21066,6 @@
       "typed_io": {
         "rest_route": "/graph/sandbox",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "sandbox",
@@ -21258,7 +21144,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "sandbox",
@@ -21274,7 +21159,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -21320,7 +21205,6 @@
       "typed_io": {
         "rest_route": "/graph/schedules",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "scheduler",
@@ -21424,7 +21308,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "scheduler",
@@ -21439,7 +21322,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -21469,7 +21352,6 @@
       "typed_io": {
         "rest_route": "/graph/search",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "query",
@@ -21624,7 +21506,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "query",
@@ -21639,7 +21520,7 @@
         "source_method_eg": "SemanticSearch",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -21664,7 +21545,6 @@
       "typed_io": {
         "rest_route": "/graph/search-synthesis",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "query",
@@ -21815,7 +21695,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "query",
@@ -21832,7 +21711,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -21867,7 +21746,6 @@
       "typed_io": {
         "rest_route": "/graph/secret",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "secret",
@@ -21989,7 +21867,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "secret",
@@ -22004,7 +21881,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -22065,7 +21942,6 @@
       "typed_io": {
         "rest_route": "/graph/sessions",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "sessions",
@@ -22199,7 +22075,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "sessions",
@@ -22214,7 +22089,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -22265,7 +22140,6 @@
       "typed_io": {
         "rest_route": "/graph/share",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology",
@@ -22379,7 +22253,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology",
@@ -22394,7 +22267,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -22440,7 +22313,6 @@
       "typed_io": {
         "rest_route": "/graph/table",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ingestion",
@@ -22603,7 +22475,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ingestion",
@@ -22619,7 +22490,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -22652,7 +22523,6 @@
         "tags": [
           "<lambda>",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "observability",
@@ -22804,7 +22674,6 @@
         "candidate_tags": [
           "<lambda>",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "observability",
@@ -22819,7 +22688,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -22858,7 +22727,6 @@
           "<lambda>",
           "chart",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "visualization",
@@ -23143,7 +23011,6 @@
           "<lambda>",
           "chart",
           "engine",
-          "gated",
           "granular",
           "graph-os",
           "visualization",
@@ -23158,7 +23025,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -23215,7 +23082,6 @@
       "typed_io": {
         "rest_route": "/graph/workflows",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "orchestration",
@@ -23434,7 +23300,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "orchestration",
@@ -23449,7 +23314,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -23578,7 +23443,6 @@
       "typed_io": {
         "rest_route": "/graph/write",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "mutation",
@@ -23866,7 +23730,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "mutation",
@@ -23882,7 +23745,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -23902,7 +23765,6 @@
       "typed_io": {
         "rest_route": "/graph/writeback",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology",
@@ -24098,7 +23960,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology",
@@ -24113,7 +23974,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -24143,7 +24004,6 @@
       "typed_io": {
         "rest_route": "/usage/ingest-sessions",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ingest",
@@ -24246,7 +24106,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ingest",
@@ -24262,13 +24121,13 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
       "id": "manage",
       "title": "manage",
-      "one_line": "Preview or perform a natural-language MANAGE/configure intent.",
+      "one_line": "Configure and govern graph-os and fleet loading; previews first, then execute with plan_ref. action='<tool>.<op>' (see action='describe'), or leave it empty to route `intent`.",
       "intent_verbs": [
         "manage"
       ],
@@ -24286,48 +24145,58 @@
         ],
         "input_params": [
           {
-            "name": "intent",
-            "type": "string",
-            "required": true,
-            "default": null,
-            "description": "Natural-language manage intent."
-          },
-          {
-            "name": "hints_json",
+            "name": "action",
             "type": "string",
             "required": false,
-            "default": "{}",
-            "description": "Optional JSON object of structured args forwarded to the resolved tool (e.g. {\"node_id\": \"...\"} for a write, or {\"tool\": \"graph_write\"} to pin the exact tool). For a non-read execution, resubmit the preview's plan_ref here."
+            "default": "",
+            "description": "Operation id ('<tool>.<op>' or '<tool>') or 'describe'; empty routes `intent`."
+          },
+          {
+            "name": "params",
+            "type": "object",
+            "required": false,
+            "default": null,
+            "description": "Operation arguments. With action='describe', {'action': '<id>'} returns that operation's argument schema."
+          },
+          {
+            "name": "intent",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Natural-language request, routed when action is empty."
           },
           {
             "name": "execute",
             "type": "boolean",
             "required": false,
             "default": false,
-            "description": "Execute a read-only plan immediately. Non-read verbs default to preview and require the returned plan_ref before execution."
+            "description": "Run now; when false, return the resolved plan."
           }
         ],
         "input_schema": {
           "additionalProperties": false,
           "properties": {
-            "intent": {
-              "description": "Natural-language manage intent.",
+            "action": {
+              "default": "",
+              "description": "Operation id ('<tool>.<op>' or '<tool>') or 'describe'; empty routes `intent`.",
               "type": "string"
             },
-            "hints_json": {
-              "default": "{}",
-              "description": "Optional JSON object of structured args forwarded to the resolved tool (e.g. {\"node_id\": \"...\"} for a write, or {\"tool\": \"graph_write\"} to pin the exact tool). For a non-read execution, resubmit the preview's plan_ref here.",
+            "params": {
+              "additionalProperties": true,
+              "description": "Operation arguments. With action='describe', {'action': '<id>'} returns that operation's argument schema.",
+              "type": "object"
+            },
+            "intent": {
+              "default": "",
+              "description": "Natural-language request, routed when action is empty.",
               "type": "string"
             },
             "execute": {
               "default": false,
-              "description": "Execute a read-only plan immediately. Non-read verbs default to preview and require the returned plan_ref before execution.",
+              "description": "Run now; when false, return the resolved plan.",
               "type": "boolean"
             }
           },
-          "required": [
-            "intent"
-          ],
           "type": "object"
         },
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
@@ -24359,7 +24228,8 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "manage: Preview or perform a natural-language MANAGE/configure intent."
+        "manage: Configure and govern graph-os and fleet loading; previews first, then execute",
+        "manage action=manage"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -24378,7 +24248,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -24409,7 +24279,6 @@
       "typed_io": {
         "rest_route": "/graph/nl-query",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "nl",
@@ -24528,7 +24397,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "nl",
@@ -24543,7 +24411,7 @@
         "source_method_eg": "NlQuery",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -24578,7 +24446,6 @@
       "typed_io": {
         "rest_route": "/object/edits",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -24751,7 +24618,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -24765,7 +24631,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -24796,7 +24662,6 @@
       "typed_io": {
         "rest_route": "/object/index",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -24873,7 +24738,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -24887,7 +24751,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -24917,7 +24781,6 @@
       "typed_io": {
         "rest_route": "/object/permissioning",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -25042,7 +24905,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -25056,7 +24918,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -25122,7 +24984,6 @@
       "typed_io": {
         "rest_route": "/object/set",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -25331,7 +25192,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -25345,7 +25205,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -25417,7 +25277,6 @@
         "rest_route": "/ontology/classification-claims",
         "tags": [
           "classification",
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -25687,7 +25546,6 @@
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
           "classification",
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -25701,7 +25559,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -25751,7 +25609,6 @@
       "typed_io": {
         "rest_route": "/ontology/derive",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -25870,7 +25727,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -25884,7 +25740,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -25910,7 +25766,6 @@
       "typed_io": {
         "rest_route": "/ontology/function",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -26022,7 +25877,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -26036,7 +25890,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -26092,7 +25946,6 @@
       "typed_io": {
         "rest_route": "/ontology/interface",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -26241,7 +26094,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -26255,7 +26107,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -26275,7 +26127,6 @@
       "typed_io": {
         "rest_route": "/ontology/leanix-sync",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -26337,7 +26188,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -26351,7 +26201,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -26371,7 +26221,6 @@
       "typed_io": {
         "rest_route": "/ontology/link-materialize",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -26482,7 +26331,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -26496,7 +26344,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -26532,7 +26380,6 @@
       "typed_io": {
         "rest_route": "/ontology/model-profiles",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -26609,7 +26456,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -26623,7 +26469,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -26659,7 +26505,6 @@
       "typed_io": {
         "rest_route": "/ontology/property-types",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -26748,7 +26593,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -26762,7 +26606,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -26797,7 +26641,6 @@
       "typed_io": {
         "rest_route": "/ontology/repository-provenance",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology",
@@ -26959,7 +26802,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology",
@@ -26974,7 +26816,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -27020,7 +26862,6 @@
       "typed_io": {
         "rest_route": "/ontology/sampling-profiles",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -27133,7 +26974,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -27147,7 +26987,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -27183,7 +27023,6 @@
       "typed_io": {
         "rest_route": "/ontology/value-types",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -27272,7 +27111,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -27286,7 +27124,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -27598,7 +27436,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -27619,7 +27457,6 @@
       "typed_io": {
         "rest_route": "/research/artifact",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology",
@@ -27816,7 +27653,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology",
@@ -27832,7 +27668,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -27852,7 +27688,6 @@
       "typed_io": {
         "rest_route": "/skill/classify",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ingest",
@@ -27930,7 +27765,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ingest",
@@ -27946,7 +27780,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -27974,7 +27808,6 @@
         "tags": [
           "connectors",
           "ecosystem",
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -28100,7 +27933,6 @@
         "candidate_tags": [
           "connectors",
           "ecosystem",
-          "gated",
           "granular",
           "graph-os",
           "ontology"
@@ -28114,7 +27946,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -28134,7 +27966,6 @@
       "typed_io": {
         "rest_route": "/source/drain",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ingestion",
@@ -28210,7 +28041,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ingestion",
@@ -28225,7 +28055,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -28245,7 +28075,6 @@
       "typed_io": {
         "rest_route": "/source/sync",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ingestion",
@@ -28356,7 +28185,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ingestion",
@@ -28371,7 +28199,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -28392,7 +28220,6 @@
       "typed_io": {
         "rest_route": "/spec/ticket",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology",
@@ -28565,7 +28392,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "ontology",
@@ -28581,7 +28407,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -28601,7 +28427,6 @@
       "typed_io": {
         "rest_route": "/query/tabular",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "query",
@@ -28666,7 +28491,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "query",
@@ -28681,7 +28505,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
@@ -28758,7 +28582,6 @@
       "typed_io": {
         "rest_route": "/usage/query",
         "tags": [
-          "gated",
           "granular",
           "graph-os",
           "observability",
@@ -28945,7 +28768,6 @@
         "live_evaluation": null,
         "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
         "candidate_tags": [
-          "gated",
           "granular",
           "graph-os",
           "observability",
@@ -28961,13 +28783,13 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
       "id": "why",
       "title": "why",
-      "one_line": "Ask WHY \u2014 explain a belief/decision/change.",
+      "one_line": "Explain beliefs, decisions, provenance and changes. action='<tool>.<op>' (see action='describe'), or leave it empty to route `intent`.",
       "intent_verbs": [
         "why"
       ],
@@ -28985,48 +28807,58 @@
         ],
         "input_params": [
           {
-            "name": "intent",
-            "type": "string",
-            "required": true,
-            "default": null,
-            "description": "Natural-language why intent."
-          },
-          {
-            "name": "hints_json",
+            "name": "action",
             "type": "string",
             "required": false,
-            "default": "{}",
-            "description": "Optional JSON object of structured args forwarded to the resolved tool (e.g. {\"node_id\": \"...\"} for a write, or {\"tool\": \"graph_write\"} to pin the exact tool). For a non-read execution, resubmit the preview's plan_ref here."
+            "default": "",
+            "description": "Operation id ('<tool>.<op>' or '<tool>') or 'describe'; empty routes `intent`."
+          },
+          {
+            "name": "params",
+            "type": "object",
+            "required": false,
+            "default": null,
+            "description": "Operation arguments. With action='describe', {'action': '<id>'} returns that operation's argument schema."
+          },
+          {
+            "name": "intent",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Natural-language request, routed when action is empty."
           },
           {
             "name": "execute",
             "type": "boolean",
             "required": false,
             "default": true,
-            "description": "Execute a read-only plan immediately. Non-read verbs default to preview and require the returned plan_ref before execution."
+            "description": "Run now; when false, return the resolved plan."
           }
         ],
         "input_schema": {
           "additionalProperties": false,
           "properties": {
-            "intent": {
-              "description": "Natural-language why intent.",
+            "action": {
+              "default": "",
+              "description": "Operation id ('<tool>.<op>' or '<tool>') or 'describe'; empty routes `intent`.",
               "type": "string"
             },
-            "hints_json": {
-              "default": "{}",
-              "description": "Optional JSON object of structured args forwarded to the resolved tool (e.g. {\"node_id\": \"...\"} for a write, or {\"tool\": \"graph_write\"} to pin the exact tool). For a non-read execution, resubmit the preview's plan_ref here.",
+            "params": {
+              "additionalProperties": true,
+              "description": "Operation arguments. With action='describe', {'action': '<id>'} returns that operation's argument schema.",
+              "type": "object"
+            },
+            "intent": {
+              "default": "",
+              "description": "Natural-language request, routed when action is empty.",
               "type": "string"
             },
             "execute": {
               "default": true,
-              "description": "Execute a read-only plan immediately. Non-read verbs default to preview and require the returned plan_ref before execution.",
+              "description": "Run now; when false, return the resolved plan.",
               "type": "boolean"
             }
           },
-          "required": [
-            "intent"
-          ],
           "type": "object"
         },
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
@@ -29058,7 +28890,8 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "why: Ask WHY \u2014 explain a belief/decision/change."
+        "why: Explain beliefs, decisions, provenance and changes. action='<tool>.<op>' (see",
+        "why action=why"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -29077,13 +28910,13 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     },
     {
       "id": "write",
       "title": "write",
-      "one_line": "Preview or perform a natural-language WRITE/ingest intent.",
+      "one_line": "Create or change graph data; previews first, then execute with plan_ref. action='<tool>.<op>' (see action='describe'), or leave it empty to route `intent`.",
       "intent_verbs": [
         "write"
       ],
@@ -29101,48 +28934,58 @@
         ],
         "input_params": [
           {
-            "name": "intent",
-            "type": "string",
-            "required": true,
-            "default": null,
-            "description": "Natural-language write intent."
-          },
-          {
-            "name": "hints_json",
+            "name": "action",
             "type": "string",
             "required": false,
-            "default": "{}",
-            "description": "Optional JSON object of structured args forwarded to the resolved tool (e.g. {\"node_id\": \"...\"} for a write, or {\"tool\": \"graph_write\"} to pin the exact tool). For a non-read execution, resubmit the preview's plan_ref here."
+            "default": "",
+            "description": "Operation id ('<tool>.<op>' or '<tool>') or 'describe'; empty routes `intent`."
+          },
+          {
+            "name": "params",
+            "type": "object",
+            "required": false,
+            "default": null,
+            "description": "Operation arguments. With action='describe', {'action': '<id>'} returns that operation's argument schema."
+          },
+          {
+            "name": "intent",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Natural-language request, routed when action is empty."
           },
           {
             "name": "execute",
             "type": "boolean",
             "required": false,
             "default": false,
-            "description": "Execute a read-only plan immediately. Non-read verbs default to preview and require the returned plan_ref before execution."
+            "description": "Run now; when false, return the resolved plan."
           }
         ],
         "input_schema": {
           "additionalProperties": false,
           "properties": {
-            "intent": {
-              "description": "Natural-language write intent.",
+            "action": {
+              "default": "",
+              "description": "Operation id ('<tool>.<op>' or '<tool>') or 'describe'; empty routes `intent`.",
               "type": "string"
             },
-            "hints_json": {
-              "default": "{}",
-              "description": "Optional JSON object of structured args forwarded to the resolved tool (e.g. {\"node_id\": \"...\"} for a write, or {\"tool\": \"graph_write\"} to pin the exact tool). For a non-read execution, resubmit the preview's plan_ref here.",
+            "params": {
+              "additionalProperties": true,
+              "description": "Operation arguments. With action='describe', {'action': '<id>'} returns that operation's argument schema.",
+              "type": "object"
+            },
+            "intent": {
+              "default": "",
+              "description": "Natural-language request, routed when action is empty.",
               "type": "string"
             },
             "execute": {
               "default": false,
-              "description": "Execute a read-only plan immediately. Non-read verbs default to preview and require the returned plan_ref before execution.",
+              "description": "Run now; when false, return the resolved plan.",
               "type": "boolean"
             }
           },
-          "required": [
-            "intent"
-          ],
           "type": "object"
         },
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
@@ -29174,7 +29017,8 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "write: Preview or perform a natural-language WRITE/ingest intent."
+        "write: Create or change graph data; previews first, then execute with plan_ref.",
+        "write action=write"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -29193,7 +29037,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-10-08T06:04:26Z"
+        "generated_at": "2026-10-08T13:58:19Z"
       }
     }
   ]

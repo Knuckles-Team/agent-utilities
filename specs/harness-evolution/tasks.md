@@ -15,6 +15,7 @@
 - [ ] HE-13: Run the `claude-code` harness once against served graph-os and record the receipt in `evidence.md`.
 - [ ] HE-14: Propose a `harness` field on the EG `AgentGraphNode` contract so published L3 graphs carry the selection.
 - [ ] HE-15: Update the `agent_utilities/layers/` row in the boundary coverage inventory for the new harness modules.
+- [ ] HE-16: Schedule run-outcome prompt evolution through the existing optimization sweep and record propose-only `PromptVersion` candidates with trace provenance. Closes AU-HARNESS-R011.
 - [ ] Run all fixtures and quality checks in `test-spec.md`; record exact merged-head evidence in `evidence.md`.
 
 Checkboxes close only after acceptance evidence. A design, branch, source file or local green test alone is not a completed deliverable.

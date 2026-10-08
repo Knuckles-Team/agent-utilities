@@ -38,7 +38,18 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt.algorithms import RSAAlgorithm
 
+from agent_utilities.mcp.intent_contract import DEFAULT_SURFACE_TOOL_LIMIT
+from agent_utilities.mcp.tool_specs import INTENT_VERBS
+
 pytestmark = pytest.mark.timeout(120)
+
+
+def _assert_intent_contract_listed(tool_names: set[str]) -> None:
+    """graph-os lists the one intent contract: the six verbs, nothing granular."""
+    served = tool_names - {"_e2e_identity_probe"}
+    assert set(INTENT_VERBS) <= served, sorted(served)
+    assert len(served) <= DEFAULT_SURFACE_TOOL_LIMIT, sorted(served)
+    assert "graph_query" not in served, sorted(served)
 
 
 def _free_port() -> int:
@@ -310,11 +321,7 @@ def test_streamable_http_serves_real_mcp_and_rejects_unauthenticated(
         assert r_list.status_code == 200, r_list.text[:500]
         list_payload = _parse_mcp_response(r_list)
         tool_names = {t["name"] for t in list_payload["result"]["tools"]}
-        assert len(tool_names) >= 50, (
-            f"expected the real graph-os tool catalog (dozens of tools), got "
-            f"{len(tool_names)}: {sorted(tool_names)[:20]}"
-        )
-        assert "graph_query" in tool_names or "kg_query" in tool_names
+        _assert_intent_contract_listed(tool_names)
 
         # ---- 3. A REAL, authenticated tool call reaches real dispatch -----
         # Pick a REAL, production-registered tool (not the diagnostic probe)
@@ -492,11 +499,7 @@ def test_streamable_http_serves_2026_07_28_protocol_natively(monkeypatch, jwks_s
         list_payload = _parse_mcp_response(r_list)
         assert "error" not in list_payload, list_payload
         tool_names = {t["name"] for t in list_payload["result"]["tools"]}
-        assert len(tool_names) >= 50, (
-            f"expected the real graph-os tool catalog, got {len(tool_names)}: "
-            f"{sorted(tool_names)[:20]}"
-        )
-        assert "graph_query" in tool_names or "kg_query" in tool_names
+        _assert_intent_contract_listed(tool_names)
 
         # ---- 3. tasks/get for an unknown task routes into the native,
         # in-process WorkItemTasksExtension (agent_utilities/mcp/

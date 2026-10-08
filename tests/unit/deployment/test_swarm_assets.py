@@ -41,8 +41,9 @@ def test_swarm_gate_rejects_plaintext_endpoint(tmp_path):
         encoding="utf-8"
     )
     broken = source.replace(
-        "MCP_TOOL_MODE: intent",
-        "MCP_TOOL_MODE: intent\n      GRAPH_SERVICE_ENDPOINTS: tcp://engine.invalid:9100",
+        "MCP_CLIENT_AUTH: oidc-client-credentials",
+        "MCP_CLIENT_AUTH: oidc-client-credentials\n"
+        "      GRAPH_SERVICE_ENDPOINTS: tcp://engine.invalid:9100",
     )
     path = tmp_path / "broken.yml"
     path.write_text(broken, encoding="utf-8")

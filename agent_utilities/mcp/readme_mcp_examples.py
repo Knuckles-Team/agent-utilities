@@ -4,7 +4,7 @@
 The README env-var table (:mod:`readme_env_vars`) and MCP-tools table
 (:mod:`readme_tools`) are regenerated on every commit, but the ``mcp_config.json``
 **example blocks** embedded in the README used to be written once at scaffold time and
-never refreshed — so they rotted (stale placeholder vars, missing ``MCP_TOOL_MODE``).
+never refreshed — so they rotted (stale placeholder vars).
 This module closes that gap: it regenerates the stdio, streamable-http, remote-URL,
 and least-privilege stdio-container examples **and** rewrites every
 ``mcp_config*.json`` ``env`` block from the one authoritative set
@@ -150,7 +150,7 @@ def render_examples(root: Path) -> str:
         "CIDR policy through the operator-owned deployment profile. The generator",
         "does not emit an unauthenticated non-loopback listener.",
         "",
-        "_Auto-generated from the code-read env surface (`MCP_TOOL_MODE` + package vars)"
+        "_Auto-generated from the code-read env surface (package vars)"
         " — do not edit._",
         END,
     ]
