@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Removed
+- **Nine `graph-os`-owned pre-bundled skills (13 → 4, CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage).**
+  Deleted `agent_utilities/skills/{agent-utilities-source-integration,autonomous-contribution,
+  graph-engine-and-modalities,graph-ingestion-and-integration,graph-modeling-and-mutation,
+  graph-orchestration-and-automation,graph-query-and-explanation,graph-research-and-analysis,
+  graph-runtime-and-governance}/`. graph-os took over these skills at its own
+  `graph_os/skills/<name>/` (graph-os commit `704ce45`); carrying a duplicate copy here only
+  caused graph-os's fleet sweep to log "Skipping duplicate skill during sweep: duplicate
+  current skill identity ... provided by both 'agent-utilities' and 'graph-os'" and skip ours.
+  `BUNDLED_SKILLS` now lists only the four retained platform skills (`agent-utilities-deployment`,
+  `agent-utilities-development`, `agent-utilities-evolution`, `agent-utilities-self-evolution`);
+  the forward-test matrix, release catalogs/schemas, the expert prompt, and every doc cross-
+  reference were updated to match. `agent_utilities.skills.validation`'s domain-wrap check now
+  sources known Graph-OS verbs from the fleet-wide unified-resolver discovery
+  (`skill_coverage.discover_skills()`) instead of this package's own (now domain-skill-free)
+  `agent_utilities/skills/`, so a delegated platform case may still legitimately name a verb
+  owned by one of graph-os's domain skills.
 - **Obsolete compatibility and executable-plugin facades.** The current-only public
   paths are now `agent_utilities` for package exports,
   `agent_utilities.core.decorators` for `require_auth`, and

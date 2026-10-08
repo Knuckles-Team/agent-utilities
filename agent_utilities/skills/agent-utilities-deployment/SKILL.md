@@ -7,7 +7,7 @@ description: >-
   production profile. Use when deployment profile, topology, infrastructure,
   identity, secrets, observability, connectors, or installation state may change.
   For incidents in an already-running Graph-OS runtime that need no deployment
-  change, use graph-runtime-and-governance.
+  change, use graph-os's own graph-runtime-and-governance skill.
 ---
 
 # Agent Utilities deployment
@@ -16,7 +16,7 @@ Resolve the deployment profile from requirements, produce a reviewable plan,
 apply only authorized steps, and verify the user-visible Graph-OS path.
 
 Keep post-deployment health, trace, audit, and policy diagnosis that does not
-change the manifest or topology in `graph-runtime-and-governance`.
+change the manifest or topology in graph-os's own `graph-runtime-and-governance`.
 
 ## Genesis handoff
 
@@ -104,7 +104,7 @@ Classify the change before applying it:
 - A persisted-format migration transforms durable state once at the deployment
   boundary. Use the engine's supported migration hook, checkpoint progress, and do
   not add a permanent read-old/write-new path.
-- An ontology or object-schema migration belongs to
+- An ontology or object-schema migration belongs to graph-os's own
   `graph-modeling-and-mutation`; coordinate its deployment ordering here.
 - An orchestrator migration delegates target substrate and traffic-foundation work
   to `agent-os-genesis` in `migrate-substrate` mode. Consume the returned

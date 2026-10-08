@@ -17,40 +17,31 @@ path of its own, matching ``graph_loops`` ``run``'s existing
 
 from __future__ import annotations
 
-from typing import Any
+from types import SimpleNamespace
+
+import pytest
 
 from agent_utilities.mcp.tools.state_tools import propose_lakehouse_maintenance_gap
+from tests.unit.fleet_autonomy_fakes import verified_fleet_session
+from tests.unit.work_market_fakes import FakeWorkMarket, attach_market
 
 
-class _GapStubEngine:
-    """Minimal engine double covering exactly what research/gaps.py needs
-    (mirrors ``tests/unit/mcp/test_state_tools_gap_lifecycle.py``'s
-    ``_GapStubEngine`` — kept local/self-contained rather than shared so this
-    file has no cross-test-module coupling)."""
+@pytest.fixture(autouse=True)
+def _verified_session():
+    """Every Gap call binds the ambient verified tenant (EG's rule)."""
+    with verified_fleet_session():
+        yield
 
-    def __init__(self) -> None:
-        self.nodes: dict[str, dict[str, Any]] = {}
-        self.edges: list[tuple[str, str, str]] = []
-        self.backend = object()
 
-    def add_node(
-        self, node_id: str, node_type: str, properties: dict[str, Any] | None = None
-    ) -> None:
-        self.nodes[node_id] = {"id": node_id, "type": node_type, **(properties or {})}
-
-    def add_edge(
-        self, source: str, target: str, rel_type: str = "", **properties: Any
-    ) -> None:
-        self.edges.append((source, target, rel_type))
-
-    def query_cypher(
-        self, q: str, params: dict[str, Any] | None = None
-    ) -> list[dict[str, Any]]:
-        return []
+def _engine() -> tuple[SimpleNamespace, FakeWorkMarket]:
+    """An engine whose only surface is EG's typed Gap/work-market namespaces --
+    the hook cannot write anything else."""
+    engine = SimpleNamespace()
+    return engine, attach_market(engine)
 
 
 def test_propose_lakehouse_maintenance_gap_files_a_canonical_gap() -> None:
-    eng = _GapStubEngine()
+    eng, market = _engine()
 
     gap = propose_lakehouse_maintenance_gap(
         eng,
@@ -63,70 +54,61 @@ def test_propose_lakehouse_maintenance_gap_files_a_canonical_gap() -> None:
     assert gap is not None
     assert gap["source"] == "lakehouse-maintenance:opensearch_reindex_staleness_check"
     assert gap["status"] == "open"
-    node = eng.nodes[gap["id"]]
-    assert node["type"] == "Gap"
-    assert node["source"] == "lakehouse-maintenance:opensearch_reindex_staleness_check"
+    ((_, stored_id),) = market.gap_rows
+    assert stored_id == gap["id"]
 
 
 def test_propose_lakehouse_maintenance_gap_is_propose_only_no_apply_path() -> None:
-    """The hook's only durable effects are the two nodes ``submit_gap`` itself
-    always writes for ANY discovery track: the :Gap and its :WorkItem
-    lease (``research/gaps.py``'s D1 "give the gap a WorkItem/lease" —
-    the SAME lease every other gap gets, not a second execution path). No
-    edge beyond an OPTIONAL concept-provenance link is written, and nothing
-    that would apply/execute a lakehouse change lives on this path -- a real
-    assertion failure here is NOT swallowed because it is checked on the
-    stub's recorded state after the call returns, not from inside it."""
-    eng = _GapStubEngine()
+    """The hook's only durable effect is the ONE ``GapUpsert`` every discovery
+    track files: EG's canonical Gap plus the WorkItem EG pairs with it in the
+    same transaction (the canonical gap-lifecycle's plumbing, not a second
+    execution path). Nothing that would apply/execute a lakehouse change lives
+    on this path -- the engine double exposes no other surface to reach."""
+    eng, market = _engine()
     gap = propose_lakehouse_maintenance_gap(
         eng,
         source="lakehouse-maintenance:debezium_lag_check",
         statement="Debezium consumer for source=erp lagging 900s over SLO.",
     )
     assert gap is not None
-    # Exactly the gap node + its WorkItem lease (submit_gap's own D1 lease
-    # call) -- both are the canonical gap-lifecycle's plumbing, not a second
-    # execution path -- and zero edges (no concept_ids given, so no
-    # DERIVED_FROM link).
-    node_types = {n["type"] for n in eng.nodes.values()}
-    assert node_types == {"Gap", "WorkItem"}
-    assert gap["id"] in eng.nodes
-    assert eng.edges == []
+    assert len(market.gap_rows) == 1
+    assert list(market.items) == [gap["work_item_id"]]
+    assert market.items[gap["work_item_id"]]["status"] == "ready"
 
 
 def test_propose_lakehouse_maintenance_gap_idempotent_on_repeated_identical_finding() -> (
     None
 ):
     """The same finding re-detected on the next tick must not file a second
-    :Gap (nor a second WorkItem lease) -- ``signature`` defaults to a stable
-    hash of source+statement, and ``submit_gap``'s own
-    ``gap:<source>:<signature>`` id (plus its lease's matching id) makes the
-    repeat an upsert onto the SAME two node ids, never a growing set."""
-    eng = _GapStubEngine()
+    :Gap (nor a second WorkItem) -- ``signature`` defaults to a stable hash of
+    source+statement, and the repeat carries no evidence the Gap has not seen,
+    so EG answers ``unchanged``."""
+    eng, market = _engine()
     statement = "OpenSearch index eg.homelab.Concept is 5 CDC generations behind."
 
     first = propose_lakehouse_maintenance_gap(
-        eng, source="lakehouse-maintenance:opensearch_reindex_staleness_check",
+        eng,
+        source="lakehouse-maintenance:opensearch_reindex_staleness_check",
         statement=statement,
     )
-    node_ids_after_first = set(eng.nodes)
     second = propose_lakehouse_maintenance_gap(
-        eng, source="lakehouse-maintenance:opensearch_reindex_staleness_check",
+        eng,
+        source="lakehouse-maintenance:opensearch_reindex_staleness_check",
         statement=statement,
     )
 
     assert first is not None and second is not None
     assert first["id"] == second["id"]
-    # The repeat upserts onto the SAME node ids -- no growth from the first call.
-    assert set(eng.nodes) == node_ids_after_first
+    assert second["revision"] == first["revision"]
+    assert len(market.gap_rows) == 1 and len(market.items) == 1
 
 
 def test_propose_lakehouse_maintenance_gap_blank_statement_is_a_noop() -> None:
-    eng = _GapStubEngine()
+    eng, market = _engine()
     assert (
         propose_lakehouse_maintenance_gap(
             eng, source="lakehouse-maintenance:lineage_sweep", statement="   "
         )
         is None
     )
-    assert eng.nodes == {}
+    assert market.gap_rows == {}

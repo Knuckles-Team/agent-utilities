@@ -471,8 +471,9 @@ caller-supplied `links_json` as real graph edges between **already-existing** no
 ids via the shared enrichment writer (no new nodes). Every other action can run
 offline against explicit `links_json` (test/CI-friendly) or, given an active engine
 and a `node_id`, load the causal neighborhood live from the KG. Documented in the
-`graph-research-and-analysis` skill (`agent_utilities/skills/graph-research-and-analysis/SKILL.md`,
-Action reference table).
+`graph-research-and-analysis` skill (Action reference table), now served from graph-os's
+own skill pack (`graph_os/skills/graph-research-and-analysis/SKILL.md`; taken over in
+graph-os commit 704ce45).
 
 **Limitation.** Two new ontology relationship types were added to support this
 (`CHANGE_REQUEST`/`USED_MODEL`, per the program ledger) — the causal chain is only as

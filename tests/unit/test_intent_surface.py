@@ -1159,25 +1159,15 @@ def test_engine_placement_resolves_under_manage_without_failing_closed():
     assert "engine_placement" in {c.tool for c in candidates}
 
 
-def test_query_workflow_skill_documents_the_registered_query_argument():
-    """The consolidated query workflow remains the operator-facing guide for
-    ``graph_query`` and explicitly claims the verb in its sidecar."""
-    from pathlib import Path
-
-    skill_path = (
-        Path(__file__).resolve().parents[2]
-        / "agent_utilities"
-        / "skills"
-        / "graph-query-and-explanation"
-    )
-    text = (skill_path / "SKILL.md").read_text(encoding="utf-8")
-    sidecar = (skill_path / "agents" / "graph-os.yaml").read_text(encoding="utf-8")
+def test_registered_query_tool_uses_the_query_argument_not_cypher():
+    """``graph_query`` keeps its renamed ``query`` argument (not the legacy
+    ``cypher`` name). The consolidated query workflow that used to be checked
+    here for matching documentation (``graph-query-and-explanation``) has
+    moved to graph-os's own skill pack and is deleted from agent-utilities, so
+    this test now pins only the AU-owned registered-tool signature."""
     parameters = inspect.signature(kg_server.REGISTERED_TOOLS["graph_query"]).parameters
     assert "query" in parameters
     assert "cypher" not in parameters
-    assert 'graph_query(query="' in text
-    assert "graph_query(cypher=" not in text
-    assert "graph_query" in sidecar
 
 
 # --------------------------------------------------------------------------- #

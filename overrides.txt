@@ -12,7 +12,7 @@
 # that is relevant to a serving-plane install.
 #
 # CONCEPT:AU-ECO.mcp.protocol-compat-bridge — fastmcp 4 is the ecosystem-wide default.
-# agent-utilities' `[mcp]` extra floors on `fastmcp>=4.0.0b1`; Pydantic-AI 2.29.0
+# agent-utilities' `[mcp]` extra floors on `fastmcp>=4.0.11`; Pydantic-AI 2.54.0
 # now declares `fastmcp-slim[client]<5,>=3.3.0` and handles FastMCP 4 natively.
 # This mirror remains an explicit workspace/image policy for consumers that do not
 # carry AU's direct floor. `protocol_compat.py` verifies the exact Pydantic-AI
@@ -25,4 +25,4 @@
 # `fastmcp-slim[client,server]==4.0.0b1` metadata pin. A `[client]`-only override
 # silently strips the `server` extra's transitive deps (`uncalled-for`, `cyclopts`,
 # `griffelib`, …) and breaks every `from fastmcp import FastMCP/Context`.
-fastmcp-slim[client,server]>=4.0.0b1
+fastmcp-slim[client,server]>=4.0.11

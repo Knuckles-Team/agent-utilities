@@ -5,10 +5,10 @@
 
 > 🧰 **Install the skills first — they unlock how to use everything else.** After
 > `pip install "agent-utilities[serving]"`, run **`agent-utilities install`**. It installs
-> the thirteen-skill workflow toolkit for graph domains plus development, deployment, and
-> evolution into a validated provider-owned XDG generation and the detected calling
-> agent tools (Claude Code, etc.). `agent-utilities-doctor` flags it if the toolkit is
-> missing.
+> the four-skill development, deployment, evolution, and self-evolution workflow toolkit
+> into a validated provider-owned XDG generation and the detected calling agent tools
+> (Claude Code, etc.) — graph-os supplies its own matching graph-domain skill pack.
+> `agent-utilities-doctor` flags it if the toolkit is missing.
 
 ## What it is, in one paragraph
 

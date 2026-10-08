@@ -3,7 +3,8 @@
 > **Status:** kickoff slice (Phases 2-3) shipped on `feat/au-intent-surface`; the CPD (Phase 1,
 > `feat/au-cpd`) and this doc's §7 remaining work (Phases 4-5 — CPD-backed ranking, the
 > calibrated-outcomes learning loop, resolution caching, the intent-surface skill content
-> (now folded into `graph-runtime-and-governance`, see the note below), and the A/B
+> (now folded into `graph-runtime-and-governance`, since moved to graph-os's own skill pack;
+> see the note below), and the A/B
 > selection-accuracy harness) shipped on `feat/au-seam8-complete` (NOT merged/pushed — awaiting
 > review). Parent plan: `plans/program-design-2026-07-11-epistemic-tool-routing.md`. Concepts:
 > `CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse` (the surface collapse) /
@@ -15,11 +16,14 @@
 
 > **Naming note (post-collapse, `feature/authority-convergence`).** This doc's §5 table and
 > the `kg-*` skill names it references throughout are historical: the ~73 granular `kg-*`
-> skills it describes (one per wrapped verb/tool) were folded into the 13 broad domain skills
+> skills it describes (one per wrapped verb/tool) were folded into 13 broad domain skills
 > (`agent_utilities/skills/graph-*`/`agent-utilities-*`) so the skill layer matches this same
-> doc's own condensed-surface philosophy one level up. Every verb named below is still
-> reachable exactly as documented; find its current skill home via
-> `graph-runtime-and-governance`'s "Coverage governance" section or the mapping in §5.
+> doc's own condensed-surface philosophy one level up. Those 7 `graph-*` domain skills have
+> since moved to graph-os's own skill pack (`graph_os/skills/graph-*`, taken over in graph-os
+> commit 704ce45) and are deleted from agent-utilities, which retains only the 4
+> `agent-utilities-*` skills. Every verb named below is still reachable exactly as documented;
+> find its current skill home via graph-os's `graph-runtime-and-governance` skill's "Coverage
+> governance" section or the mapping in §5.
 
 > **Retirement note (current).** The retired tool-mode profile switch described in §2-§3 below
 > (`condensed`/`verbose`/`both`/`intent`) has since been retired. There is now exactly **one**
@@ -158,7 +162,8 @@ follow-up (§7). All four landed together on `feat/au-seam8-complete`:
   and blend in a learned reward EMA via `OutcomeRouter` (§3).
 - **Dedicated skill** — originally `agent_utilities/skills/kg-intent/SKILL.md` (`tier: meta`),
   now folded into `graph-runtime-and-governance`'s "Manage tool visibility responsibly"
-  workflow step, which documents the resolver/dispatcher mechanism directly; `ask`/`find`/
+  workflow step (that skill has since moved to graph-os's own skill pack and is deleted from
+  agent-utilities), which documents the resolver/dispatcher mechanism directly; `ask`/`find`/
   `write`/`act`/`manage`/`why` remain in `skill_coverage.INTENTIONALLY_UNSKILLED` (correctly —
   a meta concern never claims verb coverage), with the comment there pointing at that section.
 - **A/B selection-accuracy measurement** — `scripts/measure_intent_routing_accuracy.py` +
@@ -182,9 +187,11 @@ heading (frontmatter, `## Invoke`, and every other section untouched).
 
 > **Post-collapse note:** the "Skill" column below names the **former** `kg-*` slug each row
 > documented at the time this note shipped. On `feature/authority-convergence` all 53 were
-> folded into the 13 broad domain skills (`agent_utilities/skills/graph-*`/`agent-utilities-*`)
+> folded into 13 broad domain skills (`agent_utilities/skills/graph-*`/`agent-utilities-*`)
 > — the tool/verb mapping is still exactly accurate, but `agent_utilities/skills/kg-<name>/`
-> no longer exists on disk. Cross-reference `graph-runtime-and-governance`'s "Coverage
+> no longer exists on disk. The 7 `graph-*` domain skills have since moved to graph-os's own
+> skill pack and are deleted from agent-utilities, which retains only the 4 `agent-utilities-*`
+> skills. Cross-reference graph-os's `graph-runtime-and-governance` skill's "Coverage
 > governance" section (or `python -m agent_utilities.mcp.skill_coverage`) for which broad
 > skill documents a given tool today.
 
@@ -265,8 +272,9 @@ a preview is stored.
 **Not touched (correctly exempt — `tier: meta`/`surface`, not verb wrappers):** the former
 `kg-capability-builder` (folded into `agent-utilities-development`), `kg-coverage-doctor` and
 `kg-mux-extend`/`kg-mux-use` (folded into `graph-runtime-and-governance`), `kg-delegate`
-(folded into `graph-orchestration-and-automation`) — plus, from the separate `agent-webui`
-package (not part of this collapse), `kg-webui-admin`, `kg-webui-dashboards`,
+(folded into `graph-orchestration-and-automation`) — the latter two skills have since moved
+to graph-os's own skill pack and are deleted from agent-utilities — plus, from the separate
+`agent-webui` package (not part of this collapse), `kg-webui-admin`, `kg-webui-dashboards`,
 `kg-webui-extraction`, `kg-webui-graphviz`, `kg-webui-ontology-operator`, `kg-webui-swe`.
 
 **Higher-level docs also updated** (mention tool names/the retired tool-mode switch in prose, not a
@@ -284,7 +292,8 @@ per-capability wrapper):
 `agent-utilities-source-integration`, `autonomous-contribution` skills reference graph-os tool
 names only as illustrative examples of existing behavior (e.g. `graph_write` + `graph_query` in
 a smoke test) that remains equally true under any retired tool mode — nothing in them assumes a
-specific tool-visibility default, so no edit was needed to keep them accurate.
+specific tool-visibility default, so no edit was needed to keep them accurate. (The latter two
+have since moved to graph-os's own skill pack and are deleted from agent-utilities.)
 
 ## 6. Tests
 
@@ -292,8 +301,8 @@ specific tool-visibility default, so no edit was needed to keep them accurate.
   `REGISTERED_TOOLS` entry, no live engine): the required end-to-end proof (`ask` resolves +
   dispatches via `_execute_tool` + returns the justification), the NL-planner fallback, the
   explicit-tool-hint pin, a dispatch failure reported as structured `error` (not a crash), and
-  that `graph_query` — the tool `graph-query-and-explanation` documents — still resolves under
-  `ask` (no functionality lost).
+  that `graph_query` — the tool `graph-query-and-explanation` documents (now graph-os's own
+  skill) — still resolves under `ask` (no functionality lost).
 - `tests/unit/test_intent_surface_build_server.py` — builds the REAL graph-os server
   (`bootstrap=False`, no live engine) under the retired `intent` tool mode: verbs + REST twins register,
   the granular surface (`graph_query`, `graph_write`, `nl_query`, …) stays fully registered, and
@@ -369,8 +378,8 @@ All five items below shipped together; each is cross-referenced to where it land
    which is exactly what a bandit needs (fast, updated per-call) and is exposed per-dispatch as
    `routing.calibrated_outcome_reward`.
 5. **A dedicated `tier: meta` skill for the intent surface** — DONE: originally
-   `agent_utilities/skills/kg-intent/SKILL.md`, now `graph-runtime-and-governance`'s "Manage
-   tool visibility responsibly" step — the six verbs, the CPD/learning/caching
+   `agent_utilities/skills/kg-intent/SKILL.md`, now graph-os's own `graph-runtime-and-governance`
+   skill's "Manage tool visibility responsibly" step — the six verbs, the CPD/learning/caching
    mechanism, the load→use→unload lifecycle, and when to use `condensed` vs. `intent` mode.
 
 **A/B selection-accuracy measurement** (design doc §4 phase 4) also shipped in this slice:

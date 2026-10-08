@@ -8,12 +8,16 @@ from scripts.boundary_inventory import COVERAGE_PATH
 from scripts.check_boundary_coverage import check
 from tests.gates._boundary_fixtures import HEADER, row, write_coverage
 
-# The 17 directories the real repository currently leaves undecided (see
+# The 8 directories the real repository currently leaves undecided (see
 # coverage.md's own "Directories with no covering requirement" section). The
 # owning boundary requirement forbids inventing a disposition for any of
 # them, so this gate stays red against the real tree until an owner resolves
 # each one; this test is evidence the gate reads today's real table
-# correctly, not a claim the gate is clean.
+# correctly, not a claim the gate is clean. The nine graph-os-owned skill
+# directories (agent-utilities-source-integration, autonomous-contribution,
+# and the seven graph-* skills) were deleted from AU -- moved to graph-os's
+# own `graph_os/skills/<name>/` (taken over in graph-os commit 704ce45) --
+# and their coverage.md rows dropped with them, so they no longer appear here.
 _KNOWN_UNDECIDED = (
     "agent_utilities/data",
     "agent_utilities/images",
@@ -22,21 +26,12 @@ _KNOWN_UNDECIDED = (
     "agent_utilities/skills/agent-utilities-development",
     "agent_utilities/skills/agent-utilities-evolution",
     "agent_utilities/skills/agent-utilities-self-evolution",
-    "agent_utilities/skills/agent-utilities-source-integration",
-    "agent_utilities/skills/autonomous-contribution",
-    "agent_utilities/skills/graph-engine-and-modalities",
-    "agent_utilities/skills/graph-ingestion-and-integration",
-    "agent_utilities/skills/graph-modeling-and-mutation",
-    "agent_utilities/skills/graph-orchestration-and-automation",
-    "agent_utilities/skills/graph-query-and-explanation",
-    "agent_utilities/skills/graph-research-and-analysis",
-    "agent_utilities/skills/graph-runtime-and-governance",
     "agent_utilities/skills/workflows",
 )
 
 
 def test_real_tree_reports_exactly_the_known_undecided_rows() -> None:
-    """Document today's evidence: 17 undecided rows, nothing else wrong.
+    """Document today's evidence: 8 undecided rows, nothing else wrong.
 
     The owning boundary requirement cannot be delivered while these rows stay
     undecided, and this gate may not invent a disposition for them
@@ -51,7 +46,7 @@ def test_real_tree_reports_exactly_the_known_undecided_rows() -> None:
     assert other == []
     reported_directories = {f.split("'")[1] for f in undecided}
     assert reported_directories == set(_KNOWN_UNDECIDED)
-    assert len(undecided) == 17
+    assert len(undecided) == 8
 
 
 def _make_package(root: Path, directories: tuple[str, ...]) -> None:

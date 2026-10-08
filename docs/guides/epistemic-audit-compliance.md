@@ -193,8 +193,8 @@ the (possibly sensitive) evidence text itself.
 ## 5. Explainable decision logs — why do we believe this
 
 For a single claim rather than a bulk export, `graph_epistemic` is the
-purpose-named wrapper (SKILL: `graph-query-and-explanation`, "Epistemic answers"
-section) over the same justification machinery:
+purpose-named wrapper (SKILL: graph-os's own `graph-query-and-explanation`, "Epistemic
+answers" section) over the same justification machinery:
 
 ```jsonc
 // The justification tree — what supports/contradicts this claim, and how
@@ -299,7 +299,7 @@ call, instead of a bare row plus a second `explain_belief` round-trip.
 
 ## See also
 
-- Skill: `graph-query-and-explanation` ("Epistemic answers" section) — the full
+- Skill: graph-os's own `graph-query-and-explanation` ("Epistemic answers" section) — the full
   four-layer epistemic-answer surface this guide's §5 draws from, including
   `explain_provenance_by_ids` (currency-upgrading any id list) and
   `explain_policy` (visible vs policy-denied ids for a plan).

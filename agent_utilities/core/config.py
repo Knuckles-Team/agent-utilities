@@ -3549,6 +3549,14 @@ class AgentConfig(BaseSettings):
             validated[domain] = threshold
         return validated
 
+    grounding_policy_default: Literal["required", "best_effort", "none"] = Field(
+        default="required", alias="AGENT_GROUNDING_POLICY"
+    )
+    """Grounding policy for model calls outside an explicit grounding scope.
+
+    ``best_effort`` lets an interactive assistant answer while the evidence index
+    is sparse; each degraded call still carries the degraded-evidence marker."""
+
     mcp_http_allowed_private_hosts: list[str] = Field(
         default_factory=list, alias="MCP_HTTP_ALLOWED_PRIVATE_HOSTS"
     )

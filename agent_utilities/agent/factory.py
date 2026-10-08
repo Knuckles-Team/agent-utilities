@@ -431,30 +431,57 @@ def _resolve_skill_dirs(
     return skill_dirs
 
 
+def _build_skills_capability(
+    skill_types: list[str] | None,
+    tool_tags: list[str] | None,
+    custom_skills_directory: Any,
+) -> list[Any]:
+    """Resolve skill directories and build/reuse the warm-shared skills capability.
+
+    Returns ``[]`` when no skill directory resolves: ``SkillsCapability``
+    (unlike the ``SkillsToolset`` it replaced in pydantic-ai-skills 2.x) requires
+    at least one source (directory, registry, or skill) and raises ``ValueError``
+    when constructed with none, so the caller must skip rather than let that
+    surface as an agent-construction failure. A list (rather than ``Any | None``)
+    lets the caller ``extend()`` unconditionally, keeping its own branch count
+    at the pre-pydantic-ai-skills-2.x baseline.
+    """
+    # pydantic-ai-skills 2.x replaced the toolset-based ``SkillsToolset`` with a
+    # capability-based ``SkillsCapability`` (the package now builds on
+    # ``pydantic_ai_harness``'s own capability model instead of pydantic-ai's
+    # toolset protocol) — same ``directories=`` constructor shape, but it must be
+    # attached via ``Agent(capabilities=...)``, not ``toolsets=``.
+    from pydantic_ai_skills import SkillsCapability
+
+    skill_dirs = _resolve_skill_dirs(skill_types, tool_tags, custom_skills_directory)
+    if not skill_dirs:
+        return []
+
+    # CONCEPT:AU-ORCH.dispatch.warm-skills-share — warm-share the skills capability across the fan-out cohort: the
+    # directory scan + SKILL.md parse is deterministic per skill-dir set, so build it once
+    # and reuse it (capabilities, like the toolsets they replaced here, attach to many
+    # agents). Falls back to a fresh build.
+    from agent_utilities.agent.warm_skills import get_or_build_skills_toolset
+
+    skills = get_or_build_skills_toolset(
+        skill_dirs, lambda: SkillsCapability(directories=skill_dirs)
+    )
+    logger.info(f"Loaded {len(skill_dirs)} Skills")
+    return [skills]
+
+
 def _load_skills_toolset(
     enable_skills: bool,
     skill_types: list[str] | None,
     tool_tags: list[str] | None,
     custom_skills_directory: Any,
-    agent_toolsets: list[Any],
+    agent_capabilities: list[Any],
 ) -> None:
-    from pydantic_ai_skills import SkillsToolset
-
     if not (enable_skills and not DEFAULT_VALIDATION_MODE):
         return
-
-    skill_dirs = _resolve_skill_dirs(skill_types, tool_tags, custom_skills_directory)
-
-    # CONCEPT:AU-ORCH.dispatch.warm-skills-share — warm-share the SkillsToolset across the fan-out cohort: the
-    # directory scan + SKILL.md parse is deterministic per skill-dir set, so build it once
-    # and reuse it (pydantic-ai toolsets attach to many agents). Falls back to a fresh build.
-    from agent_utilities.agent.warm_skills import get_or_build_skills_toolset
-
-    skills = get_or_build_skills_toolset(
-        skill_dirs, lambda: SkillsToolset(directories=skill_dirs)
+    agent_capabilities.extend(
+        _build_skills_capability(skill_types, tool_tags, custom_skills_directory)
     )
-    agent_toolsets.append(skills)
-    logger.info(f"Loaded {len(skill_dirs)} Skills")
 
 
 def _build_agent_model_settings(
@@ -708,6 +735,10 @@ def create_agent(
 
     agent_toolsets: list[Any] = []
     initialized_mcp_toolsets: list[Any] = []
+    # Populated by _load_skills_toolset below; pydantic-ai-skills 2.x's
+    # SkillsCapability attaches via Agent(capabilities=...), not toolsets=, so it
+    # is merged into agent_capabilities once that list is assembled further down.
+    agent_skill_capabilities: list[Any] = []
     from agent_utilities.core.config import config
     from agent_utilities.core.transport_security import resolve_configured_tls_profile
 
@@ -827,7 +858,11 @@ def create_agent(
     settings = _build_agent_model_settings(_extra_body, _agent_thinking)
 
     _load_skills_toolset(
-        enable_skills, skill_types, tool_tags, custom_skills_directory, agent_toolsets
+        enable_skills,
+        skill_types,
+        tool_tags,
+        custom_skills_directory,
+        agent_skill_capabilities,
     )
 
     def _build_system_prompt() -> str:
@@ -927,6 +962,9 @@ def create_agent(
         return agent_capabilities
 
     agent_capabilities = _assemble_capabilities()
+    # pydantic-ai-skills 2.x's SkillsCapability (see _load_skills_toolset) joins the
+    # capability list rather than agent_toolsets.
+    agent_capabilities.extend(agent_skill_capabilities)
 
     # CONCEPT (v2 synergy) — on-demand tool loading: keep agent-local toolsets out of
     # the prompt as a one-line catalog until the model loads them, cutting prompt bloat

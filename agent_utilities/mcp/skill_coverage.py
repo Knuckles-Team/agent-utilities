@@ -61,7 +61,7 @@ INTENTIONALLY_UNSKILLED: frozenset[str] = frozenset(
         # wrappers — they wrap the WHOLE resolver, and every granular tool they
         # route to already has its own `agents/graph-os.yaml` coverage under a
         # domain skill. "How to use the intent surface" (the resolver/dispatcher
-        # mechanism itself) is documented directly in
+        # mechanism itself) is documented directly in graph-os's own
         # `graph-runtime-and-governance`'s "Manage tool visibility responsibly"
         # workflow step, without itself claiming these six verbs.
         "ask",
