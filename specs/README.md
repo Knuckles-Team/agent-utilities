@@ -76,3 +76,4 @@ bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuck
 - [`AU-RETIRE-001`](au-engine-duplicate-retirement/spec.md) — retire duplicate graph authority after per-operation parity.
 - [`AU-RETRIEVAL-001`](retrieval-evaluation/spec.md) — public, reproducible structure-aware retrieval evaluation.
 - [`AU-FREEZE-001`](release-evidence-freeze/spec.md) — exact-revision AU source and release evidence freeze.
+- [`AU-BASELINE-001`](baseline-ingestion/spec.md) — baseline ingestion after boot and served ontology content.

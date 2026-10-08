@@ -17,3 +17,16 @@
 - **Role agents.** `seed_role_agents` reads the `:Prompt` corpus. It reads no workspace path.
 - **Assembly.** `Assembler` gains `publish_context` and `library`. `install_library_assembler` binds both with the session clients. graph-os owns the call that supplies the context providers.
 
+## Task planner and cross-source reports (AU-CONTROL-R027–AU-CONTROL-R030)
+
+**Reuse.** The planner composes existing parts only. `decide/consumers/assembly.py` supplies `assemble_mapped` and `spec_fields`. `decide/consumers/topology.py` supplies `ask_topology` and `plan_of`. `decide/topology/templates.py` supplies the reference templates and their DAG edges. The planner adds no solver, selector or success store. Ports cover the remaining facts: a capability search, a guardrail source and a compiled-workflow lookup. graph-os binds those ports to the EG coverage and guardrail queries (EG-DECISION-ENGINE-R126, EG-DECISION-ENGINE-R127). `graph_workflows compile` and `process_plan_compiler.py` back the workflow lookup.
+
+**Module.** `agent_utilities/decide/consumers/task_planner.py` holds `TaskPlanner`, `TaskPlan`, `is_planning_question` and `install_task_planner`. `process_task_planner()` returns the installed planner, or one over the installed EG assembler and its sync driver. The driver runs EG coroutines off the event loop.
+
+**Routing.** `dispatch_intent` answers a bare `ask` before capability ranking. A planning question returns the plan. A question that spans installed virtual sources returns the cross-source report. A hinted `ask` keeps its declared route.
+
+**Virtual graphs.** `agent_utilities/knowledge_graph/virtual_graph/` holds the flow. `contracts.py` defines `SourceConnection`, `MetadataContract`, `VirtualMapping`, `metadata_triples` and `MaterializationPolicy`. `ontology.py` reads labels, ancestry and relations; `tbox_from_sparql` asks EG three bounded SPARQL questions. `federation.py` selects sources and runs live bind joins. `adapters.py` reads API, MCP, A2A and GraphQL sources through their discovered operations. SQL, Iceberg and Teradata-style sources bind through EG OBDA named virtual graphs (EG-UNIFIED-DATA-PLANE-R005).
+
+**Interim boundary.** AU links concept classes over the relation facts EG returns. EG-FEDERATED-QUERY-R072 moves source selection into EG. AU then consumes that answer and retires its local path search.
+
+**Live wiring.** graph-os installs the planner ports and the cross-source catalog at startup. Until then, the planner runs over the installed assembler, and the cross-source route stays inactive.

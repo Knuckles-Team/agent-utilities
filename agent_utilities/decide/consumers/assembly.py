@@ -396,6 +396,11 @@ def install_library_assembler(
     return assembler
 
 
+def installed_assembler() -> tuple[Assembler, Callable[[Any], Any]] | None:
+    """The process assembler and sync driver :func:`install_assembler` bound."""
+    return _INSTALLED[0]
+
+
 def assemble_goal(goal: str, mapper: TaskMapper) -> Assembled | None:
     """Assemble an agent for free-text ``goal`` from a sync call site.
 
@@ -442,6 +447,7 @@ __all__ = [
     "assemble_goal",
     "install_assembler",
     "install_library_assembler",
+    "installed_assembler",
     "llm_task_mapper",
     "Assembled",
     "Assembler",

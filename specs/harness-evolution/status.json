@@ -8,9 +8,13 @@
     "AU-HARNESS-R003",
     "AU-HARNESS-R004",
     "AU-HARNESS-R005",
-    "AU-HARNESS-R006"
+    "AU-HARNESS-R006",
+    "AU-HARNESS-R007",
+    "AU-HARNESS-R008",
+    "AU-HARNESS-R009",
+    "AU-HARNESS-R010"
   ],
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
   "evidence": [],
   "requirements": [
@@ -79,6 +83,62 @@
           "commit": "bf471cebd77a5c946acd6de99ae4e7f305cbb3c4",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/bf471cebd77a5c946acd6de99ae4e7f305cbb3c4",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        }
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R007",
+      "title": "One typed L4 harness port",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "579815031bcd75a6bf55a4a2bb686329081cde58",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/579815031bcd75a6bf55a4a2bb686329081cde58",
+          "description": "Implementation and focused tests (tests/unit/layers/test_harness_port.py, 26 passed) on a review branch; not merged."
+        }
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R008",
+      "title": "Native harness over the pydantic-ai path",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "579815031bcd75a6bf55a4a2bb686329081cde58",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/579815031bcd75a6bf55a4a2bb686329081cde58",
+          "description": "Implementation and focused tests (tests/unit/layers/test_harness_port.py, 26 passed) on a review branch; not merged."
+        }
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R009",
+      "title": "Claude Code headless harness",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "579815031bcd75a6bf55a4a2bb686329081cde58",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/579815031bcd75a6bf55a4a2bb686329081cde58",
+          "description": "Implementation and focused tests (tests/unit/layers/test_harness_port.py, 26 passed) on a review branch; not merged."
+        }
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R010",
+      "title": "Per-node harness selection and L5 recording",
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "579815031bcd75a6bf55a4a2bb686329081cde58",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/579815031bcd75a6bf55a4a2bb686329081cde58",
+          "description": "Implementation and focused tests (tests/unit/layers/test_harness_port.py, 26 passed) on a review branch; not merged."
         }
       ]
     }

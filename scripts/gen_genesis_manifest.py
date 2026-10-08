@@ -60,7 +60,7 @@ PROFILES_META = {
         # EPISTEMIC_GRAPH_ENCRYPTION_KEY.
         "secrets": "engine-encrypted-or-runtime-reference",
         "servers": "none",
-        "skill": "agent-utilities-deployment",
+        "skill": "graphos-deployment",
         # Step 0 run-plan defaults (the operator overrides only the exceptions).
         "orchestrator": "bare-metal",
         "install_mode": "deploy-baremetal",
@@ -90,7 +90,7 @@ PROFILES_META = {
         "docker": True,
         "secrets": "openbao-or-engine-encrypted",
         "servers": "core",
-        "skill": "agent-utilities-deployment",
+        "skill": "graphos-deployment",
         # Plain `docker compose` — this recipe is explicitly "no swarm" (see
         # docs/recipes/single-node-prod.md). Was mis-set to docker-swarm (a
         # profile it never uses); the real orchestrator ladder is
@@ -113,7 +113,7 @@ PROFILES_META = {
         "docker": True,
         "secrets": "openbao",
         "servers": "all",
-        "skill": "agent-utilities-deployment",
+        "skill": "graphos-deployment",
         # Enterprises default to Kubernetes; Swarm remains selectable.
         "orchestrator": "kubernetes",
         "install_mode": "deploy-container",
@@ -206,11 +206,11 @@ RUN_PLAN = {
     # point each agents/* README references. Reuses the connector catalog + install
     # modes/variants + vault_sync.
     "single_package_deploy": {
-        "invoke": "deploy <package> with agent-utilities-deployment",
-        "catalog": "agent-utilities-deployment",
+        "invoke": "deploy <package> with graphos-deployment",
+        "catalog": "graphos-deployment",
     },
     "provisioner_by_orchestrator": {
-        "bare-metal": "agent-os-genesis",
+        "bare-metal": "graphos-genesis",
         "docker-swarm": "swarm-mesh-provisioner",
         "kubernetes": "kubernetes-mesh-provisioner",
         "podman": "podman-mesh-provisioner",
@@ -318,14 +318,14 @@ def build() -> dict:
     return {
         "version": 1,
         "entrypoints": {
-            "substrate": "agent-os-genesis",
+            "substrate": "graphos-genesis",
             "preflight": "agent-utilities-doctor --preflight --profile <profile> [--component <c>]",
             "install": "scripts/install.sh (Windows: scripts/install.ps1)",
             "config": "setup-config generate --profile <profile>",
             "verify": "agent-utilities-doctor",
-            "single_node_skill": "agent-utilities-deployment",
-            "multi_node_skill": "agent-utilities-deployment",
-            "handoff": "agent-os-genesis -> InfrastructureHandoff(substrate_resolved=true) -> agent-utilities-deployment",
+            "single_node_skill": "graphos-deployment",
+            "multi_node_skill": "graphos-deployment",
+            "handoff": "graphos-genesis -> InfrastructureHandoff(substrate_resolved=true) -> graphos-deployment",
         },
         "profiles": profiles,
         "run_plan": RUN_PLAN,
@@ -361,7 +361,7 @@ def build() -> dict:
             " container/remote shapes (single-node-prod, enterprise)",
             # The two-shapes edict (CONCEPT AU-OS/EG-OS "engine transport two shapes";
             # full detail: reports/unified-binary-program.md, eg AGENTS.md, and the
-            # agent-os-genesis skill's references/engine-topology-and-hyperscaling.md).
+            # graphos-genesis skill's references/runtime-topology.md).
             "topology": {
                 "values": ["unified-in-process", "out-of-process-shared"],
                 "unified-in-process": "REQUESTED single-unit topology (tiny,"

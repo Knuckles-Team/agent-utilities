@@ -1107,25 +1107,14 @@ def test_engine_placement_resolves_under_manage_without_failing_closed():
     assert "engine_placement" in {c.tool for c in candidates}
 
 
-def test_query_workflow_skill_documents_the_registered_query_argument():
-    """The consolidated query workflow remains the operator-facing guide for
-    ``graph_query`` and explicitly claims the verb in its sidecar."""
-    from pathlib import Path
+def test_registered_graph_query_accepts_the_current_query_argument():
+    """The query parameter contract remains owned by the tool implementation.
 
-    skill_path = (
-        Path(__file__).resolve().parents[2]
-        / "agent_utilities"
-        / "skills"
-        / "graph-query-and-explanation"
-    )
-    text = (skill_path / "SKILL.md").read_text(encoding="utf-8")
-    sidecar = (skill_path / "agents" / "graph-os.yaml").read_text(encoding="utf-8")
+    GraphOS tests its bundled query guide and sidecar against this same tool.
+    """
     parameters = inspect.signature(kg_server.REGISTERED_TOOLS["graph_query"]).parameters
     assert "query" in parameters
     assert "cypher" not in parameters
-    assert 'graph_query(query="' in text
-    assert "graph_query(cypher=" not in text
-    assert "graph_query" in sidecar
 
 
 # --------------------------------------------------------------------------- #

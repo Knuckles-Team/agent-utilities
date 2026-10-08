@@ -187,7 +187,7 @@ def _load_upstream_dynamic_workflow() -> tuple[type[Any], type[Any], str]:
     except (ImportError, AttributeError) as exc:
         raise DynamicWorkflowUnavailableError(
             "pydantic-ai-harness DynamicWorkflow is unavailable; install "
-            "agent-utilities[dynamic-workflow] (Harness >=0.14,<0.15), or "
+            "agent-utilities[dynamic-workflow] (Harness >=0.54,<0.55), or "
             "explicitly use the stored-DAG fallback"
         ) from exc
     try:
@@ -865,7 +865,10 @@ class GovernedDynamicWorkflow(BaseModel):
             for step in self.steps
         ]
         capability = DynamicWorkflow(
-            id=f"graphos-dynamic-workflow:{self.name}",
+            # pydantic-ai >=2.3x validates capability ids as instruction-id
+            # segments and now rejects a colon (reserved as the instruction-ID
+            # delimiter); use a hyphen instead of the old "prefix:name" shape.
+            id=f"graphos-dynamic-workflow-{self.name}",
             agents=catalog,
             max_agent_calls=self.max_agent_calls,
             max_retries=3,

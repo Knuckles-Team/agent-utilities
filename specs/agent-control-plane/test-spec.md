@@ -16,6 +16,11 @@
 | Library agent through the intent router | `tests/unit/orchestration/test_agent_library_intent.py` | `find` ranks `agent_library`; `ask` lists it; `ask` cannot save; `manage` saves after a previewed plan |
 | Packaged prompt with and without a role | `tests/unit/orchestration/test_agent_library.py` | role blueprint becomes a role agent with package tools; no role, no agent |
 | Solved, uncommitted and failed-publish assemblies | `tests/unit/decide/test_assembly_consumer.py` | committed graph is published and saved; uncommitted graph is saved only; publish failure keeps the agent |
+| Planning question with scripted solved EG answers | unit, `tests/unit/decide/test_task_planner.py` | decided topology, per-agent components, reuse sources, policy guardrails, compiled workflow; decision provenance per element; goal text absent from EG requests |
+| Planning question with EG abstention or no ports | unit | named gaps; no model composition; fallback template labelled `fallback` |
+| Bare, non-planning and hinted `ask` | unit routing | plan for bare planning text; no route for code questions or hinted calls |
+| Cross-source question over two fake sources | unit, `tests/unit/knowledge_graph/test_virtual_graph.py` | ontology selects both sources; live bind joins; zero materialized rows; key filter pushed only with `filter:in` |
+| Unapproved mapping, row budget, credential ref, undiscovered field | unit negative | uncovered class with no reads; incomplete report; refused connection; refused mapping |
 
 Fresh checkout: `python3 scripts/uv_workspace.py doctor`; install locked extras using the repository helper, then run `python3 scripts/uv_workspace.py run --all-extras pytest tests/unit tests/orchestration -q` and the focused new conformance tests. Tests must provide fake EG/gateway/provider adapters and temporary directories; ordinary PR checks must need no pre-existing deployment, vendor account or GPU. Live certification is a separately labelled optional environment test with captured receipts.
 

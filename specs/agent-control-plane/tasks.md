@@ -13,6 +13,10 @@
 - [ ] AC-10: Access the harness and sandbox through direct typed ports, route model selection through the committed decision, and attribute catalog entries to their originating server. Closes AU-CONTROL-R021, AU-CONTROL-R022, AU-CONTROL-R023.
 - [ ] AC-08: Add the `AgentLibrary` store over `CallableResource` records, the `agent_library` intent tool, role-agent seeding from the `:Prompt` corpus, and the assembly commit, publish and library binding. Closes AU-CONTROL-R024, AU-CONTROL-R025, AU-CONTROL-R026.
 - [ ] AC-08: graph-os calls `install_library_assembler` with its commit and publish context providers at serving start.
+- [ ] AC-11/AC-12: Ship the task planner and the `ask` planning route with provenance and named gaps. Closes AU-CONTROL-R027, AU-CONTROL-R028.
+- [ ] AC-13: Ship virtual-graph contracts and the cross-source report over live bind joins. Closes AU-CONTROL-R029, AU-CONTROL-R030.
+- [ ] AC-11 follow-up: Bind the planner capability-search and guardrail ports to EG-DECISION-ENGINE-R126 and EG-DECISION-ENGINE-R127 in graph-os.
+- [ ] AC-13 follow-up: Consume EG-FEDERATED-QUERY-R072 source selection and retire the local path search; bind SQL sources through EG OBDA.
 - [ ] Run the quality and served tests in `test-spec.md`; record merged-head results in `evidence.md`.
 
 Checkboxes represent accepted deliverables, not merely files authored. Keep them open until their stated proofs pass.

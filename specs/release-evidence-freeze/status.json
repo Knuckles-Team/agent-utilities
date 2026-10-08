@@ -4,7 +4,8 @@
   "owner_repo": "agent-utilities",
   "requirement_ids": [
     "AU-FREEZE-R001",
-    "AU-FREEZE-R002"
+    "AU-FREEZE-R002",
+    "AU-FREEZE-R003"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -20,6 +21,12 @@
       "id": "AU-FREEZE-R002",
       "title": "Quarantine unresolved scanner findings from the freeze",
       "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-FREEZE-R003",
+      "title": "CI installs the engine from the EG release wheel",
+      "delivery_state": "BUILDING",
       "evidence": []
     }
   ]

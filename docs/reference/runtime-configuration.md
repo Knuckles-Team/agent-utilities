@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-575 typed fields · 370 runtime-only call-site inputs.
+579 typed fields · 370 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -198,6 +198,10 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `KG_EMBEDDING_DIM` | `str \| None` | `768` |
 | `KG_INGEST_AUTO_EMBED` | `bool` | `True` |
 | `KG_DEV_MODE` | `bool` | `False` |
+| `KG_BASELINE_INGEST` | `bool` | `True` |
+| `KG_BASELINE_SKILL_PROVIDERS` | `str` | `agent-utilities,graph-os,universal-skills` |
+| `KG_BASELINE_CODEBASES` | `str` | `core` |
+| `KG_BASELINE_MAX_CODEBASES` | `int` | `32` |
 
 ## Observability / usage analytics (CONCEPT:AU-OS.observability.usage-analytics-store / ECO-4.40 / OS-5.31)
 

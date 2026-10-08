@@ -78,6 +78,49 @@ _SKILL_REF = persistence_reference(
     "skill", "graph-query-and-explanation", namespace="execution-trace"
 )
 _SKILL_BODY_REF = "pref_skill_body_" + "c" * 64
+
+# "graph-query-and-explanation" moved to graph-os on 2026-10-03 along with
+# every other domain-tier skill; agent-utilities now bundles only
+# agent-utilities-development, which is special-cased elsewhere in
+# ``runtime_validation`` (``_ARCHITECTURE_SKILL``) for owner-manifest
+# architecture evidence this file's generic harness-mechanics tests do not
+# exercise. This file keeps "graph-query-and-explanation" as its synthetic
+# example skill id
+# (it never needed a real covering domain skill, only a real-shaped
+# instructions body) and reads that body from disk itself rather than through
+# ``agent_utilities/skills/<id>/SKILL.md``, via the ``_synthetic_skill_body``
+# autouse fixture below.
+_SYNTHETIC_SKILL_BODY = (
+    "# Synthetic Skill\n\n"
+    "A stand-in instructions body for exercising the prebundled-skill runtime "
+    "harness without depending on any one real bundled skill's content or "
+    "continued presence in this repository.\n\n"
+    "## Workflow\n\n"
+    "1. Resolve the requested capability.\n"
+    "2. Call the routed tool with bounded, validated arguments.\n"
+    "3. Report the outcome and any blocked follow-up.\n"
+)
+
+
+@pytest.fixture(autouse=True)
+def _synthetic_skill_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Serve ``_SYNTHETIC_SKILL_BODY`` for this file's synthetic skill id.
+
+    Everything in this file that pins the skill name for the harness tests
+    below reads a REAL file through ``runtime_harness._skill_body``; since
+    "graph-query-and-explanation" is no longer present on disk, this stands
+    in for that read without changing any test's skill id or assertions.
+    """
+    real_skill_body = runtime_harness._skill_body
+
+    def _fake_skill_body(skill: str) -> str:
+        if skill == "graph-query-and-explanation":
+            return _SYNTHETIC_SKILL_BODY
+        return real_skill_body(skill)
+
+    monkeypatch.setattr(runtime_harness, "_skill_body", _fake_skill_body)
+
+
 _TRACE_EVIDENCE = {
     "run_ref": _RUN_REF,
     "model_ref": _MODEL_REF,
@@ -139,7 +182,7 @@ def test_contract_instruction_binds_exact_skill_identity() -> None:
 
 
 def test_direct_execution_prompt_places_closed_contract_after_original_task() -> None:
-    case = _matrix_case("orchestration-direct")
+    case = _matrix_case("development-direct")
     contract = _contract_instruction(case)
 
     prompt = _direct_execution_prompt(case)
@@ -154,7 +197,7 @@ def test_direct_execution_prompt_places_closed_contract_after_original_task() ->
 def test_direct_semantic_contract_uses_prompted_json_not_tool_output() -> None:
     from pydantic_ai import PromptedOutput
 
-    output_type = _direct_semantic_output_type(_matrix_case("engine-direct"))
+    output_type = _direct_semantic_output_type(_matrix_case("development-direct"))
 
     assert isinstance(output_type, PromptedOutput)
     assert issubclass(output_type.outputs, SemanticOutput)
@@ -164,7 +207,7 @@ def test_direct_semantic_contract_uses_prompted_json_not_tool_output() -> None:
 
 
 def test_direct_prompted_output_accepts_exact_case_route_set() -> None:
-    case = _matrix_case("query-direct")
+    case = _matrix_case("development-direct")
     output_type = _direct_semantic_output_type(case)
 
     output = output_type.outputs.model_validate(
@@ -178,7 +221,7 @@ def test_direct_prompted_output_accepts_exact_case_route_set() -> None:
 
 
 def test_direct_prompted_output_rejects_engine_route_expansion() -> None:
-    case = _matrix_case("engine-direct")
+    case = _matrix_case("development-direct")
     output_type = _direct_semantic_output_type(case)
     expanded_routes = [*case.expected_routes, "engine_datascience"]
 
@@ -1102,9 +1145,9 @@ def _assert_development_case_binds_rf021(case: ValidationCase) -> None:
     assert set(_ARCHITECTURE_LAYOUT_REQUIREMENTS).issubset(
         {marker for marker in _ARCHITECTURE_LAYOUT_REQUIREMENTS if marker in task}
     )
-    assert {
-        operation for _phase, operation in _ARCHITECTURE_PHASE_OPERATIONS
-    } <= set(case.expected_routes)
+    assert {operation for _phase, operation in _ARCHITECTURE_PHASE_OPERATIONS} <= set(
+        case.expected_routes
+    )
     if case.mode == "direct":
         assert not case.allowed_tools
     else:
@@ -1678,11 +1721,8 @@ def test_architecture_scenarios_are_structured_behavioral_outcomes() -> None:
     assert outcomes["plans_cutover"] == "rejected"
 
 
-def test_architecture_pass_rejects_mislabelled_structured_evidence() -> None:
-    case = _matrix_case("development-direct")
-    candidate = case.architecture_candidate
-    assert candidate is not None
-    observations = tuple(
+def _positive_architecture_operations() -> tuple[GraphOperationObservation, ...]:
+    return tuple(
         GraphOperationObservation(
             phase,
             operation,
@@ -1697,6 +1737,13 @@ def test_architecture_pass_rejects_mislabelled_structured_evidence() -> None:
             strict=True,
         )
     )
+
+
+def test_architecture_pass_rejects_mislabelled_structured_evidence() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    observations = _positive_architecture_operations()
     scenarios = _architecture_scenario_observations(candidate, set())
     result = CaseResult(
         case_id=case.case_id,
@@ -1765,7 +1812,7 @@ def test_economy_validation_omits_nonportable_reasoning_none() -> None:
     assert _validation_reasoning_effort("economy", delegated=True) == ""
 
 
-def test_semantic_contract_rejects_missing_routes() -> None:
+def _direct_route_findings(selected_routes: list[str]) -> list[str]:
     case = ValidationCase(
         case_id="synthetic-direct",
         skill="graph-query-and-explanation",
@@ -1779,36 +1826,22 @@ def test_semantic_contract_rejects_missing_routes() -> None:
     output = SemanticOutput(
         skill=case.skill,
         mode=case.mode,
-        selected_routes=["graph_query"],
+        selected_routes=selected_routes,
         read_only=True,
         privacy_safe=True,
         acceptance_summary="Bounded synthetic result.",
     )
+    return validate_semantic_output(case, output)
 
-    assert validate_semantic_output(case, output) == ["semantic_routes_incomplete"]
+
+def test_semantic_contract_rejects_missing_routes() -> None:
+    assert _direct_route_findings(["graph_query"]) == ["semantic_routes_incomplete"]
 
 
 def test_semantic_contract_rejects_unexpected_routes() -> None:
-    case = ValidationCase(
-        case_id="synthetic-direct",
-        skill="graph-query-and-explanation",
-        mode="direct",
-        model_class="economy",
-        task="synthetic",
-        expected_routes=("graph_query", "graph_search"),
-        allowed_tools=(),
-        read_only=True,
-    )
-    output = SemanticOutput(
-        skill=case.skill,
-        mode=case.mode,
-        selected_routes=["graph_query", "graph_search", "graph_analyze"],
-        read_only=True,
-        privacy_safe=True,
-        acceptance_summary="Bounded synthetic result.",
-    )
-
-    assert validate_semantic_output(case, output) == ["semantic_routes_unexpected"]
+    assert _direct_route_findings(["graph_query", "graph_search", "graph_analyze"]) == [
+        "semantic_routes_unexpected"
+    ]
 
 
 def test_source_tree_runtime_validation_wrapper_is_self_contained() -> None:
@@ -1931,21 +1964,7 @@ def _passing_architecture_evidence(
     if case.skill != "agent-utilities-development":
         return (), ()
     assert case.architecture_candidate is not None
-    operations = tuple(
-        GraphOperationObservation(
-            phase,
-            operation,
-            status,
-            "sha256:" + "6" * 64,
-            "sha256:" + "7" * 64,
-            1,
-        )
-        for (phase, operation), status in zip(
-            _ARCHITECTURE_PHASE_OPERATIONS,
-            ("verified", "advisory", "grounded"),
-            strict=True,
-        )
-    )
+    operations = _positive_architecture_operations()
     scenarios = _architecture_scenario_observations(case.architecture_candidate, set())
     return operations, scenarios
 
