@@ -17,7 +17,7 @@
 
 > Scope: the **`unified-in-process`** engine topology (the self-contained default —
 > `reports/unified-binary-program.md`, genesis skill reference
-> [`agent-os-genesis/references/engine-topology-and-hyperscaling.md`](../../agent_utilities/skills/workflows/agent-os-genesis/references/engine-topology-and-hyperscaling.md)
+> [`graphos-genesis/references/engine-topology-and-hyperscaling.md`](https://github.com/Knuckles-Team/graph-os/blob/main/graph_os/skills/graphos-genesis/references/engine-topology-and-hyperscaling.md)
 > §"Shape 1"). This is the OPPOSITE shape from
 > [`graphos-horizontal-scaling.md`](graphos-horizontal-scaling.md) (`out-of-process-shared`,
 > N graph-os pods against one external engine) — do not run both cutovers on the same

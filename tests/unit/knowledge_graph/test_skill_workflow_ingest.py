@@ -455,15 +455,15 @@ def test_discover_accepts_explicit_root(corpus):
 def test_discover_explicit_root_does_not_redirect_into_nested_workflows_dir(tmp_path):
     """KG-2.97 §5a regression: an explicit root must be searched AS-IS. The old
     code silently redirected into ``root/workflows/`` whenever that subdir
-    happened to exist, discarding every sibling SKILL.md — exactly the real
+    happened to exist, discarding every sibling SKILL.md — exactly the former
     ``agent_utilities/skills`` shape (4 domain skills + skill_graphs/ + ONE
-    real workflow that happens to live under ``skills/workflows/
-    agent-os-genesis``), which made the explicit-root call find only 1 of 20
-    real files.
+    real workflow that used to live under ``skills/workflows/agent-os-
+    genesis``, since moved to graph-os as ``graphos-genesis``), which made
+    the explicit-root call find only 1 of 20 real files.
     """
     root = tmp_path / "skills"
     # A real workflow living under a nested "workflows/" dir...
-    decoy = root / "workflows" / "agent-os-genesis"
+    decoy = root / "workflows" / "graphos-genesis"
     decoy.mkdir(parents=True)
     (decoy / "SKILL.md").write_text(_INFRA_WF, encoding="utf-8")
     # ...sibling to an atomic skill that must NOT be shadowed by that redirect.
@@ -473,7 +473,7 @@ def test_discover_explicit_root_does_not_redirect_into_nested_workflows_dir(tmp_
 
     files = discover_workflow_skill_files(root=str(root))
     names = {f.parent.name for f in files}
-    assert names == {"agent-os-genesis", "graph-query-and-explanation"}
+    assert names == {"graphos-genesis", "graph-query-and-explanation"}
 
 
 def test_discover_default_matches_domain_workflows_convention(monkeypatch, tmp_path):
