@@ -54,6 +54,8 @@ def canonical(tmp_path: Path) -> Path:
     _run(["git", "config", "user.name", "Queue Test"], root)
     _write(root, "pkg/__init__.py", "")
     _write(root, "pkg/core.py", "VALUE = 1\n")
+    # Synthetic queue fixture: gate behavior is exercised separately below.
+    _write(root, "scripts/check_liveness_source.py", "print('fixture liveness gate')\n")
     _commit(root, "base")
     return root
 
@@ -1704,3 +1706,45 @@ def test_land_refuses_when_the_base_is_checked_out_in_another_worktree(
     with pytest.raises(mq.MergeQueueError, match="checked out in another worktree"):
         mq.land(canonical, commit, base="main", scope=scope)
     assert lane.exists()
+
+
+def test_source_liveness_queue_refuses_missing_checker(canonical):
+    (canonical / "scripts/check_liveness_source.py").unlink()
+    check = mq._source_liveness_check(
+        canonical, interpreter="python", env={}, base_ref="main"
+    )
+    assert not check.ok
+    assert "missing" in check.detail
+
+
+def test_source_liveness_queue_uses_exact_merged_and_base_commits(
+    canonical, monkeypatch
+):
+    import sys
+
+    base = _run(["git", "rev-parse", "main"], canonical)
+    _write(canonical, "pkg/core.py", "VALUE = 2\n")
+    candidate = _commit(canonical, "candidate")
+    calls = []
+
+    def execute(argv, root, **kwargs):
+        calls.append((argv, root))
+        return subprocess.CompletedProcess(argv, 1, "NEW dead definition", ""), 0.01
+
+    monkeypatch.setattr(mq, "_timed_run", execute)
+    check = mq._source_liveness_check(
+        canonical, interpreter=sys.executable, env={}, base_ref=base
+    )
+    assert not check.ok
+    assert calls[0][0][-4:] == ["--base", base, "--candidate", candidate]
+    assert calls[0][1] == canonical
+    assert "NEW dead definition" in check.detail
+
+
+def test_source_liveness_timeout_never_defers(canonical, monkeypatch):
+    monkeypatch.setattr(mq, "_timed_run", lambda *a, **kw: (None, 300.0))
+    check = mq._source_liveness_check(
+        canonical, interpreter="python", env={}, base_ref="main"
+    )
+    assert not check.ok
+    assert not check.deferred

@@ -139,8 +139,10 @@ uv python install "$PYTHON_VERSION"
 
 # langfuse-agent depends back on agent-utilities and is a deployment component,
 # never part of the development environment (CI excludes it the same way).
+# The import-safety gate walks browser modules too; install their declared Python
+# dependency. Browser binaries are not needed or installed by this bootstrap.
 SYNC=(uv sync --frozen --python "$PYTHON_VERSION"
-  --extra test --extra agent-runtime --group guardrails
+  --extra test --extra agent-runtime --extra browser --group guardrails
   --no-install-package langfuse-agent)
 if [ "$ENGINE" -eq 1 ]; then
   log "building the native engine from source; this is the slow step"
@@ -163,6 +165,7 @@ if [ "$HOOKS" -eq 1 ] && [ -z "${CI:-}" ] && git rev-parse --git-dir >/dev/null 
   else
     uvx pre-commit install --config .config/pre-commit.yaml \
       --hook-type pre-commit --hook-type pre-push
+    scripts/hook_python.sh scripts/pre_push.py --install
   fi
 fi
 

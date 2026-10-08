@@ -2493,6 +2493,50 @@ def _targeted_tests_check(
     )
 
 
+def _source_liveness_check(
+    tree: Path, *, interpreter: str, env: dict[str, str], base_ref: str
+) -> Check:
+    """Validate the exact merged commit against freshly verified remote main."""
+    checker = tree / "scripts/check_liveness_source.py"
+    if not checker.is_file():
+        return Check(
+            "source-liveness",
+            ok=False,
+            seconds=0.0,
+            detail="missing source liveness checker",
+        )
+    base = _run_git(["rev-parse", "--verify", f"{base_ref}^{{commit}}"], tree)
+    candidate = _run_git(["rev-parse", "--verify", "HEAD^{commit}"], tree)
+    if not base.ok or not candidate.ok:
+        return Check(
+            "source-liveness",
+            ok=False,
+            seconds=0.0,
+            detail="unreadable immutable liveness range",
+        )
+    proc, secs = _timed_run(
+        [interpreter, str(checker), "--base", base.out, "--candidate", candidate.out],
+        tree,
+        timeout=300,
+        env=env,
+    )
+    if isinstance(proc, _ExecFailure):
+        return Check("source-liveness", ok=False, seconds=secs, detail=proc.detail())
+    if proc is None:
+        return Check(
+            "source-liveness",
+            ok=False,
+            seconds=secs,
+            detail="source liveness timed out; no acceptance evidence",
+        )
+    return Check(
+        "source-liveness",
+        ok=proc.returncode == 0,
+        seconds=secs,
+        detail=(proc.stdout + proc.stderr).strip(),
+    )
+
+
 def run_fast_gate(
     tree: Path,
     *,
@@ -2522,6 +2566,10 @@ def run_fast_gate(
         #    wait on a test selection to notice.
         _fast_gate_contract_check(
             tree, interpreter=interpreter, env=env, scope=scope, base_ref=base_ref
+        ),
+        # Fresh comparison is mandatory; timeout/missing evidence never defers.
+        _source_liveness_check(
+            tree, interpreter=interpreter, env=env, base_ref=base_ref
         ),
         # 3. import smoke over changed modules.
         _import_smoke_check(tree, changed, interpreter=interpreter, env=env),
