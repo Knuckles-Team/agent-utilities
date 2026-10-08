@@ -233,18 +233,17 @@ def _submit_runtime_gap(
     severity: float,
     agg: dict[str, Any],
     open_ids: set[str],
-    lease: bool = True,
     resolve: bool = False,
 ) -> dict[str, Any] | None:
     """Open ONE canonical ``:Gap`` for a runtime pattern, WITH code references — the single
     gap-creation seam every disposition (flywheel / recommendation / heal) shares.
 
     Dedupes against already-tracked gaps, attaches the signal evidence + resolved code
-    references, and links each resolved ``:Code`` anchor to the gap with the EXISTING
-    ``(:Code)-[:EVIDENCES]->(:Gap)`` provenance convention (the same edge the failure
-    analyzer / anomaly consumer use) so the anchor is traversable from the gap by the SAME
-    machinery the SDD/implementer path already walks. ``resolve=True`` records a
-    born-resolved heal; ``lease=False`` skips the WorkItem for non-schedulable heals.
+    references, and cites each resolved ``:Code`` anchor on EG's Gap itself (its
+    ``concept_ids``) so the anchor is reachable from the gap without a generic edge onto
+    a native row. ``resolve=True`` records a
+    born-resolved heal (EG still pairs it with its WorkItem; the work-market sweep
+    cancels a closed Gap's WorkItem that never ran).
     """
     signature = _signature(kind, subject)
     gap_id = canonical_gap_id(SOURCE_RUNTIME, signature)
@@ -259,20 +258,12 @@ def _submit_runtime_gap(
         statement=statement,
         domain="runtime_reliability",
         severity=severity,
+        concept_ids=[str(a["id"]) for a in anchors if a.get("id")],
         evidence_refs=evidence,
-        lease=lease,
     )
     if not gap:
         return None
     open_ids.add(gap_id)
-    for a in anchors:
-        nid = a.get("id")
-        if not nid:
-            continue
-        try:  # (:Code)-[:EVIDENCES]->(:Gap) — traversable suggested-change anchor
-            engine.add_edge(nid, gap["id"], "EVIDENCES")
-        except Exception as e:  # noqa: BLE001 — provenance edge is best-effort
-            logger.debug("runtime gap EVIDENCES edge failed: %s", e)
     if resolve:
         mark_gap_resolved(engine, gap["id"])
     return gap
@@ -413,8 +404,8 @@ def runtime_reconciler(
 
     ``listener_restart`` — already auto-healed by the messaging router's self-healing
     supervisor — is recorded as a *resolved* heal (a closed-loop annotation via the
-    existing gap lifecycle: born ``open`` then immediately ``resolved``, ``lease=False`` so
-    it is not scheduled as work), deduped so a recurring restart is annotated once, not
+    existing gap lifecycle: born ``open`` then immediately ``resolved``, so it is never
+    priced or scheduled as work), deduped so a recurring restart is annotated once, not
     every tick. ``engine_latency`` / ``retrieval_degraded`` open a RECOMMENDATION ``:Gap``
     (config/perf) that stays open for a human/the flywheel — NOTHING here mutates prod.
 
@@ -456,7 +447,6 @@ def runtime_reconciler(
                 severity=_SEVERITY.get(kind, _DEFAULT_SEVERITY),
                 agg=agg,
                 open_ids=open_ids,
-                lease=False,  # a resolved heal is not schedulable work
                 resolve=True,  # born open then immediately resolved
             )
             if gap:

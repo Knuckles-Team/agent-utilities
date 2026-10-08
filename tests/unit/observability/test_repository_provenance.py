@@ -29,9 +29,10 @@ from agent_utilities.observability.repository_provenance import (
     repository_run_id,
     write_repository_event,
 )
+from tests.unit.graph_double_fakes import NodeEdgeStore
 
 
-class _FakeEngine:
+class _FakeEngine(NodeEdgeStore):
     """Minimal in-memory stand-in for the graph engine (add_node/link_nodes/query_cypher).
 
     Mirrors the ad hoc fake-engine pattern already used by
@@ -41,8 +42,7 @@ class _FakeEngine:
     """
 
     def __init__(self) -> None:
-        self.nodes: dict[str, dict[str, Any]] = {}
-        self.edges: list[tuple[str, str, str]] = []
+        super().__init__()
         self.add_node_calls = 0
 
     def add_node(
