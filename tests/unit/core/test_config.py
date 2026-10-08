@@ -423,8 +423,8 @@ def test_agent_config_overrides():
 def test_resolved_kg_embedding_dim_fails_loud_on_explicit_mismatch(monkeypatch):
     """An explicit ``KG_EMBEDDING_DIM`` that disagrees with the configured
     embedder's real output size must raise, not silently apply (see
-    AU-SEMANTIC-R028): a silent mismatch between the configured dimension and
-    a 1024-dim ``bge-m3`` embedder would otherwise size every vector column
+    semantic requirement 028): a silent mismatch between the configured
+    dimension and a 1024-dim ``bge-m3`` embedder would otherwise size every vector column
     wrong with no error anywhere."""
     monkeypatch.setenv("KG_EMBEDDING_DIM", "768")
     config = AgentConfig(
@@ -441,7 +441,7 @@ def test_resolved_kg_embedding_dim_fails_loud_on_explicit_mismatch(monkeypatch):
 def test_resolved_kg_embedding_dim_derives_from_embedder_when_unset(monkeypatch):
     """Without an explicit override, the dimension is derived from the
     configured embedder rather than silently defaulting to 768
-    (AU-SEMANTIC-R028)."""
+    (semantic requirement 028)."""
     monkeypatch.delenv("KG_EMBEDDING_DIM", raising=False)
     config = AgentConfig(
         EMBEDDING_MODELS=[
