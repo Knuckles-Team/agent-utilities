@@ -8,9 +8,10 @@
     "AU-HARNESS-R003",
     "AU-HARNESS-R004",
     "AU-HARNESS-R005",
-    "AU-HARNESS-R006"
+    "AU-HARNESS-R006",
+    "AU-HARNESS-R007"
   ],
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
   "evidence": [],
   "requirements": [
@@ -81,6 +82,12 @@
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
       ]
+    },
+    {
+      "id": "AU-HARNESS-R007",
+      "title": "Run outcomes feed propose-only prompt evolution",
+      "delivery_state": "BUILDING",
+      "evidence": []
     }
   ]
 }

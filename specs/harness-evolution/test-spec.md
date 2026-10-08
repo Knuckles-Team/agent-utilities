@@ -13,6 +13,11 @@
 | Decide unavailable, commit replay mismatch, claim fence lost | integration fault | no execution and no second scheduler |
 | Proposal missing approval, stale base, dirty tree, path escape, gate failure, uncertain remote result | graph-os/RM contract fakes | no unauthorized commit; pending proposal with typed reason |
 | Successful approved proposal | public contract integration | exact commit/gate/receipt digests; Gap resolves only after receipt re-ingest |
+| Agent with 10 new outcomes, 3 failures (AU-HARNESS-R007) | graph double + fake optimizer | one `PromptVersion` proposal, parent hash of the baseline, 10 `was_derived_from` edges, prompt file unchanged, cursor advanced |
+| Pending proposal, too few outcomes, no failures, other agent's traces | graph double | no optimizer call and no new version |
+| Optimizer returns no candidate; graph write refused | graph double | status `error`; cursor and versions unchanged |
+| Default optimizer | fake engine serving `optimize_program` | native `bootstrap_few_shot` compiled state recorded on the proposal |
+| Scheduled sweep | `run_optimization_sweep(targets=["prompt_evolution"])` | dispatches to the run-outcome sweep; reported as optimized, propose-only |
 
 Fresh checkout: `python3 scripts/uv_workspace.py doctor`, then focused `python3 scripts/uv_workspace.py run --all-extras pytest tests/harness tests/unit -q`. New tests must inject fake EG, graph-os, provider, trainer and repository-manager boundaries; normal PR CI needs no live graph, vendor credentials, model server, GPU or private network. Optional live certification records exact receipts and is not a prerequisite for contribution PRs unless the changed contract requires it.
 

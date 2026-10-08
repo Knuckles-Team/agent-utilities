@@ -1,7 +1,7 @@
 # Harness evolution and governed work
 
 **Owner:** agent-utilities (AU) · **Stable ID:** `AU-HARNESS-001`
-**Delivery:** PARTIAL · **Acceptance:** NOT VERIFIED · **Scope IDs:** AU-HARNESS-R001–AU-HARNESS-R005, AU-HARNESS-R003–AU-HARNESS-R004, AU-HARNESS-R006 (AU portions). See [requirements.md](requirements.md) for the definition of every requirement ID and [status.json](status.json) for its delivery state and evidence.
+**Delivery:** PARTIAL · **Acceptance:** NOT VERIFIED · **Scope IDs:** AU-HARNESS-R001–AU-HARNESS-R005, AU-HARNESS-R003–AU-HARNESS-R004, AU-HARNESS-R006–AU-HARNESS-R007 (AU portions). See [requirements.md](requirements.md) for the definition of every requirement ID and [status.json](status.json) for its delivery state and evidence.
 
 ## Outcome
 
@@ -13,6 +13,7 @@ An operator sees one evidence-backed queue of gaps, can capture eligible open-we
 2. **P0: one work market.** A signal upserts one canonical Gap and one native WorkItem atomically. AU derives a versioned WorkOffer from evidence, asks EG `Decide` to select legal work, commits the record and executes only after the native fenced claim. Missing Decide never triggers a local sort or fallback queue.
 3. **P0: governed code correction.** AU produces a bounded `ChangeProposal` tied to a Gap and a complete local spec. graph-os checks policy and sends the approved task to repository-manager; its Git/validation receipt is re-ingested before resolution. AU never runs Git as a materializer.
 4. **P1: policy experiment.** AU emits an external LoRA/new-artifact training job with immutable capture digests, receives a terminal run receipt and requests independent held-out evaluation. A separate approved compare-and-swap promotion may move the serving pointer; failure or cancellation cannot.
+5. **P1: prompt evolution from run outcomes.** An agent accumulates failed and successful runs. The scheduled optimization sweep reads the new outcomes for that agent and runs the program optimizer. A reviewer finds one `PromptVersion` candidate with status `proposal` and links to the source traces. The live prompt file stays unchanged. A second candidate waits until the first one leaves review.
 
 ## Requirements
 
@@ -25,6 +26,7 @@ An operator sees one evidence-backed queue of gaps, can capture eligible open-we
 | HE-05 | Route code proposals through graph-os authorization and repository-manager materialization; remove AU direct Git, local publication/report authority and dual writes. | AU-HARNESS-R004 | source gate and end-to-end receipt |
 | HE-06 | Train/promote only with independent held-out evaluation, bounded resource lease, immutable artifact, compare-and-swap pointer and rollback receipt. | AU-HARNESS-R002 | negative and canary tests |
 | HE-07 | Keep in-engine generative/autograd implementation deferred until a separate evidence-backed Gap proves held-out benefit, cost and safety. | AU-HARNESS-R005 | absence and decision record |
+| HE-09 | Read new attributed `RunTrace` outcomes past a durable cursor. Optimize through a pluggable optimizer (native `eg-program` by default). Record a `PromptVersion` proposal with `was_derived_from` trace edges. Never write or promote the prompt. | AU-HARNESS-R007 | graph-double, fake-optimizer and native-path tests |
 
 ## Success criteria
 
