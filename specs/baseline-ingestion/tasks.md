@@ -11,4 +11,6 @@ Status: BUILDING. Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md)
 - [x] Run focused tests, ruff, complexity, env-sprawl, swallowed-error and event-loop gates.
 - [ ] Merge the SDK helper and release it; raise the AU SDK floor to that release.
 - [ ] Deploy a daemon-role process on an empty store; record the WorkItem list and the sparse-index ratio.
+- [ ] Specify the EG op for EG-DECISION-ENGINE-R030 in the EG decision-engine spec: `Decide` with `QuestionKind::IngestionLane`, input (source kind, content class, byte size, needs vector), output (`SemanticQueueClass`, entry `SemanticStage`, reason).
 - [ ] Route the queue class through the EG decision once EG-DECISION-ENGINE-R030 ships.
+- [ ] Specify an EG S1 admission op for graph content (skills, prompts, code). `SemanticIndex` admits SQL-sourced bindings only.

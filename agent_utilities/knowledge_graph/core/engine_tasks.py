@@ -2640,7 +2640,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
 
     def _tick_baseline_prompts(self) -> None:
         """Ingest the prompt library for the baseline WorkItem (spec: baseline-ingestion)."""
-        from ..ingestion.baseline_ingest import ingest_prompt_library
+        from ..ingestion.baseline_items import ingest_prompt_library
 
         ingest_prompt_library()
 
@@ -6088,7 +6088,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         from agent_utilities.knowledge_graph.core.engine import (
             IntelligenceGraphEngine,
         )
-        from agent_utilities.knowledge_graph.ingestion.baseline_ingest import (
+        from agent_utilities.knowledge_graph.ingestion.baseline_items import (
             resolve_skill_corpus_root,
         )
         from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (

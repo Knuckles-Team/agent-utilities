@@ -14,9 +14,31 @@ Skills and prompts stay on their existing providers, so nothing registers twice.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_Register = Callable[[Any, str, Path], int]
+
+
+def _ontology_sources() -> tuple[_Register, list[tuple[str, Path]]]:
+    from agent_connector_sdk.mcp.content import register_ontology_resources
+
+    from agent_utilities.core.providers import resolve_ontology_provider_dirs
+
+    return register_ontology_resources, resolve_ontology_provider_dirs()
+
+
+def _register_provider(register: _Register, mcp: Any, *, name: str, root: Path) -> int:
+    try:
+        return register(mcp, name, root)
+    except Exception as exc:  # noqa: BLE001 - one provider must not sink the sweep
+        logger.warning(
+            "Could not register ontology provider %s: %s", name, type(exc).__name__
+        )
+        return 0
 
 
 def register_ontology_providers(mcp: Any) -> int:
@@ -27,25 +49,16 @@ def register_ontology_providers(mcp: Any) -> int:
     stop a server being built.
     """
     try:
-        from agent_connector_sdk.mcp.content import register_ontology_resources
-
-        from agent_utilities.core.providers import resolve_ontology_provider_dirs
-
-        registered = 0
-        for provider_name, root_dir in resolve_ontology_provider_dirs():
-            try:
-                registered += register_ontology_resources(mcp, provider_name, root_dir)
-            except Exception as exc:  # noqa: BLE001 - one provider must not sink the sweep
-                logger.warning(
-                    "Could not register ontology provider %s: %s",
-                    provider_name,
-                    type(exc).__name__,
-                )
-        logger.info("Registered %d ontology/shape resource(s)", registered)
-        return registered
+        register, providers = _ontology_sources()
     except Exception as exc:  # noqa: BLE001 - optional surface; never block startup
         logger.warning("Could not register ontology providers: %s", type(exc).__name__)
         return 0
+    registered = sum(
+        _register_provider(register, mcp, name=name, root=root)
+        for name, root in providers
+    )
+    logger.info("Registered %d ontology/shape resource(s)", registered)
+    return registered
 
 
 __all__ = ["register_ontology_providers"]

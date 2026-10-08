@@ -12,6 +12,8 @@ from unittest.mock import patch
 import pytest
 
 from agent_utilities.knowledge_graph.ingestion import baseline_ingest as bi
+from agent_utilities.knowledge_graph.ingestion import baseline_items as items_mod
+from agent_utilities.knowledge_graph.ingestion import baseline_workspace as ws
 
 _SETTINGS = "agent_utilities.knowledge_graph.ingestion.baseline_ingest._settings"
 
@@ -75,7 +77,7 @@ def test_plan_orders_fast_before_medium_and_covers_every_leg(tmp_path: Path) -> 
     data = _workspace(tmp_path)
     with (
         patch(_SETTINGS, return_value=_settings(kg_baseline_codebases="core")),
-        patch.object(bi, "_load_workspace_manifest", return_value=data),
+        patch.object(ws, "load_workspace_manifest", return_value=data),
     ):
         items = bi.plan_baseline()
     legs = [item.leg for item in items]
@@ -103,7 +105,7 @@ def test_plan_orders_fast_before_medium_and_covers_every_leg(tmp_path: Path) -> 
     ],
 )
 def test_workspace_scope(tmp_path: Path, scope: str, expected: list[str]) -> None:
-    names = [name for name, _ in bi.workspace_repositories(_workspace(tmp_path), scope)]
+    names = [name for name, _ in ws.workspace_repositories(_workspace(tmp_path), scope)]
     assert sorted(names) == sorted(expected)
 
 
@@ -116,7 +118,7 @@ def test_codebase_cap_bounds_the_plan(tmp_path: Path) -> None:
                 kg_baseline_codebases="all", kg_baseline_max_codebases=1
             ),
         ),
-        patch.object(bi, "_load_workspace_manifest", return_value=data),
+        patch.object(ws, "load_workspace_manifest", return_value=data),
     ):
         items = bi.plan_baseline()
     assert sum(item.leg == "codebase" for item in items) == 1
@@ -125,7 +127,7 @@ def test_codebase_cap_bounds_the_plan(tmp_path: Path) -> None:
 def test_workspace_scan_failure_keeps_skills_and_prompts() -> None:
     with (
         patch(_SETTINGS, return_value=_settings(kg_baseline_codebases="core")),
-        patch.object(bi, "_load_workspace_manifest", side_effect=OSError("denied")),
+        patch.object(ws, "load_workspace_manifest", side_effect=OSError("denied")),
     ):
         items = bi.plan_baseline()
     assert {item.leg for item in items} == {"prompts", "skills"}
@@ -133,9 +135,9 @@ def test_workspace_scan_failure_keeps_skills_and_prompts() -> None:
 
 def test_enqueue_stamps_tier_metadata_and_isolates_rejections() -> None:
     items = [
-        bi._prompt_item(),
-        bi.BaselineItem("codebase", "far", "/elsewhere/far", "codebase", True),
-        bi.BaselineItem("codebase", "near", "/ws/near", "codebase", True),
+        items_mod.prompt_item(),
+        items_mod.BaselineItem("codebase", "far", "/elsewhere/far", "codebase", True),
+        items_mod.BaselineItem("codebase", "near", "/ws/near", "codebase", True),
     ]
     engine = RecordingEngine(fail_targets={"/elsewhere/far"})
     report = bi.enqueue_baseline(engine, items, "boot1")
@@ -213,17 +215,17 @@ def test_start_respects_the_switch_and_swallows_launch_errors() -> None:
 
 
 def test_skill_corpus_root_resolution() -> None:
-    assert bi.resolve_skill_corpus_root("universal-skills") is None
-    assert bi.resolve_skill_corpus_root("/explicit/root") == "/explicit/root"
+    assert items_mod.resolve_skill_corpus_root("universal-skills") is None
+    assert items_mod.resolve_skill_corpus_root("/explicit/root") == "/explicit/root"
     with patch(
         "agent_utilities.core.providers.iter_provider_dirs",
         return_value=[("graph-os", Path("/pkg/graph_os/skills"))],
     ):
-        assert bi.resolve_skill_corpus_root("skill-provider:graph-os") == str(
+        assert items_mod.resolve_skill_corpus_root("skill-provider:graph-os") == str(
             Path("/pkg/graph_os/skills")
         )
         with pytest.raises(LookupError):
-            bi.resolve_skill_corpus_root("skill-provider:absent")
+            items_mod.resolve_skill_corpus_root("skill-provider:absent")
 
 
 def test_prompt_library_runs_off_loop_with_the_caller_context() -> None:
@@ -239,7 +241,7 @@ def test_prompt_library_runs_off_loop_with_the_caller_context() -> None:
         "agent_utilities.agent.registry_builder.ingest_prompts_to_graph",
         side_effect=_ingest,
     ):
-        bi.ingest_prompt_library()
+        items_mod.ingest_prompt_library()
     assert seen["marker"] == "verified"
     assert seen["thread"].startswith("kg-baseline")
 
@@ -248,5 +250,7 @@ def test_prompt_tick_is_an_allowlisted_maintenance_ref() -> None:
     from agent_utilities.core.schedule_engine import _MAINTENANCE_REF_ALLOWLIST
     from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
 
-    assert bi.PROMPTS_MAINTENANCE_REF in _MAINTENANCE_REF_ALLOWLIST
-    assert callable(getattr(TaskManagerMixin, f"_tick_{bi.PROMPTS_MAINTENANCE_REF}"))
+    assert items_mod.PROMPTS_MAINTENANCE_REF in _MAINTENANCE_REF_ALLOWLIST
+    assert callable(
+        getattr(TaskManagerMixin, f"_tick_{items_mod.PROMPTS_MAINTENANCE_REF}")
+    )
