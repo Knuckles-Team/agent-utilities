@@ -45,7 +45,7 @@ AGENT_LIBRARY_PROVIDER_REF = "provider://agent-webui-library"
 #: prompt; ``agent_graph``: an L3 assembly saved for reuse.
 LIBRARY_KINDS = ("local", "role", "agent_graph")
 MAX_INSTRUCTIONS_BYTES = 32_000
-MAX_TOOLS = 200
+MAX_TOOLS = 256
 
 _SKILL = "AGENT_SKILL"
 _A2A = "A2A_AGENT"
@@ -85,6 +85,9 @@ class AgentRecord:
     timestamp: str = ""
     runnable: bool = True
     tool_refs: tuple[Mapping[str, Any], ...] = ()
+    #: A2A entries only: the published endpoint and agent card.
+    endpoint: str = ""
+    agent_card: Any = None
 
     def validate(self) -> AgentRecord:
         """Fail closed on a record no surface can store or run."""
@@ -115,6 +118,7 @@ class AgentRecord:
             "skills": list(self.skills),
             "context_policy": dict(self.context_policy),
             "source": self.source,
+            "endpoint": self.endpoint or None,
         }
 
 
@@ -172,6 +176,8 @@ def _record_from_row(row: Mapping[str, Any]) -> AgentRecord:
         status=_text(row, "status", "active"),
         timestamp=_text(row, "timestamp"),
         runnable=bool(row.get("runnable_bound", kind == "a2a")),
+        endpoint=_text(row, "endpoint"),
+        agent_card=row.get("agent_card"),
     )
 
 

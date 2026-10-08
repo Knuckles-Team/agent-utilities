@@ -150,3 +150,22 @@ def test_an_assembled_graph_is_saved_for_reuse_and_never_runnable(engine) -> Non
 
 def test_an_unsolved_result_makes_no_graph_record() -> None:
     assert assembled_graph_record({}) is None
+
+
+def test_an_a2a_agent_is_listed_with_its_endpoint(engine) -> None:
+    engine.add_node(
+        "agent:outside",
+        "CallableResource",
+        {
+            "name": "outside",
+            "resource_type": "A2A_AGENT",
+            "endpoint": "https://agent.example.com",
+            "agent_card": {"name": "outside"},
+        },
+    )
+    library = AgentLibrary(engine)
+    (listed,) = library.list()
+    assert listed.view()["kind"] == "a2a"
+    assert listed.view()["endpoint"] == "https://agent.example.com"
+    got = library.get("agent:outside")
+    assert got is not None and got.agent_card == {"name": "outside"}
