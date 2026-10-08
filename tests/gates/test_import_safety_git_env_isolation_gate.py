@@ -4,7 +4,7 @@ Git-state dependency"?
 
 ``723f85ed`` fixed a DIFFERENT class of environment dependency for this gate
 -- which INTERPRETER runs it (bare ``python3`` on PATH vs the repo's own
-``.venv``), wired via ``.config/pre-commit.yaml``'s ``uv_workspace.py run``
+``.venv``), wired via ``.config/pre-commit.yaml``'s repository interpreter
 wrapper, not a git-state dependency. This file proves the git-state half of
 the "no ambient dependency" requirement holds too: unlike
 ``check_tracked_privacy.py``/``check_current_only_contract.py``

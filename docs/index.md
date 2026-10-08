@@ -124,3 +124,12 @@ monolithic agent loop:
 Continue to the [architecture reference](architecture/index.md) for the module
 map, or browse the [documentation catalog](reference/documentation-catalog.md)
 when you need a specialized operational guide.
+
+## Specification delivery
+
+[Open the specification dashboard](https://knuckles-team.github.io/agent-utilities/spec-delivery/)
+for documented specifications, separate requirement status, delivery evidence,
+and open pull request and issue snapshots. It refreshes on pushes to `main`.
+Completion requires recorded delivery and acceptance; a merged requirement does
+not complete its parent specification. Dates and trends remain unknown until
+supported by recorded evidence.

@@ -28,6 +28,7 @@ from agent_utilities.models.knowledge_graph import (
     retired_edge_relationship_property_error,
     retired_node_type_property_error,
 )
+from agent_utilities.security.error_surface import validated_engine_error_code
 from agent_utilities.security.identifiers import (
     InvalidIdentifierError,
     validate_identifier,
@@ -61,17 +62,21 @@ class CypherEngineError(RuntimeError):
 
     Query text, parameters, endpoints, paths, and backend error details are not
     retained or exposed. Operators can correlate the stable reference with the
-    engine's governed audit record.
+    engine's governed audit record. A code declared by the installed engine
+    contract may survive; arbitrary codes and diagnostic details never do.
     """
 
     def __init__(self, query: str, mode: str, cause: BaseException) -> None:
         self.query_reference = _query_reference(query)
         self.mode = mode
         self.error_type = type(cause).__name__
+        self.engine_error_code = validated_engine_error_code(
+            getattr(cause, "code", None)
+        )
         super().__init__(
             "native Cypher authority rejected request "
             f"(query_ref={self.query_reference}, mode={mode}, "
-            f"error_type={self.error_type})"
+            f"error_type={self.error_type}, engine_error_code={self.engine_error_code})"
         )
 
 

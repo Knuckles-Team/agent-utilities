@@ -22,7 +22,7 @@ import logging
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeAlias
 
 from agent_connector_sdk.ports.decide_runner import Fallback as SdkFallback
 
@@ -72,7 +72,7 @@ class Escalated(str):
 
 
 #: The deterministic (or escalated) answer when EG does not decide -- the SDK's type.
-Fallback = SdkFallback
+Fallback: TypeAlias = SdkFallback
 
 
 @dataclass(frozen=True, slots=True)

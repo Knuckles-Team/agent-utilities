@@ -92,7 +92,9 @@ def test_a_met_rule_stops_and_releases_without_asking(
     eg: FakeTransport, released: list[str]
 ) -> None:
     step = asyncio.run(
-        continue_or_stop(RECORD, {"rule": "max_rounds", "n": 1}, RoundProgress(1), width=3)
+        continue_or_stop(
+            RECORD, {"rule": "max_rounds", "n": 1}, RoundProgress(1), width=3
+        )
     )
     assert (step.action, step.reason) == ("stop", "max_rounds")
     assert released == [RECORD]
@@ -104,7 +106,9 @@ def test_eg_may_narrow_and_the_question_cites_the_parent_plan(
 ) -> None:
     eg.answer = acted("narrow")
     step = asyncio.run(
-        continue_or_stop(RECORD, {"rule": "max_rounds", "n": 4}, RoundProgress(1), width=3)
+        continue_or_stop(
+            RECORD, {"rule": "max_rounds", "n": 4}, RoundProgress(1), width=3
+        )
     )
     assert step.action == "narrow"
     assert released == [], "narrowing keeps the per-cell leases until the stop"
@@ -114,7 +118,9 @@ def test_eg_may_narrow_and_the_question_cites_the_parent_plan(
 
 def test_without_a_runner_the_run_continues(released: list[str]) -> None:
     step = asyncio.run(
-        continue_or_stop(RECORD, {"rule": "max_rounds", "n": 4}, RoundProgress(1), width=2)
+        continue_or_stop(
+            RECORD, {"rule": "max_rounds", "n": 4}, RoundProgress(1), width=2
+        )
     )
     assert step.action == "continue" and released == []
 
@@ -141,3 +147,20 @@ def test_the_last_wave_of_a_plan_run_releases_its_leases(released: list[str]) ->
     }
     assert asyncio.run(after_wave(plan, 1, [["a"], ["b"]])) is True
     assert released == [RECORD]
+
+
+@pytest.mark.parametrize("width", [1, 3])
+def test_eg_cannot_widen_a_running_plan(
+    eg: FakeTransport, released: list[str], width: int
+) -> None:
+    """Control requirement 019: an unoffered widening answer grants no authority."""
+    eg.answer = acted("widen")
+    step = asyncio.run(
+        continue_or_stop(
+            RECORD, {"rule": "max_rounds", "n": 4}, RoundProgress(1), width=width
+        )
+    )
+    assert step.action == "continue"
+    assert step.reason == "foreign_option: widen"
+    assert len(eg.requests) == 1, "exercise the real runner, not its unbound fallback"
+    assert released == [], "continuing the existing plan preserves its leases"
