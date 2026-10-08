@@ -9,13 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - **Nine `graph-os`-owned pre-bundled skills (13 → 4, CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage).**
-  Removed `agent_utilities/skills/{agent-utilities-source-integration,autonomous-contribution,
+  Deleted `agent_utilities/skills/{agent-utilities-source-integration,autonomous-contribution,
   graph-engine-and-modalities,graph-ingestion-and-integration,graph-modeling-and-mutation,
   graph-orchestration-and-automation,graph-query-and-explanation,graph-research-and-analysis,
   graph-runtime-and-governance}/`. graph-os took over these skills at its own
   `graph_os/skills/<name>/` (graph-os commit `704ce45`); carrying a duplicate copy here only
   caused graph-os's fleet sweep to log "Skipping duplicate skill during sweep: duplicate
-  current skill identity ... provided by both 'agent-utilities' and 'graph-os'" and skip this repository's.
+  current skill identity ... provided by both 'agent-utilities' and 'graph-os'" and skip ours.
   `BUNDLED_SKILLS` now lists only the four retained platform skills (`agent-utilities-deployment`,
   `agent-utilities-development`, `agent-utilities-evolution`, `agent-utilities-self-evolution`);
   the forward-test matrix, release catalogs/schemas, the expert prompt, and every doc cross-
@@ -31,13 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `agent_utilities.agent_utilities`, `agent_utilities.decorators`,
   `agent_utilities.graph_orchestration`, and
   `agent_utilities.graph.adapters.external_plugin_adapter` modules have been
-  removed. `AU-ORCH.execution.subgraph-synthesis` is retired with the no-op legacy
+  deleted. `AU-ORCH.execution.subgraph-synthesis` is retired with the no-op legacy
   node hierarchy that solely declared it; governed MCP servers, skills, and bundles
   remain the supported plugin surfaces.
 - **Dead `workspace_sync` pipeline phase (RF-031).** `agent_utilities.knowledge_graph.
   pipeline.phases.workspace_sync` (Phase 14: clone workspace.yml projects via
   `repository_manager` then auto-ingest them) was never registered in `PHASES`/
-  `STRUCTURAL_PHASES`, so it can never run. Removed along with its dead
+  `STRUCTURAL_PHASES`, so it could never run. Deleted along with its dead
   `PipelineConfig.enable_workspace_sync`/`.kb_auto_ingest_cloned_repos` fields and
   the `ENABLE_KG_WORKSPACE_SYNC` env var.
 
@@ -84,7 +84,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PersistenceEligibilityGate`, and the default `AuthorityDerivedEligibility` decides it
   **systematically and automatically**, with no operator table and no grant flag:
 
-  > persist iff the caller's *effective* authority — the checked `GraphSession`
+  > persist iff the caller's *effective* authority — the verified `GraphSession`
   > intersected with any active `SpawnDelegation.ceiling` — dominates the **most
   > restrictive** composition of **every** contributing source's labels, within the
   > session's own tenancy.
@@ -112,10 +112,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - **`OperatorGrantEligibility` and the `operator_grant` argument.** Over the
   `graph_kv_checkpoint` MCP surface, `initiator="user"` and `operator_grant=true` were
-  values any caller can simply assert, which made a deny-by-default gate defeatable by
+  values any caller could simply assert, which made a deny-by-default gate defeatable by
   a caller that chose to lie. Both are gone; `initiator` is renamed `trigger` and is
   provenance only, and the tenant a durable write is authorized under is now read from
-  the checked session (a payload tenant that disagrees is refused rather than
+  the verified session (a payload tenant that disagrees is refused rather than
   preferred).
 - **The recommendation reaches the LLM.**
   `CONCEPT:AU-ORCH.optimization.checkpoint-recommendation-surface` — scoring a moment
@@ -140,7 +140,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cost-budget, output-schema rules) had zero live callers across the whole
   `agent-packages` ecosystem — only test and docstring instantiations, a
   sync fail-open engine that read as implemented safety but never ran.
-  Removed per `AGENTS.md` "No Legacy" and replaced with `pydantic-ai-harness`'s
+  Deleted per `AGENTS.md` "No Legacy" and replaced with `pydantic-ai-harness`'s
   `InputGuardrail`/`OutputGuardrail` (already an installed dependency),
   wired default-on through `capabilities/content_guardrails.py` +
   `capabilities/composition.py::default_runtime_capabilities` into both
@@ -152,7 +152,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keys. `CostBudgetPolicy` had no port — `ExecutionBudget`
   (`models/usage.py`) already fully covers (and, unlike `PolicyEngine`,
   actually enforces via `graph/_router_impl.py::dispatcher_step`) its
-  token/cost tracking, so it was removed outright.
+  token/cost tracking, so it was deleted outright.
 
 - **Proven upstream `DynamicWorkflow` execution + a real governed resume path.**
   `GovernedDynamicWorkflow.execute_upstream` now provably runs a model-authored
@@ -161,13 +161,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   output), with the generated script and normalised call graph persisted as
   trace artifacts (`WorkflowScriptArtifact` nodes; `RunTrace.graph_*` evidence).
   Every catalog dispatch inherits ambient trace/tenant/budget/cancellation
-  context across the sandbox boundary (checked end-to-end), and a nested
+  context across the sandbox boundary (verified end-to-end), and a nested
   `DynamicWorkflow` attempt is refused. A new `WorkflowResumeState` cache
-  persists each completed `(step, task) -> output` immediately, so a stopped
+  persists each completed `(step, task) -> output` immediately, so a halted
   attempt (harness budget exhaustion, timeout, cancellation, or a process
   restart) resumed under the SAME `workflow_run_id` never re-dispatches an
   already-completed catalog call — proven to produce **zero duplicate
-  `:ToolCall`s** across a budget-stop-then-restart. A resumed run is always
+  `:ToolCall`s** across a budget-halt-then-restart. A resumed run is always
   reported truthfully (`resumed`/`replayed_step_ids`, `outcome="replayed"`),
   never as an indistinguishable clean success. The conductor is also given a
   real default-ON `CheckpointMiddleware` for durable checkpoint evidence.
@@ -205,7 +205,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   every `Orchestrator.dispatch_task`/`execute_agent` call),
   `AdmissionPolicy.decide` (now gates real worker claims in
   `_claim_next_task`), the KV-cache fork/branch backend (already wired via
-  `CrossModalForkFanout.fan_out`, checked), `graph_mine(action="process",
+  `CrossModalForkFanout.fan_out`, verified), `graph_mine(action="process",
   ocel_mode="mine")`'s `ChangeEnvelope` (now actually committed via
   `ingest_envelope`), the reasoning-topology package (now reachable via a
   new `graph_agents(action="reason")` MCP action), and `NeuralRelationPrediction`
@@ -249,7 +249,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now states the caveat explicitly and gives retry/reconnect guidance for a
   caller with no refresh mechanism of its own.
 - **BUG-051: a new `MCP_CLIENT_AUTH=rotating-file-bearer` mode closes the
-  half of the graph-os token-expiry outage the refresh daemon alone can
+  half of the graph-os token-expiry outage the refresh daemon alone could
   not.** `refresh-graphos-token.sh` correctly rotates a token file every
   cycle, but a long-lived MCP client session that cached its bearer at
   connect time never re-reads it — "file refreshed + probe 200, session
@@ -287,7 +287,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   only treated the node-transition budget as non-retryable; a token, cost, or
   duration budget was silently retried through the planner for up to 2 more
   rounds — each spending more of the very resource that already tripped.
-  Every budget dimension is now classified and stop immediately, and
+  Every budget dimension is now classified and terminated immediately, and
   `run_graph` surfaces a truthful `outcome: "budget_exceeded"` +
   `budget_dimension`, preserving partial specialist results alongside the
   error instead of discarding them.
@@ -297,12 +297,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `agent-utilities` without it had no verifier — and `_decode_jwt`'s resulting
   `ImportError`, turned into an `HTTPException(500)`, was blanket-caught by
   `authenticate_header_values` and `ActorIdentityMiddleware` and reported as a
-  generic `401 "Token validation failed"`. No correctly issued token can
+  generic `401 "Token validation failed"`. No correctly issued token could
   ever have been accepted, and the error blamed the credential instead of the
   missing dependency. `joserfc` is now a **base** dependency (pure Python; its
   only requirement, `cryptography`, was already mandatory, so this adds no
   new transitive package and the import stays lazy — zero cost for a process
-  that never checks a JWT). `[auth]` remains a no-op alias extra so the
+  that never verifies a JWT). `[auth]` remains a no-op alias extra so the
   ~69 external manifests pinning `agent-utilities[auth]` keep resolving.
   Enforcement is now purely the existing `AUTH_JWT_JWKS_URI` runtime/config
   toggle, never an accident of packaging. Independently, `authenticate_header_values`
@@ -333,7 +333,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ontology lock now match the exact merged Agent Utilities source state while
   retaining trusted-key rotation support for existing provider manifests.
 
-## [2.1.0] - 2026-07-27 — Ecosystem-use gap-fill (EvidenceBundle.from_engine_wire live path)
+## [2.1.0] - 2026-07-27 — Ecosystem-utilization gap-fill (EvidenceBundle.from_engine_wire live path)
 
 ### Added
 - **Messaging-orchestration transparency (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency).**
@@ -363,13 +363,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `engine.execute_graph`'s terminal `error_recovery_step` dict being silently stringified
   into a fake `status="completed"` answer; and a pre-existing gap in the router's envelope
   unwrap allow-set that never included `run_id` (always present in a real envelope), which
-  can leak raw JSON into the chat once a native message channel opened.
+  could leak raw JSON into the chat once a native message channel opened.
 - **Cluster-wide backpressure unification + the W2.4 priority claim (W2.9, CONCEPT:AU-ORCH.scheduling.claim-pacing-backpressure).**
   Closes the seam between the engine's admission authority and the Python
   WorkItem claim loop, which used to be disjoint layers — au kept draining
-  work the engine will shed. `GraphSession.engine_verified_context()`
+  work the engine would shed. `GraphSession.engine_verified_context()`
   (`knowledge_graph/core/session.py`) now joins the advisory `priority` claim
-  (the ambient `PriorityClass` contextvar) into the checked-context dict when
+  (the ambient `PriorityClass` contextvar) into the verified-context dict when
   tagged, so an engine build carrying W2.4's `RequestContextClaims.priority`
   can classify and shed by class; untagged callers are byte-for-byte
   unchanged. **Deploy-ordering constraint (register W2.4-2):** every engine
@@ -417,11 +417,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cross-repo wire: `epistemic_graph.client`'s `RequestContextClaims` gained the
   optional claim this same wave (W2.1-1), so it no longer rejects it as
   unsupported. A plain pass-through, not a signing concern — the token's own
-  RSA/JWKS signature is the trust anchor, checked independently by the engine.
+  RSA/JWKS signature is the trust anchor, verified independently by the engine.
 - **Epistemic RAG as the default delegated-run context path (W3.7, CONCEPT:AU-KG.retrieval.context-compiler).**
   `execute_agent`/`execute_workflow` already routed every model call through the
   mandatory `ContextCompiler` boundary (`core/contextual_model.py::create_context_agent`
-  is the sole runtime Pydantic-AI `Agent` construction site — checked by grep; every
+  is the sole runtime Pydantic-AI `Agent` construction site — verified by grep; every
   other agent constructor across `agent/factory.py`, `graph/executor.py`,
   `graph/hierarchical_planner.py`, `graph/_router_impl.py`, `graph/lifecycle.py` calls
   it), but had no deployment-level opt-out and no Seam-6 (X6) measurement on that
@@ -470,7 +470,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dead worker's lease expires and the activation re-queues (bounded retries → dead_letter,
   the ADR-5 machinery). Canonical template `AGENT_LIFECYCLE_DEF` mirrors eg's new
   `agent_lifecycle_statechart.rs`. Local scale proof: **100 000 dormant instances @ ~1.54
-  KiB/inst + 1 000 concurrent activations, all touching only the M enabled instances
+  KiB/inst + 1 000 concurrent activations, all touching only the M activated instances
   (O(activations), not O(dormant)), peak RSS 283 MiB** (in-memory floor; the engine's
   catalog/resident paging does strictly better). Docs:
   `architecture/agents-as-data-activation.md`.
@@ -561,7 +561,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `valid_time`/`event_time` (the source's reported modification/creation
   timestamp, already populated from connectors' `updated_field`/version-field
   conventions) maps onto the written row's bitemporal `valid_from`
-  (`envelope_ingest._stamp_ambient_valid_time`), and a remove/reconcile
+  (`envelope_ingest._stamp_ambient_valid_time`), and a delete/reconcile
   tombstone closes `valid_to` at the supersession instant
   (`_stamp_ambient_valid_until`) — never fabricated: a source with no usable
   timestamp writes neither property, exactly the legacy shape. (2)
@@ -574,7 +574,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the SAME `ApplyChangeEnvelope` transaction as the row's own write (no extra
   round trip), plus ONE summary `:Claim` per run ("source X reported N
   record(s) as of T", `etl.lineage.record_connector_sync_claim`) through the
-  same lightweight, directly-checked claim-persistence path
+  same lightweight, directly-verified claim-persistence path
   `orchestration.agent_dispatch_worker` already uses — never a `:Claim` per
   row, and never the governed mining-flywheel lifecycle (reserved for
   inferred findings needing review). (3) **Bitemporal writeback (X5)** — the
@@ -583,7 +583,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`writeback.core._stamp_proposals_as_of`, including a high-stakes sink's
   queued `ProposalQueue` entry) for every sink with no per-sink change, and
   the ServiceNow (`work_notes` text) and Egeria (`additional_properties`)
-  sinks also embed it directly into the LIVE outbound payload;
+  sinks additionally embed it directly into the LIVE outbound payload;
   `observability.portfolio_intelligence.run_trm_assessment` computes one
   `as_of` and threads it to both the persisted `:Assessment`'s own
   `runTimestamp` and the backfed ServiceNow TRM work-note, so both agree on
@@ -594,7 +594,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Standalone OTLP trace exporter, wired to gen_ai/epistemic spans (W3.8/X2).**
   The surpass-6mo audit found no OTEL exporter path actually reachable in AU
   despite `TelemetryEngine`/`annotate_epistemic` already stamping
-  `epistemic.*`/`gen_ai.*` span attributes — the hooks that will have driven a
+  `epistemic.*`/`gen_ai.*` span attributes — the hooks that would have driven a
   span (`on_graph_start`/`on_response`/`on_graph_end`) were never called on any
   live path, so the attributes had nothing to attach to. This closes that gap
   end-to-end, configured purely by the standard `OTEL_EXPORTER_OTLP_ENDPOINT`/
@@ -606,7 +606,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     enterprise) via `on_graph_end`, carrying `gen_ai.system`,
     `gen_ai.request.model`, and `gen_ai.response.tool_call_count` when
     available. The graph-execution path (`orchestration/engine.py`'s
-    `AgentOrchestrationEngine.execute_graph`) also feeds real token
+    `AgentOrchestrationEngine.execute_graph`) additionally feeds real token
     counts via `on_response` (`gen_ai.usage.input_tokens`/`output_tokens`),
     reusing the SAME `token_usage`/`model` extraction already feeding the
     Langfuse exporter and usage recorder.
@@ -692,7 +692,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`proposed -> validated -> accepted -> deprecated -> retracted`, `RETRACTED`
   terminal/sticky) previously only fired as a side effect of a mining pass
   (`loop_controller._run_insight_validation`/`_run_trace_mining`) — no MCP/REST
-  surface can directly `propose`/`validate`/`accept`/`deprecate`/`retract` one
+  surface could directly `propose`/`validate`/`accept`/`deprecate`/`retract` one
   claim. `mcp/tools/claim_tools.py` adds a standalone `graph_claims` tool
   (`propose`/`validate`/`accept`/`deprecate`/`retract`/`get`/`list`, REST twin
   `/graph/claims`) — thin dispatch only: every state-changing action FIRST passes
@@ -752,7 +752,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (CONCEPT:AU-ORCH.execution.structured-retry-manager retired).** These lived in
   `agent_utilities/security/execution_stability_engine.py` alongside the still-live
   `RepetitionGuard`/`RepetitionPolicy`/`DoomLoopDetector`, but had zero production
-  callers — only their own unit test (`tests/unit/test_retry_manager.py`, removed)
+  callers — only their own unit test (`tests/unit/test_retry_manager.py`, deleted)
   exercised them. Removed the classes/function plus their RetryManager-only helper
   types (`SuccessCheck`, `RetryResult`, `ShellCheckResult`, `RetryOutcome`) and
   `DEFAULT_*`/`ENV_*` timeout constants, and dropped the now-unused `asyncio`/`os`/
@@ -776,7 +776,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   check_skill_validation_certification.py`, `deploy/release/compatibility-matrix.yml`, and
   the `prebundled-skill-catalog`/`prebundled-skill-validation-evidence`/
   `skill-validation-deployment-evidence`/`release-manifest`/`compatibility-matrix` JSON
-  schemas — regenerating `deploy/release/prebundled-skills.catalog.json` (checked
+  schemas — regenerating `deploy/release/prebundled-skills.catalog.json` (verified
   byte-identical across two runs of `scripts/release/generate_prebundled_skill_catalog.py`)
   and re-synchronizing every dependent digest in `release-contract-resources.catalog.json`
   and its pinned meta-digest in `scripts/release/check_release_wheel.py`. Left
@@ -801,7 +801,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `KG_IDENTITY_OAUTH2` plus inbound `AUTH_TYPE`), and the config-precedence trap
   where a stale `graph_service_endpoints` left in `config.json` keeps winning
   over an unset/removed environment variable (`core/config.py`
-  `_commit_xdg_environment_projection`) — the key must be removed from
+  `_commit_xdg_environment_projection`) — the key must be deleted from
   `config.json` itself. New parametrized test
   (`tests/unit/mcp/test_graphos_bootstrap_isolation.py::test_mcp_server_selects_local_engine_path_for_both_transports`)
   exercises the real resolver from inside `mcp_server()`'s control flow (only the
@@ -876,7 +876,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   correctly re-enables thinking on the wire, not just in `thinking`). Also fixes the
   graph router's own `requires_reasoning` escalation
   (`graph/_router_impl.py`), which selected a heavier model but never actually asked it to
-  think. Live-checked in the `platform/graph-os` pod against real `vllm.arpa`: routine
+  think. Live-verified in the `platform/graph-os` pod against real `vllm.arpa`: routine
   calls through au's own model client 22s → ~0.3–1.3s with real content; a deliberate
   `reasoning_effort="high"` call still produces genuine chain-of-thought (~13–20s),
   confirming the opt-in path is intact.
@@ -910,10 +910,10 @@ external heavy-compute and an analytics job **scheduler** beyond the registries 
   Unset (the default), the verifier returns exactly as before — additive and
   backward compatible.
 - **Centralized identifier validation across mirror-backend adapters (Wave-0 S10).**
-  Multiple backends f-string-interpolated a label/table/relationship-type/column
+  Several backends f-string-interpolated a label/table/relationship-type/column
   name directly into Cypher/SQL/DDL — bound *values* were parameterized, but
   *identifiers* (which neither Cypher nor SQL/DDL can bind) were not validated,
-  most notably `LadybugBackend.prune()`'s caller-provided `criteria["node_type"]`
+  most notably `LadybugBackend.prune()`'s caller-supplied `criteria["node_type"]`
   reaching a `MATCH (n{label})` label position unchecked. The one correct
   pattern that already existed (`epistemic_graph_backend.py`'s
   `_CYPHER_IDENTIFIER_RE`) is now extracted into a shared
@@ -930,7 +930,7 @@ external heavy-compute and an analytics job **scheduler** beyond the registries 
   for valid, ontology-normalized identifiers.
 - **Engine-native claim fencing now fails closed (L15).** `_fence_still_valid`
   previously failed OPEN when the engine was unavailable or the fence-check query
-  raised — a worker unable to confirm it still held the lease can still commit.
+  raised — a worker unable to confirm it still held the lease could still commit.
   It now branches on `_claim_backend`: the engine-native path fails **closed**
   (rejects the commit), while the KG best-effort dev path stays fail-open as
   before. Closes the exact gap called out as a known follow-up in the 1.20.0
@@ -1064,7 +1064,7 @@ external heavy-compute and an analytics job **scheduler** beyond the registries 
 - **X-4 — Ontology-driven tool/agent routing.** Extends AU-P1-3's engine-native
   capability retrieval with ontology-`rdfs:subClassOf` subsumption-aware
   selection (a tool declaring a narrower capability now satisfies a request for
-  the broader one), a versioned `CapabilityDescriptor` (typed `I/O` schema, side
+  the broader one), a versioned `CapabilityDescriptor` (typed I/O schema, side
   effects, cost/latency/locality, policy/approval class), and full eligibility
   explainability (`explain_routing_eligibility()` computes the WHY-eligible dict
   engine-native-first). Default (`capability_hierarchy=None`) is byte-identical
@@ -1097,7 +1097,7 @@ external heavy-compute and an analytics job **scheduler** beyond the registries 
   run executed under. `replay_twin()` deterministically replays a recorded run
   (tool calls/model responses mocked from the record, never re-executed);
   `counterfactual_replay()` swaps a policy version (genuinely re-invokes the
-  pure `ActionPolicy.decide()`) or a model/prompt version (via caller-provided
+  pure `ActionPolicy.decide()`) or a model/prompt version (via caller-supplied
   alternate responses) and reports the delta; `twin_incident_steps()` is a
   read-only step-through for incident investigation.
 
@@ -1106,7 +1106,7 @@ external heavy-compute and an analytics job **scheduler** beyond the registries 
   never-silent-tombstone reconcile (all shipped in 1.20.0) now sit under a
   second, **unconditional** layer: 12 named connectors must pass the manifest
   gate with no operator opt-in (AU-P1-6).
-- The engine-native work-claim fencing check — which can fail OPEN on an
+- The engine-native work-claim fencing check — which could fail OPEN on an
   engine error as of 1.20.0 — now fails **closed** (L15): a worker that can't
   prove it still holds the lease can no longer commit.
 - `GraphSession` scopes are now actually consumed by the admin-scope gate on
@@ -1187,7 +1187,7 @@ work; this release stacks on it. Staged locally, not yet pushed.)
   query the engine rejects, or a value its literal grammar can't express (`None`, negative
   numbers), now raises (`CypherEngineError`/`NotImplementedError`/`ValueError`) instead of
   silently returning `[]`. Two AU-specific shapes stay on typed engine methods because native
-  routing will give silently-wrong results: the virtual `id` node-identity accessor (no
+  routing would give silently-wrong results: the virtual `id` node-identity accessor (no
   guarantee every node stores `id` as a real property) and relationship-type traversal/merge
   (edges are keyed by `rel_type`, not the engine's `relationship`/`type`).
 
@@ -1206,7 +1206,7 @@ work; this release stacks on it. Staged locally, not yet pushed.)
   - New `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE` flag (default empty): `source_sync._reconcile` now
     distinguishes an authoritatively-empty live-id snapshot (opt-in tombstone) from a
     failed/skipped fetch (`fetch_ok=False`, always skips) so a transient upstream error can never
-    be mistaken for "everything was removed".
+    be mistaken for "everything was deleted".
 
 No unreleased changes.
 
@@ -1234,13 +1234,13 @@ No unreleased changes.
   the projections directly; WorkItem exposes only its eight current states and
   Artifact carries occurrence/rendition/segment/feature/derivation identities.
 - **Self-contained Langfuse observability runtime.** The serving artifact now
-  installs Logfire and the governed Langfuse provider, starts that exact
+  installs Logfire and the governed Langfuse provider, launches that exact
   provider with the current Python interpreter, and performs no child-side
   package bootstrap. Standard platform CA stores and named AgentConfig TLS
   profiles share the same mandatory-verification boundary; doctor validates the
   installed provider module instead of unrelated PATH tools.
 
-## [1.27.0] - 2026-07-15 — Ecosystem-use gap-fill
+## [1.27.0] - 2026-07-15 — Ecosystem-utilization gap-fill
 
 ### Breaking
 - **The ecosystem release floor is now `agent-utilities>=1.27.0,<2.0.0`.**
@@ -1289,7 +1289,7 @@ No unreleased changes.
   require `kg:write` and use native durable `cypher_write`; raw batches are
   rejected in favor of atomic `ApplyChangeEnvelope`. The Python backend no
   longer contains pattern, traversal, scan, aggregation, MERGE, or UNWIND logic.
-  MCP and tool modules cannot call backend run primitives; their reads use
+  MCP and tool modules cannot call backend execute primitives; their reads use
   the guarded facade and typed writes use `add_node`/`link_nodes`. Public result
   rows must retain a governed node id so ACL filtering and audit name the same
   objects, and the architecture gate enforces this single-boundary design.
@@ -1311,7 +1311,7 @@ external heavy-compute and an analytics job **scheduler** beyond the registries 
 ### Fixed
 - **Engine-native claim fencing now fails closed (L15).** `_fence_still_valid`
   previously failed OPEN when the engine was unavailable or the fence-check query
-  raised — a worker unable to confirm it still held the lease can still commit.
+  raised — a worker unable to confirm it still held the lease could still commit.
   It now branches on `_claim_backend`: the engine-native path fails **closed**
   (rejects the commit), while the KG best-effort dev path stays fail-open as
   before. Closes the exact gap called out as a known follow-up in the 1.20.0
@@ -1445,7 +1445,7 @@ external heavy-compute and an analytics job **scheduler** beyond the registries 
 - **X-4 — Ontology-driven tool/agent routing.** Extends AU-P1-3's engine-native
   capability retrieval with ontology-`rdfs:subClassOf` subsumption-aware
   selection (a tool declaring a narrower capability now satisfies a request for
-  the broader one), a versioned `CapabilityDescriptor` (typed `I/O` schema, side
+  the broader one), a versioned `CapabilityDescriptor` (typed I/O schema, side
   effects, cost/latency/locality, policy/approval class), and full eligibility
   explainability (`explain_routing_eligibility()` computes the WHY-eligible dict
   engine-native-first). Default (`capability_hierarchy=None`) is byte-identical
@@ -1478,7 +1478,7 @@ external heavy-compute and an analytics job **scheduler** beyond the registries 
   run executed under. `replay_twin()` deterministically replays a recorded run
   (tool calls/model responses mocked from the record, never re-executed);
   `counterfactual_replay()` swaps a policy version (genuinely re-invokes the
-  pure `ActionPolicy.decide()`) or a model/prompt version (via caller-provided
+  pure `ActionPolicy.decide()`) or a model/prompt version (via caller-supplied
   alternate responses) and reports the delta; `twin_incident_steps()` is a
   read-only step-through for incident investigation.
 
@@ -1487,7 +1487,7 @@ external heavy-compute and an analytics job **scheduler** beyond the registries 
   never-silent-tombstone reconcile (all shipped in 1.20.0) now sit under a
   second, **unconditional** layer: 12 named connectors must pass the manifest
   gate with no operator opt-in (AU-P1-6).
-- The engine-native work-claim fencing check — which can fail OPEN on an
+- The engine-native work-claim fencing check — which could fail OPEN on an
   engine error as of 1.20.0 — now fails **closed** (L15): a worker that can't
   prove it still holds the lease can no longer commit.
 - `GraphSession` scopes are now actually consumed by the admin-scope gate on
@@ -1565,7 +1565,7 @@ work; this release stacks on it. Staged locally, not yet pushed.)
   engine's own `eg-query` parser/executor — instead of a client-side regex scan-and-eval. A
   query the engine rejects, or a value its literal grammar can't express (`None`, negative
   numbers), now raises (`CypherEngineError`/`NotImplementedError`/`ValueError`) instead of
-  silently returning `[]`. This transitional split was after removed in
+  silently returning `[]`. This transitional split was subsequently removed in
   the current contract: every typed node stores `id`, every edge stores
   `relationship`, and all Cypher shapes use the native server modes.
 
@@ -1584,7 +1584,7 @@ work; this release stacks on it. Staged locally, not yet pushed.)
   - New `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE` flag (default empty): `source_sync._reconcile` now
     distinguishes an authoritatively-empty live-id snapshot (opt-in tombstone) from a
     failed/skipped fetch (`fetch_ok=False`, always skips) so a transient upstream error can never
-    be mistaken for "everything was removed".
+    be mistaken for "everything was deleted".
 
 ## [1.13.0] - 2026-07-10 — MCP fleet-auth (Basic + OIDC) & connector defaults
 
@@ -1628,13 +1628,13 @@ entry — data-mining/KAN, dep-security, git-platform review, skill standards �
 - **Graph-native Agent-OS objects** — `AgentLease`/`AgentTask`/`AgentMailbox` +
   `AgentCapabilityGrant`/`AgentPolicyDecision`/`AgentTrace`; `claim_agent_task` (engine
   `ClaimNext` backend + KG fallback), `TeamComposition.to_durable_task_dag`, CDC-fired deps,
-  and the full claim→EvidenceBundle→policy→run→Observation/Claim/Action/Outcome flow.
+  and the full claim→EvidenceBundle→policy→execute→Observation/Claim/Action/Outcome flow.
 - **Insight Engine closed loop** — Mine→CandidateInsight→EvidenceBundle→Claim→Validation→
   Action reusing the governance stack; default `approval_required`, opt-in autonomy tier;
   **closed-loop trace mining** (tool-sequence failure patterns → governed routing updates).
 - **Connector Ontology Manifest compiler + fleet rollout** — deterministic zero-LLM generator
   across 66 connector repos; **URDNA2015-canonicalized, HMAC-signed, `ontology.lock`-pinned
-  provide-chain integrity** enforced fail-closed (per-repo pre-commit + CI + `apply_manifest`
+  supply-chain integrity** enforced fail-closed (per-repo pre-commit + CI + `apply_manifest`
   + engine ICV); auto SHACL + RLS/ABAC.
 - **OAuth2 client-credentials** token lifecycle for LLM + embedding + graph-os endpoints
   (`token_url`/`client_id`/`client_secret`/`scope`+`audience`, proactive renewal, secret-ref
@@ -1645,7 +1645,7 @@ entry — data-mining/KAN, dep-security, git-platform review, skill standards �
 
 ### Added — Claude Code file-based memory → KG ingestion (CONCEPT:AU-KG.ingest.claude-memory-connector)
 The Claude Code harness keeps its cross-session memory as flat markdown (`MEMORY.md` + per-topic
-`*.md` files) *outside* the graph. This dogfoods this repository's own memory substrate: a new
+`*.md` files) *outside* the graph. This dogfoods our own memory substrate: a new
 `claude_memory` delta source (`source_sync source=claude_memory`) ingests each topic file as a
 typed, semantically-searchable `:AgentMemory` node (name/type/description/body embedded, findable
 via `graph_search`) and turns its `[[other-slug]]` wiki-links into `RELATED_TO` edges — so the
@@ -1653,7 +1653,7 @@ session knowledge is connected to the rest of the ecosystem graph instead of str
 Zero-infra + offline (reads local markdown, no network); memory dir is `CLAUDE_MEMORY_DIR` when set,
 else every `~/.claude/projects/*/memory` is swept; delta is the content-hash write-delta (unchanged
 topic files are skipped even on a full sweep); the `MEMORY.md`/`MEMORY-ARCHIVE.md` indexes are skipped.
-Checked against the live memory dir: 202 `:AgentMemory` nodes + 371 `RELATED_TO` edges.
+Verified against the live memory dir: 202 `:AgentMemory` nodes + 371 `RELATED_TO` edges.
 
 ## [1.5.0] - 2026-07-04
 
@@ -1689,7 +1689,7 @@ Checked against the live memory dir: 202 `:AgentMemory` nodes + 371 `RELATED_TO`
   the kernel's `ddof=` **keyword** (its signature is `(a, axis=None, ddof=0, keepdims=False)`).
 - **numpy/scipy removed from agent-utilities entirely.** They are gone from
   `requirements.txt`, base `dependencies`, and every extra (`embeddings`/`ann`/`finance`);
-  the `numeric-fallback` extra is **removed**. Base now declares
+  the `numeric-fallback` extra is **deleted**. Base now declares
   `epistemic-graph[numeric]>=2.7.0` (the kernel is a hard base dependency). numpy survives
   ONLY as a **dev/test-only** ground-truth reference in the `[test]` extra
   (`tests/test_numeric_parity.py`, `pytest.importorskip`-gated). Grep for `import numpy` /
@@ -1804,7 +1804,7 @@ run it at saturation:
   graph-os `@mcp.custom_route` mirrors), mapping fleet MCP servers and KG skills
   onto ARD media types via `MCPMultiplexer.discover_tools`. *Consume:* a new
   `@register_source("ard")` connector ingests external registries (HF preset
-  built-in), Ed25519-checked, materialized as typed `:MCPServer`/`:Skill` nodes
+  built-in), Ed25519-verified, materialized as typed `:MCPServer`/`:Skill` nodes
   linked to a `:ResourceRegistry` (`_sync_ard`). *Federate:* `ArdFederationRelay`
   fans `/search` out to peer registries (`auto`/`referrals`/`none`) with loop-break
   and dedup. Ed25519 publisher signing (`security/ard_signing`, import-guarded).
@@ -1841,7 +1841,7 @@ run it at saturation:
   All sources route through the generic `source_sync` (delta/reconcile for any
   source) and shared materialize core; `aris-mcp` registered in the fleet.
 - **Loop engine — successor to the golden loop (CONCEPT:KG-2.78).** Collapses the
-  multiple ad-hoc loops into one `LoopController` over a single `Loop` node model (a
+  many ad-hoc loops into one `LoopController` over a single `Loop` node model (a
   long-running-objective unit). Folds the develop + skill loops and the durable
   goal-runner into the controller (checkpointing cross-cutting), collapses the
   goals table onto the KG Loop node (one persistence model), and exposes one
@@ -2006,7 +2006,7 @@ run it at saturation:
   ontology via graph queries — `find_definition`/`who_calls`/`impacted_tests`/
   `call_graph`/`dependencies` (`tools/code_intelligence_tools.py`) — instead of
   context-stuffing, and acts via workspace tools (`tools/swe_workspace_tools.py`)
-  that run in `deps.workspace` and mirror to the KG. Tools register natively
+  that execute in `deps.workspace` and mirror to the KG. Tools register natively
   through `register_agent_tools` behind a `SWE_TOOLS` gate (shared
   `register_swe_tools`); the agent is declared as a `prompts/swe_engineer.json`
   blueprint using a `capabilities` (intent) list, not hard-coded tool names; and a
@@ -2061,7 +2061,7 @@ run it at saturation:
   ~310 remaining reads across ~107 modules were routed through `config.setting()`
   behavior-preservingly. `setting()` moved to a dependency-free `core/_env.py`
   (re-exported by `config`) so it's importable while `config` is still
-  initializing — fixing the circular-import deadlock that a package-wide fold will
+  initializing — fixing the circular-import deadlock that a package-wide fold would
   otherwise hit. The `check_no_env_sprawl.py` baseline is now **empty**; any new
   bare read (any prefix) fails CI. Also hardened `ConnectionRegistry.resolve_names`
   to route a non-str/list `target` (an unresolved pydantic `FieldInfo` when a tool
@@ -2091,7 +2091,7 @@ run it at saturation:
     `docs/architecture/configuration.md` + `docs/examples/config.json` updated.
 
 ### Added
-- **Named multi-connection graph registry (CONCEPT:KG-2.63)** — register multiple
+- **Named multi-connection graph registry (CONCEPT:KG-2.63)** — register several
   live graph backends side by side (e.g. `prod-neo4j`, `team-falkor`, `pg-main`)
   and run the *same* `graph_*` tools against any one or fan out to all, with the
   backend choice abstracted behind an optional `target` parameter. No code is
@@ -2133,7 +2133,7 @@ run it at saturation:
     (×2), `server/routers/proxy`, `tools/x_search_tool`, `security/auth` (JWKS),
     `orchestration/scaling_signals` (Prometheus).
   - **Breaker unification (CONCEPT:ORCH-1.8)** — the parallel engine's forked
-    per-agent-type `_CircuitBreaker` is removed; `AgentTypeCircuitBreaker` now
+    per-agent-type `_CircuitBreaker` is deleted; `AgentTypeCircuitBreaker` now
     subclass-parameterizes the canonical OS-5.23 `engine_breaker.CircuitBreaker`
     (the ECO-4.34 per-child-breaker pattern) with infinite cooldown to preserve
     the historical open-until-success semantics. One deliberate divergence:
@@ -2146,7 +2146,7 @@ run it at saturation:
     background-learning `with_backoff`, `x_search` (new linear backoff
     strategy; retry sleep is now non-blocking `asyncio.sleep` instead of
     `time.sleep` inside an async tool), prompt-chain steps, the specialist
-    dispatch outer include `graph/executor`, and the parallel engine's in-wave
+    dispatch outer loop in `graph/executor`, and the parallel engine's in-wave
     SWARM-5 retry. The multiplexer child restart backoff
     (`mcp/child_resilience`) is intentionally left distinct.
   - **`ResiliencePolicy` extensions**: `backoff_strategy="linear"`,
@@ -2164,7 +2164,7 @@ run it at saturation:
 - **TLS verification is centrally governed** — the two `verify=False` client
   constructions flagged by the audit (`core/embedding_utilities`,
   `server/dependencies.get_http_client`) were in fact already gated behind the
-  `SSL_VERIFY` / `ssl_verify` opt-out (default secure); they now build via
+  `SSL_VERIFY` / `ssl_verify` opt-out (default secure); they now construct via
   the canonical factory whose default is `verify=True`, so an accidental
   insecure default can no longer be introduced at a call site.
 
@@ -2223,13 +2223,13 @@ run it at saturation:
     or per-host SQLite — same fail-loud selection contract.
   - **`agent-dispatch-worker`** (console script): claims under per-session
     mutual exclusion (process lock + `agent-session:<id>` advisory lock),
-    rehydrates from the shared state store, runs the EXISTING
+    rehydrates from the shared state store, executes the EXISTING
     `run_goal_loop` / orchestration-manager bodies, writes back durably, acks
     after. At-least-once + idempotent stale-claim-aware re-claims = crash
     recovery without a separate scheduler.
   - **Fleet visibility**: workers heartbeat into the sessions store's
     `dispatch_workers` registry; `/api/fleet/topology` lists them;
-    `graph_orchestrate job/{id}` reports the running worker/host; new
+    `graph_orchestrate job/{id}` reports the executing worker/host; new
     `agent_utilities_dispatch_queue_depth` / `_dispatch_turns_total{outcome}` /
     `_dispatch_workers` metrics on the OS-5.23 registry.
   - Docs: `docs/architecture/agent_dispatch.md`; capacity model marks the
@@ -2337,7 +2337,7 @@ run it at saturation:
     `on_fail` = ActionPolicy-gated `rollback_service` + operator escalation; zero
     observations ⇒ notify only (never roll back on zero evidence).
   - **Strangled `capabilities/auto_healing.py`** — the dormant `AutoHealingEngine` shell
-    (disabled by default, never-wired skill_evolver/fallback_router hooks) is removed. Its
+    (disabled by default, never-wired skill_evolver/fallback_router hooks) is deleted. Its
     useful bit — threshold-counted repeated-failure escalation — is absorbed into
     `graph/parallel_engine.py::_escalate_repeated_failure`, which files a `failure_gap`
     Concept topic through the live AHE-3.18 propose-only remediation chain.
@@ -2366,7 +2366,7 @@ run it at saturation:
     never trip it.
   - **Multi-worker readiness**: `GATEWAY_WORKERS` (default 1 = historical single-process
     behaviour) pre-forks workers on one shared listen socket, forking BEFORE app build so the
-    flock host-lock elects exactly ONE KG host daemon among the workers (checked against
+    flock host-lock elects exactly ONE KG host daemon among the workers (verified against
     `host_lock.py`); per-process state audited and documented in
     `docs/architecture/gateway_scaling.md`; dashboard `ConfigManager.get_all_services` now
     always re-reads the shared YAML (no stale per-worker cache).
@@ -2404,7 +2404,7 @@ run it at saturation:
 
 ### Performance
 - **Execution-loop optimization (CONCEPT:ORCH-1.37 perf)** — collapsed the
-  plan→run→check→re-plan loop for simple tasks from dozens of LLM round-trips (with
+  plan→execute→verify→re-plan loop for simple tasks from dozens of LLM round-trips (with
   two `request_limit=50` thrashes + 32K context overflows observed) down to a single
   execution call. Changes: (1) **direct-dispatch fast-path** in `router_step` — when the
   task resolves to a single connected MCP server, run the agent once with that toolset and
@@ -2458,7 +2458,7 @@ run it at saturation:
   backend, 404ing on every routing/planning call. `create_model`
   (`agent_utilities/core/model_factory.py`) now treats the model registry as the source of
   truth for *where* a model is served: a registered per-model `base_url` wins over a
-  caller-provided default; unregistered models still honor an explicit `base_url`. Regression
+  caller-supplied default; unregistered models still honor an explicit `base_url`. Regression
   test in `tests/unit/test_model_factory_base_url.py`.
 - **Ingestion/evolution daemon bugs surfaced by a full re-ingest (CONCEPT:KG-2.7 / KG-2.8 / KG-2.12):**
   - *Document ingest "No files found"*: the worker's `SimpleDirectoryReader` excluded every file
@@ -2466,7 +2466,7 @@ run it at saturation:
     "hidden"). Pass `exclude_hidden=False` (+ `recursive=False`, `required_exts`) so PDFs ingest.
   - *Parallel multi-repo `enrich_comm` race*: the community-detection step used one shared
     transient tenant `{graph}__enrich_comm` across all concurrent codebase jobs, so a finishing
-    job removed a sibling's tenant mid-run → "Graph not found". Now a unique per-job tenant name.
+    job deleted a sibling's tenant mid-run → "Graph not found". Now a unique per-job tenant name.
   - *`deep_analysis` AttributeError*: `search_hybrid` referenced `self.hybrid_retriever` which was
     unset on the background-task host path. Lazy-ensure it on first use.
 - **Directory-of-documents misclassified as a codebase (CONCEPT:KG-2.7)** —
@@ -2479,7 +2479,7 @@ run it at saturation:
   classifies as `DOCUMENT`. Vendored/build subtrees (`.venv`, `node_modules`, …) are pruned so a
   doc corpus carrying a bundled virtualenv isn't misread as code, and sampling is capped for huge
   trees. Empty/ambiguous dirs still default to `CODEBASE` (unchanged). A paper directory now
-  ingests correctly by default — no `content_type` override needed.
+  ingests correctly out of the box — no `content_type` override needed.
 
 ### Changed
 - **Faster, throttled codebase ingestion (CONCEPT:KG-2.7 / KG-2.8)** — five changes so
@@ -2495,7 +2495,7 @@ run it at saturation:
     defaults to the lite chat model (`KG_CARD_MODEL=heavy` to override) and acquires a shared
     `background_throttle` slot, so card generation can't monopolize the engine.
   - *Read/ingest plane isolation* (`core/engine_tasks.py`): heavy task types
-    (codebase/document/deep_analysis/synthesize/…) run inside the shared `background_slot`,
+    (codebase/document/deep_analysis/synthesize/…) execute inside the shared `background_slot`,
     yielding to interactive (foreground) work and staying within the global concurrency cap.
   - *deep_analysis gating* (`core/engine_tasks.py`): while a bulk codebase ingest is draining,
     `deep_analysis` runs flat (`max_depth=0`) so its recursive, 0-node, blocking-LLM fan-out
@@ -2559,7 +2559,7 @@ run it at saturation:
     object type implements; the programmatic-targeting resolver expands an interface to its
     implementers.
   - **First-class links (CONCEPT:KG-2.26, `ontology/links.py`)** — named directed link types +
-    multiple-to-multiple **junction reification** onto the existing graph-write path, with reverse
+    many-to-many **junction reification** onto the existing graph-write path, with reverse
     traversal.
   - **Functions (CONCEPT:KG-2.41, `ontology/functions/`)** — typed, versioned, governed user
     functions (`PLAIN | ON_OBJECTS | QUERY`) over one audited runtime.
@@ -2592,7 +2592,7 @@ run it at saturation:
   junction links, entailment-aware ACL marking propagation, a bitemporal edit history, a
   self-evolving ontology, and the Rust epistemic engine underneath.
 - **2026 reasoning-RL gap closure (CONCEPT:AHE-3.15 / 3.16 / 3.17 + AHE-3.1)** — implements the
-  high-use gaps from `.specify/specs/reasoning-rl-2026/` (the agentic adaptations, not
+  high-leverage gaps from `.specify/specs/reasoning-rl-2026/` (the agentic adaptations, not
   re-implementing GRPO which the AHE-3.1 spine already covers):
   - **AHE-3.15 Agent-Step Policy Optimization (ARPO, arXiv:2507.19849)** — `graph/agent_step_po.py`
     (`step_entropy`, `should_branch`, `write_back_step_credit`) + `RewardDecomposer.step_advantages`;
@@ -2623,7 +2623,7 @@ run it at saturation:
   `prioritize_task` on the task manager + tests in `test_task_queue_controls.py`.
 - **Zombie/stuck task reaper for the KG ingestion queue (CONCEPT:KG-2.8 durability)** —
   when a worker/host process dies mid-task (crash / SIGKILL / redeploy), the `Task` was
-  stranded in `running` forever and never re-claimed, silently wedging that ingestion (this repository hit
+  stranded in `running` forever and never re-claimed, silently wedging that ingestion (we hit
   exactly this: 43 `running` vs 8 workers after host hand-offs). The host daemon now runs a
   `task_reaper` maintenance job (`engine_tasks.py`, default every 120s) that uses the singleton
   host lock as ground truth: each claim stamps `claimed_by = <host-token>` + `claim_unix`, and
@@ -2642,7 +2642,7 @@ run it at saturation:
   contradicted the project's "batch over the wire, never per-element" rule. The loop is now two
   passes: pass 1 dedups (O(1) id-keyed) and collects new chunks; pass 2 embeds them all via
   `get_text_embedding_batch` in sub-batches of 64 (with a per-chunk fallback when the model
-  lacks the batch API). Dedup, stale-remove, node properties, and metrics are unchanged.
+  lacks the batch API). Dedup, stale-delete, node properties, and metrics are unchanged.
 - **Epistemic-graph Cypher: `WHERE … OR …` and inline-literal relationship ids now work** —
   the in-memory interpreter's `_parse_where` split only on `AND`, and `_exec_rel_match` required
   `{id:$param}`; both silently fell through to the read-only legacy reader and returned `[]` for
@@ -2655,7 +2655,7 @@ run it at saturation:
   read shapes under-matched.)
 - **`graph_ingest` no longer blocks on document/codebase ingestion (footgun removal)** —
   passing `content_type` previously routed ingestion through the *synchronous* `IngestionEngine`,
-  so a single PDF/markdown can hang the MCP caller for multiple minutes with no job id to poll.
+  so a single PDF/markdown could hang the MCP caller for many minutes with no job id to poll.
   `graph_ingest(action="ingest")` now **auto-detects** the content type per path via
   `ContentType.classify` (the single source of truth, CONCEPT:KG-2.7) and **always routes the heavy
   categories (document, codebase) through the async durable job queue** — even when `content_type`
@@ -2675,7 +2675,7 @@ run it at saturation:
   extends the Predict-RLM runtime so subagents return *schema-constrained, typed* values instead of
   free-form prose (the "external attention mask" pattern from the RLM-structured-outputs writeup).
   Previously the contract only existed at the **root** signature; `rlm_query`/`run_parallel_sub_calls`
-  returned bare strings, forcing the parent to re-read and re-classify multiple unstructured blurbs.
+  returned bare strings, forcing the parent to re-read and re-classify many unstructured blurbs.
   - **`SchemaContract` normalizer** (`rlm/schema.py`) — `from_spec()` accepts a Pydantic `BaseModel`,
     a primitive (`int`/`bool`/`str`/`float`), a typing generic (`list[Model]`, `dict[...]`), or a raw
     JSON-Schema `dict` (e.g. `{"type": "boolean"}`) and normalizes all to plain JSON Schema via
@@ -2694,7 +2694,7 @@ run it at saturation:
     specs, not just a free-form string.
 - **Schema-Pack 2.0 — domain retrieval+extraction+reasoning profiles (CONCEPT:KG-2.22–KG-2.37)** —
   turns the domain Schema Pack from a type-selection profile into a fully-wired domain profile,
-  closing gbrain-class gaps while use this repository's OWL reasoner and bi-temporal store for capabilities a
+  closing gbrain-class gaps while leveraging our OWL reasoner and bi-temporal store for capabilities a
   flat brain layer cannot match:
   - **KG-2.22 Pack-Driven Retrieval Signals** — declarative per-type recency decay (over bi-temporal
     `event_time`, with `graph_search(as_of=…)` for "knowledge state as of date D"), per-source trust
@@ -2739,7 +2739,7 @@ run it at saturation:
   enum values are lowercase) — caught by the live run.
 - **Breadth-ingest orchestration + acceptance pilot (CONCEPT:KG-2.7, VU-10)** —
   `knowledge_graph/assimilation/breadth_ingest.py` (`discover_projects`/`classify_project`/
-  `organize_libraries`/`run_breadth_ingest`) brings the whole corpus — OSS library categories, this repository's ~62
+  `organize_libraries`/`run_breadth_ingest`) brings the whole corpus — OSS library categories, our ~62
   repos, and a docs batch — into the assimilation graph: pure-filesystem classification (language + target
   pillars) + injectable codebase/doc ingest (default = the content-addressed `IngestionEngine`, so unchanged
   sources skip). `knowledge_graph/assimilation/pilot.py` (`run_pilot`/`summarize`) is the acceptance harness:
@@ -2764,7 +2764,7 @@ run it at saturation:
 - **Golden-loop assimilation stage + watermark idempotency (CONCEPT:KG-2.7, VU-7)** —
   `knowledge_graph/research/golden_loop.py` `run_one_cycle` now runs the graph-compute middle
   (`_run_assimilate`: dedup → auto-satisfy → synergy → rank) before topic intake, and reports the
-  exclusion-filtered, use-ranked `ranked_gaps` (only `open_features` — satisfied/superseded/implemented
+  exclusion-filtered, leverage-ranked `ranked_gaps` (only `open_features` — satisfied/superseded/implemented
   features are never re-proposed). A **state watermark** over the assimilation input nodes
   ((id, status, content_hash)) makes the stage idempotent — an unchanged graph skips the work, so a re-run
   over the same corpus is a no-op (`force_assimilate=True` overrides). This turns the substrate into a live,
@@ -2783,26 +2783,26 @@ run it at saturation:
   `source -[ASSIMILATED_INTO]-> codebase` and flipping status to `implemented` (KG-2.7 US-1/3), closing the
   research→code provenance loop so it is never re-opened; `promote_feature_ledger` lifts the YAML
   feature/capability ledger into `SDDFeature` nodes; `ledger_state` gives an open/closed/by-status summary.
-  `is_closed` now also consults the node's stored `status` (self-enough) and treats `DERIVED_FROM_RESEARCH`
+  `is_closed` now also consults the node's stored `status` (self-sufficient) and treats `DERIVED_FROM_RESEARCH`
   as a closing edge.
-- **Synergy bundles + use ranking (CONCEPT:KG-2.7 / KG-2.5, VU-4)** —
+- **Synergy bundles + leverage ranking (CONCEPT:KG-2.7 / KG-2.5, VU-4)** —
   `knowledge_graph/assimilation/synergy.py`: `synergy_bundles` community-detects the feature graph (engine
   Louvain `community_detection` fast path, local connected-components fallback) and flags **cross-pillar**
   communities (spanning ≥2 of ORCH/KG/AHE/ECO/OS) as synergy bundles, linking members with
   `HAS_SYNERGY_WITH` — where the novel combinations live. `rank_features` scores the **open** gaps by
-  use `source_count × (1 + centrality)` (engine PageRank fast path, local degree fallback) so the
+  leverage `source_count × (1 + centrality)` (engine PageRank fast path, local degree fallback) so the
   golden loop spends budget on the highest-impact gaps first. Duplicate (`SUPERSEDES`) edges are excluded
   from the synergy graph.
 - **Auto gap analysis — `SATISFIED_BY` + `open_features` (CONCEPT:KG-2.7, VU-3)** —
   `knowledge_graph/assimilation/gap_analysis.py`: `auto_satisfy` embedding-matches every extracted feature
   (`SDD_FEATURE`/`CAPABILITY`/`ARTICLE`) against existing `CONCEPT` nodes and writes a candidate
   `feature -[SATISFIED_BY]-> concept` edge above threshold; `open_features` returns the features with no
-  closing edge / closed status — the durable, queryable answer to "what have this repository NOT already hit?" and the
+  closing edge / closed status — the durable, queryable answer to "what have we NOT already hit?" and the
   only set the golden loop proposes against. This is the **"stop rediscovering already-built features"** fix.
   Closing edges are detected backend-portably via a `_rel` property marker (now also stamped on VU-2's
   `SUPERSEDES` edges) plus the node `status`. Incremental (`restrict_to`) and dry-run capable.
 - **Cross-source feature dedup (CONCEPT:KG-2.7, VU-2)** — `knowledge_graph/assimilation/dedup.py`
-  `dedup_features`: collapses the same capability appearing across a paper + an OSS library + this repository's own code
+  `dedup_features`: collapses the same capability appearing across a paper + an OSS library + our own code
   into one node with multi-source provenance. Pairwise cosine over embedded `SDD_FEATURE`/`CAPABILITY`/
   `ARTICLE` nodes (preferring the engine's batched `compute_similarity_edges`, local-numpy fallback) →
   `SIMILAR_TO` edges (score); union-find clusters above the duplicate threshold → highest-importance survivor
@@ -2915,7 +2915,7 @@ run it at saturation:
   `ExecutableRagProgram` runs a typed `retrieve`/`answer` plan (with `{{var}}` data-flow) via a
   deterministic interpreter giving two training-free grounded loops — execution-driven adaptive
   retrieval (boost `top_k`, then fall back vector→grep) and compiler-grounded self-repair (an
-  insufficient answer re-runs the implicated fetch) — plus an inspectable `StepTrace`. Wired live as
+  insufficient answer re-runs the implicated retrieve) — plus an inspectable `StepTrace`. Wired live as
   `HybridRetriever.retrieve_executable` dispatching modes to `retrieve_hybrid` (vector) and
   `direct_search` (grep). Replaces ungrounded NL self-reflection; STRATEGY synergy #3, source b2-03 (PyRAG).
 - **Graph-native CRUD evolving-memory store (CONCEPT:KG-2.1)** — `harness/evolving_memory.py`:
@@ -2931,7 +2931,7 @@ run it at saturation:
   source block; the verdict is stamped as `provenance_verified`/`provenance_faithfulness`/
   `provenance_verifier` on the persisted node. Wired into the live `compress_to_memento` path; a failed
   gate never blocks persistence (the raw block is retained losslessly via `SUMMARIZES` for re-expansion).
-  STRATEGY synergy #4 (provenanced/checked/recoverable compaction); source b4-04 + b7-01.
+  STRATEGY synergy #4 (provenanced/verified/recoverable compaction); source b4-04 + b7-01.
 - **Harness self-attribution reliability metric (CONCEPT:AHE-3.0)** — `ManifestVerifier.verify` now
   reports `random_baseline_precision` (fix base-rate among evaluated tasks), `attribution_lift`
   (fix_precision ÷ baseline), and `attribution_reliable` (lift ≥ `reliability_multiple`, default 3×) —
@@ -2993,7 +2993,7 @@ run it at saturation:
   `run_reliability_corpus()`. New `scripts/check_reliability_corpus.py` CI gate (registered in
   `guardrails.yml`, with a `tests/gates` meta-test) fails if the match-rate drops below floor.
   `EvalCorpus.add_case`/`load_cases` gained backward-compatible `metadata` passthrough so a corpus
-  case can carry per-scorer context (evidence, gold topics, fetched ids, …).
+  case can carry per-scorer context (evidence, gold topics, retrieved ids, …).
 - **Sentiment Fusion Signals (CONCEPT:KG-2.29)** — credibility-weighted sentiment fusion
   (lexicon polarity + source-credibility prior + recency decay) emitted as a SENTIMENT_ANALYST
   `AgentSignal` consumed by `SwarmConsensus` and registered into `BayesianSignalFusion`;
@@ -3004,7 +3004,7 @@ run it at saturation:
   "which holdings are exposed to risk X" is a graph query.
 - **Dividend Sustainability & Credit/Fixed-Income Quality (CONCEPT:KG-2.31)** — payout/coverage/
   growth + yield-trap detection, and Merton distance-to-default (PD = Φ(−DD)) + interest-coverage/
-  use credit grading; folded into the debate via `DebateContext.fundamentals_report` so the
+  leverage credit grading; folded into the debate via `DebateContext.fundamentals_report` so the
   Bear/Risk personas argue against real solvency numbers.
 - **Multi-Market Composite Backtester (CONCEPT:KG-2.32)** — path-dependent, look-ahead-safe
   (signals shifted 1 bar) multi-market backtest with a shared capital pool + per-market
@@ -3014,7 +3014,7 @@ run it at saturation:
   and data-science `quant_derivatives`.
 - **Execution Bridge (emerald CONCEPT:EE-032)** — routes decisions to orders through the
   ExchangeBackend Protocol; live orders blocked behind `require_human_approval_live` + RiskGuard,
-  paper runs freely. **Cockpit CLI (EE-033)** — text-mode live engine/account/risk/positions
+  paper executes freely. **Cockpit CLI (EE-033)** — text-mode live engine/account/risk/positions
   snapshot (`emerald-cockpit`).
 - **Trade-Journal Bias Auditor & Shadow Account (CONCEPT:KG-2.26)** — From Vibe-Trading's
   shadow account. `TradeJournalAuditor.audit()` builds a `TraderProfile` (win rate, avg
@@ -3079,8 +3079,8 @@ run it at saturation:
 - **KG-Governed Agent Swarm (CONCEPT:ORCH-1.32, extends ORCH-1.8/1.1/1.27)** — Assimilated from Kimi
   K2.6 Agent Swarm (Moonshot AI) + PARL/Mooncake. Adds governance/quality deltas on top of the
   existing `ParallelEngine` (which already did dependency-ordered parallel waves + synthesis):
-  **SWARM-1** one-shot `graph_orchestrate(action="swarm")` (goal→decompose→parallel-waves→check→
-  synthesize, governance ON by default); **SWARM-2** planner→run→**check** loop (per-leaf
+  **SWARM-1** one-shot `graph_orchestrate(action="swarm")` (goal→decompose→parallel-waves→verify→
+  synthesize, governance ON by default); **SWARM-2** planner→execute→**verify** loop (per-leaf
   `success_criteria` judged + bounded re-dispatch); **SWARM-3** critical-path metric (longest
   dependency chain — the PARL insight) + parallelism ratio; **SWARM-4** per-agent `output_schema`
   enforcement (prose → soft failure); **SWARM-5** retry-with-backoff (distinct from the circuit
@@ -3099,11 +3099,11 @@ run it at saturation:
   **MEM-3:** semantic-boundary segmentation (`boundary_score`/`segment_into_blocks`, never cuts
   mid-derivation) + a `memento_blocks` `ContextCompactor` strategy. **MEM-4:** lossless
   recoverability (`Memento -[:SUMMARIZES]-> EvictedBlock`, `recover_evicted_block`) — the
-  orchestration-layer substitute for the paper's in-engine implicit KV channel (which this repository cannot
+  orchestration-layer substitute for the paper's in-engine implicit KV channel (which we cannot
   reproduce; documented honestly). Comparative analysis: `.specify/reports/memento-comparative-analysis.md`.
 - **RLM-GEPA synergy features (CONCEPT:ORCH-1.28–1.31 + ORCH-1.12/1.13/1.27 wiring)** — Assimilated
   from the GEPA paper (Agrawal et al., ICLR 2026, `2507.19457`), `Trampoline-AI/predict-rlm@edaddfe`,
-  and the AppWorld RLM-GEPA work (claims checked against source before implementation):
+  and the AppWorld RLM-GEPA work (claims verified against source before implementation):
   - **P0 — RLM-GEPA live entry point.** `rlm/runner.py` (`run_rlm`, `optimize_rlm_skill`) +
     `graph_orchestrate(action="rlm_run"|"rlm_optimize")` make `PredictRLM`/`GEPAOptimizer` reachable
     ≤3 hops (they were library-only — a Wire-First violation).
@@ -3120,7 +3120,7 @@ run it at saturation:
     `GEPAOptimizer.persist_frontier`/`resume_frontier` for resumable, cross-session GEPA on the
     durable epistemic-graph. Extends ORCH-1.13 (+KG-2.7).
 - **Memory-OS synergy features (CONCEPT:KG-2.14, KG-2.15, KG-2.17, KG-2.18, KG-2.19 + KG-2.13
-  enhancement)** — Assimilated from `ClaudioDrews/memory-os@a4ca094` (all claims checked against
+  enhancement)** — Assimilated from `ClaudioDrews/memory-os@a4ca094` (all claims verified against
   source before implementation):
   - **KG-2.14 Ground-Truth Context Authority** — `StartupChunk.source_authority` tier + priority
     boost + a Ground-Truth Hierarchy preamble in `build_payload` so injected memory is treated as
@@ -3128,7 +3128,7 @@ run it at saturation:
   - **KG-2.15 Resilient Retrieval** — 4-level fallback cascade (`_lexical_fallback`) + social-closer
     triviality gate (`hyde_planner.is_trivial_query`) in `plan_and_retrieve`. Extends KG-2.12.
   - **KG-2.17 Memory Hygiene** — decay scanner (importance half-life, archive via `valid_to`, never
-    remove; confidence alert) + semantic-merge dedup (cosine 0.92, length pre-filter) in
+    delete; confidence alert) + semantic-merge dedup (cosine 0.92, length pre-filter) in
     `knowledge_graph/memory/hygiene.py`; `agent-utilities-memory hygiene` CLI. Extends KG-2.1/2.3.
   - **KG-2.18 Evidence-Weighted Memory** — Bayesian `trust_score` feedback loop + recall/usage
     `UsageTelemetry` + generation `LineageRecord` in `retrieval/retrieval_quality.py`. Extends KG-2.6.
@@ -3153,13 +3153,13 @@ run it at saturation:
   nightly/on-demand). Extends AHE-3.
 - **Background Learning Engine (CONCEPT:KG-2.13)** — Assimilated Quarq Agent's asynchronous
   targeted-edit learner (`agent-oss/agent.py:99-160, 2951-3007, 3303/3646`): a concurrency-bounded
-  (`Semaphore(4)`), backoff-retried, sync-barriered loop that emits targeted **ADD/UPDATE/Remove**
+  (`Semaphore(4)`), backoff-retried, sync-barriered loop that emits targeted **ADD/UPDATE/DELETE**
   fact edits rather than raw dumps. New `knowledge_graph/memory/learning_engine.py`
   (`MemoryEdit`, `resolve_relative_dates`, `parse_memory_edits`, `with_backoff`, `BackgroundLearner`,
   `extract_edits` via the ORCH-1.27 `learner` role, `run_learner`) and an `agent-utilities-memory
   learn` CLI subcommand. Edits are written as **bi-temporal graph mutations** (KG-2.11): UPDATE
-  re-stamps event/storage time; Remove is **soft** (`status=REMOVED` + `valid_to`), preserving
-  history — unlike Quarq's JSON-line overwrite / hard remove. Backoff is bounded (not Quarq's
+  re-stamps event/storage time; DELETE is **soft** (`status=REMOVED` + `valid_to`), preserving
+  history — unlike Quarq's JSON-line overwrite / hard delete. Backoff is bounded (not Quarq's
   infinite loop) to honor the ≤60s test gate. Extends KG-2.1 (+AHE-3).
 - **Memory-First Retrieval (CONCEPT:KG-2.12)** — Assimilated Quarq Agent's retrieval stack —
   HyDE query expansion, dual-threshold hybrid search, self-correcting two-pass retrieval, and a
@@ -3180,7 +3180,7 @@ run it at saturation:
   `resolve_precedence`, `supersede`) auto-wired into `engine.link_nodes`, **as-of queries**
   (`query_cypher(as_of=...)` + `graph_query(as_of=...)`) answering "what was true on date T",
   and **event-time contradiction precedence** (`resolve_temporal_contradiction` writes a
-  `SUPERSEDES` edge and closes the loser's `valid_to` without removing history). Extends KG-2.1.
+  `SUPERSEDES` edge and closes the loser's `valid_to` without deleting history). Extends KG-2.1.
 - **Role-Specialized Model Routing (CONCEPT:ORCH-1.27)** — Assimilated Quarq Agent's
   three-specialized-model pattern (planner / generator / learner; `agent-oss/agent.py:58-92`)
   as portable **role→(tier,tags) bindings** over the existing model registry, rather than
@@ -3270,7 +3270,7 @@ run it at saturation:
 - 33 new tests in `test_browsecomp_innovations.py` covering all 5 components.
 - **CONCEPT:ECO-4.0: Terminal Agent Launcher** — `kg_launch_terminal_agent` MCP tool to spawn CLI-based agents (`agent-terminal-ui`, `claude`, `opencode`, `devin`) in managed tmux sessions. Supports configurable `--prompt` and `--override` (yolo) mode flags per agent type. Tmux auto-detects whether to create a new window (inside tmux) or a detached session (outside tmux).
 - **CONCEPT:ECO-4.1: KG Agent Execution** — `kg_execute_agent` MCP tool to trigger the Pydantic AI agent graph execution natively from the KG MCP server, dynamically initializing the orchestration graph and routing queries to specialist agents.
-- **CONCEPT:KG-2.0: Document Retrieval** — `kg_get_document` MCP tool to fetch full documents from the Knowledge Graph by target path, with chunk reassembly and sorting.
+- **CONCEPT:KG-2.0: Document Retrieval** — `kg_get_document` MCP tool to retrieve full documents from the Knowledge Graph by target path, with chunk reassembly and sorting.
 - **Configurable Default Terminal Agent** — Added `default_terminal_agent` to `AgentConfig` with `DEFAULT_TERMINAL_AGENT` constant export. Users can override via XDG `config.json` to switch the default CLI agent (e.g., `claude-code`, `opencode`, `devin`).
 
 ### Fixed
@@ -3286,11 +3286,11 @@ run it at saturation:
 - **Phase 16: Experience Distillation** & **Phase 17: Decision Evolution** — Added observational hooks to the IntelligencePipeline for self-improving reasoning capabilities.
 - **Structural Isomorphism** — Implemented semantic deduplication via AST/content hashing (`AST_hash`, `content_hash`) instead of naive ID-based node creation, using Cypher `MERGE` logic. Replaced `CONTAINS` edges with `IMPLEMENTS` edges for symbols to accurately reflect file-to-symbol relationships.
 - **CONCEPT:KG-2.6: Deterministic Mark-and-Sweep Garbage Collection** — Implemented temporal heartbeat mechanism (`last_seen_timestamp`) to atomically purge stale `:Code` and `:Article` nodes from the Knowledge Graph during ingestion runs, maintaining 1:1 codebase parity natively without MD5 overhead.
-- **CONCEPT:ORCH-1.4: Dynamic Subgraph Orchestrator** — Dynamically synthesizes subgraph transition logic from the Knowledge Graph while running without using predefined templates. Uses KG-2.41 Formal Graph Theory.
+- **CONCEPT:ORCH-1.4: Dynamic Subgraph Orchestrator** — Dynamically synthesizes subgraph transition logic from the Knowledge Graph on the fly without using predefined templates. Uses KG-2.41 Formal Graph Theory.
 - **CONCEPT:AHE-3.4: Long-Running Background Context Spawner** — Polling module that checks background tasks via KG state and autonomously spawns specialized sub-agents based on context shifts and impact scores.
 - **CONCEPT:ECO-4.0: Dynamic Tool Assignment Orchestration** — Matches tool ontology to agent tasks dynamically at runtime based on task context and KG embeddings.
 - **CONCEPT:KG-2.6: Ontological Team Sharing** — Serializes dynamically created and successful subgraphs into OWL/Turtle ontology formats so they can be exported/imported as shareable team compositions.
-- **Multi-Domain Architectural Pattern** — Transitioned `agent-utilities` to a Multi-Domain Expert System supporting modular expansion into `finance`, `medical`, `law`, and `science`. Domain integrations use Vectorized Topological Memory and the core Knowledge Graph, with heavy domain-specific dependencies optionally loaded via tags (e.g., `agent-utilities[finance]`).
+- **Multi-Domain Architectural Pattern** — Transitioned `agent-utilities` to a Multi-Domain Expert System supporting modular expansion into `finance`, `medical`, `law`, and `science`. Domain integrations leverage Vectorized Topological Memory and the core Knowledge Graph, with heavy domain-specific dependencies optionally loaded via tags (e.g., `agent-utilities[finance]`).
 - **Quantitative Finance Framework** — Production-grade, KG-native financial framework designed for global asset classes (Crypto, Equities, Forex, Derivatives). Features:
   - **Stationary Feature Engineering**: ADF stationarity testing across multi-asset OHLCV market data.
   - **Topological TradingLSTM**: Neural network architectures designed to process sequence data and networkx topological market regimes.
@@ -3339,7 +3339,7 @@ run it at saturation:
 - **CONCEPT:KG-2.6: Markov Transition Forecasting** — Markov Chain transition matrices over agent interaction traces (Vectorized Topologies) from MCS Ch 21 to predict statistical failure nodes via stationary distribution. New module: `agent_utilities/knowledge_graph/core/markov_transitions.py`.
 - 7 new `RegistryNodeType` entries (`MATH_FOUNDATION`, `CRITICAL_PATH_RESULT`, `CAUSAL_FACTOR`, `CAUSAL_MODEL`, `EXECUTION_PLAN`, `MARKET_MAKING_QUOTE`, `PAIRS_TRADE_SIGNAL`), 9 new `RegistryEdgeType` entries for KG-2.41–KG-2.46.
 - 116 new tests across 6 test suites (`test_graph_theory_primitives.py`, `test_embedding_diagnostics.py`, `test_causal_reasoning.py`, `test_latent_space_regularizer.py`, `test_probabilistic_reasoning.py`, `test_optimal_execution.py`) plus 3 new suites for formal relations, state machines, and Markov transitions.
-- New documentation: `docs/mathematical_foundations.md` — complete 300+ line glossary of all mathematical, probabilistic, and financial engineering terms.
+- New documentation: `docs/mathematical_foundations.md` — comprehensive 300+ line glossary of all mathematical, probabilistic, and financial engineering terms.
 - Updated Concept Galaxy to 97 concepts (from 94).
 - **CONCEPT:KG-2.6: Alpha Factor Library** — 20 battle-tested alpha factors (momentum, mean-reversion, volatility, volume, value) with IC/IR analysis for factor selection. Sourced from Qlib Alpha158. New module: `agent_utilities/domains/finance/alpha_factors.py`.
 - **CONCEPT:KG-2.6: Risk Management Engine** — Risk-first guard pipeline with VaR (Historical/Parametric/Monte Carlo), stress testing (5 predefined scenarios), and pre-trade validation. Sourced from AutoHedge/OpenAlice. New module: `agent_utilities/domains/finance/risk_manager.py`.
@@ -3369,21 +3369,21 @@ run it at saturation:
 - **CONCEPT:ORCH-1.4: Learned Agent Routing** — Jointly optimizes decomposition depth, worker choice, and inference budget from execution traces. Three routing policies: `RuleBasedPolicy` (keyword pattern matching to primitives), `TraceLearnedPolicy` (softmax scoring from historical `ExecutionTrace` with exponential moving average quality/success tracking), and `CostAwareRouter` (Pareto-optimal cost/accuracy wrapping any policy with budget filtering). Based on Uno-Orchestra research (arXiv:2605.05007v1, relevance score 31.2). New module: `agent_utilities/graph/routing_policy.py`.
 - **CONCEPT:KG-2.2: Elastic Context Operators** — 5 atomic operators for elastic context orchestration: `SKIP` (exclude irrelevant messages), `COMPRESS` (replace messages with summary), `ROLLBACK` (revert to checkpoint), `SNIPPET` (extract focused evidence from verbose content), `DELETE` (permanent removal). Compress is expressively complete (any operation expressible as compression) while specialized operators reduce generation cost and hallucination risk. Extends `ContextCompactor` (KG-2.7) with `ElasticContextManager`, `ContextCheckpoint`, and `OperatorResult`. Based on LongSeeker's Context-ReAct paradigm (arXiv:2605.05191v1, relevance score 25.5). Extended module: `agent_utilities/knowledge_graph/context_compactor.py`.
 - **CONCEPT:KG-2.2: Multi-Timescale Memory Dynamics** — Three-tier `TimescaleMemoryStore` with timescale-aware exponential decay: Working (5min half-life, promotes at 3+ accesses), Episodic (4hr half-life, promotes at 5+ accesses), Semantic (30-day half-life, permanent). Consolidation engine promotes high-activation memories up tiers. Content-hash deduplication, keyword-scored retrieval with activation weighting, and configurable decay floor pruning. Based on Continual Knowledge Updating (arXiv:2605.05097v1, relevance score 11.2). New module: `agent_utilities/knowledge_graph/timescale_memory.py`.
-- **CONCEPT:KG-2.3: Versioned KG Mutations** — Git-like transactional mutation semantics for Knowledge Graph evolution. `KGTransaction` (batches add_node/update_node/remove_node/add_edge/remove_edge mutations), `KGCommit` (atomic application with rollback data and parent-commit chaining), `KGVersionEngine` (commit/rollback/diff with full history), `KGDiff` (structural diff between graph versions: nodes_added/removed/modified, edges_added/removed). Based on Evolving Idea Graphs (arXiv:2605.04922v1, relevance score 11.2). New module: `agent_utilities/knowledge_graph/kg_versioning.py`.
+- **CONCEPT:KG-2.3: Versioned KG Mutations** — Git-like transactional mutation semantics for Knowledge Graph evolution. `KGTransaction` (batches add_node/update_node/delete_node/add_edge/delete_edge mutations), `KGCommit` (atomic application with rollback data and parent-commit chaining), `KGVersionEngine` (commit/rollback/diff with full history), `KGDiff` (structural diff between graph versions: nodes_added/removed/modified, edges_added/removed). Based on Evolving Idea Graphs (arXiv:2605.04922v1, relevance score 11.2). New module: `agent_utilities/knowledge_graph/kg_versioning.py`.
 - **CONCEPT:ECO-4.0: Dynamic Skill Evolution** — On-the-fly skill creation and synthesis to avoid catastrophic forgetting. `SkillNeologismDetector` (identifies when existing skills don't cover a new capability via Jaccard keyword similarity below configurable threshold), `SkillFactory` (creates new `SkillNode` instances from detected gaps or execution traces with provenance tracking), `SkillMerger` (detects overlapping skills and consolidates them, combining keywords, patterns, and confidence scores). Based on Skill Neologisms (arXiv:2605.04970v1, relevance score 11.9). New module: `agent_utilities/knowledge_graph/skill_evolver.py`.
 - **CONCEPT:OS-5.1: Jailbreak Robustness Hardening** — Extends Prompt Injection Scanner (OS-5.4) with 4-category jailbreak attack taxonomy from SoK research. Template-based (DAN/Developer Mode, AIM persona, UCAR unrestricted, Grandma exploit), optimization-based (GCG adversarial suffix detection, token smuggling via encoding), LLM-based (context boundary confusion with `[/INST]`/`[/SYS]` markers, multi-turn escalation), manual (role-play/hypothetical framing, false authority claims). 12 new `ThreatPattern` entries, `JailbreakCategory` enum. Based on SoK: Robustness against Jailbreak Attacks (arXiv:2605.05058v1, relevance score 16.2). Extended module: `agent_utilities/security/prompt_scanner.py`.
 - 32 new unit tests in `test_research_enhancements.py` covering all 6 enhancements (routing policies, elastic operators, skill evolution, timescale memory, KG versioning, jailbreak patterns).
 - Updated Concept Galaxy to 79 concepts (from 73).
 
 ### Added
-- **CONCEPT:AHE-3.3: Agent-Interpretable Model Evolver** — Autoresearch loop that evolves scikit-learn-compatible model classes optimized for dual objectives: predictive accuracy and LLM readability via `__str__()`. Features Pareto frontier tracking with O(n²) dominance checking, reward decomposition integration (AHE-3.10), show strategy auto-selection, and KG-native evolutionary lineage via `EVOLVED_MODEL` transitive edges. Actual model fitting delegated to `data-science-mcp` via MCP tool calls. Based on Microsoft Research's Agentic-iModels (arXiv:2605.03808). New module: `agent_utilities/harness/imodel_evolver.py`.
+- **CONCEPT:AHE-3.3: Agent-Interpretable Model Evolver** — Autoresearch loop that evolves scikit-learn-compatible model classes optimized for dual objectives: predictive accuracy and LLM readability via `__str__()`. Features Pareto frontier tracking with O(n²) dominance checking, reward decomposition integration (AHE-3.10), display strategy auto-selection, and KG-native evolutionary lineage via `EVOLVED_MODEL` transitive edges. Actual model fitting delegated to `data-science-mcp` via MCP tool calls. Based on Microsoft Research's Agentic-iModels (arXiv:2605.03808). New module: `agent_utilities/harness/imodel_evolver.py`.
 - **CONCEPT:AHE-3.3: LLM-Graded Interpretability Tests** — 6-category, 200-test protocol measuring whether an LLM can simulate model behavior from `__str__()` alone. Categories: feature attribution (32), point simulation (43), sensitivity analysis (32), counterfactual (32), confidence calibration (32), data attribution (29). Includes numerical tolerance grading, reward hacking detection, and EvalRunner (AHE-3.12) integration. Results persist as `InterpretabilityTestNode` in the KG. Based on arXiv:2605.03808. New module: `agent_utilities/harness/interpretability_tests.py`.
 - **CONCEPT:KG-2.6: Topological Graph Visualization** — Scalable WebGL-based Knowledge Graph visualization engine using Sigma.js and ForceAtlas2 physics for the `agent-webui`. Implements intelligent mass assignment and radial clustering for high-mass structural nodes to prevent graph spaghetti at 100K+ scale. Provides full interactive CRUD capabilities via React overlay UIs.
-- **CONCEPT:KG-2.6: Model Show Optimization** — Show-predict decoupling engine optimizing model `__str__()` for agent consumption independently of `predict()` logic. 5 strategies: `linear_collapse`, `piecewise_table`, `symbolic_equation`, `coefficient_summary`, `adaptive` (SmartAdditive pattern with per-feature R² gating). Includes linearization with R² threshold, hinge basis collapse, and bounded complexity budgets (`DisplayComplexityBudget`). Results persist as `ModelDisplayNode` with `DISPLAY_OF` edges. Based on arXiv:2605.03808. New module: `agent_utilities/knowledge_graph/model_display.py`.
+- **CONCEPT:KG-2.6: Model Display Optimization** — Display-predict decoupling engine optimizing model `__str__()` for agent consumption independently of `predict()` logic. 5 strategies: `linear_collapse`, `piecewise_table`, `symbolic_equation`, `coefficient_summary`, `adaptive` (SmartAdditive pattern with per-feature R² gating). Includes linearization with R² threshold, hinge basis collapse, and bounded complexity budgets (`DisplayComplexityBudget`). Results persist as `ModelDisplayNode` with `DISPLAY_OF` edges. Based on arXiv:2605.03808. New module: `agent_utilities/knowledge_graph/model_display.py`.
 - **Agentic-iModels KG Models** — New Pydantic models: `IModelNode`, `InterpretabilityTestNode`, `ModelDisplayNode`, `IModelCandidate`, `DisplayComplexityBudget`, `ParetoPoint`. 3 new `RegistryNodeType` entries (`IMODEL`, `INTERPRETABILITY_TEST`, `MODEL_DISPLAY`) and 4 new `RegistryEdgeType` entries (`EVOLVED_MODEL`, `TESTED_INTERPRETABILITY`, `DISPLAY_OF`, `PARETO_DOMINATES`). New module: `agent_utilities/models/imodel.py`.
 - **Agentic-iModels OWL Ontology** — Extended `ontology.ttl` with 4 OWL classes (`IModel`, `InterpretabilityTest`, `ModelDisplay`, `ParetoFrontierEntry`), transitive `evolvedModel` property for model lineage inference, and 3 datatype properties. Updated `owl_bridge.py` with 7 new promotable types.
 - 70 new unit tests across `test_imodel_evolver.py` (25), `test_interpretability_tests.py` (24), and `test_model_display.py` (21).
-- **CONCEPT:KG-2.5: Topological Analogy Engine** — Use exact subgraph isomorphism (networkx VF2) and vectorized embeddings (`EncPI`) to find analogous subgraphs across different domains, enabling structural pattern matching and cross-domain innovation extraction within the Knowledge Graph. New module: `agent_utilities/knowledge_graph/analogy_engine.py`.
+- **CONCEPT:KG-2.5: Topological Analogy Engine** — Leverages exact subgraph isomorphism (networkx VF2) and vectorized embeddings (`EncPI`) to find analogous subgraphs across different domains, enabling structural pattern matching and cross-domain innovation extraction within the Knowledge Graph. New module: `agent_utilities/knowledge_graph/analogy_engine.py`.
 - **CONCEPT:KG-2.2: OWL-Driven Semantic Subsumption** — Enables hierarchy-aware zero-shot ontology alignment. Automatically computes topological embedding cosine similarity against OWL class prototypes to infer and inject newly discovered concepts directly into the correct class lineage. New module: `agent_utilities/knowledge_graph/semantic_subsumption.py`.
 - **Finance Schema Pack Enhancements** — Integrated abstractions from OpenAlice (Trading-as-Git, `VERSIONED_TRADE_COMMIT`, `EXECUTION_GUARD`, `UNIFIED_TRADING_ACCOUNT`) and Kronos (`TIME_SERIES_FORECAST`) into `FinanceSchemaPack`. Added corresponding `RegistryNodeType` and `RegistryEdgeType` entries in `knowledge_graph.py`.
 - **CONCEPT:OS-5.1: Topological Vulnerability Scanner** — Enhances security by scanning execution graphs for structural vulnerabilities (e.g., untrusted data flows, dependency deadlocks) by matching them against known risk subgraphs using the Analogy Engine. New module: `agent_utilities/security/topological_scanner.py`.
@@ -3419,7 +3419,7 @@ run it at saturation:
 - **CONCEPT:ECO-4.0: Market Data Connector Protocol** — Generic `DataConnectorProtocol` with auto-fallback chain and provenance tracking. Includes `DataConnectorRegistry` with prioritized failover, rate-limit awareness, and `DataFetchRecordNode` for immutable audit trails. OWL `fallsBackTo` declared as transitive for automated connector chain inference.
 - **CONCEPT:ORCH-1.4: Swarm Preset Template Engine** — YAML-driven declarative multi-agent workflow engine with DAG-based dependency resolution, parallel dispatch identification, and variable substitution. Includes `SwarmPresetEngine` with topological sort, cycle detection, and layer-based execution ordering. KG-persisted via `SwarmPresetNode`, `SwarmRunNode`, `SwarmTaskRecordNode`.
 - **CONCEPT:ORCH-1.3: Multi-Level Abstraction Layering** — Planners emit coarse-grained abstraction steps and delegate fine-grained execution to specialist nodes, reducing upfront planning token overhead.
-- **Adaptive Model Routing & Reward-Driven Routing** — Included adaptive fast-path model selection (`gpt-4o-mini` fallback) for simple queries. Use ACO `pheromone_trails` to down-weight specialists with historically low success rates.
+- **Adaptive Model Routing & Reward-Driven Routing** — Included adaptive fast-path model selection (`gpt-4o-mini` fallback) for simple queries. Leverages ACO `pheromone_trails` to down-weight specialists with historically low success rates.
 - **CONCEPT:KG-2.6: Risk Scoring Ontology Extension** — Domain-agnostic risk assessment framework with `RiskAssessmentNode`, `RiskFactorNode`, `RiskMitigationNode`. OWL `propagatesRiskTo` declared as transitive property enabling automated upstream risk chain inference via the OWL reasoner.
 - **CONCEPT:AHE-3.4: Backtest Evaluation Harness** — Strategy evaluation harness with SQLite storage (separate from KG), walk-forward validation windows, benchmark comparison, and KG integration via `BacktestRunNode` and `BacktestMetricNode`. Connects to `StrategyNode` (KG-2.6) for full provenance chains.
 - **CONCEPT:AHE-3.4: Horizon-Aware Task Curriculum** — Progressive horizon scheduling derived from Long-Horizon Training research (Kim et al., ICML 2026). Implements macro-action composition to reduce effective interaction steps, subgoal checkpoints for intermediate credit assignment, and configurable promotion policies (threshold/plateau/adaptive EMA). Integrates with `CognitiveScheduler` and `SwarmManager` for automatic horizon reduction during swarm execution.
@@ -3464,7 +3464,7 @@ run it at saturation:
   - Periodic background re-fetch (`A2A_REFRESH_INTERVAL`, default 300s) to detect capability changes from remote agents.
   - Full KG ingestion: agent cards are registered as `CallableResource` nodes with embeddings, making them eligible for affinity-based swarm selection.
   - Cache invalidation: bulk ingestion triggers `invalidate_registry_cache()` (CONCEPT:ORCH-1.2) to keep the hot cache synchronized.
-- **Unified Specialist Model (CONCEPT:ORCH-1.2)** — Collapses the artificial `prompt` / `mcp` agent type distinction into a single `specialist` type. Any specialist can now host any combination of MCP tools and/or agent skills. A2A agents remain their own type (`a2a`) because the fundamentally different remote execution protocol. Legacy `agent_type` values are normalized at read time for full backward compatibility.
+- **Unified Specialist Model (CONCEPT:ORCH-1.2)** — Collapses the artificial `prompt` / `mcp` agent type distinction into a single `specialist` type. Any specialist can now host any combination of MCP tools and/or agent skills. A2A agents remain their own type (`a2a`) due to the fundamentally different remote execution protocol. Legacy `agent_type` values are normalized at read time for full backward compatibility.
 - New `A2A_CONFIG` and `A2A_REFRESH_INTERVAL` environment variables.
 - New module: `agent_utilities/protocols/a2a_config.py` (config loader, auto-discovery, periodic refresh).
 - Updated Concept Galaxy to 29 concepts (from 27).
@@ -3488,13 +3488,13 @@ run it at saturation:
 - 46 new unit tests across `test_confidence_routing.py` and `test_evolutionary_aggregation.py`.
 - **Schema Packs (CONCEPT:KG-2.2)** — Domain-configurable KG profiles that scope the active node types, edge types, retrieval boosts, and OWL extensions to a specific domain. Inspired by gbrain#587 schema-pack proposal. Features include:
   - `SchemaPack` base model with dual operating modes: `ADDITIVE` (layer on top of core) and `EXCLUSIVE` (only pack + protected core types).
-  - Protected core types (memory, episode, person, concept, etc.) that are always active in either case of mode.
+  - Protected core types (memory, episode, person, concept, etc.) that are always active regardless of mode.
   - Per-pack retrieval boost multipliers for domain-specific edge weighting.
   - Schema pack registry with `get_schema_pack()` factory and `register_schema_pack()` for runtime extensions.
   - Four pre-built packs: `core` (default), `research-state`, `biomedical`, `finance`.
   - `SchemaPackNode` for KG persistence of active pack configuration.
   - OWL Bridge integration: `PROMOTABLE_NODE_TYPES` and `PROMOTABLE_EDGE_TYPES` filtered through active pack.
-- **Backlink-Density Retrieval Boost (CONCEPT:KG-2.2)** — Logarithmic in-degree-based scoring modifier in `HybridRetriever` that boosts hub entities with multiple inbound edges. Pack-configurable via `backlink_boost_strategy` (`global`, `context_only`, `disabled`) and `backlink_boost_factor` (default 0.1). Based on gbrain's observed +31% P@5 improvement.
+- **Backlink-Density Retrieval Boost (CONCEPT:KG-2.2)** — Logarithmic in-degree-based scoring modifier in `HybridRetriever` that boosts hub entities with many inbound edges. Pack-configurable via `backlink_boost_strategy` (`global`, `context_only`, `disabled`) and `backlink_boost_factor` (default 0.1). Based on gbrain's observed +31% P@5 improvement.
 - **KG Eval Capture (CONCEPT:KG-2.2)** — Lightweight regression testing harness for Knowledge Graph retrieval. Records query-result pairs to a separate SQLite database (`eval_log.db`) to prevent KG contamination. Features include:
   - `KGEvalCapture.capture()` — append-only recording of queries, results, scores, and latency.
   - `KGEvalCapture.replay()` — re-runs captured queries and reports Jaccard@k, top-1 stability, and latency delta.
@@ -3550,7 +3550,7 @@ run it at saturation:
 - **TeamConfig Promotion (CONCEPT:AHE-3.3)** — `promote_coalition_to_template()` persists successful specialist coalitions as reusable `TeamConfigNode` templates in the Knowledge Graph. `find_matching_team_config()` enables 3-stage hybrid routing: TeamConfig → Self-Model bias → LLM planning.
 - **TeamConfig Reward Tracking** — `record_team_outcome()` records success/failure outcomes against team templates, enabling reward-weighted team selection over time.
 - **RLM + TeamConfig Synergy** — When a `TeamConfig` is selected and input exceeds size thresholds, RLM capability is auto-attached to specialists via `capability_overrides`.
-- **AgentCapability Type System (CONCEPT:ORCH-1.2)** — `AgentCapabilityNode` formalized as a first-class KG node with `auto_activate`, `trigger_conditions`, and `handler_module` fields. Capabilities are auto-enabled in the executor based on input constraints (e.g., RLM for large payloads, critic for code).
+- **AgentCapability Type System (CONCEPT:ORCH-1.2)** — `AgentCapabilityNode` formalized as a first-class KG node with `auto_activate`, `trigger_conditions`, and `handler_module` fields. Capabilities are auto-activated in the executor based on input constraints (e.g., RLM for large payloads, critic for code).
 - **PlannerGraphSkill (CONCEPT:ECO-4.0)** — A2A-native routing entry point via `PlannerGraphSkill` registered in `server/app.py`. When a `graph_bundle` is available, A2A requests bypass LLM orchestration and route directly through the graph planner.
 - **Self-Model Feedback Loop** — Post-execution verification in `synthesizer_step` now feeds outcomes back to `SelfModel.update_after_session()` and `record_team_outcome()`, enabling recursive learning.
 - **WorkspaceAttention Scoring** — `WorkspaceAttention` (GWT) scores are computed and logged per-specialist during execution for data-driven specialist prioritization.
@@ -3565,7 +3565,7 @@ run it at saturation:
 - Verification synthesizer now feeds execution outcomes back to both Self-Model and TeamConfig for continuous improvement.
 - `RegistryNodeType` enum extended with `TEAM_CONFIG` and `AGENT_CAPABILITY` types.
 - `RegistryEdgeType` enum extended with `HAS_CAPABILITY`, `REUSED_TEAM`, and `USES_PROMPT` types.
-- Server process cleanup uses targeted `pgrep -P` child enumeration instead of `os.killpg()` to avoid killing the process group (which will stop test runners).
+- Server process cleanup uses targeted `pgrep -P` child enumeration instead of `os.killpg()` to avoid killing the process group (which would terminate test runners).
 
 ### Fixed
 - mypy `call-arg` error: `SelfModel.update_after_session()` now correctly receives `GraphState` instead of kwargs.
@@ -3585,7 +3585,7 @@ run it at saturation:
 - URI-style secret references: `vault://`, `env://`, `sqlite://` schemes
 - `SECRETS_BACKEND`, `SECRETS_SQLITE_PATH`, `SECRETS_VAULT_URL` configuration
 - `secrets_client` field on `GraphDeps` for graph execution credential resolution
-- `docs/secrets-auth.md` complete documentation (CONCEPT:OS-5.1)
+- `docs/secrets-auth.md` comprehensive documentation (CONCEPT:OS-5.1)
 - Concept marker backfill: CONCEPT:OS-5.0, CONCEPT:ORCH-1.1, CONCEPT:OS-5.2, CONCEPT:AHE-3.0, CONCEPT:ECO-4.0, CONCEPT:OS-5.1 across tests and source
 - `auth.py` JWT Bearer token validation using `authlib` + JWKS caching (CONCEPT:OS-5.1)
 - Combined auth dependency: accepts API key OR JWT Bearer token (gradual migration)
