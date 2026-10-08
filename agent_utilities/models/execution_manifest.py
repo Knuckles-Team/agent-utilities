@@ -67,6 +67,11 @@ class AgentSpec(BaseModel):
     model_role: str = ""  # SWARM-6: ModelRole to route to when model_id is unset
     delegation_model_menu: list[str] = Field(default_factory=list)
     max_retries: int = 0  # SWARM-5: retries-with-backoff on failure (0 = off)
+    # L4 harness selection (AU-HARNESS-R010): the runtime that serves this node.
+    # "native" keeps the in-process pydantic-ai path; any other name resolves
+    # through agent_utilities.layers.harness_registry.
+    harness: str = "native"
+    harness_workspace: str = ""  # worktree a CLI harness runs in ("" = none)
 
 
 # ── Synthesis Specification ─────────────────────────────────────────

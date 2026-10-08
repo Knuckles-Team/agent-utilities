@@ -1,8 +1,22 @@
 # The pre-bundled workflow skill suite
 
-Agent Utilities ships exactly ten comprehensive workflow skills. Callers select a
-current domain or platform workflow and it chooses the appropriate GraphOS
-operations.
+Agent Utilities ships exactly one pre-bundled workflow skill,
+`agent-utilities-development`. The nine domain and platform skills this suite
+used to also bundle (`graph-query-and-explanation`, `graph-ingestion-and-
+integration`, `graph-modeling-and-mutation`, `graph-research-and-analysis`,
+`graph-orchestration-and-automation`, `graph-runtime-and-governance`,
+`graph-engine-and-modalities`, `agent-utilities-deployment`,
+`agent-utilities-evolution`/`agent-utilities-self-evolution`,
+`agent-utilities-source-integration`, `autonomous-contribution`) moved to
+graph-os on 2026-10-03 — `agent-utilities-deployment` was retired in favor of
+graph-os's own `graphos-deployment`, the two evolution skills merged into
+graph-os's `graph-os-evolution`, and the rest moved as-is, since their content
+already drives GraphOS operations graph-os itself serves. They remain
+discoverable fleet-wide through the same `agent_utilities.skill_providers`
+entry-point mechanism described below — just packaged there now. The
+mechanics in this guide (the sidecar schema, the forward-test matrix, the
+validation commands) still apply to whatever skill or skills agent-utilities
+bundles; only the inventory below is local to this repository.
 
 ## Architecture
 
@@ -36,21 +50,13 @@ The prose and machine contracts are deliberately separate:
 
 | Skill | Primary responsibility | Live verbs claimed |
 |---|---|---:|
-| `graph-query-and-explanation` | Query, search, code navigation, epistemic answers, and cited explanation | 21 |
-| `graph-ingestion-and-integration` | Source onboarding, document processing, delta sync, ETL, and writeback | 10 |
-| `graph-modeling-and-mutation` | Ontology, objects, concepts, memory, and governed writes | 17 |
-| `graph-research-and-analysis` | Research, mining, learning, causal analysis, feedback, and reports | 9 |
-| `graph-orchestration-and-automation` | Goals, workflows, schedules, sandboxes, run control, and messaging | 16 |
-| `graph-runtime-and-governance` | Configuration, health, incidents, audit, compliance, sessions, and traces | 12 |
-| `graph-engine-and-modalities` | Native SQL, SPARQL/RDF, reasoning, analytic, stream, ledger, cluster, tenancy, RBAC, and admin domains | 25 core + 1 `finance` |
 | `agent-utilities-development` | Isolated implementation, live wiring, tests, docs, and delivery gates | — |
-| `agent-utilities-deployment` | Profile-driven installation, rollout, migration, verification, upgrade, and recovery | — |
-| `agent-utilities-evolution` | Evidence assimilation, proposals, optimization, and regression hardening | — |
 
-The seven domain skills explicitly cover all 110 required Graph-OS ToolSpecs
-(104 granular capabilities plus six intent entry points) and the optional
-`finance` ToolSpec `quant`. The three platform skills orchestrate those domains
-but do not claim new verbs.
+This is a platform skill: it orchestrates the domains graph-os's own bundled
+skills now cover (`graph-query-and-explanation`, `graph-ingestion-and-
+integration`, `graph-modeling-and-mutation`, `graph-research-and-analysis`,
+`graph-orchestration-and-automation`, `graph-runtime-and-governance`,
+`graph-engine-and-modalities`) but does not claim a Graph-OS verb itself.
 
 ## Graph-OS sidecar schema
 
@@ -111,7 +117,7 @@ endpoint, credential, raw model output, or raw trace identifier.
 The suite is packaged under `agent_utilities/skills/` and exposed through the
 `agent_utilities.skill_providers` entry-point group. Run
 `agent-utilities install` to materialize provider contributions for supported
-agent clients. The installation contains only the ten current names.
+agent clients. The installation contains only the one current name.
 
 ## Validation
 
@@ -129,9 +135,9 @@ pytest tests/unit/test_gateway_mcp_parity.py -q
 ```
 
 Run the skill-creator validator once for every retained directory after changing
-skill prose or interface metadata. The gate additionally checks the exact thirteen-skill
-taxonomy, standard frontmatter, both sidecars, the 500-line ceiling, sensitive-data
-patterns, and the 26-case forward matrix.
+skill prose or interface metadata. The gate additionally checks the exact
+one-skill taxonomy, standard frontmatter, both sidecars, the 500-line ceiling,
+sensitive-data patterns, and the 2-case forward matrix.
 
 For an ad hoc diagnostic against an already deployed GraphOS endpoint, run direct
 or delegated mode without release evidence:
@@ -204,7 +210,7 @@ uses mode `0600` on POSIX. Publication fails closed on non-POSIX platforms until
 equivalent native reparse-point and private-ACL guarantees exist. It never stores
 prompts, outputs, identities, connection details, or filesystem locations.
 
-When adding a Graph-OS verb, place it in the existing owning domain sidecar and
-extend that workflow's decision guidance. Create a new skill only when the capability
-introduces a genuinely distinct end-to-end workflow that does not fit the ten-domain
-taxonomy.
+When adding a Graph-OS verb, place it in the existing owning domain sidecar
+(now packaged by graph-os) and extend that workflow's decision guidance.
+Create a new skill only when the capability introduces a genuinely distinct
+end-to-end workflow that does not fit the existing taxonomy.

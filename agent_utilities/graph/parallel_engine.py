@@ -45,6 +45,9 @@ from agent_utilities.orchestration.resilience import (
     run_with_resilience,
 )
 
+from ..decide.consumers.continuation import after_wave
+from ..layers.harness_port import NATIVE_HARNESS
+from ..layers.harness_registry import harness_name
 from ..models.execution_manifest import (
     AgentExecutionResult,
     AgentSpec,
@@ -282,6 +285,10 @@ class ParallelEngine:
                 wave_agents, wave_idx, scheduler, resolved, graph_deps, wave_results
             )
             wave_results.append(wave_result)
+            # A committed topology plan's run may only narrow or stop here
+            # (AU-CONTROL-R019); a manifest with no plan metadata is unaffected.
+            if not await after_wave(resolved.metadata, wave_idx, waves):
+                break
 
             logger.info(
                 "[CONCEPT:AU-ORCH.execution.parallel-engine-visualizer] Wave %d complete — success_rate=%.1f%%, "
@@ -794,7 +801,7 @@ class ParallelEngine:
                 )
                 await scheduler.wait_for_running(proc.id)
                 try:
-                    res = await self._execute_agent(
+                    res = await self._execute_node(
                         agent, manifest, graph_deps, wave_results, proc
                     )
                     await scheduler.complete(proc.id)
@@ -1091,6 +1098,41 @@ class ParallelEngine:
         task += await self._paged_checkpoint_block(proc)
         return task
 
+    async def _execute_node(
+        self,
+        agent: AgentSpec,
+        manifest: ExecutionManifest,
+        graph_deps: GraphDeps | None,
+        wave_results: list[WaveResult],
+        proc: Any = None,
+    ) -> AgentExecutionResult:
+        """Execute one node on the harness its spec selects (AU-HARNESS-R010).
+
+        ``native`` keeps the in-process pydantic-ai path below; any other
+        harness runs through the L4 port and records its outcome at L5.
+        """
+        if harness_name(agent) != NATIVE_HARNESS:
+            return await self._execute_agent_via_harness(
+                agent, manifest, wave_results, proc
+            )
+        return await self._execute_agent(
+            agent, manifest, graph_deps, wave_results, proc
+        )
+
+    async def _execute_agent_via_harness(
+        self,
+        agent: AgentSpec,
+        manifest: ExecutionManifest,
+        wave_results: list[WaveResult],
+        proc: Any,
+    ) -> AgentExecutionResult:
+        """Run one node through its registered L4 ``HarnessPort``."""
+        from ..layers.harness_node import run_agent_spec
+
+        timeout = agent.timeout or getattr(config, "agent_execution_timeout", 120.0)
+        task = await self._build_agent_task(agent, manifest, wave_results, proc)
+        return await run_agent_spec(agent, task, timeout_s=timeout, engine=self.engine)
+
     async def _execute_agent(
         self,
         agent: AgentSpec,
@@ -1269,7 +1311,7 @@ class ParallelEngine:
             f"## PRIOR ATTEMPT FAILED VERIFICATION\nFix exactly this and satisfy the "
             f"success criteria ({spec.success_criteria}):\n{feedback}"
         )
-        new_res = await self._execute_agent(
+        new_res = await self._execute_node(
             retry_spec, resolved, graph_deps, wave_results
         )
         # replace the leaf in place

@@ -14,6 +14,8 @@ import threading
 import traceback
 import uuid
 from collections import OrderedDict
+from functools import lru_cache
+from importlib.resources import files
 from types import MappingProxyType
 from typing import Any
 
@@ -68,6 +70,34 @@ PUBLIC_ERROR_MESSAGES = MappingProxyType(
 _ENGINE_DEGRADED_TYPE_NAMES = frozenset(
     {"EngineCircuitOpenError", "ConnectionError", "TimeoutError", "OSError", "EOFError"}
 )
+
+
+@lru_cache(maxsize=1)
+def _engine_error_codes() -> frozenset[str]:
+    """Read the installed engine's generated refusal vocabulary, never a copy."""
+    contract = json.loads(
+        files("epistemic_graph.contract").joinpath("errors.json").read_text("utf-8")
+    )
+    return frozenset(
+        item["code"] for item in contract["errors"] if isinstance(item["code"], str)
+    )
+
+
+def validated_engine_error_code(value: object) -> str | None:
+    """Keep only a declared engine code; absent or invalid metadata stays private."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return value if value in _engine_error_codes() else None
+    except (ImportError, OSError, ValueError, KeyError, TypeError) as exc:
+        _DEFAULT_LOGGER.warning("Engine error vocabulary unavailable: %s", exc)
+        return None
+
+
+def _engine_code_fields(exc: BaseException) -> dict[str, str]:
+    """Expose only an installed-contract code, with no arbitrary diagnostics."""
+    code = validated_engine_error_code(getattr(exc, "engine_error_code", None))
+    return {"engine_error_code": code} if code is not None else {}
 
 
 def _is_engine_degraded(exc: BaseException) -> bool:
@@ -432,6 +462,8 @@ def public_error_payload(
       trade-off in the payload instead of inventing a new one.
     * ``failing_layer`` — inferred from the exception's own innermost
       traceback frame (:func:`_infer_failing_layer`), never guessed.
+    * ``engine_error_code`` — optional native refusal code validated against
+      the installed engine contract; no diagnostic detail or unknown value.
 
     The exception's MESSAGE itself is never added to this payload — the
     existing static/behavioral gates (``test_exception_surface_hardening.py``,
@@ -501,6 +533,7 @@ def public_error_payload(
     ).model_dump(mode="json")
     payload["error_class"] = error_class
     payload["failing_layer"] = failing_layer
+    payload.update(_engine_code_fields(exc))
     if safe_code == "engine_degraded":
         payload["retry_after_s"] = _engine_retry_after_hint()
     return payload

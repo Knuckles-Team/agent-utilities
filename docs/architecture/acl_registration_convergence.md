@@ -255,10 +255,11 @@ is exactly what the task's "line you must not cross" forbids.
   `_hydrate_missing_acls` — but `write_batch`'s own docstring says internal,
   non-connector callers ("finance/synthesize" batches) pass `source=None` and
   stay untagged, with no `external_access` and now no `classification`/`_owner_id`
-  fallback either. This is a materially different, fleet-wide surface
-  (`agent-utilities-source-integration`) that deserves its own dedicated audit
-  rather than an unverified blind stamp under this lane's time budget. Filed
-  as `D-ACL-4`.
+  fallback either. This is a materially different, fleet-wide surface (the
+  source-connector/external-ingestion path once documented by the now-retired
+  `agent-utilities-source-integration` skill, whose packaged skill guide moved
+  to graph-os) that deserves its own dedicated audit rather than an unverified
+  blind stamp under this lane's time budget. Filed as `D-ACL-4`.
 
 ## Cross-tenant safety
 

@@ -12,7 +12,6 @@ data:
   # Kafka consumer group per registered agent. Kafka remains the WorkItem task
   # queue below; it is not the million-agent AgentBus fan-out plane.
   AGENT_BUS_LOG_BACKEND: engine
-  MCP_TOOL_MODE: intent
   MCP_CLIENT_AUTH: oidc-client-credentials
   LANGFUSE_MCP_ENABLED: "true"
   TRACE_EXPORT_ENABLED: "true"

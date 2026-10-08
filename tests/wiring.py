@@ -372,8 +372,8 @@ def assert_surface(
     **first and separately**, because "the surface drifted" and "mode-independent
     infrastructure vanished" are different bugs with different fixes.
 
-    ``parameterisation`` labels the current variant (e.g. ``"MCP_TOOL_MODE=intent"``)
-    so a parameterised failure names which variant broke.
+    ``parameterisation`` labels the current variant (e.g. ``"deployment_profile=tiny"``
+    or ``"trees=[...]"``) so a parameterised failure names which variant broke.
     """
     actual_set = set(actual)
     expected_set = set(expected)

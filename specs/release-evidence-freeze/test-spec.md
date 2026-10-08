@@ -11,3 +11,7 @@
 | FREEZE-7 | FR-4 | Compare matching and mismatched AU-generated-client and EG-published contract digests. | Only exact compatible pair qualifies; no fallback digest is synthesized. |
 
 Run focused source-freeze, release compatibility, wheel and assembly tests from a disposable checkout, then full AU tests and configured CCCC, jscpd and Dupehound. Record exact commit, command, exit, artifact digest and public CI receipt; tests written but not run are not acceptance evidence.
+
+## AU-FREEZE-R003 engine wheel source
+
+A `gates` run on main shows the engine source commit in its job summary. The test environment imports `epistemic_graph`. Removing the release triggers the fallback warning, and the job still reaches the test suite.

@@ -10,38 +10,9 @@ from agent_utilities.knowledge_graph.assimilation import (
     rank_features,
     synergy_bundles,
 )
+from tests.unit.assimilation_graph_fakes import AssimilationEngine as _Engine
 
 pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
-
-
-class _Graph:
-    def __init__(self, nodes):
-        self._n = nodes
-        self._out: dict = {}
-        self._in: dict = {}
-
-    def nodes(self, data=False):
-        return list(self._n.items()) if data else list(self._n)
-
-    def add_edge(self, src, dst, props):
-        self._out.setdefault(src, []).append((src, dst, props))
-        self._in.setdefault(dst, []).append((src, dst, props))
-
-    def out_edges(self, nid, data=False):
-        e = self._out.get(nid, [])
-        return e if data else [(s, t) for s, t, _ in e]
-
-    def in_edges(self, nid, data=False):
-        e = self._in.get(nid, [])
-        return e if data else [(s, t) for s, t, _ in e]
-
-
-class _Engine:
-    def __init__(self, nodes):
-        self.graph = _Graph(nodes)
-
-    def link_nodes(self, src, dst, rel_type, properties=None, ephemeral=False):
-        self.graph.add_edge(src, dst, properties or {})
 
 
 def _f(concept, sources=(), status="open"):

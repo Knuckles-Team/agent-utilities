@@ -22,15 +22,7 @@ from typing import Any
 
 import pytest
 
-from agent_utilities.knowledge_graph.core.company_brain_runtime import (
-    get_company_brain,
-    reset_company_brain,
-)
 from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
-from agent_utilities.knowledge_graph.ontology.permissioning import (
-    clear_markings,
-    use_marking_authority,
-)
 from agent_utilities.knowledge_graph.retrieval.context_compiler import (
     DEFAULT_BUNDLE_SYSTEM_PREAMBLE,
     ContextCompiler,
@@ -39,53 +31,9 @@ from agent_utilities.knowledge_graph.retrieval.context_compiler_serving import (
     bundle_chat_completion,
     resolve_bundle_chat_client,
 )
-from agent_utilities.models.company_brain import DataClassification, NodeACL
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
-
-
-class _FakeMarkingStore:
-    """Minimal in-memory durable-store stand-in for the mandatory-marking seam.
-
-    ``ContextCompiler.compile`` runs every candidate through the policy
-    ``enforce`` gate (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted), which resolves the
-    mandatory-marking store on every call.
-    """
-
-    @staticmethod
-    def execute(_query, _params):
-        return []
-
-
-@pytest.fixture(autouse=True)
-def _clean_state():
-    reset_company_brain()
-    clear_markings()
-    with use_marking_authority(_FakeMarkingStore()):
-        yield
-    reset_company_brain()
-    clear_markings()
-
-
-def _grant_public(nodes: list[dict]) -> None:
-    """Grant a PUBLIC-classification ACL for every ``nodes[i]["id"]``.
-
-    ``enforce``'s ACL layer is fail-closed (AU-P0-4) — a node with no ACL is
-    denied outright; these synthetic nodes never exist in a real graph.
-    """
-    permissions = get_company_brain().permissions
-    for node in nodes:
-        permissions.set_acl(
-            NodeACL(node_id=node["id"], classification=DataClassification.PUBLIC)
-        )
-
-
-class FakeRetriever:
-    def __init__(self, nodes: list[dict]) -> None:
-        self._nodes = nodes
-
-    def retrieve_hybrid(self, query, context_window=10, **kwargs):
-        return list(self._nodes)[:context_window]
+from tests.retrieval.fakes import FakeRetriever, _grant_public
 
 
 def _session() -> GraphSession:

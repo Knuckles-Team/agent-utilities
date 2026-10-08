@@ -20,6 +20,8 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pytest
+
 from agent_utilities.mcp import kg_server
 
 
@@ -160,3 +162,98 @@ def test_readiness_action_rejected_by_the_generic_analyze_tool_before_the_split(
     out = asyncio.run(tool(action="code_context", query="graph_analyze"))
     payload = out.claims[0]
     assert payload["error"] == "action belongs to a focused graph tool"
+
+
+@pytest.fixture
+def intent_readiness(monkeypatch):
+    from agent_utilities.mcp.tools import intent_tools
+
+    _get_tool()
+    for name in ("_CANDIDATES_CACHE", "_ACTIONS_BY_TOOL_CACHE", "_OUTCOME_ROUTER"):
+        monkeypatch.setattr(intent_tools, name, None)
+    monkeypatch.setattr(intent_tools, "_RESOLUTION_CACHE", {})
+    monkeypatch.setattr(intent_tools, "_PREVIEW_PLAN_CACHE", {})
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.connector_coverage.enumerate_expected_connectors",
+        lambda: [],
+    )
+    monkeypatch.setattr(
+        "agent_utilities.observability.runtime_health.collect_health",
+        lambda: {
+            "status": "healthy",
+            "checks": [
+                {"name": "engine", "status": "ok", "detail": {}},
+                {"name": "embedding_endpoint", "status": "ok", "detail": {}},
+            ],
+        },
+    )
+    return intent_tools
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("degraded", [False, True])
+async def test_ask_admits_readiness_without_changing_snapshot_policy(
+    intent_readiness, monkeypatch, degraded
+):
+    from agent_utilities.knowledge_graph.core.session import current_session
+
+    engine = _FakeEngine(
+        anchor_rows=[_ANCHOR_ROW],
+        raise_exc=ConnectionError("unavailable") if degraded else None,
+    )
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    session = current_session()
+    result = await intent_readiness.dispatch_intent(
+        "ask",
+        "inspect graph readiness",
+        hints={
+            "tool": "graph_analyze",
+            "action": "readiness",
+            "query": "graph_analyze",
+        },
+    )
+    assert result["executed"] is True
+    assert result["routing"]["plan"]["execution_class"] == "read_only"
+    payload = result["result"].claims[0]
+    assert payload["schema_version"] == "graphos.readiness.v1"
+    assert payload["checks"]["identity_policy"]["tenant"] == session.tenant
+    assert payload["checks"]["synthetic_query"]["state"] == (
+        "unavailable" if degraded else "ready"
+    )
+    assert payload["overall"] == ("unavailable" if degraded else "degraded")
+    assert current_session() is session
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["unknown_readiness", "process_writeback"])
+async def test_ask_readiness_fix_does_not_admit_other_actions(
+    intent_readiness, monkeypatch, action
+):
+    reached = []
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: reached.append(True))
+    result = await intent_readiness.dispatch_intent(
+        "ask",
+        "inspect graph readiness",
+        hints={"tool": "graph_analyze", "action": action},
+    )
+    assert result["executed"] is False
+    assert reached == []
+
+
+def test_readiness_descriptor_is_exact_and_packaged():
+    from agent_utilities.mcp.tools import intent_tools
+    from tests.unit.cpd_generator_support import generated_action_items
+
+    expected = generated_action_items("graph_analyze", ["readiness"])["readiness"]
+    assert expected["mutates"] == "false"
+    assert expected["eg_method"] is None
+    actual = next(
+        d
+        for d in intent_tools._load_cpds_required()["graph_analyze"]["does"]
+        if d["action"] == "readiness"
+    )
+    assert actual == expected
+    assert (
+        "mutates"
+        not in generated_action_items("other_tool", ["readiness"])["readiness"]
+    )

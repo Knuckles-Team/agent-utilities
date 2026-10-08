@@ -96,15 +96,12 @@ _VERIFIED_PILLAR_FILES: tuple[str, ...] = (
 #: Same verification, for `agent_utilities/skills/*/SKILL.md` (real YAML
 #: frontmatter corpus). Restricted to the top-level ``*/SKILL.md`` glob depth —
 #: this fixture's `au-skills` domain pack therefore covers a verified subset of
-#: this repo's skills, not the nested `workflows/`/`skill_graphs/` ones.
-_VERIFIED_SKILL_FILES: tuple[str, ...] = (
-    "agent-utilities-deployment/SKILL.md",
-    "agent-utilities-development/SKILL.md",
-    "agent-utilities-evolution/SKILL.md",
-    "autonomous-contribution/SKILL.md",
-    "graph-modeling-and-mutation/SKILL.md",
-    "graph-runtime-and-governance/SKILL.md",
-)
+#: this repo's skills, not the nested `skill_graphs/` one. Every domain-tier
+#: skill this tuple used to also list (agent-utilities-deployment,
+#: agent-utilities-evolution, autonomous-contribution, graph-modeling-and-
+#: mutation, graph-runtime-and-governance) moved to graph-os on 2026-10-03;
+#: agent-utilities-development is the one bundled skill left to verify.
+_VERIFIED_SKILL_FILES: tuple[str, ...] = ("agent-utilities-development/SKILL.md",)
 
 
 @pytest.fixture()
@@ -254,7 +251,7 @@ async def test_two_domain_packs_ingested_and_queryable_with_lineage(
         "MATCH (n:Document) WHERE n.relpath = $relpath "
         "RETURN n.corpus AS corpus, n.relpath AS relpath, n.git_commit AS git_commit, "
         "n.doc_type AS doc_type",
-        {"relpath": "agent_utilities/skills/graph-modeling-and-mutation/SKILL.md"},
+        {"relpath": "agent_utilities/skills/agent-utilities-development/SKILL.md"},
     )
     assert len(skill_rows) == 1, skill_rows
     assert skill_rows[0]["corpus"] == "au-skills"
@@ -267,7 +264,7 @@ async def test_two_domain_packs_ingested_and_queryable_with_lineage(
         engine,
         "MATCH (d:Document {relpath: $relpath})-[:HAS_CHUNK]->(c:Chunk) "
         "RETURN c.content AS content",
-        {"relpath": "agent_utilities/skills/graph-modeling-and-mutation/SKILL.md"},
+        {"relpath": "agent_utilities/skills/agent-utilities-development/SKILL.md"},
     )
     assert chunk_rows and any(
         "skill_type: skill" in (row["content"] or "") for row in chunk_rows

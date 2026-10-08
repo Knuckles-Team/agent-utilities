@@ -217,9 +217,15 @@ jobs:
   # failure mode). Deliberately has no `needs:` on `gates`/`clone-scanners`
   # and nothing needs it except `build`, so a red run here still lets `gates`
   # produce test evidence while leaving build/publish unreachable.
+  #
+  # ADVISORY since 2026-10-08: the engine wheel exceeds the PyPI size limit,
+  # so PyPI cannot carry it yet. The check still runs and reports, but
+  # `continue-on-error` keeps a red result from blocking `build`. CI installs
+  # the engine from the epistemic-graph `engine-main` GitHub prerelease.
   engine-release-order:
     name: epistemic-graph release is resolvable on PyPI
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -279,12 +285,41 @@ jobs:
       # live in the `test` extra), so CI silently ran a plainer pytest than
       # the one every local invocation used (`asyncio_mode = auto` in
       # pytest.ini requires pytest-asyncio to be installed to take effect).
-      - name: Sync test environment (no runtime engine)
+      - name: Sync test environment (engine wheel installed next)
         run: |
           uv sync --frozen --extra test --group guardrails \
             --no-install-package epistemic-graph \
             --no-install-package langfuse-agent
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      # The engine wheel exceeds the PyPI size limit. epistemic-graph main CI
+      # publishes its Linux x86_64 wheel to the rolling `engine-main`
+      # prerelease (EG-CONTRACT-R047); install it so engine tests run. If the
+      # release is unavailable, fall back to the PyPI floor with a loud
+      # warning. If neither resolves, engine tests skip as before.
+      - name: Install the epistemic-graph engine wheel (engine-main release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EG_ENGINE_RELEASE_TAG: engine-main
+        run: |
+          set -uo pipefail
+          dest="$RUNNER_TEMP/eg-wheel"
+          mkdir -p "$dest"
+          if gh release download "$EG_ENGINE_RELEASE_TAG" -R Knuckles-Team/epistemic-graph \
+               -p 'epistemic_graph-*manylinux*x86_64.whl' -p SHA256SUMS -D "$dest" \
+             && (cd "$dest" && sha256sum --check --ignore-missing SHA256SUMS); then
+            source_sha="$(gh release view "$EG_ENGINE_RELEASE_TAG" -R Knuckles-Team/epistemic-graph --json targetCommitish --jq .targetCommitish)"
+            echo "Engine wheel from release $EG_ENGINE_RELEASE_TAG at epistemic-graph ${source_sha}"
+            echo "Engine wheel: release \`$EG_ENGINE_RELEASE_TAG\` at epistemic-graph \`${source_sha}\`" >> "$GITHUB_STEP_SUMMARY"
+            uv pip install --python .venv/bin/python "$dest"/epistemic_graph-*.whl
+          else
+            echo "::warning title=Engine wheel fallback::epistemic-graph release '$EG_ENGINE_RELEASE_TAG' is unavailable; falling back to the PyPI floor. Engine tests may skip."
+            echo "WARNING: engine wheel fell back to PyPI" >> "$GITHUB_STEP_SUMMARY"
+            uv pip install --python .venv/bin/python 'epistemic-graph>=2.27.0,<3.0.0' \
+              || echo "::warning title=Engine unavailable::PyPI fallback failed; engine tests skip."
+          fi
+          .venv/bin/python -c "import epistemic_graph, importlib.metadata as m; print('epistemic-graph', m.version('epistemic-graph'))" \
+            || echo "::warning title=Engine not importable::epistemic_graph does not import; engine tests skip."
 
       # ---- THE test suite. pytest.ini's testpaths covers the whole `tests/`
       # tree (gates, scale, unit, integration, security, retrieval, ...) in
@@ -585,84 +620,31 @@ jobs:
           fi
           echo "release identity verified: tag=$TAG_NAME version=$tag_version commit=$HEAD_SHA wheel=$(basename "$wheel_path")"
 
+      - name: Checkout centralized publication contract
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: Knuckles-Team/pipelines
+          ref: main
+          path: .pipeline-contract
+          persist-credentials: false
+
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           version: '0.11.7'
-      - name: Publish the exact wheel validated on Linux and Windows
+      - name: Publish and verify exact validated wheel bytes
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-        run: uv publish --check-url https://pypi.org/simple dist/agent_utilities-*.whl
-
-      - name: Verify exact version and wheel on PyPI
-        env:
           EXPECTED_TAG: ${{ github.ref_name }}
+          SOURCE_COMMIT: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
-          expected_version="${EXPECTED_TAG#v}"
-          mapfile -t wheels < <(
-            find dist -maxdepth 1 -type f -name 'agent_utilities-*.whl' -print | sort
-          )
-          if (( ${#wheels[@]} != 1 )); then
-            echo "::error::PyPI verification: expected exactly one wheel, found ${#wheels[@]}"
-            exit 1
-          fi
-          expected_wheel_name="$(basename "${wheels[0]}")"
-          for attempt in $(seq 1 12); do
-            if EXPECTED_WHEEL_NAME="$expected_wheel_name" python3 - "$expected_version" <<'PY'
-          import json
-          import os
-          import sys
-          import urllib.error
-          import urllib.request
-
-          version = sys.argv[1]
-          expected_wheel = os.environ["EXPECTED_WHEEL_NAME"]
-          url = f"https://pypi.org/pypi/agent-utilities/{version}/json"
-          try:
-              with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310
-                  payload = json.load(response)
-          except (
-              urllib.error.HTTPError,
-              urllib.error.URLError,
-              TimeoutError,
-              json.JSONDecodeError,
-          ) as exc:
-              print(f"PyPI exact-version check not ready: {exc}", file=sys.stderr)
-              raise SystemExit(1) from exc
-
-          info = payload.get("info") or {}
-          if info.get("name") != "agent-utilities" or info.get("version") != version:
-              print(
-                  "PyPI returned a mismatched project/version: "
-                  f"name={info.get('name')!r} version={info.get('version')!r}",
-                  file=sys.stderr,
-              )
-              raise SystemExit(1)
-          releases = payload.get("releases") or {}
-          if version not in releases:
-              print(f"PyPI has no exact release key for {version}", file=sys.stderr)
-              raise SystemExit(1)
-          if not any(
-              item.get("filename") == expected_wheel
-              for item in (payload.get("urls") or [])
-          ):
-              print(
-                  f"PyPI {version} has no published wheel named {expected_wheel}",
-                  file=sys.stderr,
-              )
-              raise SystemExit(1)
-          print(f"PyPI exact release verified: agent-utilities=={version}")
-          PY
-            then
-              exit 0
-            fi
-            if (( attempt < 12 )); then
-              sleep 10
-            fi
-          done
-          echo "::error::PyPI exact-version verification failed after publication for agent-utilities==$expected_version"
-          exit 1
+          # pipelines is referenced at main; freeze the commit checked out for this run.
+          PIPELINES_CONTRACT_COMMIT="$(git -C .pipeline-contract rev-parse HEAD)"
+          export PIPELINES_CONTRACT_COMMIT
+          python -I scripts/release/publish_validated_wheel.py \
+            --version "${EXPECTED_TAG#v}" \
+            --manifest "$RUNNER_TEMP/au-publication.json"
 
   # BUG-072: the docker publish needs its OWN approval gate, not an inherited one.
   #

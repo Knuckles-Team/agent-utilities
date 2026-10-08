@@ -568,6 +568,8 @@ class LoopController:
         ``insight_validation`` — gated on the SAME flag as its one consumer.
         ``audit_gaps`` is the opt-in code-correctness/security audit track
         (CONCEPT:AU-AHE.harness.audit-gap-detector, KG_LOOP_AUDIT default OFF).
+        ``work_market`` is the bounded recovery sweep (AU-HARNESS-R003) over the canonical Gaps
+        (settle/cancel/price through EG; self-skipping without the typed surface).
         """
         from agent_utilities.core.config import config as _audit_cfg
 
@@ -586,6 +588,7 @@ class LoopController:
             )
         if getattr(_audit_cfg, "kg_loop_audit", False):
             report["audit_gaps"] = stage("audit_gaps", self._run_audit_gaps)
+        report["work_market"] = stage("work_market", self._run_work_market)
 
     def _cycle_insight_stages(
         self, report: dict[str, Any], stage: Callable, opts: _CycleOptions
@@ -610,6 +613,8 @@ class LoopController:
         support/contradiction neighborhood, persisting each outcome as a
         ``:BeliefRevisionProposal`` — never a mutation of the live belief
         (propose-only; the Critic flags, it does not arbitrate).
+        ``embedding_generation`` (opt-in) is the governed embedding-generation
+        swap (AU-CONTEXT-R002): activated only with EG's passing receipt.
         """
         from agent_utilities.core.config import config
 
@@ -635,6 +640,20 @@ class LoopController:
             report["belief_revision"] = stage(
                 "belief_revision", self._run_belief_revision
             )
+        if setting("KG_LOOP_EMBEDDING_GENERATION", False):
+            report["embedding_generation"] = stage(
+                "embedding_generation", self._run_embedding_generation
+            )
+
+    def _run_embedding_generation(self) -> dict[str, Any]:
+        """Swap the graph's embedding generation to the published model (AU-CONTEXT-R002),
+        activated only with EG's passing receipt (opt-in,
+        ``KG_LOOP_EMBEDDING_GENERATION``)."""
+        from agent_utilities.decide.learning.generation_cycle import (
+            run_generation_cycle,
+        )
+
+        return run_generation_cycle(self.engine)
 
     def _cycle_proposal_stages(
         self, report: dict[str, Any], stage: Callable, opts: _CycleOptions
@@ -2764,9 +2783,9 @@ class LoopController:
     ) -> dict[str, Any]:
         """Feed an approved spec into the EXISTING governed promotion pipeline.
 
-        D5 — close the loop: on publish, walk this develop-Loop's RESOLVES edge
-        back to the origin gap and flip it to resolved (the graph-native seam,
-        idempotent with ``develop_spec``'s property-based close). The chain gets
+        Close the loop: on publish, resolve the origin gap this develop-Loop
+        carries (``gap_id``, stamped by ``_bind_develop_loop``) through EG's typed
+        ``GapTransition`` — idempotent with ``develop_spec``'s own close. The chain gets
         its visible END. 'published'/'approval_queued' = the governed pipeline ran
         + queued a reviewable branch → the develop step did its job (complete).
         Hard failures stop the loop rather than retrying a broken synthesis
@@ -2781,7 +2800,7 @@ class LoopController:
         if status == "published":
             from .gaps import resolve_gaps_for_loop
 
-            resolve_gaps_for_loop(self.engine, loop["id"])
+            resolve_gaps_for_loop(self.engine, loop)
         done = status in ("published", "approval_queued", "approved")
         return {
             "status": "completed" if done else "failed",
@@ -3896,6 +3915,17 @@ class LoopController:
         from agent_utilities.harness.audit_gap_detector import run_audit_gap_scan
 
         return run_audit_gap_scan(self.engine)
+
+    def _run_work_market(self) -> dict[str, Any]:
+        """Work-market recovery sweep (AU-HARNESS-R003) over the canonical Gaps.
+
+        Settles finished Gap WorkItems onto their Gaps, cancels the never-run WorkItem
+        of a closed Gap, and prices unpriced live Gaps -- all through EG's typed
+        surfaces. It never ranks or claims: selecting legal work is ``Decide``'s.
+        """
+        from .work_market import run_market_stage
+
+        return run_market_stage(self.engine)
 
     def _distill_specs(self, topics: list[dict[str, Any]]) -> list[str]:
         """Distil ``SpecDraft`` markdown into ``.specify/specs/kg-distilled/``."""

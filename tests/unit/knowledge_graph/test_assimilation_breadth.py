@@ -13,6 +13,8 @@ from agent_utilities.knowledge_graph.assimilation import (
     run_breadth_ingest,
     run_pilot,
 )
+from tests.unit.assimilation_graph_fakes import market_engine
+from tests.unit.fleet_autonomy_fakes import verified_fleet_session
 
 pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
 
@@ -207,44 +209,8 @@ def test_workspace_project_roots_returns_existing_local_paths(tmp_path):
 
 
 # --- pilot harness ----------------------------------------------------------
-class _Graph:
-    def __init__(self, nodes):
-        self._n = dict(nodes)
-        self._out: dict = {}
-        self._in: dict = {}
-
-    def nodes(self, data=False):
-        return list(self._n.items()) if data else list(self._n)
-
-    def add_node(self, nid, attrs):
-        self._n[nid] = attrs
-
-    def add_edge(self, s, d, p):
-        self._out.setdefault(s, []).append((s, d, p))
-        self._in.setdefault(d, []).append((s, d, p))
-
-    def out_edges(self, nid, data=False):
-        e = self._out.get(nid, [])
-        return e if data else [(s, t) for s, t, _ in e]
-
-    def in_edges(self, nid, data=False):
-        e = self._in.get(nid, [])
-        return e if data else [(s, t) for s, t, _ in e]
-
-
-class _Engine:
-    def __init__(self, nodes):
-        self.graph = _Graph(nodes)
-
-    def add_node(self, nid, nt, properties=None, ephemeral=False):
-        self.graph.add_node(nid, {**(properties or {}), "type": nt})
-
-    def link_nodes(self, s, d, rel, properties=None, ephemeral=False):
-        self.graph.add_edge(s, d, properties or {})
-
-
 def test_pilot_passes_when_built_features_not_reproposed():
-    engine = _Engine(
+    engine = market_engine(
         {
             # an OPEN gap the engine should propose
             "open1": {
@@ -262,8 +228,12 @@ def test_pilot_passes_when_built_features_not_reproposed():
             },
         }
     )
-    rep = run_pilot(engine, top_n=10)
+    # Synthesis folds the open feature into ONE canonical Gap through EG's typed
+    # upsert, bound to the ambient verified tenant.
+    with verified_fleet_session():
+        rep = run_pilot(engine, top_n=10)
     assert rep.already_built == 1
     assert "open1" in {g["feature_id"] for g in rep.ranked_gaps}
     assert rep.reproposed_built == []  # the invariant
     assert rep.passed is True
+    assert {gap_id for _, gap_id in engine.market.gap_rows} == {"gap:research:open1"}

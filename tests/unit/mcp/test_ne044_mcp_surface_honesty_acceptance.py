@@ -8,11 +8,12 @@ Three things are asserted, all against the real ``graph_code`` tool
 ``register_analysis_tools`` + ``register_analyze_suite_tools`` wire it in
 production, dispatched through the real ``kg_server._execute_tool`` core:
 
-1. **Verbose/granular reachability resolves** — calling ``graph_code`` (the
-   always-registered granular tool; ``MCP_TOOL_MODE=intent`` only hides it
-   from a session's default *list*, never from ``REGISTERED_TOOLS``/
-   ``_execute_tool`` — see ``verbose_tools.tool_mode``'s docstring) with a
-   real (non-broken) fake engine returns a real, grounded answer.
+1. **Granular reachability resolves** — calling ``graph_code`` (a granular
+   backing tool registered on the private backing server; it is never listed
+   in ``tools/list`` under the single intent-tool contract, but it stays
+   reachable through ``REGISTERED_TOOLS``/``_execute_tool`` — see
+   ``agent_utilities/mcp/graphos_surface.py``) with a real (non-broken) fake
+   engine returns a real, grounded answer.
 
 2. **Intent-level reachability resolves the SAME capability** — the ``ask``
    intent verb (``intent_tools.dispatch_intent``), with ``graph_code`` left

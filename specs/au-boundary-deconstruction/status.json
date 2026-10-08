@@ -460,7 +460,7 @@
           "description": "scripts/check_boundary_coverage.py parses coverage.md's inventory table (shared scripts/boundary_inventory.py) and compares it against the real agent_utilities/ tree, failing on an unlisted, stale, duplicate, or undecided row. Run against today's tree it correctly finds exactly the 17 known undecided directories (images/, data/, protocols/voice_supply_chain/, and 14 skill-content directories) and nothing else wrong; tests/gates/test_boundary_coverage_gate.py pins that exact evidence plus fixtures for each failure class and a passing case. Wired report-only in .github/workflows/advisory.yml (continue-on-error), not as a blocking pre-commit hook, because it is red against the real tree today."
         }
       ],
-      "remaining": "Cannot reach a passing delivery_state while 17 directories stay undecided in coverage.md: images/, data/, protocols/voice_supply_chain/, and 14 skill-content directories under skills/ (agent-utilities-deployment, agent-utilities-development, agent-utilities-evolution, agent-utilities-self-evolution, agent-utilities-source-integration, autonomous-contribution, graph-engine-and-modalities, graph-ingestion-and-integration, graph-modeling-and-mutation, graph-orchestration-and-automation, graph-query-and-explanation, graph-research-and-analysis, graph-runtime-and-governance, workflows). This requirement's own text forbids inventing a disposition for them; an owner must rule on each row before the gate can move to the blocking commit-stage hook set."
+      "remaining": "Cannot reach a passing delivery_state while 8 directories stay undecided in coverage.md: images/, data/, protocols/voice_supply_chain/, and 5 skill-content directories under skills/ (agent-utilities-deployment, agent-utilities-development, agent-utilities-evolution, agent-utilities-self-evolution, workflows). The nine graph-os-owned skill-content directories previously listed here (agent-utilities-source-integration, autonomous-contribution, graph-engine-and-modalities, graph-ingestion-and-integration, graph-modeling-and-mutation, graph-orchestration-and-automation, graph-query-and-explanation, graph-research-and-analysis, graph-runtime-and-governance) moved to graph-os and were deleted from AU, dropping their coverage.md rows. This requirement's own text forbids inventing a disposition for the remainder; an owner must rule on each row before the gate can move to the blocking commit-stage hook set."
     },
     {
       "id": "AU-BOUNDARY-R043",
@@ -495,8 +495,23 @@
     {
       "id": "AU-BOUNDARY-R048",
       "title": "Domain models, shapes, assets and skill content are placed",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "49b087cb97e4bbab87eb4527c3c088d526129142",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/49b087cb97e4bbab87eb4527c3c088d526129142",
+          "description": "Source cut: skill directories deleted, coverage.md rows resolved, zero undecided rows. Published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "branch",
+          "result": "passed",
+          "commit": "4f1f26c10fec5ae50d805300f73b1034943f4006",
+          "url": "https://github.com/Knuckles-Team/graph-os/commit/4f1f26c10fec5ae50d805300f73b1034943f4006",
+          "description": "Destination: moved/merged skill content received into graph_os/skills/. Published on a branch in the graph-os repository; not yet merged to its default branch."
+        }
+      ]
     }
   ]
 }
