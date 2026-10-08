@@ -65,6 +65,12 @@ _MAX_POLICY_BYTES = 1024 * 1024
 _MAX_AUDIT_VALUE = 256
 _MAX_COMPONENTS_PER_LIST = 10_000
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_.:/-]{1,256}$")
+
+
+class _InvalidComponentIdentity(ToolError):
+    """A component name or type fails the safe-identifier policy."""
+
+
 _ComponentT = TypeVar("_ComponentT", bound=FastMCPComponent)
 
 
@@ -512,7 +518,9 @@ class JwtPrincipalEunomiaMiddleware(Middleware):
         component_type = _safe_identifier(method.split("/", 1)[0])
         name = _safe_identifier(getattr(component, "name", None))
         if name == "unknown" or component_type == "unknown":
-            raise ToolError("Access denied: component identity is invalid")
+            raise _InvalidComponentIdentity(
+                "Access denied: component identity is invalid"
+            )
         uri = f"mcp:{component_type}:{name}"
         raw_arguments = getattr(context.message, "arguments", None)
         argument_names: list[str] = []
@@ -590,7 +598,9 @@ class JwtPrincipalEunomiaMiddleware(Middleware):
             logger.warning("MCP component listing exceeded authorization bound")
             return []
         principal = self._extract_principal()
-        resources = [self._extract_resource(context, item) for item in selected]
+        selected, resources = self._listable(context, selected)
+        if not selected:
+            return []
         responses = await self._eunomia.bulk_check(
             [
                 schemas.CheckRequest(
@@ -610,6 +620,29 @@ class JwtPrincipalEunomiaMiddleware(Middleware):
             if response.allowed:
                 allowed.append(component)
         return allowed
+
+    def _listable(
+        self,
+        context: MiddlewareContext[Any],
+        components: Sequence[_ComponentT],
+    ) -> tuple[list[_ComponentT], list[schemas.ResourceCheck]]:
+        """Pair listable components with resources; hide invalid identities.
+
+        A component whose identity fails the safe-identifier policy can never
+        be authorized, so the listing hides it. Valid components still go
+        through the policy check unchanged.
+        """
+        kept: list[_ComponentT] = []
+        resources: list[schemas.ResourceCheck] = []
+        for component in components:
+            try:
+                resource = self._extract_resource(context, component)
+            except _InvalidComponentIdentity:
+                logger.warning("MCP listing hid a component with an invalid identity")
+                continue
+            kept.append(component)
+            resources.append(resource)
+        return kept, resources
 
     @staticmethod
     def _server(context: MiddlewareContext[Any]) -> Any:
