@@ -381,7 +381,7 @@ def run_writeback(
     if blocked is not None:
         return blocked
 
-    # AU-BOUNDARY-R049: every sink call below runs through the SDK governed
+    # Per the AU boundary deconstruction spec, every sink call below runs through the SDK governed
     # write-back contract (canonical change set, audit reservation, ledger).
     from .governed import SinkGrant
 

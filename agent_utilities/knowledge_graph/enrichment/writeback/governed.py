@@ -1,6 +1,6 @@
 """Execute every write-back sink through the SDK governed write-back contract.
 
-AU-BOUNDARY-R049: ``run_writeback`` no longer calls a sink directly. Each
+Per the AU boundary deconstruction spec, ``run_writeback`` no longer calls a sink directly. Each
 invocation becomes one canonical :class:`SourceChangeSet` and runs through
 :class:`~agent_connector_sdk.writeback.connector.DurableWritableConnector`.
 The SDK then validates the digest, expiry, field scope, base version and
@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import importlib
 import json
 import os
 import tempfile
@@ -30,27 +31,25 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from agent_connector_sdk.writeback.connector import DurableWritableConnector
-from agent_connector_sdk.writeback.durable_ledger import FileWriteBackLedger
 from agent_connector_sdk.writeback.errors import OutcomeUncertainError
 from agent_connector_sdk.writeback.models import DryRunObservation, SourceSnapshot
-from epistemic_graph.generated.write_back import (
-    ReconciliationObservation,
-    SourceChangeSet,
-    WriteBackAttempt,
-    WriteBackAttemptKind,
-    WriteBackAuthorizationDecision,
-    WriteBackAuthorizationMode,
-    WriteBackEffectStatus,
-    WriteBackOutcome,
-)
 
 from agent_utilities.core.event_loop import run_sync_isolated
 from agent_utilities.core.paths import runtime_dir
 
 from .core import PROVENANCE_TAG, WritebackContext, WritebackResult, WritebackSink
+
+if TYPE_CHECKING:
+    from agent_connector_sdk.writeback.connector import DurableWritableConnector
+    from epistemic_graph.generated.write_back import (
+        ReconciliationObservation,
+        SourceChangeSet,
+        WriteBackAttempt,
+        WriteBackAuthorizationDecision,
+        WriteBackAuthorizationMode,
+    )
 
 __all__ = [
     "GovernedOutcome",
@@ -71,6 +70,14 @@ _TENANT = "agent-utilities"
 _ACTOR = "agent-utilities:graph_writeback"
 _TTL_MS = 300_000
 _SCHEMA_VERSION = 1
+
+
+def _write_back() -> Any:
+    """Import the engine write-back model module on first use.
+
+    The engine is optional at import time, so collection works without it.
+    """
+    return importlib.import_module("epistemic_graph.generated.write_back")
 
 
 def _digest(value: Any) -> str:
@@ -101,8 +108,8 @@ class SinkGrant:
     def mode(self) -> WriteBackAuthorizationMode:
         """Approved proposals replay under approval; others under standing policy."""
         if self.approved:
-            return WriteBackAuthorizationMode.PROPOSAL_APPROVAL
-        return WriteBackAuthorizationMode.STANDING_POLICY
+            return _write_back().WriteBackAuthorizationMode.PROPOSAL_APPROVAL
+        return _write_back().WriteBackAuthorizationMode.STANDING_POLICY
 
     def policy_digest(self) -> str:
         """Digest the policy inputs the grant was decided from."""
@@ -126,7 +133,7 @@ class SinkGrant:
             "output_digest": output_digest,
             "policy_digest": self.policy_digest(),
         }
-        return WriteBackAuthorizationDecision(
+        return _write_back().WriteBackAuthorizationDecision(
             mode=self.mode(),
             authorization_ref=self.enable_flag,
             authorized=self.write_enabled,
@@ -148,7 +155,7 @@ def build_change_set(
     input_digest = _digest(patch)
     change_set_id = uuid.uuid4().hex
     issued_ms = time.time_ns() // 1_000_000 if now_ms is None else now_ms
-    draft = SourceChangeSet(
+    draft = _write_back().SourceChangeSet(
         actor=_ACTOR,
         authorization=grant.decision(input_digest),
         base_source_version=_base_version(ops),
@@ -233,13 +240,13 @@ class SinkWriteBackTransport:
 
     async def reconcile(self, change_set: SourceChangeSet) -> ReconciliationObservation:
         """Sinks cannot observe the source, so the outcome stays uncertain."""
-        return ReconciliationObservation(
+        return _write_back().ReconciliationObservation(
             tenant_id=change_set.tenant_id,
             change_set_id=change_set.change_set_id,
             change_set_digest=change_set.change_set_digest,
             idempotency_key=change_set.idempotency_key,
             observed_source_version=change_set.base_source_version,
-            effect_status=WriteBackEffectStatus.OUTCOME_UNCERTAIN,
+            effect_status=_write_back().WriteBackEffectStatus.OUTCOME_UNCERTAIN,
             retry_allowed=False,
             evidence_digest=_digest({"reason": "sink has no read-back"}),
             connector_observation_digest=_digest({"target": self._sink.domain}),
@@ -256,19 +263,19 @@ class SinkWriteBackTransport:
     ) -> WriteBackAttempt:
         authorization = change_set.authorization
         counts = self.result.as_dict() if self.result is not None else {}
-        return WriteBackAttempt(
+        return _write_back().WriteBackAttempt(
             tenant_id=change_set.tenant_id,
             change_set_id=change_set.change_set_id,
             change_set_digest=change_set.change_set_digest,
             idempotency_key=change_set.idempotency_key,
-            kind=WriteBackAttemptKind.APPLY,
+            kind=_write_back().WriteBackAttemptKind.APPLY,
             input_digest=authorization.input_digest,
             output_digest=authorization.output_digest,
             pre_source_version=expected_version,
             post_source_version=expected_version,
             applied_field_digest=change_set.patch_digest(),
-            outcome=WriteBackOutcome.APPLIED,
-            effect_status=WriteBackEffectStatus.APPLIED,
+            outcome=_write_back().WriteBackOutcome.APPLIED,
+            effect_status=_write_back().WriteBackEffectStatus.APPLIED,
             connector_observation_digest=_digest(counts),
             provenance_digest=_digest(change_set.field_provenance),
         )
@@ -324,6 +331,9 @@ def ledger_root() -> Path:
 def _connector(
     transport: SinkWriteBackTransport, change_set: SourceChangeSet, directory: Path
 ) -> DurableWritableConnector:
+    from agent_connector_sdk.writeback.connector import DurableWritableConnector
+    from agent_connector_sdk.writeback.durable_ledger import FileWriteBackLedger
+
     return DurableWritableConnector(
         change_set.connector_id,
         transport,

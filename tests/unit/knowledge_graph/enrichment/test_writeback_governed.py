@@ -1,4 +1,4 @@
-"""AU-BOUNDARY-R049: ``run_writeback`` executes sinks through the SDK contract.
+"""``run_writeback`` runs sinks through the SDK contract (AU boundary spec).
 
 Every sink call becomes one canonical SDK ``SourceChangeSet`` and runs through
 ``DurableWritableConnector``. These tests use fake sinks and a temporary ledger
