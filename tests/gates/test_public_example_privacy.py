@@ -24,7 +24,6 @@ PUBLIC_EXAMPLES = (
     "agent_utilities/models/knowledge_graph.py",
     "tests/unit/core/test_config.py",
     "tests/unit/knowledge_graph/core/test_source_sync.py",
-    "tests/unit/test_fuseki_publish_tick.py",
 )
 PRIVATE_IPV4 = re.compile(
     r"\b(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|"

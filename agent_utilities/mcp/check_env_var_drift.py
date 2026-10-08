@@ -11,8 +11,6 @@ emitting drift findings:
 - ``DEAD`` — a var declared in config/docs that **no code reads** (e.g. a scaffolder's
   ``*_TOKEN``, or per-endpoint ``*_TOOL`` toggles the framework never honours). Remove it.
 - ``UNDOCUMENTED`` — a var the code reads that is **missing from** ``.env.example``. Add it.
-- ``MISSING_TOOL_MODE`` — a launch-style ``mcp_config.json`` ``env`` block (or README
-  example) with **no** ``MCP_TOOL_MODE`` (users can't discover the surface). Add it.
 - ``MALFORMED_VALUE`` — a config ``env`` value with a whitespace-padded substitution like
   ``"${ VAR:-True }"``. Use ``"${VAR:-True}"`` (no spaces inside the braces).
 - ``AGENT_VAR_IN_MCP`` — an agent-runtime var (``AGENT_DESCRIPTION``, ``MCP_URL``, a
@@ -1438,24 +1436,6 @@ def _undocumented_findings(
     return findings
 
 
-def _missing_tool_mode_findings(
-    mcp_blocks: list[tuple[Path, dict[str, str]]], root: Path
-) -> list[dict]:
-    # MISSING_TOOL_MODE — a launch-style mcp_config env block without MCP_TOOL_MODE.
-    findings = []
-    for path, env in mcp_blocks:
-        if "MCP_TOOL_MODE" not in env:
-            findings.append(
-                {
-                    "type": "MISSING_TOOL_MODE",
-                    "var": "MCP_TOOL_MODE",
-                    "sources": [_rel(path, root)],
-                    "hint": 'add "MCP_TOOL_MODE": "intent" to the env block',
-                }
-            )
-    return findings
-
-
 def _malformed_value_findings(
     mcp_blocks: list[tuple[Path, dict[str, str]]], root: Path
 ) -> list[dict]:
@@ -1508,22 +1488,13 @@ def _readme_allowed_vars(
         and not variable.startswith(_RUNTIME_PREFIXES)
         and not any(variable.endswith(suffix) for suffix in _SAFE_SUFFIXES)
         and not is_agent_only(variable)
-    } | {"MCP_TOOL_MODE", "TRANSPORT", "HOST", "PORT"}
+    } | {"TRANSPORT", "HOST", "PORT"}
 
 
 def _readme_findings(root: Path, allowed: set[str], is_agent_only: Any) -> list[dict]:
-    # README mcp_config examples — STALE_EXAMPLE + missing MCP_TOOL_MODE.
+    # README mcp_config examples — STALE_EXAMPLE.
     findings = []
     for env in _readme_example_env_blocks(root):
-        if "MCP_TOOL_MODE" not in env:
-            findings.append(
-                {
-                    "type": "MISSING_TOOL_MODE",
-                    "var": "MCP_TOOL_MODE",
-                    "sources": ["README.md (example)"],
-                    "hint": 'add "MCP_TOOL_MODE": "intent" to the example env block',
-                }
-            )
         for var in sorted(env):
             if var not in allowed:
                 findings.append(
@@ -1553,7 +1524,6 @@ def analyze(root: Path) -> dict:
     findings: list[dict] = []
     findings += _dead_findings(declared_sources, code_read)
     findings += _undocumented_findings(pkg_reads, toggles, declared_env)
-    findings += _missing_tool_mode_findings(mcp_blocks, root)
     findings += _malformed_value_findings(mcp_blocks, root)
     findings += _agent_var_in_mcp_findings(mcp_blocks, root, is_agent_only)
 

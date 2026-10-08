@@ -212,7 +212,6 @@ graph TD
 | KG-2.22 | Data Science Primitives | Rust-backed OLS / K-means / PCA / estimators (ridge/lasso/RF/GB/SVR) replacing scikit-learn on the hot path, parity-validated |
 | KG-2.7 | Single Company Brain | Extensible operational state layer encompassing Ontology Bridges, Enterprise Architecture Repositories, and Entailment-Aware Permissions |
 | AU-KG.ontology.populated-at-import-real-3 | Remote VCS Enumeration | Enterprise-scale ingestion: enumerate every repository across a GitHub org/user or GitLab instance/groups (keyset / affiliation pagination) into a manifest for bulk workspace onboarding (repository-manager `vcs_enumerator`) |
-| KG-2.52 | Ontology Publisher Tick | Background publish of the authoritative TBox to Fuseki (`core/ontology_publisher.py`) |
 | AU-KG.ontology.descriptive-process-world-gains | BPMN Process Lift | Step-level shape for the descriptive process world (Camunda extractor + `owl_bridge`) |
 | AU-KG.ingest.cross-host-safe-kg | Cross-Host Task Queue | Atomic SKIP LOCKED claims + visibility-timeout recovery on the shared Postgres state store |
 | KG-2.55 | Fail-Loud Queue Backend Selection | `TASK_QUEUE_BACKEND=sqlite\|postgres\|kafka`; explicit backends fail loud at startup instead of silently degrading |
@@ -282,7 +281,7 @@ graph TD
 | AU-ECO.mcp.usage-cost-observability-surface | Cross-UI Usage & Cost Surface | The usage/cost/observability surface (`/api/observability`, `usage_query`) rendered in all three frontends |
 | AU-ECO.mcp.client-side-chat-session | Remote Usage Ingest | Clients parse local logs and POST normalized usage to the server sink |
 | AU-ECO.connector.git-task-resolver | Document → KG Fact Extraction UI | Interactive document/URL → atomic-triple extraction with live force-graph, edge-fact cards, and JSONL across all three frontends over `/api/enhanced/extract/*` |
-| ECO-4.82 | MCP Tool Surface Modes | `MCP_TOOL_MODE` (`intent` default / `condensed` / `verbose` / `both`) over a shared `register_tool_surface`; intent keeps granular tools gated for on-demand loading while verbose exposes the typed 1:1 tier |
+| ECO-4.82 | Single Intent Tool Surface | One MCP tool contract over a shared `register_tool_surface`: `ask`/`find`/`write`/`act`/`manage`/`why` with a condensed `action`+`params` schema (`find(action="describe")` resolves one operation's argument schema on demand); granular tools stay registered as backing operations, routed internally, never listed |
 | ECO-4.90 | Verbose Auto-Wire Dynamic Action Enumeration | Enumerates a client's full runtime action set onto its `verbose`-mode MCP tool(s) so every product operation is reachable through exactly one tool, instead of hand-maintained per-action wiring (`agents/atlassian-agent`) |
 
 ### Pillar 5: Agent OS Infrastructure (OS-5.0 – 5.29)

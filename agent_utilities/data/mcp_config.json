@@ -7,10 +7,7 @@
         "example-mcp",
         "--transport",
         "stdio"
-      ],
-      "env": {
-        "MCP_TOOL_MODE": "intent"
-      }
+      ]
     }
   }
 }

@@ -10,7 +10,6 @@ belongs in an **MCP-server** config's ``env`` block:
     (package code-read vars ∪ derived ``<TAG>TOOL`` toggles)
       − inherited agent-utilities infra (transport/telemetry/governance/outbound-auth)
       − agent-only vars (the ``[agent-runtime]`` environment + companion tool suites)
-      + ``MCP_TOOL_MODE`` (always — it selects intent/condensed/verbose/both)
 
 Inherited infra (OTEL/EUNOMIA/OIDC/DEBUG) is documented in the env-var table's *Inherited*
 section, not repeated in every example block. Agent-only vars (``AGENT_DESCRIPTION``,
@@ -63,7 +62,7 @@ def _is_infra(var: str) -> bool:
 
 def package_env_vars(root: Path) -> set[str]:
     """The package's own MCP-server env vars: code-read reads + derived toggles, minus
-    inherited infra and agent-only vars. Excludes ``MCP_TOOL_MODE`` (added by callers)."""
+    inherited infra and agent-only vars."""
     candidates = _scan_setting_calls(root) | _derive_toggle_vars(root)
     return {v for v in candidates if not _is_infra(v) and not is_agent_only(v)}
 
@@ -71,7 +70,7 @@ def package_env_vars(root: Path) -> set[str]:
 def example_env_pairs(root: Path) -> list[tuple[str, str]]:
     """Canonical ``(name, value)`` pairs for an MCP-server config ``env`` block.
 
-    ``MCP_TOOL_MODE`` is always first. Values come from the package's ``.env.example``
+    Values come from the package's ``.env.example``
     (so examples show real defaults and commented runtime references). Variables with no
     example are omitted rather than projected as empty values that shadow runtime
     injection.
@@ -83,7 +82,7 @@ def example_env_pairs(root: Path) -> list[tuple[str, str]]:
             env_example.read_text(encoding="utf-8")
         ):
             values[name] = example
-    pairs: list[tuple[str, str]] = [("MCP_TOOL_MODE", "intent")]
+    pairs: list[tuple[str, str]] = []
     for var in sorted(package_env_vars(root)):
         value = values.get(var) or (
             INHERITED_ENV[var][0] if var in INHERITED_ENV else ""

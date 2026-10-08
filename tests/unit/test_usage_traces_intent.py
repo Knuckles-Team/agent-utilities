@@ -19,7 +19,12 @@ def traces_surface(monkeypatch):
     kg_server.ensure_tools_registered()
     cpds = copy.deepcopy(intent_tools._load_cpds_required())
     monkeypatch.setattr(intent_tools, "_load_cpds_required", lambda: cpds)
-    for attr in ("_CANDIDATES_CACHE", "_ACTIONS_BY_TOOL_CACHE", "_OUTCOME_ROUTER"):
+    for attr in (
+        "_CANDIDATES_CACHE",
+        "_ACTIONS_BY_TOOL_CACHE",
+        "_OUTCOME_ROUTER",
+        "_OPERATION_VERBS_CACHE",
+    ):
         monkeypatch.setattr(intent_tools, attr, None)
     monkeypatch.setattr(intent_tools, "_RESOLUTION_CACHE", {})
     monkeypatch.setattr(intent_tools, "_PREVIEW_PLAN_CACHE", {})
@@ -43,12 +48,13 @@ def traces_surface(monkeypatch):
     return cpds, seen
 
 
-async def ask_traces(**hints):
+async def ask_traces(action="traces", **params):
     return json.loads(
         await kg_server._execute_tool(
             "ask",
+            action=f"usage_query.{action}",
+            params=params,
             intent="show usage runtime traces",
-            hints_json=json.dumps({"tool": "usage_query", "action": "traces", **hints}),
         )
     )
 
@@ -90,17 +96,27 @@ async def test_ask_unknown_usage_actions_never_dispatch(traces_surface, action):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mutation", [None, "true"])
-async def test_unknown_or_mutating_effect_fails_closed(traces_surface, mutation):
+async def test_mutating_effect_fails_closed(traces_surface):
     cpds, seen = traces_surface
     operation = next(d for d in cpds["usage_query"]["does"] if d["action"] == "traces")
-    if mutation is None:
-        operation.pop("mutates", None)
-    else:
-        operation["mutates"] = mutation
+    operation["mutates"] = "true"
     result = await ask_traces()
     assert result["executed"] is False
     assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_undeclared_effect_falls_back_to_reviewed_read_allowlist(traces_surface):
+    """With no declared effect, the reviewed ``READ_ONLY_ACTIONS`` policy decides."""
+    from agent_utilities.mcp.tool_specs import READ_ONLY_ACTIONS
+
+    cpds, seen = traces_surface
+    operation = next(d for d in cpds["usage_query"]["does"] if d["action"] == "traces")
+    operation.pop("mutates", None)
+    assert "traces" in READ_ONLY_ACTIONS["usage_query"]
+    result = await ask_traces()
+    assert result["executed"] is True
+    assert len(seen) == 1
 
 
 def test_classification_is_exactly_one_action():

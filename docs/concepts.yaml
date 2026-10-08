@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1196
+total_concepts: 1193
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -165,13 +165,6 @@ concepts:
   - agent_utilities/knowledge_graph/research/capability_ratchet.py
   doc: capability-benchmark regression ratchet re-measuring a published worktree against a persisted baseline
     and abandoning the branch on any tracked-capability regression
-- id: AU-AHE.evaluation.continuous-evaluation
-  name: Continuous Evaluation Engine
-  pillar: AU-AHE
-  status: live
-  code_paths:
-  - agent_utilities/skills/agent-utilities-self-evolution/scripts/wiring_sweep.py
-  doc: Continuous Evaluation Engine
 - id: AU-AHE.evaluation.debug-swallow-justification
   name: DoomLoopDetector
   pillar: AU-AHE
@@ -230,7 +223,6 @@ concepts:
   code_paths:
   - agent_utilities/capabilities/teams.py
   - agent_utilities/graph/routing/strategies/team_reuse.py
-  - agent_utilities/graph/subagent_patterns.py
   - agent_utilities/graph/verification.py
   - agent_utilities/harness/continuous_evaluation_engine.py
   - agent_utilities/harness/imodel_evolver.py
@@ -904,6 +896,14 @@ concepts:
   doc: a recursive-distillation loop that fine-tunes a new prior from the search-distilled corpus, gates
     the candidate model behind a monotone capability ratchet, and promotes it only on a non-regressing
     improvement so test-time search converts into a stronger next prior
+- id: AU-AHE.optimization.run-outcome-prompt-evolution
+  name: run outcomes feed propose-only prompt evolution
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/harness/program_optimization.py
+  - agent_utilities/harness/run_outcome_prompt_evolution.py
+  doc: run outcomes feed propose-only prompt evolution
 - id: AU-AHE.optimization.skillopt-langfuse-signal
   name: the config/param opt-in
   pillar: AU-AHE
@@ -1466,19 +1466,11 @@ concepts:
   code_paths:
   - agent_utilities/mcp/middlewares.py
   doc: Assimilated from FastMCP
-- id: AU-ECO.mcp.fleet-wide-verbose-auto
-  name: fleet-wide verbose auto-wire from condensed action enums
-  pillar: AU-ECO
-  status: live
-  code_paths:
-  - agent_utilities/mcp/verbose_tools.py
-  doc: fleet-wide verbose auto-wire from condensed action enums
 - id: AU-ECO.mcp.full-api-mcp-surface
   name: Full engine API + MCP surface
   pillar: AU-ECO
   status: live
   code_paths:
-  - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/engine_tools.py
   - agent_utilities/mcp/tools/graph_tools.py
   doc: Full engine API + MCP surface
@@ -1505,16 +1497,20 @@ concepts:
   - agent_utilities/mcp/harness_server.py
   doc: Harness MCP Exposure
 - id: AU-ECO.mcp.intent-surface-condensed-collapse
-  name: can best-effort widen its search to the
+  name: operations behind the one intent contract
   pillar: AU-ECO
   status: live
   code_paths:
+  - agent_utilities/mcp/connector_surface.py
+  - agent_utilities/mcp/graphos_surface.py
+  - agent_utilities/mcp/intent_contract.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/multiplexer.py
+  - agent_utilities/mcp/readme_tools.py
   - agent_utilities/mcp/skill_coverage.py
   - agent_utilities/mcp/tools/intent_tools.py
   - agent_utilities/mcp/verbose_tools.py
-  doc: can best-effort widen its search to the
+  doc: operations behind the one intent contract
 - id: AU-ECO.mcp.intent-surface-cpd-ranking
   name: The packaged CPD set is
   pillar: AU-ECO
@@ -1556,7 +1552,6 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/mcp/multiplexer.py
-  - agent_utilities/mcp/tools/intent_tools.py
   doc: standalone so both the meta-tool itself and the
 - id: AU-ECO.mcp.kg-skill-verb-coverage
   name: Graph-OS domain-skill coverage
@@ -1667,15 +1662,12 @@ concepts:
   - agent_utilities/mcp/tools/mcp_apps.py
   doc: mount the native WorkItem-backed
 - id: AU-ECO.mcp.tool-mode-standardization
-  name: MCP tool-mode standardization
+  name: one entry per CRUD
   pillar: AU-ECO
   status: live
   code_paths:
   - agent_utilities/mcp/_graphos_action_manifest.py
-  - agent_utilities/mcp/kg_server.py
-  - agent_utilities/mcp/readme_tools.py
-  - agent_utilities/mcp/verbose_tools.py
-  doc: MCP tool-mode standardization
+  doc: one entry per CRUD
 - id: AU-ECO.mcp.two-surfaces-mcp-rest
   name: the generic
   pillar: AU-ECO
@@ -1701,12 +1693,12 @@ concepts:
   - agent_utilities/server/app.py
   doc: usage/cost/
 - id: AU-ECO.mcp.verbose-auto-wire
-  name: verbose auto-wire enumerates dynamic
+  name: dynamic
   pillar: AU-ECO
   status: live
   code_paths:
   - agent_utilities/mcp/verbose_tools.py
-  doc: verbose auto-wire enumerates dynamic
+  doc: dynamic
 - id: AU-ECO.mcp.webui-governed-mcp-delegation
   name: AU-ECO.mcp.webui-governed-mcp-delegation
   pillar: AU-ECO
@@ -2280,13 +2272,12 @@ concepts:
   - agent_utilities/core/frontend_providers.py
   doc: AU-ECO.ui.frontend-contribution
 - id: AU-ECO.ui.mcp-apps-host
-  name: the MCP Apps entry-point tool + its
+  name: AU-ECO.ui.mcp-apps-host
   pillar: AU-ECO
   status: live
   code_paths:
-  - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/mcp_apps.py
-  doc: the MCP Apps entry-point tool + its
+  doc: AU-ECO.ui.mcp-apps-host
 - id: AU-ECO.ui.normalized-enterprise-read-models
   name: AU-ECO.ui.normalized-enterprise-read-models
   pillar: AU-ECO
@@ -4981,7 +4972,6 @@ concepts:
   - agent_utilities/graph/routing/enrichers/self_model.py
   - agent_utilities/graph/routing/strategies/fast_path.py
   - agent_utilities/graph/routing/strategies/workflow_context.py
-  - agent_utilities/graph/subagent_patterns.py
   - agent_utilities/graph/workspace_attention.py
   - agent_utilities/harness/__init__.py
   - agent_utilities/harness/agentic_evolution_engine.py
@@ -5094,13 +5084,12 @@ concepts:
   - agent_utilities/data_prep/connector_activation.py
   doc: AU-KG.ontology.activation-fails-closed
 - id: AU-KG.ontology.authoritative-tbox
-  name: Fuseki publish daemon tick
+  name: opt-in daemon tick that
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/core/config.py
-  - agent_utilities/knowledge_graph/core/ontology_publisher.py
-  doc: Fuseki publish daemon tick
+  doc: opt-in daemon tick that
 - id: AU-KG.ontology.batch-actions-executor
   name: it sets a review annotation on a
   pillar: AU-KG
@@ -5303,13 +5292,6 @@ concepts:
   code_paths:
   - agent_utilities/models/knowledge_graph.py
   doc: SQL DDL extraction
-- id: AU-KG.ontology.enterprise-ontology-distribution
-  name: Enterprise Ontology Distribution
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/core/ontology_publisher.py
-  doc: Enterprise Ontology Distribution
 - id: AU-KG.ontology.evolution-governed-loop
   name: AU-KG.ontology.evolution-governed-loop
   pillar: AU-KG
@@ -5636,13 +5618,6 @@ concepts:
   - agent_utilities/gateway/ontology_api.py
   - agent_utilities/knowledge_graph/extraction/schema_discovery.py
   doc: skips the live-ontology/synonym
-- id: AU-KG.ontology.stardog-catalog-overwrite
-  name: AU-KG.ontology.stardog-catalog-overwrite
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/core/ontology_publisher.py
-  doc: AU-KG.ontology.stardog-catalog-overwrite
 - id: AU-KG.ontology.style-lint
   name: flags interface/property naming-convention
   pillar: AU-KG
@@ -6075,7 +6050,6 @@ concepts:
   - agent_utilities/domains/finance/cross_market_arb.py
   - agent_utilities/domains/finance/crypto_connector.py
   - agent_utilities/domains/finance/debate_engine.py
-  - agent_utilities/domains/finance/exchange_bridge.py
   - agent_utilities/domains/finance/filing_diff.py
   - agent_utilities/domains/finance/forensic_screener.py
   - agent_utilities/domains/finance/insider_equilibrium.py
@@ -6093,7 +6067,6 @@ concepts:
   - agent_utilities/domains/finance/research_autopilot.py
   - agent_utilities/domains/finance/risk_manager.py
   - agent_utilities/domains/finance/signal_fusion.py
-  - agent_utilities/domains/finance/strategy_engine.py
   - agent_utilities/domains/finance/strategy_export.py
   - agent_utilities/domains/finance/strategy_sharing.py
   - agent_utilities/domains/finance/streaming.py
@@ -6640,14 +6613,13 @@ concepts:
   - agent_utilities/mcp/tools/audit_tools.py
   doc: AU-KG.retrieval.source-to-claim-lineage
 - id: AU-KG.retrieval.synthesized-cited-answer
-  name: kept in sync with the
+  name: the
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/retrieval/code_context.py
   - agent_utilities/mcp/kg_server.py
-  - agent_utilities/skills/agent-utilities-self-evolution/scripts/wiring_sweep.py
-  doc: kept in sync with the
+  doc: the
 - id: AU-KG.retrieval.task-start-kg-priming
   name: prime the KG
   pillar: AU-KG
@@ -7036,12 +7008,12 @@ concepts:
   - agent_utilities/models/execution_manifest.py
   doc: model the wave as a Multi-Agent Social System and
 - id: AU-ORCH.dispatch.kg-team-composition
-  name: Promoted composition to TeamConfig
+  name: KG-Driven Team Composition
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/graph/team_composer.py
-  doc: Promoted composition to TeamConfig
+  doc: KG-Driven Team Composition
 - id: AU-ORCH.dispatch.laned-sweep-fanout
   name: fan the sweep out as LANED
   pillar: AU-ORCH
@@ -7100,12 +7072,12 @@ concepts:
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
   doc: TWO independently-sized worker POOLS over the
 - id: AU-ORCH.dispatch.warm-skills-share
-  name: warm-share the SkillsToolset across the fan-out cohort
+  name: warm-share the skills capability across the fan-out cohort
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/agent/factory.py
-  doc: warm-share the SkillsToolset across the fan-out cohort
+  doc: warm-share the skills capability across the fan-out cohort
 - id: AU-ORCH.dispatch.worker-scheduling
   name: gate the claim through the
   pillar: AU-ORCH

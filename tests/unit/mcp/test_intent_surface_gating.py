@@ -1,14 +1,17 @@
 """Seam 8 (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse / CONCEPT:AU-ECO.mcp.intent-surface-tool-lifecycle) —
-the condensed-surface local-tool gate + the load->use->unload lifecycle.
+the standalone ``mcp-multiplexer`` gateway's session-visibility gate + the
+load->use->unload lifecycle.
 
-Under ``MCP_TOOL_MODE=intent`` graph-os's OWN granular tools stay fully
-registered (REST/_execute_tool/REGISTERED_TOOLS all unaffected — see
-``tests/unit/test_intent_surface.py`` and ``test_gateway_mcp_parity.py``) but
-are held back from a session's default tool list. This module proves the
-mechanism that holds them back and the ``load_tools``/``unload_tools``
-escape hatch that reveals/retracts them — reusing the SAME session-visibility
-infra the fleet multiplexer already uses for external servers, extended to the
-host's own tools (``MCPMultiplexer._local_gated``).
+graph-os itself now serves exactly one tool contract (the intent verbs
+``ask``/``find``/``write``/``act``/``manage``/``why`` plus the two MCP Apps
+launchers — see ``tests/unit/test_intent_surface.py`` and
+``test_gateway_mcp_parity.py``); it does not gate its own granular tools
+behind a session-visibility toggle. This module instead proves the
+general-purpose gating mechanism the standalone ``mcp-multiplexer`` gateway
+uses to hold fleet-server tools back from a session's default tool list, and
+the ``load_tools``/``unload_tools`` escape hatch that reveals/retracts them
+(``MCPMultiplexer._local_gated``, here exercised with locally-registered
+``FastMCP`` tools standing in for a fleet child's).
 """
 
 from __future__ import annotations
@@ -170,164 +173,3 @@ async def test_auto_unload_retracts_the_tool_after_its_next_call(tmp_path):
     load = await mcp.get_tool("load_tools")
     await load.fn(tools=["graph_query"])
     assert "graph_query" in _loaded_tools(mux)
-
-
-@pytest.mark.asyncio
-async def test_manage_verb_lifecycle_action_loads_and_unloads(tmp_path):
-    """The `manage` intent verb's action='unload'/'load' shortcut (CONCEPT:AU-ECO.mcp.intent-surface-tool-lifecycle)
-    reaches the SAME lifecycle core as the load_tools/unload_tools meta-tools."""
-    from agent_utilities.mcp.tools import intent_tools
-
-    mcp = FastMCP("graph-os-test")
-    mux = _mux_with_local_gated(tmp_path, mcp, {"graph_query": {"query", "gated"}})
-    mcp._fleet_mux = mux
-
-    load_intent = "load the graph_query tool"
-    load_hints = {"action": "load", "tools": ["graph_query"]}
-    load_preview = await intent_tools._manage_lifecycle(mcp, load_intent, load_hints)
-    assert load_preview["executed"] is False
-    assert "graph_query" not in _loaded_tools(mux)
-
-    loaded = await intent_tools._manage_lifecycle(
-        mcp,
-        load_intent,
-        {**load_hints, "plan_ref": load_preview["plan"]["plan_ref"]},
-        execute=True,
-    )
-    assert "graph_query" in _loaded_tools(mux)
-    assert "graph_query" in loaded["newly_exposed"]
-
-    unload_intent = "unload the graph_query tool"
-    unload_hints = {"action": "unload", "tools": ["graph_query"]}
-    unload_preview = await intent_tools._manage_lifecycle(
-        mcp, unload_intent, unload_hints
-    )
-    assert unload_preview["executed"] is False
-    assert "graph_query" in _loaded_tools(mux)
-
-    unloaded = await intent_tools._manage_lifecycle(
-        mcp,
-        unload_intent,
-        {**unload_hints, "plan_ref": unload_preview["plan"]["plan_ref"]},
-        execute=True,
-    )
-    assert unloaded["unloaded"] == ["graph_query"]
-    assert "graph_query" not in _loaded_tools(mux)
-
-    # Not a lifecycle action -> returns None so the caller falls through to the
-    # normal capability resolver.
-    assert await intent_tools._manage_lifecycle(mcp, "list my tenants", {}) is None
-
-
-@pytest.mark.asyncio
-async def test_bug040_destructive_plan_without_session_load_still_refuses(
-    monkeypatch,
-):
-    """BUG-040 negative proof: a caller who has NOT explicitly ``load_tools``-ed
-    the exact destructive tool for their own session is still refused — the
-    fix proven in the next test does not weaken this in any way, it only makes
-    the refusal's documented escape hatch (load_tools -> resubmit) ACTUALLY
-    reachable instead of a dead end. No ``mcp``/multiplexer at all is the
-    hardest case (matches the pre-fix regression test)."""
-    from agent_utilities.mcp import kg_server
-    from agent_utilities.mcp.tools import intent_tools
-
-    seen = False
-
-    async def fake_graph_write(**_kw) -> str:
-        nonlocal seen
-        seen = True
-        return "ok"
-
-    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_write", fake_graph_write)
-    hints = {"tool": "graph_write", "action": "delete_node", "node_id": "node-1"}
-    preview = await intent_tools.dispatch_intent(
-        "write", "delete a node", hints=hints, execute=False
-    )
-    plan = preview["routing"]["plan"]
-    assert plan["approval"]["required"] is True
-
-    result = await intent_tools.dispatch_intent(
-        "write",
-        "delete a node",
-        hints={**hints, "plan_ref": plan["plan_ref"]},
-        execute=True,
-    )
-    assert result["executed"] is False
-    assert result["approval_required"] is True
-    assert result["required_load_tools"] == ["graph_write"]
-    assert seen is False
-
-
-@pytest.mark.asyncio
-async def test_bug040_destructive_plan_executes_once_session_loaded_exact_tool(
-    tmp_path, monkeypatch
-):
-    """BUG-040 positive proof, end to end through the REAL dispatch gate.
-
-    Before the fix, ``graph_write`` resolved a valid ``delete_node`` plan and
-    then dead-ended unconditionally with "Operation requires the exact
-    dynamically loaded tool and its approval policy" — reproduced live against
-    the running graph-os MCP server, not just in this suite. The exact tool
-    never became callable to a client that (like most real MCP clients,
-    including the one that surfaced this bug) never re-issues ``tools/list``
-    after ``notifications/tools/list_changed`` (BUG-050). This test proves the
-    fix: once the caller's OWN session has explicitly ``load_tools``-ed
-    ``graph_write`` — the SAME session-scoped state
-    :meth:`MCPMultiplexer.tool_dispatchable` uses to gate a real
-    ``tools/call`` — resubmitting the identical previewed ``plan_ref`` through
-    the always-visible ``write`` verb actually dispatches, with no dependence
-    on the client ever seeing ``graph_write`` in its own tool list.
-    """
-    from agent_utilities.mcp import kg_server
-    from agent_utilities.mcp.tools import intent_tools
-
-    seen_kwargs: dict | None = None
-
-    async def fake_graph_write(**kw) -> str:
-        nonlocal seen_kwargs
-        seen_kwargs = kw
-        return "deleted"
-
-    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_write", fake_graph_write)
-
-    mcp = FastMCP("graph-os-test")
-    mux = _mux_with_local_gated(
-        tmp_path, mcp, {"graph_write": {"write_ingest", "gated"}}
-    )
-    mcp._fleet_mux = mux
-
-    hints = {"tool": "graph_write", "action": "delete_node", "node_id": "node-1"}
-    preview = await intent_tools.dispatch_intent(
-        "write", "delete a node", hints=hints, execute=False, mcp=mcp
-    )
-    plan = preview["routing"]["plan"]
-    assert plan["approval"]["required"] is True
-
-    # Not loaded yet, even with a real multiplexer attached -> still refused.
-    still_refused = await intent_tools.dispatch_intent(
-        "write",
-        "delete a node",
-        hints={**hints, "plan_ref": plan["plan_ref"]},
-        execute=True,
-        mcp=mcp,
-    )
-    assert still_refused["executed"] is False
-    assert still_refused["approval_required"] is True
-    assert seen_kwargs is None
-
-    # The caller explicitly acknowledges the approval policy for THIS exact
-    # tool via the documented escape hatch.
-    load = await mcp.get_tool("load_tools")
-    load_result = await load.fn(tools=["graph_write"])
-    assert "graph_write" in load_result.structured_content["newly_exposed"]
-
-    result = await intent_tools.dispatch_intent(
-        "write",
-        "delete a node",
-        hints={**hints, "plan_ref": plan["plan_ref"]},
-        execute=True,
-        mcp=mcp,
-    )
-    assert result["executed"] is True
-    assert seen_kwargs == {"action": "delete_node", "node_id": "node-1"}

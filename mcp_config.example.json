@@ -5,10 +5,7 @@
       "args": [
         "run",
         "graph-os"
-      ],
-      "env": {
-        "MCP_TOOL_MODE": "intent"
-      }
+      ]
     }
   }
 }

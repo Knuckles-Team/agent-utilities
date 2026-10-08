@@ -1,30 +1,16 @@
-"""The SERVED graph-os MCP tool surface, pinned per ``MCP_TOOL_MODE``.
+"""The SERVED graph-os MCP tool surface: one intent contract.
 
 CONCEPT:AU-ECO.mcp.fleet-meta-tools-always-on
 
-Existing coverage stops at :func:`kg_server._build_server`, which registers only
-the *mode-selected* tools. But what a client actually sees over ``tools/list`` is
-``_build_server`` **plus** :func:`~agent_utilities.mcp.multiplexer.attach_fleet_loader`
-(the six fleet meta-tools + the per-session visibility middleware), and that
-attach happens later, in :func:`kg_server.mcp_server`. A regression that broke the
-attach therefore changed the served surface from ~14 tools to 118 without a single
-one of the ~9.9k existing tests noticing.
+What a client sees over ``tools/list`` is :func:`kg_server._build_server`
+**plus** :func:`~agent_utilities.mcp.multiplexer.attach_fleet_loader`, which
+attaches later, in :func:`kg_server.mcp_server`. The fleet is reached through
+the intent tools (``find`` discovers, ``act`` calls, ``manage`` loads), so the
+attach must add NO tool and no visibility layer — the served list stays the six
+verbs plus the two MCP Apps launchers. A regression in the attach once changed
+the served surface from ~14 tools to 118 without any other test noticing.
 
-Two invariants are pinned here:
-
-1. **The six fleet meta-tools are mode-independent infrastructure.**
-   ``find_tools`` / ``list_catalog`` / ``load_tools`` / ``unload_tools`` /
-   ``multiplexer_status`` are the ONLY way to reach anything the active mode holds
-   back, so they must be served under ``intent``, ``condensed``, ``verbose`` AND
-   ``both``. They are registered outside the mode switch on purpose — this test
-   exists so no future change can quietly fold them into one mode's branch.
-2. **``intent`` serves exactly the six verbs, six meta-tools, and two MCP Apps
-   entry points** — the remaining granular ``graph_*`` surface stays
-   *registered* (REST/``REGISTERED_TOOLS`` are unaffected) but hidden,
-   reachable only through ``load_tools``.
-
-``bootstrap=False`` skips engine/daemon startup, so no live engine is needed —
-this exercises tool *registration + visibility*, never execution.
+``bootstrap=False`` skips engine/daemon startup, so no live engine is needed.
 """
 
 from __future__ import annotations
@@ -35,22 +21,15 @@ from typing import Any
 import pytest
 
 from agent_utilities.mcp import kg_server, shared_multiplexer
-from agent_utilities.mcp.multiplexer import (
-    SessionVisibilityMiddleware,
-    attach_fleet_loader,
-)
-from agent_utilities.mcp.verbose_tools import VALID_TOOL_MODES, _provider_tools
+from agent_utilities.mcp.multiplexer import attach_fleet_loader
+from agent_utilities.mcp.verbose_tools import _provider_tools
 
-#: Fleet meta-tools. Infrastructure, not a mode's tool set — always served.
-#: MCP Apps entry-point tools (``mcp/tools/mcp_apps.py``). Served in EVERY mode,
-#: including ``intent``, on purpose: each one is the only way to launch its app,
-#: so gating it would leave a fully built UI unreachable — the Wire-First failure
-#: this repo keeps re-learning. They are listed explicitly rather than relaxing
-#: the assertion to a superset, so a genuine surface leak (the 118-vs-14
-#: regression this test exists for) still fails.
+#: MCP Apps entry-point tools (``mcp/tools/mcp_apps.py``): the MCP Apps
+#: extension binds a UI to a listed tool's ``_meta.ui.resourceUri``.
 MCP_APP_TOOLS = frozenset({"graph_task_progress_app", "graph_trace_waterfall_app"})
 
-FLEET_META_TOOLS = frozenset(
+#: The retired fleet meta-tools — served through the intent verbs now.
+RETIRED_META_TOOLS = frozenset(
     {
         "find_tools",
         "list_catalog",
@@ -63,109 +42,36 @@ FLEET_META_TOOLS = frozenset(
     }
 )
 
-#: The collapsed intent surface (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse).
 INTENT_VERBS = frozenset({"ask", "find", "act", "why", "write", "manage"})
 
 
-def _served_surface(monkeypatch, tmp_path, mode: str) -> tuple[Any, Any, set[str]]:
-    """Build graph-os exactly as ``mcp_server()`` does and return what it serves.
-
-    Returns ``(mcp, mux, visible_tool_names)``. ``visible`` is computed through the
-    REAL :class:`SessionVisibilityMiddleware` predicate that ``on_list_tools``
-    filters with, for a fresh session that has loaded nothing.
-    """
+def _served_surface(monkeypatch, tmp_path) -> tuple[Any, Any, set[str]]:
+    """Build graph-os exactly as ``mcp_server()`` does; return what it serves."""
     shared_multiplexer._reset_served_multiplexer_for_tests()
     config_path = tmp_path / "mcp_config.json"
     config_path.write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
-    monkeypatch.setenv("MCP_TOOL_MODE", mode)
     monkeypatch.setenv("MCP_CONFIG", str(config_path))
 
     _args, mcp, _middlewares = kg_server._build_server(bootstrap=False)
     mux = attach_fleet_loader(mcp, config_path=str(config_path))
-    middleware = SessionVisibilityMiddleware(mux, mcp)
-    registered = set(_provider_tools(mcp))
-    return mcp, mux, {name for name in registered if middleware._visible(name)}
+    return mcp, mux, set(_provider_tools(mcp))
 
 
-@pytest.mark.parametrize("mode", sorted(VALID_TOOL_MODES))
-def test_fleet_meta_tools_are_served_in_every_tool_mode(monkeypatch, tmp_path, mode):
-    """The six meta-tools survive EVERY mode — they sit outside the mode switch.
-
-    Parameterised over ``VALID_TOOL_MODES`` itself so a newly added mode is forced
-    to honour the invariant rather than silently skipping it.
-    """
-    _mcp, _mux, visible = _served_surface(monkeypatch, tmp_path, mode)
-
-    missing = FLEET_META_TOOLS - visible
-    assert not missing, (
-        f"MCP_TOOL_MODE={mode!r} does not serve the fleet meta-tools {sorted(missing)}; "
-        "they are mode-independent infrastructure and must always be registered."
-    )
-
-
-def test_intent_mode_serves_exactly_the_verbs_and_the_meta_tools(monkeypatch, tmp_path):
-    """The whole point of ``intent``: ~14 tool schemas, not ~118.
-
-    An exact-set assertion (not a superset one) — the regression this pins leaked
-    107 granular ``graph_*`` tools into the default view, which a superset check
-    would have happily passed.
-    """
-    _mcp, _mux, visible = _served_surface(monkeypatch, tmp_path, "intent")
-
-    assert visible == set(INTENT_VERBS) | set(FLEET_META_TOOLS) | set(MCP_APP_TOOLS)
-
-
-def test_intent_mode_keeps_the_granular_surface_registered_and_load_tools_reachable(
+def test_served_surface_is_exactly_the_verbs_and_the_app_launchers(
     monkeypatch, tmp_path
 ):
-    """Hidden, never lost: the granular tools are registered and ``load_tools``-able."""
-    mcp, mux, visible = _served_surface(monkeypatch, tmp_path, "intent")
-
-    registered = set(_provider_tools(mcp))
-    # A representative granular tool is registered but held back from the view.
-    assert "graph_query" in registered
-    assert "graph_query" not in visible
-    # ...and the gate knows it is locally revealable (no child mount needed), which
-    # is exactly what load_tools flips.
-    assert "graph_query" in mux._local_gated
-
-    middleware = SessionVisibilityMiddleware(mux, mcp)
-    session_key = "test-session"
-    mux._session_loaded[session_key] = {"graph_query"}
-    monkeypatch.setattr(
-        "agent_utilities.mcp.multiplexer._session_key", lambda: session_key
-    )
-    assert middleware._visible("graph_query")
+    """An exact-set assertion: the regression this pins leaked 107 granular
+    ``graph_*`` tools into the default view, which a superset check passes."""
+    _mcp, _mux, served = _served_surface(monkeypatch, tmp_path)
+    assert served == set(INTENT_VERBS) | set(MCP_APP_TOOLS)
+    assert not served & RETIRED_META_TOOLS
 
 
-@pytest.mark.parametrize("mode", ["condensed", "verbose", "both"])
-def test_non_intent_modes_serve_their_granular_surface_plus_the_meta_tools(
-    monkeypatch, tmp_path, mode
-):
-    """Nothing is gated outside ``intent`` — the granular tools are served directly,
-    and the meta-tools ride alongside them."""
-    _mcp, mux, visible = _served_surface(monkeypatch, tmp_path, mode)
-
-    assert FLEET_META_TOOLS <= visible
-    if mode == "verbose":
-        # D-WS-1's fix: ``verbose`` now RUNS the condensed registrars (so the
-        # dispatch core and the REST table are live — see
-        # tests/unit/mcp/test_dispatch_registry_contract.py) and gates only their
-        # VISIBILITY, so they are not double-listed beside the 1:1 verbose tools.
-        # Gating is therefore no longer intent-only; what still must hold is that
-        # a gated tool stays reachable through ``load_tools``.
-        assert mux._local_gated, (
-            "verbose mode registers the condensed tools and gates their view; "
-            "an empty gate means the registrars did not run (D-WS-1 regression)"
-        )
-    else:
-        assert not mux._local_gated, (
-            f"MCP_TOOL_MODE={mode!r} must not gate the host's own tools; "
-            f"gating is intent/verbose-only, got {sorted(mux._local_gated)[:5]}"
-        )
-    # The mode's own surface is actually served (condensed action tools in
-    # condensed/both; the 1:1 expansion in verbose/both).
-    assert len(visible) > len(FLEET_META_TOOLS) + len(INTENT_VERBS)
+def test_the_fleet_multiplexer_is_bound_for_the_intent_tools(monkeypatch, tmp_path):
+    """``find``/``act``/``manage`` reach the fleet through ``mcp._fleet_mux``."""
+    mcp, mux, _served = _served_surface(monkeypatch, tmp_path)
+    assert mcp._fleet_mux is mux
+    assert callable(mux.require_capability)
 
 
 def test_mcp_protocol_error_resolves_on_the_installed_sdk():
@@ -228,8 +134,8 @@ def test_fleet_loader_attach_failure_is_fatal_not_swallowed(monkeypatch):
 
     The regression this pins was survivable *by design*: the attach was wrapped in
     ``except Exception: logger.error(...)``, so graph-os happily served 118 ungated
-    tools with no ``load_tools`` at all. The meta-tools are infrastructure — losing
-    them is a startup failure, and ``__cause__`` must survive to name the reason.
+    tools with no fleet access at all. Fleet access is infrastructure — losing it
+    is a startup failure, and ``__cause__`` must survive to name the reason.
     """
     from unittest.mock import MagicMock, patch
 
