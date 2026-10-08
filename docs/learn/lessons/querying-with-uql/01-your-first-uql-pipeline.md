@@ -82,7 +82,7 @@ with one.
 
 ## Worked examples
 
-These are real, grounded examples (not simplified toys) — the same ones the
+These are real, grounded examples (not simplified toys) — the same ones graph-os's own
 `graph-query-and-explanation` skill's UQL reference documents:
 
 ```uql
@@ -111,7 +111,7 @@ MATCH (:Claim) |> EVIDENCE FOR "c1" |> BELIEF AS OF @1700000000 |> LIMIT 10
   natural-language question into a query (Cypher, SQL, or UQL) for you, and
   return the generated query alongside the answer so you can learn from it.
 - The full grammar — every clause, every `Op`, and ~20 more worked examples —
-  lives in `references/uql-reference.md` in the `graph-query-and-explanation`
+  lives in `references/uql-reference.md` in graph-os's own `graph-query-and-explanation`
   skill.
 - SPARQL and SHACL are separate, standards-based surfaces for RDF/OWL data —
   see the web UI's **SPARQL & SHACL** view if you'd rather query the ontology

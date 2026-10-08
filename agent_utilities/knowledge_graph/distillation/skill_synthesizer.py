@@ -1124,7 +1124,7 @@ def _workflow_footer_lines() -> list[str]:
         "skill — invoke that skill for the step.",
         "",
         "If graph-os is reachable, offload the whole DAG via `graph_workflows "
-        "action=execute` (or the graph-orchestration-and-automation "
+        "action=execute` (or graph-os's own graph-orchestration-and-automation "
         "skill); otherwise "
         "execute steps natively in dependency order.",
         "",

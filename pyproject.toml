@@ -866,9 +866,11 @@ synology = "agent_utilities.messaging.backends.synology:SynologyChatBackend"
 voicecall = "agent_utilities.messaging.backends.voicecall:VoiceCallBackend"
 nextcloud = "agent_utilities.messaging.backends.nextcloud:NextcloudTalkBackend"
 
-# CONCEPT:OS-5.52 — agent-utilities ships its OWN ten domain workflow skills and contributes
-# them like any other agent-package, so `agent-utilities install` drops them into the
-# XDG skills dir. The hub is already the BASE prompt provider via the packaged
+# CONCEPT:OS-5.52 — agent-utilities ships its OWN four platform workflow skills (the
+# seven graph-domain skills it used to ship alongside them moved to graph-os's own
+# skill pack) and contributes them like any other agent-package, so
+# `agent-utilities install` drops them into the XDG skills dir. The hub is already
+# the BASE prompt provider via the packaged
 # `prompts/*.json` (registry_builder ingests them with bare `prompt:<name>` ids),
 # so it deliberately does NOT also declare a `prompt_providers` entry-point —
 # that would re-ingest the base prompts under a second `agent-utilities/` namespace.

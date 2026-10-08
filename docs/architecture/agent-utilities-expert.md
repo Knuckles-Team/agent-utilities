@@ -130,10 +130,11 @@ agent-utilities doctor --only config auth secrets transport_security graph_conne
 
 - Use `agent-utilities-expert` when the task spans multiple ecosystem areas or needs
   KG-guided discovery.
-- Use one of the ten pre-bundled workflows when the task maps directly to its domain,
-  such as `graph-ingestion-and-integration`,
-  `graph-orchestration-and-automation`, `agent-utilities-development`,
-  `agent-utilities-evolution`, or `agent-utilities-deployment`.
+- Use one of the four pre-bundled agent-utilities workflows when the task maps directly to
+  repository development, deployment, evolution, or self-evolution — `agent-utilities-development`,
+  `agent-utilities-deployment`, `agent-utilities-evolution`, `agent-utilities-self-evolution` —
+  or the matching graph-os skill (e.g. `graph-ingestion-and-integration`,
+  `graph-orchestration-and-automation`) for graph domain work.
 
 In both cases, review `RunTrace` and `ToolCall` provenance. A failure should become a
 governed optimization proposal through the shared trace/outcome loop, not an untracked

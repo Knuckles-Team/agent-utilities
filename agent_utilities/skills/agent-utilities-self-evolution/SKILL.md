@@ -3,7 +3,7 @@ name: agent-utilities-self-evolution
 skill_type: skill
 description: >-
   Evolve the agent-utilities repository by implementing the latest research concepts
-  against it. Orchestrates research-scanner → graph-ingestion-and-integration → comparative-analysis
+  against it. Orchestrates research-scanner → graph-os's own graph-ingestion-and-integration → comparative-analysis
   → SDD implementer into a unified pipeline. Queries the KG for hot topics, finds
   relevant papers, ingests them, runs comparative analysis, and generates SDD plans
   with constitution-mandated artifact requirements baked in. Can run as a background
@@ -474,5 +474,5 @@ As part of each evolution cycle, verify:
 
 - [research-scanner](../../../../skills/universal-skills/universal_skills/research/research-scanner/SKILL.md) — Paper discovery and scoring (lives in the sibling `universal-skills` package)
 - [comparative-analysis](../../../../skills/universal-skills/universal_skills/research/comparative-analysis/SKILL.md) — Feature extraction (lives in the sibling `universal-skills` package)
-- [graph-ingestion-and-integration](../graph-ingestion-and-integration/SKILL.md) — Bulk ingestion
+- graph-ingestion-and-integration — Bulk ingestion (now graph-os's own skill, at `graph_os/skills/graph-ingestion-and-integration/SKILL.md`)
 - [sdd-implementer](../../../../skills/universal-skills/universal_skills/development/sdd-implementer/SKILL.md) — Task execution (lives in the sibling `universal-skills` package)
