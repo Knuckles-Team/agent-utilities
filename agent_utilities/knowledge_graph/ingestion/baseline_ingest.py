@@ -117,7 +117,7 @@ def enqueue_baseline(
 def run_baseline_ingest(engine: Any) -> dict[str, Any] | None:
     """Plan and enqueue the baseline once. Never raises."""
     try:
-        report = enqueue_baseline(engine, plan_baseline(), uuid.uuid4().hex[:12])
+        report = enqueue_baseline(engine, plan_baseline(), uuid.uuid4().hex)
     except Exception as exc:  # noqa: BLE001 - the thread must end quietly
         logger.error("baseline ingest failed before enqueue (%s)", type(exc).__name__)
         return None
