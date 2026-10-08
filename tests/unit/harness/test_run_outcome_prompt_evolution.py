@@ -1,4 +1,4 @@
-"""Run outcomes feed propose-only prompt evolution (AU-HARNESS-R011).
+"""Run outcomes feed propose-only prompt evolution (harness-evolution spec, HE-16).
 
 CONCEPT:AU-AHE.optimization.run-outcome-prompt-evolution. An in-memory graph
 double holds attributed ``RunTrace`` rows. A fake optimizer stands in for the
