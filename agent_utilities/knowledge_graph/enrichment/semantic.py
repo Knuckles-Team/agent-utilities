@@ -185,7 +185,11 @@ def validate_embedding_vectors(
             f"the request ({len(raw_vectors)} != {expected_count})"
         )
 
-    dimension = expected_dimension or configured_embedding_dimension()
+    dimension = (
+        configured_embedding_dimension()
+        if expected_dimension is None
+        else expected_dimension
+    )
     if dimension <= 0:
         raise RuntimeError("expected embedding dimension must be positive")
     normalized: list[list[float]] = []

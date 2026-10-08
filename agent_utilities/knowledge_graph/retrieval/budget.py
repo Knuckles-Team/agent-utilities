@@ -7,8 +7,8 @@ The article's hard-won lesson: a bigger memory is useless if retrieval balloons
 the context window ("memory ate 40% of context"). The compactor handles *active*
 conversation messages, but nothing stopped *retrieval* from over-filling. This
 adds an explicit budget at the retrieval boundary: include ranked candidates
-greedily until the next would exceed the token budget, and report what was
-dropped (no silent truncation).
+greedily when they fit the token budget, and report what was dropped
+(no silent truncation). An oversized result never overrides the budget.
 
 Pure and dependency-light (reuses the shared token estimator).
 """
@@ -55,11 +55,9 @@ class RetrievalBudgetManager:
         dropped = 0
         for cand in candidates:
             cost = estimate_tokens(text_of(cand))
-            if used + cost > self.token_budget and kept:
-                dropped = len(candidates) - len(kept)
-                break
-            # Always allow at least one item even if it alone exceeds budget,
-            # so a single large result is returned rather than nothing.
+            if used + cost > self.token_budget:
+                dropped += 1
+                continue
             kept.append(cand)
             used += cost
         return BudgetResult(
