@@ -1145,9 +1145,9 @@ def _assert_development_case_binds_rf021(case: ValidationCase) -> None:
     assert set(_ARCHITECTURE_LAYOUT_REQUIREMENTS).issubset(
         {marker for marker in _ARCHITECTURE_LAYOUT_REQUIREMENTS if marker in task}
     )
-    assert {
-        operation for _phase, operation in _ARCHITECTURE_PHASE_OPERATIONS
-    } <= set(case.expected_routes)
+    assert {operation for _phase, operation in _ARCHITECTURE_PHASE_OPERATIONS} <= set(
+        case.expected_routes
+    )
     if case.mode == "direct":
         assert not case.allowed_tools
     else:
@@ -1721,11 +1721,8 @@ def test_architecture_scenarios_are_structured_behavioral_outcomes() -> None:
     assert outcomes["plans_cutover"] == "rejected"
 
 
-def test_architecture_pass_rejects_mislabelled_structured_evidence() -> None:
-    case = _matrix_case("development-direct")
-    candidate = case.architecture_candidate
-    assert candidate is not None
-    observations = tuple(
+def _positive_architecture_operations() -> tuple[GraphOperationObservation, ...]:
+    return tuple(
         GraphOperationObservation(
             phase,
             operation,
@@ -1740,6 +1737,13 @@ def test_architecture_pass_rejects_mislabelled_structured_evidence() -> None:
             strict=True,
         )
     )
+
+
+def test_architecture_pass_rejects_mislabelled_structured_evidence() -> None:
+    case = _matrix_case("development-direct")
+    candidate = case.architecture_candidate
+    assert candidate is not None
+    observations = _positive_architecture_operations()
     scenarios = _architecture_scenario_observations(candidate, set())
     result = CaseResult(
         case_id=case.case_id,
@@ -1808,7 +1812,7 @@ def test_economy_validation_omits_nonportable_reasoning_none() -> None:
     assert _validation_reasoning_effort("economy", delegated=True) == ""
 
 
-def test_semantic_contract_rejects_missing_routes() -> None:
+def _direct_route_findings(selected_routes: list[str]) -> list[str]:
     case = ValidationCase(
         case_id="synthetic-direct",
         skill="graph-query-and-explanation",
@@ -1822,36 +1826,22 @@ def test_semantic_contract_rejects_missing_routes() -> None:
     output = SemanticOutput(
         skill=case.skill,
         mode=case.mode,
-        selected_routes=["graph_query"],
+        selected_routes=selected_routes,
         read_only=True,
         privacy_safe=True,
         acceptance_summary="Bounded synthetic result.",
     )
+    return validate_semantic_output(case, output)
 
-    assert validate_semantic_output(case, output) == ["semantic_routes_incomplete"]
+
+def test_semantic_contract_rejects_missing_routes() -> None:
+    assert _direct_route_findings(["graph_query"]) == ["semantic_routes_incomplete"]
 
 
 def test_semantic_contract_rejects_unexpected_routes() -> None:
-    case = ValidationCase(
-        case_id="synthetic-direct",
-        skill="graph-query-and-explanation",
-        mode="direct",
-        model_class="economy",
-        task="synthetic",
-        expected_routes=("graph_query", "graph_search"),
-        allowed_tools=(),
-        read_only=True,
-    )
-    output = SemanticOutput(
-        skill=case.skill,
-        mode=case.mode,
-        selected_routes=["graph_query", "graph_search", "graph_analyze"],
-        read_only=True,
-        privacy_safe=True,
-        acceptance_summary="Bounded synthetic result.",
-    )
-
-    assert validate_semantic_output(case, output) == ["semantic_routes_unexpected"]
+    assert _direct_route_findings(["graph_query", "graph_search", "graph_analyze"]) == [
+        "semantic_routes_unexpected"
+    ]
 
 
 def test_source_tree_runtime_validation_wrapper_is_self_contained() -> None:
@@ -1974,21 +1964,7 @@ def _passing_architecture_evidence(
     if case.skill != "agent-utilities-development":
         return (), ()
     assert case.architecture_candidate is not None
-    operations = tuple(
-        GraphOperationObservation(
-            phase,
-            operation,
-            status,
-            "sha256:" + "6" * 64,
-            "sha256:" + "7" * 64,
-            1,
-        )
-        for (phase, operation), status in zip(
-            _ARCHITECTURE_PHASE_OPERATIONS,
-            ("verified", "advisory", "grounded"),
-            strict=True,
-        )
-    )
+    operations = _positive_architecture_operations()
     scenarios = _architecture_scenario_observations(case.architecture_candidate, set())
     return operations, scenarios
 
