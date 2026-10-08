@@ -5,3 +5,5 @@
 3. Remove stale legacy publisher and docs gate only after caller and generated Pages navigation parity are verified.
 4. Qualify a candidate composition with public fixtures and declared integration dependencies. Record artifact digests and CI URLs.
 5. Prune only after reachability and dirty-tree audit. Publish the exact merged-head evidence and update task states independently.
+
+- AU-INTEGRATION-R020: add `orchestration/run_envelope.py` with the shared envelope key set and `unwrap_run_envelope`. The messaging router delegates to it.

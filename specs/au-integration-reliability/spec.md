@@ -1,7 +1,7 @@
 # AU integration and release reliability
 
 **ID:** AU-INTEGRATION-001 · **Owner:** agent-utilities · **Delivery:** SPECIFIED; item-level historical state requires an exact-head audit.
-**Items:** AU-INTEGRATION-R001, AU-INTEGRATION-R002, AU-INTEGRATION-R003, AU-INTEGRATION-R004–AU-INTEGRATION-R006, AU-INTEGRATION-R007, AU-INTEGRATION-R008–AU-INTEGRATION-R009, AU-INTEGRATION-R010 (cross-owner gate), AU-INTEGRATION-R011, AU-INTEGRATION-R012, AU-INTEGRATION-R013, AU-INTEGRATION-R014, AU-INTEGRATION-R015. See [requirements.md](requirements.md) for the definition of every requirement ID, including AU-INTEGRATION-R016–AU-INTEGRATION-R018, and [status.json](status.json) for delivery state and evidence. Additional named workstreams: AU final composition, AU ontology/SHACL/OWL clean cut, AU public application control plane, and AU public docs. These workstream labels need stable IDs assigned through review; no synthetic ID is treated as authoritative.
+**Items:** AU-INTEGRATION-R001, AU-INTEGRATION-R002, AU-INTEGRATION-R003, AU-INTEGRATION-R004–AU-INTEGRATION-R006, AU-INTEGRATION-R007, AU-INTEGRATION-R008–AU-INTEGRATION-R009, AU-INTEGRATION-R010 (cross-owner gate), AU-INTEGRATION-R011, AU-INTEGRATION-R012, AU-INTEGRATION-R013, AU-INTEGRATION-R014, AU-INTEGRATION-R015. See [requirements.md](requirements.md) for the definition of every requirement ID, including AU-INTEGRATION-R016–AU-INTEGRATION-R018 and AU-INTEGRATION-R020, and [status.json](status.json) for delivery state and evidence. Additional named workstreams: AU final composition, AU ontology/SHACL/OWL clean cut, AU public application control plane, and AU public docs. These workstream labels need stable IDs assigned through review; no synthetic ID is treated as authoritative.
 
 ## Outcome
 
