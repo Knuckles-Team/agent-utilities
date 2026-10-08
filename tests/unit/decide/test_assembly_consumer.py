@@ -108,7 +108,7 @@ async def _publish_context(graph: Any) -> dict[str, Any]:
 def test_a_solved_committed_graph_is_published_and_saved_to_the_library(
     installed,
 ) -> None:
-    """AU-CONTROL-R026: commit, publish and library save are all bound."""
+    """Commit, publish and library save are all bound."""
     from agent_utilities.orchestration.agent_library import AgentLibrary
     from tests.unit.orchestration.agent_library_fakes import FakeLibraryEngine
 

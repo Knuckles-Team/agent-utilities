@@ -1,4 +1,4 @@
-"""Agent Library store, role agents and assembled graphs (AU-CONTROL-R024–R026)."""
+"""Agent Library store, role agents and assembled graphs."""
 
 from __future__ import annotations
 

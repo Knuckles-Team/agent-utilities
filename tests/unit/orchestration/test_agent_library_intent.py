@@ -1,6 +1,6 @@
 """An agent saved via the Agent Library is reachable through the intent router.
 
-AU-CONTROL-R024: ``find`` ranks the ``agent_library`` tool, ``ask`` lists and
+The ``find`` verb ranks the ``agent_library`` tool, ``ask`` lists and
 gets records read-only, and ``manage`` saves through a previewed plan.
 """
 
