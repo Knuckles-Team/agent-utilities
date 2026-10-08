@@ -691,18 +691,18 @@ def test_durable_secret_target_collision_is_rejected_without_names(
     _write_config(
         root,
         {
-            "LANGFUSE_SECRET_KEY_REF": "env://MCP_TOOL_MODE",
-            "MCP_TOOL_MODE": "intent",
+            "LANGFUSE_SECRET_KEY_REF": "env://REACTIONS",
+            "REACTIONS": "intent",
         },
     )
-    _write_secrets(root, {"MCP_TOOL_MODE": "runtime-material"})
+    _write_secrets(root, {"REACTIONS": "runtime-material"})
     _select_root(monkeypatch, root)
 
     with pytest.raises(config.ConfigurationSourceError) as caught:
         config.load_config(reload=True)
 
     assert caught.value.error_class == "SecretTargetCollisionError"
-    assert "MCP_TOOL_MODE" not in str(caught.value)
+    assert "REACTIONS" not in str(caught.value)
     assert str(root) not in str(caught.value)
 
 

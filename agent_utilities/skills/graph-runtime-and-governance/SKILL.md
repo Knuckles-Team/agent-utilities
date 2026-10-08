@@ -96,11 +96,11 @@ small tool surface is appropriate. Use `find_tools` or `list_catalog` to discove
 a capability, `load_tools` to expose only what the current task needs, and
 `unload_tools` when finished. Pin an exact tool when ambiguity would be unsafe.
 
-**The six intent verbs** (`MCP_TOOL_MODE=intent`, graph-os's default profile — the
-granular surface still registers fully, REST + `_execute_tool` unaffected; verbs
-just front it for small/cheap-LLM sessions): `<verb>(intent="<natural language>",
-hints_json="{...}", execute=true)`. `hints_json={"tool": "..."}` pins an exact tool,
-bypassing ranking entirely; `execute=false` returns only the routing decision.
+**The six intent verbs** (the one MCP tool contract — graph-os serves only these plus the
+two MCP Apps launchers; the granular tools stay registered on a private backing server and
+dispatch through `_execute_tool`): `<verb>(action="<tool>.<op>", params={...}, intent="...")`.
+`action="describe"` lists a verb's operations; `params={"action": "<op id>"}` returns one
+operation's argument schema. With no `action`, the server routes the natural-language `intent`.
 
 | Verb | Resolves to (examples) | Use for |
 |---|---|---|

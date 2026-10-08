@@ -346,7 +346,7 @@ def test_generation_restores_environment_and_runtime_registries(monkeypatch):
     async def _probe() -> str:
         return "probe"
 
-    monkeypatch.setenv("MCP_TOOL_MODE", "verbose")
+    monkeypatch.setenv("REACTIONS", "gpu-a100")
     original_registered = dict(kg_server.REGISTERED_TOOLS)
     original_routes = dict(kg_server.ACTION_TOOL_ROUTES)
     try:
@@ -366,7 +366,7 @@ def test_generation_restores_environment_and_runtime_registries(monkeypatch):
                 [cpd.id] if cpd.id in INTENT_VERBS else list(TOOL_VERBS[cpd.id])
             )
             assert cpd.intent_verbs == expected_verbs
-        assert os.environ["MCP_TOOL_MODE"] == "verbose"
+        assert os.environ["REACTIONS"] == "gpu-a100"
         assert kg_server.REGISTERED_TOOLS == registered_before
         assert kg_server.ACTION_TOOL_ROUTES == routes_before
     finally:

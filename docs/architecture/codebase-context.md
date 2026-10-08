@@ -12,10 +12,10 @@ and reads only the `file:line`s it must *edit*, not to *understand*.
 ## The one tool — `code_context`
 
 `graph_code action=code_context` (REST: `POST /graph/code`) composes the
-already-built primitives into one synthesized, cited explanation. Under
-`MCP_TOOL_MODE=intent`, call `ask` with the natural-language question; the
-resolver selects this capability, or accepts
-`hints_json={"tool":"graph_code","action":"code_context"}` as an exact pin:
+already-built primitives into one synthesized, cited explanation. Through
+graph-os's single intent-tool contract, call `ask` with the natural-language
+question and the resolver selects this capability, or pin it exactly with
+`action="graph_code.code_context"`:
 
 | intent (`target`) | composes | answers |
 |---|---|---|

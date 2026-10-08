@@ -157,26 +157,48 @@ GraphOS aggregates the whole `*-mcp` fleet through its embedded gateway, and eve
 
 ### GraphOS model-facing MCP surface
 
-The current default (`MCP_TOOL_MODE=intent`) starts with exactly **16 visible
-tools**: **six intent verbs, eight control tools, and two MCP Apps entry points**.
-This is progressive disclosure, not a compatibility alias over the former
-granular startup table.
+GraphOS serves exactly one MCP tool contract: **8 tools** — six intent verbs
+plus the two MCP Apps launchers — at roughly **1,660 tokens** in `tools/list`.
 
 | Surface | Always-visible tools | Purpose |
 |---|---|---|
-| Intent | `ask`, `find`, `write`, `act`, `manage`, `why` | Resolve a governed natural-language intent to the exact current capability; mutating verbs preview before execution. |
-| Control | `find_tools`, `list_catalog`, `load_tools`, `unload_tools`, `catalog_refresh`, `catalog_dispatch`, `catalog_session_resume`, `multiplexer_status` | Discover, expose, retract, atomically refresh and dispatch against an exact catalog generation, resume a bound session, and inspect exact tools without permanently filling model context. |
-| MCP Apps | `graph_task_progress_app`, `graph_trace_waterfall_app` | Launch the two always-available interactive GraphOS views. |
+| Intent | `ask`, `find`, `write`, `act`, `manage`, `why` | Resolve a governed natural-language intent (or an explicit `action` operation id) to the exact current capability; the non-read verbs (`write`/`act`/`manage`) preview first and execute only when resubmitted with the preview's `plan_ref`, and an approval-required operation additionally needs `manage(action="approve", params={"action": "<tool>.<op>"})` for the session. |
+| MCP Apps | `graph_task_progress_app`, `graph_trace_waterfall_app` | Launch the two always-available interactive GraphOS views (kept listed only because the MCP Apps extension binds a UI to a listed tool's `_meta.ui.resourceUri`). |
+
+Each intent tool takes the same condensed schema: `action` (an operation id
+`"<tool>.<op>"` from the generated manifest, or `"describe"`), `params` (an
+object), an optional natural-language `intent` (routed when `action` is
+empty), and `execute` (bool). `find(action="describe",
+params={"action": "<operation id>"})` returns one operation's full argument
+schema on demand, so the catalog's ~60 action-routed `graph_*`/`engine_*`
+operations never need to be embedded in `tools/list`.
+
+Those ~60 operations stay fully registered — on a private backing FastMCP
+server (`agent_utilities/mcp/graphos_surface.py::backing_server`) that
+populates the shared `kg_server.REGISTERED_TOOLS` dispatch core the intent
+router, the REST gateway, and every operation dispatch through — they are just
+never listed. `graphos_surface.ROUTING_GROUPS` organizes them internally by
+job (read, write, ingest, code, run, message, reason, improve, ontology,
+observe, govern, memory, admin) for `describe` output and the coverage gates;
+the groups are not MCP tools.
+
+Fleet access runs through the intent verbs too: `find` (actions `tools`,
+`catalog`, `status`) discovers fleet tools/servers, `act(action="fleet.call",
+params={"tool": ..., "arguments": {...}})` calls one, and
+`manage(action="fleet.load"|"fleet.unload")` mounts/releases fleet servers
+ahead of use. The standalone `mcp-multiplexer` gateway (not graph-os) still
+serves the meta-tools `find_tools`/`load_tools`/`unload_tools`/`list_catalog`/
+`multiplexer_status` for sessions that talk to the fleet directly.
 
 The generated Capability Power Descriptor catalog currently contains **128
 public capabilities**. Their granular MCP and REST actions remain current and
-fully governed, but are hidden from the initial model context. `find_tools`
-ranks the catalog, `load_tools` exposes only the selected exact tools for the
-calling session, and `unload_tools` retracts them again. Dynamic loading never
-weakens the loaded tool's verified session, scope, approval, or mutation policy.
-The source contracts are `agent_utilities/mcp/tool_specs.py`,
+fully governed, reached through `find`/`act`/`manage`/`describe` rather than
+being individually listed. Dynamic fleet loading never weakens a tool's
+verified session, scope, approval, or mutation policy. The source contracts
+are `agent_utilities/mcp/intent_contract.py`,
+`agent_utilities/mcp/graphos_surface.py`,
 `agent_utilities/mcp/tools/intent_tools.py`, and
-`agent_utilities/mcp/multiplexer.py`; the generated inventory is
+`agent_utilities/mcp/tool_specs.py`; the generated inventory is
 [Capability Power](../capabilities-power.md).
 
 ### Server Endpoints

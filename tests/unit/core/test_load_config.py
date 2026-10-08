@@ -20,15 +20,15 @@ def test_load_config_injects_xdg_json(tmp_path, monkeypatch):
     """
     cfg_dir = tmp_path / "agent-utilities"
     cfg_dir.mkdir()
-    (cfg_dir / "config.json").write_text(json.dumps({"mcp_tool_mode": "verbose"}))
+    (cfg_dir / "config.json").write_text(json.dumps({"reactions": "verbose"}))
     monkeypatch.delenv("AGENT_UTILITIES_TESTING", raising=False)
     monkeypatch.setenv("AGENT_UTILITIES_CONFIG_DIR", str(cfg_dir))
-    monkeypatch.delenv("MCP_TOOL_MODE", raising=False)
+    monkeypatch.delenv("REACTIONS", raising=False)
 
     config.load_config(reload=True)
 
     # and it flows through the sanctioned read path
-    assert config.setting("MCP_TOOL_MODE", "condensed") == "verbose"
+    assert config.setting("REACTIONS", "default") == "verbose"
 
 
 def test_load_config_idempotent(monkeypatch):
@@ -42,39 +42,39 @@ def test_load_config_idempotent(monkeypatch):
 def test_real_env_wins_over_config_json(tmp_path, monkeypatch):
     cfg_dir = tmp_path / "agent-utilities"
     cfg_dir.mkdir()
-    (cfg_dir / "config.json").write_text(json.dumps({"mcp_tool_mode": "verbose"}))
+    (cfg_dir / "config.json").write_text(json.dumps({"reactions": "verbose"}))
     monkeypatch.delenv("AGENT_UTILITIES_TESTING", raising=False)
     monkeypatch.setenv("AGENT_UTILITIES_CONFIG_DIR", str(cfg_dir))
-    monkeypatch.setenv("MCP_TOOL_MODE", "both")  # real env set first
+    monkeypatch.setenv("REACTIONS", "both")  # real env set first
 
     config.load_config(reload=True)
 
     # config.json must not clobber an already-set environment variable
-    assert os.environ.get("MCP_TOOL_MODE") == "both"
+    assert os.environ.get("REACTIONS") == "both"
 
 
 def test_reload_replaces_only_values_injected_by_xdg(tmp_path, monkeypatch):
     cfg_dir = tmp_path / "agent-utilities"
     cfg_dir.mkdir()
     cfg_file = cfg_dir / "config.json"
-    cfg_file.write_text(json.dumps({"mcp_tool_mode": "intent"}))
+    cfg_file.write_text(json.dumps({"reactions": "intent"}))
     monkeypatch.delenv("AGENT_UTILITIES_TESTING", raising=False)
     monkeypatch.setenv("AGENT_UTILITIES_CONFIG_DIR", str(cfg_dir))
-    monkeypatch.delenv("MCP_TOOL_MODE", raising=False)
+    monkeypatch.delenv("REACTIONS", raising=False)
 
     config.load_config(reload=True)
-    assert os.environ["MCP_TOOL_MODE"] == "intent"
+    assert os.environ["REACTIONS"] == "intent"
 
-    cfg_file.write_text(json.dumps({"mcp_tool_mode": "verbose"}))
+    cfg_file.write_text(json.dumps({"reactions": "verbose"}))
     config.load_config(reload=True)
-    assert os.environ["MCP_TOOL_MODE"] == "verbose"
+    assert os.environ["REACTIONS"] == "verbose"
 
     # A later process-environment override is not owned by XDG and keeps
     # precedence across subsequent document reloads.
-    os.environ["MCP_TOOL_MODE"] = "both"
-    cfg_file.write_text(json.dumps({"mcp_tool_mode": "intent"}))
+    os.environ["REACTIONS"] = "both"
+    cfg_file.write_text(json.dumps({"reactions": "intent"}))
     config.load_config(reload=True)
-    assert os.environ["MCP_TOOL_MODE"] == "both"
+    assert os.environ["REACTIONS"] == "both"
 
 
 def test_save_config_atomically_updates_stable_typed_proxy(tmp_path, monkeypatch):

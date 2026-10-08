@@ -347,7 +347,6 @@ def _validate_config(
     cell = configs["graphos-cell-contract"]
     control = configs["graphos-security-contract"]
     for key, expected in {
-        "MCP_TOOL_MODE": "intent",
         "MCP_CLIENT_AUTH": "oidc-client-credentials",
         "LANGFUSE_MCP_ENABLED": "true",
         "KG_LOOP": "true",
