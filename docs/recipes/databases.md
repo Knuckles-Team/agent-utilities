@@ -12,10 +12,8 @@ engine's own authoritative store.
 > already have), then registered as a mirror connection and reconciled.
 
 External SPARQL triplestore federation (publishing/querying a triplestore like
-Stardog) is owned by the epistemic-graph engine rather than this repository;
-`OntologyPublisher` still *pushes* the bundled ontology (TBox) to an optional
-Stardog or Jena Fuseki endpoint for enterprise-wide SPARQL consumption, but
-instance-data federation is not implemented here.
+Stardog) is owned by the epistemic-graph engine rather than this repository.
+Agent Utilities does not push ontologies to an external triplestore.
 
 ---
 
@@ -25,13 +23,12 @@ instance-data federation is not implemented here.
 agent-utilities graph ──promote──▶ ontology (OWL/RDF, KG-2.6)
         │                                  │
         │                                  └─ built-in /api/sparql (zero infra)
-        │                                       └─ optional local Jena Fuseki, or OntologyPublisher push
+        │                                       └─ optional local Jena Fuseki
         ▼
    reconcile (KG-2.7) ──▶ Postgres / Apache AGE  (durable graph + pgvector + BM25)
 ```
 
-- **Push / host / consume** the ontology → `OntologyPublisher` +
-  the gateway SPARQL endpoint.
+- **Attach / query** ontology packs → EG GraphSchema + the gateway SPARQL endpoint.
 - **Backfill relationships into pg-age** → the fanout backend's explicit
   `reconcile()` operation, driven through `graph_configure`.
 
@@ -176,9 +173,8 @@ You already serve SPARQL locally — the gateway mounts `GET/POST /api/sparql`
 curl 'http://localhost:9000/api/sparql?query=SELECT%20?s%20WHERE%20{?s%20?p%20?o}%20LIMIT%205'
 ```
 
-To also push the bundled ontology (TBox only — not instance data) out to an
-enterprise Stardog or Jena Fuseki deployment, see `OntologyPublisher`
-(`core/ontology_publisher.py`) and `KG_FUSEKI_PUBLISH`/`KG_FUSEKI_ENDPOINT`.
+Ontology distribution to an external triplestore is owned by the
+epistemic-graph engine, not this repository.
 
 ---
 
