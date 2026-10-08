@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-574 typed fields · 372 runtime-only call-site inputs.
+574 typed fields · 370 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -769,9 +769,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `AU_SEMANTIC_CACHE` | 1 |
 | `BACKSTAGE_FILE` | 1 |
 | `BAO_URL` | 1 |
-| `BINANCE_API_KEY` | 1 |
-| `BINANCE_SECRET` | 1 |
-| `BINANCE_SECRET_KEY` | 1 |
 | `BPMN_FILE` | 1 |
 | `BPM_PROVIDER` | 1 |
 | `BPM_TOKEN` | 1 |
@@ -907,6 +904,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `KG_INGEST_PROFILE` | 1 |
 | `KG_LLM_PRIORITY_RESERVE` | 1 |
 | `KG_LLM_PRIORITY_RESERVE_FRACTION` | 1 |
+| `KG_LOOP_EMBEDDING_GENERATION` | 1 |
 | `KG_MEDIA_TENANT_ISOLATED_BLOBS` | 1 |
 | `KG_MIN_KEYWORD_DISCOVER_RELEVANCE_THRESHOLD` | 1 |
 | `KG_MIN_LEXICAL_RELEVANCE_THRESHOLD` | 1 |
@@ -1054,11 +1052,11 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `SLACK_APP_TOKEN` | 1 |
 | `SOURCE_CREDENTIALS` | 1 |
 | `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE` | 1 |
-| `STARDOG_DATABASE` | 4 |
-| `STARDOG_ENDPOINT` | 5 |
-| `STARDOG_PASSWORD` | 4 |
+| `STARDOG_DATABASE` | 1 |
+| `STARDOG_ENDPOINT` | 2 |
+| `STARDOG_PASSWORD` | 1 |
 | `STARDOG_PASSWORD_REF` | 1 |
-| `STARDOG_USER` | 4 |
+| `STARDOG_USER` | 1 |
 | `SWE_TOOLS` | 1 |
 | `SYNOLOGY_CHAT_WEBHOOK_URL_REF` | 2 |
 | `TECHNITIUM_TOKEN` | 1 |
