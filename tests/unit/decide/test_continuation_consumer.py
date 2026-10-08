@@ -141,3 +141,21 @@ def test_the_last_wave_of_a_plan_run_releases_its_leases(released: list[str]) ->
     }
     assert asyncio.run(after_wave(plan, 1, [["a"], ["b"]])) is True
     assert released == [RECORD]
+
+
+
+@pytest.mark.parametrize("width", [1, 3])
+def test_eg_cannot_widen_a_running_plan(
+    eg: FakeTransport, released: list[str], width: int
+) -> None:
+    """AU-CONTROL-R019: an unoffered widening answer grants no authority."""
+    eg.answer = acted("widen")
+    step = asyncio.run(
+        continue_or_stop(
+            RECORD, {"rule": "max_rounds", "n": 4}, RoundProgress(1), width=width
+        )
+    )
+    assert step.action == "continue"
+    assert step.reason == "foreign_option: widen"
+    assert len(eg.requests) == 1, "exercise the real runner, not its unbound fallback"
+    assert released == [], "continuing the existing plan preserves its leases"
