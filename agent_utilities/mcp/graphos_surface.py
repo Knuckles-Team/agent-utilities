@@ -86,9 +86,9 @@ ROUTING_GROUPS: tuple[RoutingGroup, ...] = (
     ),
     _group(
         "run",
-        "Agents, workflows, goals, jobs, schedules, loops, durable runs, sessions.",
+        "Agents, agent library, workflows, goals, jobs, schedules, loops, runs, sessions.",
         "graph_orchestrate graph_agents graph_workflows graph_goals graph_jobs "
-        "graph_schedules graph_loops graph_durable graph_sessions",
+        "graph_schedules graph_loops graph_durable graph_sessions agent_library",
     ),
     _group(
         "message",

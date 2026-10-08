@@ -190,7 +190,7 @@ ahead of use. The standalone `mcp-multiplexer` gateway (not graph-os) still
 serves the meta-tools `find_tools`/`load_tools`/`unload_tools`/`list_catalog`/
 `multiplexer_status` for sessions that talk to the fleet directly.
 
-The generated Capability Power Descriptor catalog currently contains **128
+The generated Capability Power Descriptor catalog currently contains **129
 public capabilities**. Their granular MCP and REST actions remain current and
 fully governed, reached through `find`/`act`/`manage`/`describe` rather than
 being individually listed. Dynamic fleet loading never weakens a tool's
