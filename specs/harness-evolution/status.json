@@ -90,7 +90,7 @@
     {
       "id": "AU-HARNESS-R007",
       "title": "One typed L4 harness port",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -98,6 +98,13 @@
           "commit": "579815031bcd75a6bf55a4a2bb686329081cde58",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/579815031bcd75a6bf55a4a2bb686329081cde58",
           "description": "Implementation and focused tests (tests/unit/layers/test_harness_port.py, 26 passed) on a review branch; not merged."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3df03825a49758a416ecc2ec58c09f8311f18538",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/3df03825a49758a416ecc2ec58c09f8311f18538",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
     },
@@ -146,8 +153,16 @@
     {
       "id": "AU-HARNESS-R011",
       "title": "Run outcomes feed propose-only prompt evolution",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "755db4bb36b87c34fd1e471d87a9854b628cd1a2",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/755db4bb36b87c34fd1e471d87a9854b628cd1a2",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
     }
   ]
 }

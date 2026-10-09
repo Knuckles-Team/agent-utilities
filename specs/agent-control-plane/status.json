@@ -355,44 +355,100 @@
     {
       "id": "AU-CONTROL-R024",
       "title": "Durable Agent Library with list, get and save",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "8d94e1c97b281c42dbc87cfdcdc079246e0a371e",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/8d94e1c97b281c42dbc87cfdcdc079246e0a371e",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
     },
     {
       "id": "AU-CONTROL-R025",
       "title": "Pre-built role agents from packaged fleet prompts",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "8d94e1c97b281c42dbc87cfdcdc079246e0a371e",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/8d94e1c97b281c42dbc87cfdcdc079246e0a371e",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
     },
     {
       "id": "AU-CONTROL-R026",
       "title": "Assembled agent graphs are committed, published and saved for reuse",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "8d94e1c97b281c42dbc87cfdcdc079246e0a371e",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/8d94e1c97b281c42dbc87cfdcdc079246e0a371e",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
     },
     {
       "id": "AU-CONTROL-R027",
       "title": "Task planner answers how to execute a task as one structured plan",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "543b8157705e954a9b918c1cd4e3b49abe0a80d4",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/543b8157705e954a9b918c1cd4e3b49abe0a80d4",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
     },
     {
       "id": "AU-CONTROL-R028",
       "title": "The ask intent routes planning questions to the task planner",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "543b8157705e954a9b918c1cd4e3b49abe0a80d4",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/543b8157705e954a9b918c1cd4e3b49abe0a80d4",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
     },
     {
       "id": "AU-CONTROL-R029",
       "title": "Cross-source reports select sources by ontology and read them live",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "543b8157705e954a9b918c1cd4e3b49abe0a80d4",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/543b8157705e954a9b918c1cd4e3b49abe0a80d4",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
     },
     {
       "id": "AU-CONTROL-R030",
       "title": "Virtual-graph contracts materialize metadata and hot subsets only",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "543b8157705e954a9b918c1cd4e3b49abe0a80d4",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/543b8157705e954a9b918c1cd4e3b49abe0a80d4",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
     }
   ]
 }

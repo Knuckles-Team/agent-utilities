@@ -292,7 +292,7 @@
     {
       "id": "AU-SEMANTIC-R023",
       "title": "Legacy SPARQL backend and setup modules are deleted",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -300,6 +300,13 @@
           "commit": "029ea71efc6a31e41aca68e989613b251a054554",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/029ea71efc6a31e41aca68e989613b251a054554",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a05257fb65417c1520f2a2c37f16e72bf29971e3",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/a05257fb65417c1520f2a2c37f16e72bf29971e3",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
     },

@@ -16,8 +16,16 @@
     {
       "id": "AU-BASELINE-R001",
       "title": "The daemon role starts baseline ingestion in the background after boot",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "f9b25e33b1794f6ef82df07433103328f79d0749",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f9b25e33b1794f6ef82df07433103328f79d0749",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
     },
     {
       "id": "AU-BASELINE-R002",

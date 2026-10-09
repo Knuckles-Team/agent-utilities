@@ -101,8 +101,16 @@
     {
       "id": "AU-QUAL-R008",
       "title": "Liveness reconciler rescues exact service-registry targets",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "cf1cdce6a6e494ba9f7c014bf449e98b72f794f9",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/cf1cdce6a6e494ba9f7c014bf449e98b72f794f9",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
     }
   ]
 }

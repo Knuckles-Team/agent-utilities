@@ -180,7 +180,7 @@
     {
       "id": "AU-INTEGRATION-R015",
       "title": "Remove the unused legacy ontology publisher surface",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -188,6 +188,13 @@
           "commit": "f055b24c487acd5e7782b8458df0f4f6efe82e07",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f055b24c487acd5e7782b8458df0f4f6efe82e07",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "23920f0ed81787de1c3a2f5bbac29b93479d45eb",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/23920f0ed81787de1c3a2f5bbac29b93479d45eb",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
     },
@@ -228,15 +235,31 @@
     {
       "id": "AU-INTEGRATION-R019",
       "title": "Messaging direct turns use a configured budget and deliver over-budget replies as a follow-up",
-      "delivery_state": "BUILDING",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "003679966f78df3da0841bce4022d93180986644",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/003679966f78df3da0841bce4022d93180986644",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ],
       "remaining": "Regression tests in tests/unit/messaging/test_direct_reply_budget.py; merged-head evidence pending."
     },
     {
       "id": "AU-INTEGRATION-R020",
       "title": "Outbound chat text never carries the run envelope",
-      "delivery_state": "BUILDING",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b1fd0469c010058b3bfca2519e0fa02624d7fd5c",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/b1fd0469c010058b3bfca2519e0fa02624d7fd5c",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ],
       "remaining": "Regression test tests/unit/messaging/test_run_envelope_unwrap.py lands with this PR; PR #60 late-reply path reuses unwrap_run_envelope after both merge."
     }
   ]
