@@ -671,8 +671,16 @@
     {
       "id": "AU-CONTROL-R035",
       "title": "The signed agent-dispatch envelope carries an enforced allowed-tool-subset field",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "bca0cd3c44d99ca8d80181deadeb028c71d08a75",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/bca0cd3c44d99ca8d80181deadeb028c71d08a75",
+          "description": "AU-CONTROL-R035 merged to the default branch in this commit (PR #135, Add AU-CONTROL-R035: enforced allowed-tool-subset field on AgentTurnEnvelope)."
+        }
+      ],
       "remaining": "AgentTurnEnvelope has no allowed-tool-subset field today; GraphOS's A2A dispatch authority (GRAPHOS-A2A-002) fails closed on this gap."
     }
   ]

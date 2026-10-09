@@ -214,8 +214,16 @@
     {
       "id": "AU-SEMANTIC-R009.1",
       "title": "A typed runnable_skill_derivation client contract fails closed while EG's op is absent",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "4eac8c6dc419b697a683857caeab8b7fb07b22bf",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/4eac8c6dc419b697a683857caeab8b7fb07b22bf",
+          "description": "AU-SEMANTIC-R009.1 merged to the default branch in this commit (PR #148, spec: AU-side .1 slices for AU-SEMANTIC-R009/R015 and AU-CONTEXT-R007)."
+        }
+      ]
     },
     {
       "id": "AU-SEMANTIC-R009.2",
@@ -280,7 +288,7 @@
     {
       "id": "AU-SEMANTIC-R012",
       "title": "Tenancy, topology and admission authority move to EG",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -288,6 +296,13 @@
           "commit": "6cfdf6bad653c05fe59cbe3e6b3e987be6d76af1",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/6cfdf6bad653c05fe59cbe3e6b3e987be6d76af1",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "8b325ddf1818acfd7a4024549d72094bc0478eec",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/8b325ddf1818acfd7a4024549d72094bc0478eec",
+          "description": "AU-SEMANTIC-R012 (tenancy/topology/admission to EG) merged to the default branch in this commit; same implementation commit as AU-BOUNDARY-R021."
         }
       ]
     },
@@ -308,7 +323,7 @@
     {
       "id": "AU-SEMANTIC-R014",
       "title": "Ingestion commit and derivation logic moves to EG's SourceIngest",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -316,6 +331,13 @@
           "commit": "e3abde51266542ddfc61868a633b24d634ed68c4",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/e3abde51266542ddfc61868a633b24d634ed68c4",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "description": "AU-SEMANTIC-R014 (ingestion commit/derivation to EG SourceIngest) merged to the default branch in this commit; same implementation commit as AU-BOUNDARY-R023."
         }
       ]
     },
@@ -343,8 +365,16 @@
     {
       "id": "AU-SEMANTIC-R015.1",
       "title": "A typed workflow_derivation client contract fails closed while EG's op is absent",
-      "delivery_state": "BUILT",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "4eac8c6dc419b697a683857caeab8b7fb07b22bf",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/4eac8c6dc419b697a683857caeab8b7fb07b22bf",
+          "description": "AU-SEMANTIC-R015.1 merged to the default branch in this commit (PR #148, spec: AU-side .1 slices for AU-SEMANTIC-R009/R015 and AU-CONTEXT-R007)."
+        }
+      ]
     },
     {
       "id": "AU-SEMANTIC-R015.2",
@@ -606,14 +636,22 @@
     {
       "id": "AU-SEMANTIC-R025.1",
       "title": "Typed EG-client composition and refusal behavior for retrieval",
-      "delivery_state": "BUILDING",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c23e42b6ed4357f8e2b3ed02558727cc385d5678",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c23e42b6ed4357f8e2b3ed02558727cc385d5678",
+          "description": "AU-SEMANTIC-R025.1 merged to the default branch in this commit (PR #139, AU-SEMANTIC-R022.1/R025.1/R027.1: typed models + refusal tests)."
+        }
+      ],
       "depends_on": []
     },
     {
       "id": "AU-SEMANTIC-R026",
       "title": "The schema-drift package is re-homed before it lands",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -621,6 +659,13 @@
           "commit": "ead97a911199178a52edb107be2ef111276b6b76",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ead97a911199178a52edb107be2ef111276b6b76",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "5e15da9f9e40bad1e4572f231a8459c63b8aa85a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/5e15da9f9e40bad1e4572f231a8459c63b8aa85a",
+          "description": "AU-SEMANTIC-R026 (schema-drift package re-homed) merged to the default branch in this commit; same implementation commit as AU-BOUNDARY-R035."
         }
       ]
     },
@@ -637,8 +682,16 @@
     {
       "id": "AU-SEMANTIC-R027.1",
       "title": "Typed capability-gap record refuses an unverified \"missing\" verdict",
-      "delivery_state": "BUILDING",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c23e42b6ed4357f8e2b3ed02558727cc385d5678",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c23e42b6ed4357f8e2b3ed02558727cc385d5678",
+          "description": "AU-SEMANTIC-R027.1 merged to the default branch in this commit (PR #139, AU-SEMANTIC-R022.1/R025.1/R027.1: typed models + refusal tests)."
+        }
+      ],
       "depends_on": []
     },
     {

@@ -299,8 +299,16 @@
     {
       "id": "AU-INTEGRATION-R018",
       "title": "Public docs site passes the full documentation gate suite",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "bf0a31f534e1d49a2a9567992d75d31f78b60999",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/bf0a31f534e1d49a2a9567992d75d31f78b60999",
+          "description": "AU-INTEGRATION-R018 merged to the default branch in this commit (PR #152, feat(retrieval,orchestration,core): AU-RETRIEVAL-R001 fresh .1, AU-INTEGRATION-R014.1/R018.1 slices)."
+        }
+      ]
     },
     {
       "id": "AU-INTEGRATION-R019",

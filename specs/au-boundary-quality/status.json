@@ -33,7 +33,7 @@
     {
       "id": "AU-QUAL-R002",
       "title": "Tiny-profile RBAC and bootstrap-isolation tests cover real code",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -41,6 +41,13 @@
           "commit": "a50d12c5fc4f0955713f37ae8f7320952f781e3e",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/a50d12c5fc4f0955713f37ae8f7320952f781e3e",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "ce632099b6b9271954723ba26de9684882f5552f",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ce632099b6b9271954723ba26de9684882f5552f",
+          "description": "AU-QUAL-R002 implementation (a50d12c5fc) merged to the default branch; proof commit ce632099b6 (Merge origin/main into feat/land-agent-security) is an ancestor of origin/main."
         }
       ]
     },
