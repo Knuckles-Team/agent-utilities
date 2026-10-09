@@ -28,8 +28,10 @@ from agent_utilities.knowledge_graph.enrichment.pipeline import (
 )
 from agent_utilities.knowledge_graph.ingestion import ContentType
 from agent_utilities.knowledge_graph.ingestion.engine import (
+    IngestionEngine,
     IngestionManifest,
     _changed_source_files,
+    _deleted_source_files,
     _git_head_sha,
     _structural_result,
 )
@@ -356,6 +358,55 @@ class TestGitDelta:
         assert (
             changed == []
         )  # functional git, but no source changed → near-empty re-ingest
+
+    def test_deleted_source_files_returns_only_deleted_any_language(
+        self, git_repo: Path
+    ):
+        # AU-RETIRE-R006: one deleted file (a.py) alongside a modify (b.py) and
+        # an add (c.py) — only the deletion is named, by its logical identity.
+        first = _git_head_sha(str(git_repo))
+        _git(git_repo, "rm", "-q", "a.py")
+        (git_repo / "b.py").write_text("def b():\n    return 99\n")
+        (git_repo / "c.py").write_text("def c():\n    return 3\n")
+        _git(git_repo, "add", "-A")
+        _git(git_repo, "commit", "-q", "-m", "delete a.py, modify b.py, add c.py")
+
+        deleted = _deleted_source_files(str(git_repo), first)
+        assert deleted == ["a.py"]
+        changed = _changed_source_files(str(git_repo), first)
+        assert sorted(p.name for p in changed) == ["b.py", "c.py"]
+
+    def test_no_deletions_yields_empty_list(self, git_repo: Path):
+        first = _git_head_sha(str(git_repo))
+        (git_repo / "b.py").write_text("def b():\n    return 99\n")
+        _git(git_repo, "add", "-A")
+        _git(git_repo, "commit", "-q", "-m", "modify only")
+
+        assert _deleted_source_files(str(git_repo), first) == []
+
+
+class TestReapDeletedFiles:
+    """AU-RETIRE-R006: a delta ingest retracts the deleted files' nodes."""
+
+    def test_reaps_each_deleted_file_by_its_file_path(self):
+        backend = MagicMock()
+        IngestionEngine._reap_deleted_files(backend, ["a.py", "pkg/b.py"])
+        assert backend.execute.call_count == 2
+        calls = backend.execute.call_args_list
+        assert calls[0].args[0] == "MATCH (n) WHERE n.file_path = $fp DETACH DELETE n"
+        assert calls[0].args[1] == {"fp": "a.py"}
+        assert calls[1].args[1] == {"fp": "pkg/b.py"}
+
+    def test_no_deleted_files_makes_no_backend_call(self):
+        backend = MagicMock()
+        IngestionEngine._reap_deleted_files(backend, [])
+        backend.execute.assert_not_called()
+
+    def test_one_backend_failure_does_not_block_the_rest(self):
+        backend = MagicMock()
+        backend.execute.side_effect = [RuntimeError("boom"), None]
+        IngestionEngine._reap_deleted_files(backend, ["a.py", "pkg/b.py"])
+        assert backend.execute.call_count == 2
 
 
 # ── #5: deep_analysis gating during bulk ingest ─────────────────────────────
