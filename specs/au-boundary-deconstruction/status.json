@@ -33,12 +33,16 @@
     "AU-BOUNDARY-R028",
     "AU-BOUNDARY-R028.1",
     "AU-BOUNDARY-R028.2",
+    "AU-BOUNDARY-R028.2.1",
     "AU-BOUNDARY-R028.3",
     "AU-BOUNDARY-R028.4",
     "AU-BOUNDARY-R028.5",
     "AU-BOUNDARY-R028.6",
+    "AU-BOUNDARY-R028.6.1",
     "AU-BOUNDARY-R028.7",
+    "AU-BOUNDARY-R028.7.1",
     "AU-BOUNDARY-R028.8",
+    "AU-BOUNDARY-R028.8.1",
     "AU-BOUNDARY-R029",
     "AU-BOUNDARY-R030",
     "AU-BOUNDARY-R031",
@@ -47,17 +51,24 @@
     "AU-BOUNDARY-R034",
     "AU-BOUNDARY-R035",
     "AU-BOUNDARY-R036",
+    "AU-BOUNDARY-R036.1",
     "AU-BOUNDARY-R037",
+    "AU-BOUNDARY-R037.1",
     "AU-BOUNDARY-R038",
     "AU-BOUNDARY-R039",
+    "AU-BOUNDARY-R039.1",
     "AU-BOUNDARY-R040",
+    "AU-BOUNDARY-R040.1",
     "AU-BOUNDARY-R041",
     "AU-BOUNDARY-R042",
     "AU-BOUNDARY-R043",
     "AU-BOUNDARY-R044",
+    "AU-BOUNDARY-R044.1",
     "AU-BOUNDARY-R045",
+    "AU-BOUNDARY-R045.1",
     "AU-BOUNDARY-R046",
     "AU-BOUNDARY-R047",
+    "AU-BOUNDARY-R047.1",
     "AU-BOUNDARY-R048",
     "AU-BOUNDARY-R049"
   ],
@@ -403,6 +414,12 @@
       "evidence": []
     },
     {
+      "id": "AU-BOUNDARY-R028.2.1",
+      "title": "Pin the kg/infra production-importer set.",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
       "id": "AU-BOUNDARY-R028.3",
       "title": "Retire kg/quantum/{budget,__init__}.py and observability/quantum_trace.py",
       "delivery_state": "LANDED",
@@ -451,14 +468,32 @@
       "evidence": []
     },
     {
+      "id": "AU-BOUNDARY-R028.6.1",
+      "title": "Pin the observability/{trace_ontology,self_ingest,audit_logger} production-importer set.",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
       "id": "AU-BOUNDARY-R028.7",
       "title": "Retire governance/relational_authority.py and .json",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
+      "id": "AU-BOUNDARY-R028.7.1",
+      "title": "Pin the governance/relational_authority importer set.",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
       "id": "AU-BOUNDARY-R028.8",
       "title": "Retire kg/research/placement_mining.py",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R028.8.1",
+      "title": "Pin the kg/research/placement_mining production-importer set.",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },
@@ -564,6 +599,12 @@
       "evidence": []
     },
     {
+      "id": "AU-BOUNDARY-R036.1",
+      "title": "Typed inventory of usage-store paths pending move to EG",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
       "id": "AU-BOUNDARY-R037",
       "title": "Move development-governance tooling to repository-manager",
       "delivery_state": "BUILT",
@@ -576,6 +617,12 @@
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
       ]
+    },
+    {
+      "id": "AU-BOUNDARY-R037.1",
+      "title": "Typed inventory of governance modules pending move to repository-manager",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     },
     {
       "id": "AU-BOUNDARY-R038",
@@ -606,8 +653,20 @@
       "evidence": []
     },
     {
+      "id": "AU-BOUNDARY-R039.1",
+      "title": "Typed inventory of AU's public front-end import surface",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
       "id": "AU-BOUNDARY-R040",
       "title": "Move agent memory and the learning engine to EG",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R040.1",
+      "title": "Typed inventory of memory/learning-engine paths pending move to EG",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },
@@ -675,8 +734,20 @@
       "evidence": []
     },
     {
+      "id": "AU-BOUNDARY-R044.1",
+      "title": "Typed inventory of orchestration paths pending move to graph-os",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
       "id": "AU-BOUNDARY-R045",
       "title": "Unplaced knowledge-graph packages receive file-level owners",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R045.1",
+      "title": "Typed inventory of unplaced knowledge_graph packages pending move",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },
@@ -689,6 +760,12 @@
     {
       "id": "AU-BOUNDARY-R047",
       "title": "Engine-facing adapters and caches are thin clients or removed",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R047.1",
+      "title": "Typed inventory of engine-facing adapters pending thin-client cutover",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },

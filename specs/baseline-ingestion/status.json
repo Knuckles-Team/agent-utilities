@@ -9,9 +9,17 @@
     "AU-BASELINE-R004",
     "AU-BASELINE-R005"
   ],
-  "delivery_state": "BUILDING",
+  "delivery_state": "LANDED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": [],
+  "evidence": [
+    {
+      "kind": "merged_head",
+      "result": "passed",
+      "commit": "06a3810b9373a080cf4c11eb34c19e380eab9564",
+      "url": "https://github.com/Knuckles-Team/agent-utilities/commit/06a3810b9373a080cf4c11eb34c19e380eab9564",
+      "description": "All requirements (R001-R005) are implemented and merged to the default branch."
+    }
+  ],
   "requirements": [
     {
       "id": "AU-BASELINE-R001",
@@ -30,26 +38,58 @@
     {
       "id": "AU-BASELINE-R002",
       "title": "The baseline covers grounding content only",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "06a3810b9373a080cf4c11eb34c19e380eab9564",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/06a3810b9373a080cf4c11eb34c19e380eab9564",
+          "description": "Implementation merged to the default branch. T-003/T-004 unit tests pass (test-spec.md)."
+        }
+      ]
     },
     {
       "id": "AU-BASELINE-R003",
       "title": "Baseline ingestion is idempotent and isolated per item",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "06a3810b9373a080cf4c11eb34c19e380eab9564",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/06a3810b9373a080cf4c11eb34c19e380eab9564",
+          "description": "Implementation merged to the default branch. T-005 unit test passes (test-spec.md)."
+        }
+      ]
     },
     {
       "id": "AU-BASELINE-R004",
       "title": "AU orders ingestion by the EG stage sequence",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "06a3810b9373a080cf4c11eb34c19e380eab9564",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/06a3810b9373a080cf4c11eb34c19e380eab9564",
+          "description": "Implementation merged to the default branch. T-006 unit test passes (test-spec.md)."
+        }
+      ]
     },
     {
       "id": "AU-BASELINE-R005",
       "title": "Factory-built fleet servers serve ontology providers as MCP resources",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "06a3810b9373a080cf4c11eb34c19e380eab9564",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/06a3810b9373a080cf4c11eb34c19e380eab9564",
+          "description": "Implementation merged to the default branch. T-007 unit test (MCP client) passes (test-spec.md)."
+        }
+      ]
     }
   ]
 }
