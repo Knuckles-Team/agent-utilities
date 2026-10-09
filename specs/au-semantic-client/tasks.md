@@ -23,5 +23,8 @@
 - [x] **AU-SEMANTIC-R021.4:** AU's hand-written RDF/OWL/SHACL emitters move behind EG pack compilation — scripts/scaffold_ontology_leg.py slice of `AU-SEMANTIC-R021`.
 
 - [x] **AU-SEMANTIC-R010.1:** typed EG-client composition (`GraphComputeClient`/`GeneratedGraphComputeSurface` in `agent_utilities/api/graph_compute_client.py`) and its refusal behavior — net-new `.1` slice of `AU-SEMANTIC-R010` (typed model + refusal test); the graph-compute/session/epistemic_row/ogm/company_brain/kg_adapter call-site migrations onto it are separate, unlanded `.2`+ children.
+- [x] **AU-SEMANTIC-R022.1:** typed EG-generated DTO composition (`GraphSchemaTypes`/`GeneratedGraphSchemaSurface` in `agent_utilities/api/graph_schema_types.py`) and its refusal behavior — net-new `.1` slice of `AU-SEMANTIC-R022` (typed model + refusal test); the knowledge_graph/schema_definition/evidence_bundle call-site migrations onto it are separate, unlanded `.2`+ children.
+- [x] **AU-SEMANTIC-R025.1:** typed EG-client composition (`RetrievalClient`/`GeneratedRetrievalSurface` in `agent_utilities/api/retrieval_client.py`) and its refusal behavior — net-new `.1` slice of `AU-SEMANTIC-R025` (typed model + refusal test); the context-compilation call-site migrations onto it are separate, unlanded `.2`+ children.
+- [x] **AU-SEMANTIC-R027.1:** typed capability-gap record (`CapabilityGapResult`/`EGSurfaceSearch` in `agent_utilities/api/capability_gap_check.py`) refusing an unverified "missing" verdict — net-new `.1` slice of `AU-SEMANTIC-R027` (typed model + refusal test); the migration-filing call sites that produce real verdicts are separate, unlanded `.2`+ children.
 
 The task owner records a separate verdict per ID even when multiple IDs share a PR.
