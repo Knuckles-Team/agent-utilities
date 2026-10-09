@@ -193,7 +193,7 @@
     {
       "id": "AU-SEMANTIC-R009",
       "title": "The local engine facade is deleted in favor of the generated EG client",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -201,6 +201,13 @@
           "commit": "2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "703c3eb9d88d6944542d58188ee0a1c4461c282c",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/703c3eb9d88d6944542d58188ee0a1c4461c282c",
+          "description": "AU-SEMANTIC-R009 merged to the default branch in this commit."
         }
       ]
     },
@@ -315,7 +322,7 @@
     {
       "id": "AU-SEMANTIC-R015",
       "title": "Enterprise source sync becomes an SDK runner over EG SourceIngest",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -323,6 +330,13 @@
           "commit": "2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "703c3eb9d88d6944542d58188ee0a1c4461c282c",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/703c3eb9d88d6944542d58188ee0a1c4461c282c",
+          "description": "AU-SEMANTIC-R015 merged to the default branch in this commit."
         }
       ]
     },
@@ -370,8 +384,16 @@
     {
       "id": "AU-SEMANTIC-R017",
       "title": "Vendor enrichment extraction and writeback move to the SDK and EG",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2e5c8d7f2d8b5793b115a2d800e529f75106ce64",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2e5c8d7f2d8b5793b115a2d800e529f75106ce64",
+          "description": "AU-SEMANTIC-R017 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-SEMANTIC-R018",
@@ -390,8 +412,16 @@
     {
       "id": "AU-SEMANTIC-R019",
       "title": "Remaining EG-bound standardization, infra and governance modules move out",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2e5c8d7f2d8b5793b115a2d800e529f75106ce64",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2e5c8d7f2d8b5793b115a2d800e529f75106ce64",
+          "description": "AU-SEMANTIC-R019 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-SEMANTIC-R020",
@@ -468,8 +498,16 @@
     {
       "id": "AU-SEMANTIC-R021.3",
       "title": "The ontology/ hand-written emitters move behind EG pack compilation",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "472e6ab2347266208c46303a0be36d1df2b00738",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/472e6ab2347266208c46303a0be36d1df2b00738",
+          "description": "AU-SEMANTIC-R021.3 merged to the default branch in this commit."
+        }
+      ],
       "depends_on": []
     },
     {
@@ -490,8 +528,16 @@
     {
       "id": "AU-SEMANTIC-R022",
       "title": "Graph-schema DTOs become EG-generated types",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c23e42b6ed4357f8e2b3ed02558727cc385d5678",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c23e42b6ed4357f8e2b3ed02558727cc385d5678",
+          "description": "AU-SEMANTIC-R022 merged to the default branch in this commit."
+        }
+      ],
       "rollup": true,
       "children": [
         "AU-SEMANTIC-R022.1"
@@ -500,8 +546,16 @@
     {
       "id": "AU-SEMANTIC-R022.1",
       "title": "Typed EG-generated DTO composition and refusal behavior for graph-schema",
-      "delivery_state": "BUILDING",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "da51647a738308c24b1570eb995123e03b2ee133",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/da51647a738308c24b1570eb995123e03b2ee133",
+          "description": "AU-SEMANTIC-R022.1 merged to the default branch in this commit."
+        }
+      ],
       "depends_on": []
     },
     {

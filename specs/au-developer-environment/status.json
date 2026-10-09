@@ -7,15 +7,31 @@
     "AU-DEV-R002",
     "AU-DEV-R003"
   ],
-  "delivery_state": "BUILDING",
+  "delivery_state": "LANDED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": [],
+  "evidence": [
+    {
+      "kind": "merged_head",
+      "result": "passed",
+      "commit": "ed6485573f1e506acf80c7a1478365312bc93261",
+      "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ed6485573f1e506acf80c7a1478365312bc93261",
+      "description": "Every requirement in this spec is merged to the default branch."
+    }
+  ],
   "requirements": [
     {
       "id": "AU-DEV-R001",
       "title": "A development skill documents AU's contribution workflow",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "ed6485573f1e506acf80c7a1478365312bc93261",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ed6485573f1e506acf80c7a1478365312bc93261",
+          "description": "AU-DEV-R001 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "AU's own agent-utilities-development skill exists and covers gates/architecture/identity, but does not document 'supported build hosts' or the eg-land-gate --fanout default; AGENTS.md (240 lines) is a full engineering contract, not trimmed to navigation+pointer; the sibling epistemic-graph/graph-os/"
     },
     {
@@ -42,8 +58,16 @@
     {
       "id": "AU-DEV-R003",
       "title": "Skill inventory refresh stays deterministic after moves",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "ed6485573f1e506acf80c7a1478365312bc93261",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ed6485573f1e506acf80c7a1478365312bc93261",
+          "description": "AU-DEV-R003 merged to the default branch in this commit."
+        }
+      ]
     }
   ]
 }
