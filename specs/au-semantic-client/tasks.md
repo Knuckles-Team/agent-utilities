@@ -15,7 +15,7 @@
 - [x] Delete the legacy SPARQL backend and setup modules, and move the remaining external graph/database backends into EG as federation and mirror targets. Closes AU-SEMANTIC-R023, AU-SEMANTIC-R024.
 - [ ] Move the retrieval and neural-search engines to EG, keeping only context compilation and the capability index in AU. Closes AU-SEMANTIC-R025.
 - [ ] Re-home the unlanded schema-drift package so its drift gate runs inside the SDK connector-sync runner between drain and apply, with SHACL rendering, the contract store and activation moving to EG. Closes AU-SEMANTIC-R026.
-- [ ] Require every capability-gap determination to search EG's own public surface (method catalog, generated contract, documentation) under EG's own naming before concluding a capability is missing, and make the configured embedding dimension validate against the deployed model's actual output size across the PostgreSQL/AGE/Neo4j backends and schema/ontology modules that size vector columns from it. Closes AU-SEMANTIC-R027, AU-SEMANTIC-R028.
+- [x] Require every capability-gap determination to search EG's own public surface (method catalog, generated contract, documentation) under EG's own naming before concluding a capability is missing, and make the configured embedding dimension validate against the deployed model's actual output size across the PostgreSQL/AGE/Neo4j backends and schema/ontology modules that size vector columns from it. Closes AU-SEMANTIC-R027, AU-SEMANTIC-R028.
 - [ ] Run the generated-client conformance suite, positive/negative served tests, the old-caller closure census, and CCCC, jscpd, Dupehound, KISS, Ruff/mypy and full quality gates; record exact merged-head evidence in `evidence.md` before any requirement is marked accepted.
 - [x] **AU-SEMANTIC-R021.1:** AU's hand-written RDF/OWL/SHACL emitters move behind EG pack compilation — core/ontology_publisher.py slice of `AU-SEMANTIC-R021`.
 - [x] **AU-SEMANTIC-R021.2:** AU's hand-written RDF/OWL/SHACL emitters move behind EG pack compilation — extraction/schema_discovery.py slice of `AU-SEMANTIC-R021`.
@@ -30,3 +30,9 @@
 The task owner records a separate verdict per ID even when multiple IDs share a PR.
 - [x] **AU-SEMANTIC-R009.1:** typed `runnable_skill_derivation` client contract (`RunnableSkillDerivationClient`/`resolve_runnable_skill_derivation_client` in `agent_utilities/api/skill_derivation_client.py`) that fails closed with `RunnableSkillDerivationUnavailableError` while EG's op (producer: `EG-REPO-INGEST-R002`) is absent — net-new `.1` slice of `AU-SEMANTIC-R009`; the engine-facade deletion onto it is the separate, unlanded `.2` child.
 - [x] **AU-SEMANTIC-R015.1:** typed `workflow_derivation` client contract (`WorkflowDerivationClient`/`resolve_workflow_derivation_client` in `agent_utilities/api/workflow_derivation_client.py`) that fails closed with `WorkflowDerivationUnavailableError` while EG's op (producer: `EG-REPO-INGEST-R002`) is absent — net-new `.1` slice of `AU-SEMANTIC-R015`; the `source_sync.py` SDK-runner cutover onto it is the separate, unlanded `.2` child.
+
+## Decomposition children (tracked)
+
+- [ ] **AU-SEMANTIC-R009.2:** AU's engine-facade callers consume the shipped runnable_skill_derivation op
+- [ ] **AU-SEMANTIC-R015.2:** The SDK-hosted source-sync runner consumes the shipped workflow_derivation op
+- [x] **AU-SEMANTIC-R016.1:** The AU-SEMANTIC-R016 migration scope is a typed, validated manifest

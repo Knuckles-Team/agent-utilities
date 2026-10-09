@@ -28,3 +28,17 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 
 - `AU-BOUNDARY-R030`: the SDK half landed as `agent_connector_sdk.manifest.ontology_pack.compile_manifest_ontology` (Knuckles-Team/agent-connector-sdk#36). AU's compile-before-sync gate (`connector_manifest_gate._compiled_manifest_graph`) now calls it instead of rendering Turtle locally. `agent_utilities/knowledge_graph/ontology/manifest_compiler.py` is not yet deleted: `scripts/generate_connector_manifests.py`, `scripts/update_ontology_lock.py`, `scripts/generate_native_connector_manifest.py`, and `agent_utilities/knowledge_graph/domain_packs/pack_loader.py` still import it directly and need their own migration before the local copy is removed.
 - `AU-BOUNDARY-R035`: the SHACL-removal half (candidate.py sends EG a typed `RecordContract`, never Turtle) landed at main commit `9cc9e08c1a0e0c273223b5cc84ebe9e2fcb2f946` under `AU-SEC-R005`, ahead of this spec recording it. The remaining half, moving `contract_store` and `activation` into the epistemic graph and the SDK connector-sync runner's gate/shape/classify/report steps, is open.
+
+## Decomposition children (tracked)
+
+- [x] **AU-BOUNDARY-R028.2.1:** Pin the kg/infra production-importer set.
+- [x] **AU-BOUNDARY-R028.6.1:** Pin the observability/{trace_ontology,self_ingest,audit_logger} production-importer set.
+- [x] **AU-BOUNDARY-R028.7.1:** Pin the governance/relational_authority importer set.
+- [x] **AU-BOUNDARY-R028.8.1:** Pin the kg/research/placement_mining production-importer set.
+- [x] **AU-BOUNDARY-R036.1:** Typed inventory of usage-store paths pending move to EG
+- [x] **AU-BOUNDARY-R037.1:** Typed inventory of governance modules pending move to repository-manager
+- [x] **AU-BOUNDARY-R039.1:** Typed inventory of AU's public front-end import surface
+- [x] **AU-BOUNDARY-R040.1:** Typed inventory of memory/learning-engine paths pending move to EG
+- [x] **AU-BOUNDARY-R044.1:** Typed inventory of orchestration paths pending move to graph-os
+- [x] **AU-BOUNDARY-R045.1:** Typed inventory of unplaced knowledge_graph packages pending move
+- [x] **AU-BOUNDARY-R047.1:** Typed inventory of engine-facing adapters pending thin-client cutover
