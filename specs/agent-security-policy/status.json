@@ -139,8 +139,16 @@
     {
       "id": "AU-SEC-R010",
       "title": "The shared tenant hierarchy reads as the service identity",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e2b2152f1396c9face66eb5c78788d527c6dc961",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/e2b2152f1396c9face66eb5c78788d527c6dc961",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
     }
   ]
 }
