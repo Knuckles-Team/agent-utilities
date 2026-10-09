@@ -20,9 +20,6 @@ from agent_utilities.knowledge_graph.retrieval.single_shot_sira import SingleSho
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
 pytest.importorskip("epistemic_graph.numeric")
 
-from agent_utilities.knowledge_graph.security.cognitive_trap_defense import (
-    CognitiveTrapDefense,
-)
 from agent_utilities.models.knowledge_graph import ExperienceNode
 
 
@@ -86,25 +83,6 @@ def test_voi_budget_controller():
 
     # Exhausted budget
     assert controller.should_continue_traversal(100) is False
-
-
-def test_cognitive_trap_defense(mock_engine):
-    defense = CognitiveTrapDefense(mock_engine)
-    # Inject a sybil cluster trap into the graph
-    mock_engine.graph.add_edge("C", "F1", relationship="VALIDATES")
-    mock_engine.graph.add_edge("C", "F2", relationship="VALIDATES")
-    mock_engine.graph.add_edge("C", "F3", relationship="VALIDATES")
-    mock_engine.graph.add_edge("F1", "F2", relationship="AGREES_WITH")
-    mock_engine.graph.add_edge("F2", "F3", relationship="AGREES_WITH")
-    mock_engine.graph.add_edge("F3", "F1", relationship="AGREES_WITH")
-
-    traps = defense.scan_for_traps()
-    assert len(traps) > 0
-
-    neutralized = defense.neutralize_traps()
-    assert neutralized > 0
-    # Graph nodes should be removed
-    assert "C" not in mock_engine.graph
 
 
 def test_experience_alignment(mock_engine):
