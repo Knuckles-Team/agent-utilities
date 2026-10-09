@@ -1,7 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "spec_id": "AU-SEMANTIC-001",
   "owner_repo": "agent-utilities",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-SEMANTIC-R001",
     "AU-SEMANTIC-R002",
@@ -45,450 +46,268 @@
     "AU-SEMANTIC-R027.1",
     "AU-SEMANTIC-R028"
   ],
-  "delivery_state": "BUILDING",
-  "acceptance_state": "NOT_AUDITED",
-  "evidence": [],
   "requirements": [
     {
       "id": "AU-SEMANTIC-R001",
       "title": "OntologyLifecycle.set_active() fails closed, not a silent local fallback",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "43197d7c65a3dff0fb91e0f2eae55e6a6bf8b53e",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/43197d7c65a3dff0fb91e0f2eae55e6a6bf8b53e",
-          "description": "AU-SEMANTIC-R001 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2648d0b28ad0"
       ],
-      "remaining": "On main, OntologyLifecycle already fails closed when the EG GraphSchema authority is unavailable (tested). But __init__/load() still silently accept and drop tenant, an un-scopable graph_name, and category/tags instead of refusing them -- the same silent-fallback class the requirement names. That fi"
+      "verified_by": [
+        "tests/conftest.py:918",
+        "tests/gates/test_agent_utilities_governance_pack.py:43",
+        "tests/gates/test_agent_utilities_governance_pack.py:66"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R002",
       "title": "AU verifies domain-pack class names against EG's schema-class list",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "2648d0b28ad0e65b0990e7b544425da743c58ff3",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2648d0b28ad0e65b0990e7b544425da743c58ff3",
-          "description": "AU-SEMANTIC-R002 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2648d0b28ad0"
+      ],
+      "verified_by": [
+        "tests/unit/knowledge_graph/domain_packs/test_pack_loader.py:316",
+        "tests/unit/knowledge_graph/domain_packs/test_pack_loader.py:333",
+        "tests/unit/knowledge_graph/domain_packs/test_pack_loader.py:347"
       ]
     },
     {
       "id": "AU-SEMANTIC-R003",
       "title": "AU's knowledge_graph shape files are published to the EG pack or removed",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "f453c1cf8c04115587ffd657f159511670a07da6",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f453c1cf8c04115587ffd657f159511670a07da6",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "83a157bf120ba1d69107532f90818c7448ba6d9f",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/83a157bf120ba1d69107532f90818c7448ba6d9f",
-          "description": "AU-SEMANTIC-R003 merged to the default branch in this commit."
-        }
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R004",
       "title": "AU's remaining SHACL shape files move into EG-owned schema packs",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "25ba62d03debfa7a7b73009a8205b5a882bf4053",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/25ba62d03debfa7a7b73009a8205b5a882bf4053",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "981194f50ab47ed1ac29bc6ffb7bbe3c2c0bcaa3",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/981194f50ab47ed1ac29bc6ffb7bbe3c2c0bcaa3",
-          "description": "AU-SEMANTIC-R004 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "afe05ab38e0f"
+      ],
+      "verified_by": [
+        "tests/unit/test_promotion_governance.py:112",
+        "tests/unit/test_promotion_governance.py:130",
+        "tests/unit/test_promotion_governance.py:92"
       ]
     },
     {
       "id": "AU-SEMANTIC-R005",
       "title": "Ontology lifecycle, integrity and schema parsing become EG client calls",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "45dc47bdf351729859e7b8abce4499f905c57f56",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/45dc47bdf351729859e7b8abce4499f905c57f56",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "83a157bf120ba1d69107532f90818c7448ba6d9f",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/83a157bf120ba1d69107532f90818c7448ba6d9f",
-          "description": "AU-SEMANTIC-R005 merged to the default branch in this commit."
-        }
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R006",
       "title": "AU removes rdflib and submits typed payloads to EG instead",
-      "delivery_state": "BUILT",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "4eb57922360f32e710e30228de52eda2f0509b8b",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/4eb57922360f32e710e30228de52eda2f0509b8b",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        }
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R007",
       "title": "AU tests drop pyshacl and assert through EG shape validation",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "25ba62d03debfa7a7b73009a8205b5a882bf4053",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/25ba62d03debfa7a7b73009a8205b5a882bf4053",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "981194f50ab47ed1ac29bc6ffb7bbe3c2c0bcaa3",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/981194f50ab47ed1ac29bc6ffb7bbe3c2c0bcaa3",
-          "description": "AU-SEMANTIC-R007 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "afe05ab38e0f"
+      ],
+      "verified_by": [
+        "tests/unit/test_promotion_governance.py:112",
+        "tests/unit/test_promotion_governance.py:130",
+        "tests/unit/test_promotion_governance.py:92"
       ]
     },
     {
       "id": "AU-SEMANTIC-R008",
       "title": "Reasoning-topology selection uses a served policy, not a local outcome store",
-      "delivery_state": "BUILT",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "d59507a208dbe3b361b025a5deb116ac5a3ec43a",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/d59507a208dbe3b361b025a5deb116ac5a3ec43a",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        }
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R009",
       "title": "The local engine facade is deleted in favor of the generated EG client",
-      "delivery_state": "BUILDING",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "703c3eb9d88d6944542d58188ee0a1c4461c282c",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/703c3eb9d88d6944542d58188ee0a1c4461c282c",
-          "description": "AU-SEMANTIC-R009 merged to the default branch in this commit."
-        }
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "703c3eb9d88d"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R009.1",
+        "AU-SEMANTIC-R009.2"
       ]
     },
     {
       "id": "AU-SEMANTIC-R009.1",
-      "title": "A typed runnable_skill_derivation client contract fails closed while EG's op is absent",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "4eac8c6dc419b697a683857caeab8b7fb07b22bf",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/4eac8c6dc419b697a683857caeab8b7fb07b22bf",
-          "description": "AU-SEMANTIC-R009.1 merged to the default branch in this commit (PR #148, spec: AU-side .1 slices for AU-SEMANTIC-R009/R015 and AU-CONTEXT-R007)."
-        }
-      ]
+      "title": "A typed `runnable_skill_derivation` client contract fails closed while EG's op is absent",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R009.2",
-      "title": "AU's engine-facade callers consume the shipped runnable_skill_derivation op",
+      "title": "AU's engine-facade callers consume the shipped `runnable_skill_derivation` op",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R010",
       "title": "Graph-compute and session facades route through the generated EG client",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "5d44f029d3fd4b85453df7b2512d9a4d7ea97c67",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/5d44f029d3fd4b85453df7b2512d9a4d7ea97c67",
-          "description": "AU-SEMANTIC-R010 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5d44f029d3fd"
       ],
-      "rollup": true,
-      "children": [
+      "verified_by": [],
+      "rollup_of": [
         "AU-SEMANTIC-R010.1"
       ]
     },
     {
       "id": "AU-SEMANTIC-R010.1",
-      "title": "Typed EG-client composition and refusal behavior for graph-compute/session",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "5d44f029d3fd4b85453df7b2512d9a4d7ea97c67",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/5d44f029d3fd4b85453df7b2512d9a4d7ea97c67",
-          "description": "AU-SEMANTIC-R010.1 merged to the default branch in this commit."
-        }
+      "title": "AU holds one typed composition of the generated EG client for graph-compute/session ops",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5d44f029d3fd"
       ],
-      "depends_on": []
+      "verified_by": [
+        "tests/unit/test_graph_compute_client.py:29",
+        "tests/unit/test_graph_compute_client.py:35",
+        "tests/unit/test_graph_compute_client.py:43"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R011",
       "title": "Durable jobs, queues and state move to EG",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "1165123f0697eb4160cb143ffdd39e96a73221f8",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/1165123f0697eb4160cb143ffdd39e96a73221f8",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "b881d5bca43296cbabebcec1ef1102e65e524327",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/b881d5bca43296cbabebcec1ef1102e65e524327",
-          "description": "AU-SEMANTIC-R011 merged to the default branch in this commit."
-        }
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R012",
       "title": "Tenancy, topology and admission authority move to EG",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "6cfdf6bad653c05fe59cbe3e6b3e987be6d76af1",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/6cfdf6bad653c05fe59cbe3e6b3e987be6d76af1",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "8b325ddf1818acfd7a4024549d72094bc0478eec",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/8b325ddf1818acfd7a4024549d72094bc0478eec",
-          "description": "AU-SEMANTIC-R012 (tenancy/topology/admission to EG) merged to the default branch in this commit; same implementation commit as AU-BOUNDARY-R021."
-        }
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R013",
       "title": "Reasoning and analytics duplicates are deleted only with proven EG parity",
-      "delivery_state": "BUILT",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "278df59170fe5d04f3d6ae8fb8d25550d171673b",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/278df59170fe5d04f3d6ae8fb8d25550d171673b",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        }
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R014",
       "title": "Ingestion commit and derivation logic moves to EG's SourceIngest",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "e3abde51266542ddfc61868a633b24d634ed68c4",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/e3abde51266542ddfc61868a633b24d634ed68c4",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "743e98cda405287ba64f1ffb985c4b295e9ce46a",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/743e98cda405287ba64f1ffb985c4b295e9ce46a",
-          "description": "AU-SEMANTIC-R014 (ingestion commit/derivation to EG SourceIngest) merged to the default branch in this commit; same implementation commit as AU-BOUNDARY-R023."
-        }
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R015",
       "title": "Enterprise source sync becomes an SDK runner over EG SourceIngest",
-      "delivery_state": "BUILDING",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "703c3eb9d88d6944542d58188ee0a1c4461c282c",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/703c3eb9d88d6944542d58188ee0a1c4461c282c",
-          "description": "AU-SEMANTIC-R015 merged to the default branch in this commit."
-        }
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "703c3eb9d88d"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R015.1",
+        "AU-SEMANTIC-R015.2"
       ]
     },
     {
       "id": "AU-SEMANTIC-R015.1",
-      "title": "A typed workflow_derivation client contract fails closed while EG's op is absent",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "4eac8c6dc419b697a683857caeab8b7fb07b22bf",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/4eac8c6dc419b697a683857caeab8b7fb07b22bf",
-          "description": "AU-SEMANTIC-R015.1 merged to the default branch in this commit (PR #148, spec: AU-side .1 slices for AU-SEMANTIC-R009/R015 and AU-CONTEXT-R007)."
-        }
-      ]
+      "title": "A typed `workflow_derivation` client contract fails closed while EG's op is absent",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R015.2",
-      "title": "The SDK-hosted source-sync runner consumes the shipped workflow_derivation op",
+      "title": "The SDK-hosted source-sync runner consumes the shipped `workflow_derivation` op",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R016",
       "title": "Document, session and feed source ingestion moves to the SDK",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "76d440ff79dc1f292d7695780d41b790e8ed9111",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/76d440ff79dc1f292d7695780d41b790e8ed9111",
-          "description": "AU-SEMANTIC-R016 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "76d440ff79dc"
       ],
-      "remaining": "Split 2026-10-09: size score above 6, more than 2 code roots, cross-repo (AU to connector SDK). See AU-SEMANTIC-R016.1 for the first child; later children copy the behavior into the SDK, then switch AU importers and delete."
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R016.1"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R016.1",
       "title": "The AU-SEMANTIC-R016 migration scope is a typed, validated manifest",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "117359dabc9a7e4480d673ae248a4c31ed687072",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/117359dabc9a7e4480d673ae248a4c31ed687072",
-          "description": "AU-SEMANTIC-R016.1 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "76d440ff79dc"
+      ],
+      "verified_by": [
+        "tests/unit/core/test_r016_migration_scope.py:17",
+        "tests/unit/core/test_r016_migration_scope.py:23",
+        "tests/unit/core/test_r016_migration_scope.py:28"
       ]
     },
     {
       "id": "AU-SEMANTIC-R017",
       "title": "Vendor enrichment extraction and writeback move to the SDK and EG",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "2e5c8d7f2d8b5793b115a2d800e529f75106ce64",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2e5c8d7f2d8b5793b115a2d800e529f75106ce64",
-          "description": "AU-SEMANTIC-R017 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2e5c8d7f2d8b"
+      ],
+      "verified_by": [
+        "tests/unit/governance/test_eg_relational_authority_handoff.py:13",
+        "tests/unit/governance/test_eg_relational_authority_handoff.py:20",
+        "tests/unit/governance/test_eg_relational_authority_handoff.py:29"
       ]
     },
     {
       "id": "AU-SEMANTIC-R018",
       "title": "Deterministic derivation modules move to EG",
-      "delivery_state": "BUILT",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "d2c0925272c4ff99d6eefaf631071b9738f533ff",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/d2c0925272c4ff99d6eefaf631071b9738f533ff",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        }
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R019",
       "title": "Remaining EG-bound standardization, infra and governance modules move out",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "2e5c8d7f2d8b5793b115a2d800e529f75106ce64",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2e5c8d7f2d8b5793b115a2d800e529f75106ce64",
-          "description": "AU-SEMANTIC-R019 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2e5c8d7f2d8b"
+      ],
+      "verified_by": [
+        "tests/unit/governance/test_eg_relational_authority_handoff.py:13",
+        "tests/unit/governance/test_eg_relational_authority_handoff.py:20",
+        "tests/unit/governance/test_eg_relational_authority_handoff.py:29"
       ]
     },
     {
       "id": "AU-SEMANTIC-R020",
       "title": "The ontology object model moves to EG",
-      "delivery_state": "BUILT",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "efe345dfdef00b06dedc9717be15ce7248cfbf7d",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/efe345dfdef00b06dedc9717be15ce7248cfbf7d",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        }
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R021",
       "title": "AU's hand-written RDF/OWL/SHACL emitters move behind EG pack compilation",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "f055b24c487acd5e7782b8458df0f4f6efe82e07",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f055b24c487acd5e7782b8458df0f4f6efe82e07",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "9f04ed59f9462e620e50f0dfe07372a633b45855",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/9f04ed59f9462e620e50f0dfe07372a633b45855",
-          "description": "AU-SEMANTIC-R021 merged to the default branch in this commit."
-        }
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "2e5c8d7f2d8b"
       ],
-      "rollup": true,
-      "children": [
+      "verified_by": [],
+      "rollup_of": [
         "AU-SEMANTIC-R021.1",
         "AU-SEMANTIC-R021.2",
         "AU-SEMANTIC-R021.3",
@@ -497,240 +316,143 @@
     },
     {
       "id": "AU-SEMANTIC-R021.1",
-      "title": "core/ontology_publisher.py is removed",
+      "title": "`core/ontology_publisher.py` is removed",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "023174b91e2e566c53cd8c3e406c4465d8e61073",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/023174b91e2e566c53cd8c3e406c4465d8e61073",
-          "description": "AU-SEMANTIC-R021.1 merged to the default branch in this commit."
-        }
+      "landed_in": [
+        "023174b91e2e"
       ],
-      "depends_on": []
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R021.2",
-      "title": "extraction/schema_discovery.py moves behind EG pack compilation",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "690785a51851a7737e66b4bb28dd0e0bb9f1ba99",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/690785a51851a7737e66b4bb28dd0e0bb9f1ba99",
-          "description": "AU-SEMANTIC-R021.2 merged to the default branch in this commit."
-        }
+      "title": "`extraction/schema_discovery.py` moves behind EG pack compilation",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "690785a51851"
       ],
-      "depends_on": []
+      "verified_by": [
+        "tests/unit/test_ontology_rest_granular.py:151"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R021.3",
-      "title": "The ontology/ hand-written emitters move behind EG pack compilation",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "472e6ab2347266208c46303a0be36d1df2b00738",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/472e6ab2347266208c46303a0be36d1df2b00738",
-          "description": "AU-SEMANTIC-R021.3 merged to the default branch in this commit."
-        }
-      ],
-      "depends_on": []
+      "title": "The `ontology/` hand-written emitters move behind EG pack compilation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R021.4",
-      "title": "scripts/scaffold_ontology_leg.py and its connector-certification step are removed",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "690785a51851a7737e66b4bb28dd0e0bb9f1ba99",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/690785a51851a7737e66b4bb28dd0e0bb9f1ba99",
-          "description": "AU-SEMANTIC-R021.4 merged to the default branch in this commit."
-        }
+      "title": "`scripts/scaffold_ontology_leg.py` and its connector-certification step are removed",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "023174b91e2e",
+        "690785a51851"
       ],
-      "depends_on": []
+      "verified_by": [
+        "tests/unit/test_ontology_rest_granular.py:151"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R022",
       "title": "Graph-schema DTOs become EG-generated types",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "c23e42b6ed4357f8e2b3ed02558727cc385d5678",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c23e42b6ed4357f8e2b3ed02558727cc385d5678",
-          "description": "AU-SEMANTIC-R022 merged to the default branch in this commit."
-        }
-      ],
-      "rollup": true,
-      "children": [
+      "delivery_state": "VERIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
         "AU-SEMANTIC-R022.1"
       ]
     },
     {
       "id": "AU-SEMANTIC-R022.1",
-      "title": "Typed EG-generated DTO composition and refusal behavior for graph-schema",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "da51647a738308c24b1570eb995123e03b2ee133",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/da51647a738308c24b1570eb995123e03b2ee133",
-          "description": "AU-SEMANTIC-R022.1 merged to the default branch in this commit."
-        }
+      "title": "Typed composition of the generated graph-schema DTO surface",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "da51647a7383"
       ],
-      "depends_on": []
+      "verified_by": [
+        "tests/unit/test_capability_gap_check.py:15",
+        "tests/unit/test_capability_gap_check.py:21",
+        "tests/unit/test_capability_gap_check.py:27"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R023",
       "title": "Legacy SPARQL backend and setup modules are deleted",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "029ea71efc6a31e41aca68e989613b251a054554",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/029ea71efc6a31e41aca68e989613b251a054554",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "a05257fb65417c1520f2a2c37f16e72bf29971e3",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/a05257fb65417c1520f2a2c37f16e72bf29971e3",
-          "description": "Implementation merged to the default branch; the commit names this requirement."
-        }
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R024",
       "title": "External graph and database backends move into EG as federation sources",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "274d4c37529413549a7d0256fbba9ac0c7a46a21",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/274d4c37529413549a7d0256fbba9ac0c7a46a21",
-          "description": "AU-SEMANTIC-R024 merged to the default branch in this commit."
-        }
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/gates/test_cpd_gate.py:149",
+        "tests/gates/test_cpd_gate.py:175",
+        "tests/gates/test_cpd_gate.py:61"
       ]
     },
     {
       "id": "AU-SEMANTIC-R025",
       "title": "Retrieval and neural-search engines move to EG",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "c23e42b6ed4357f8e2b3ed02558727cc385d5678",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c23e42b6ed4357f8e2b3ed02558727cc385d5678",
-          "description": "AU-SEMANTIC-R025.1 merged to the default branch in this commit (PR #139, AU-SEMANTIC-R022.1/R025.1/R027.1: typed models + refusal tests)."
-        }
-      ],
-      "rollup": true,
-      "children": [
+      "delivery_state": "VERIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
         "AU-SEMANTIC-R025.1"
       ]
     },
     {
       "id": "AU-SEMANTIC-R025.1",
-      "title": "Typed EG-client composition and refusal behavior for retrieval",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "c23e42b6ed4357f8e2b3ed02558727cc385d5678",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c23e42b6ed4357f8e2b3ed02558727cc385d5678",
-          "description": "AU-SEMANTIC-R025.1 merged to the default branch in this commit (PR #139, AU-SEMANTIC-R022.1/R025.1/R027.1: typed models + refusal tests)."
-        }
+      "title": "Typed composition of the generated EG retrieval surface",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "da51647a7383"
       ],
-      "depends_on": []
+      "verified_by": [
+        "tests/unit/test_capability_gap_check.py:15",
+        "tests/unit/test_capability_gap_check.py:21",
+        "tests/unit/test_capability_gap_check.py:27"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R026",
       "title": "The schema-drift package is re-homed before it lands",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "ead97a911199178a52edb107be2ef111276b6b76",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ead97a911199178a52edb107be2ef111276b6b76",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "5e15da9f9e40bad1e4572f231a8459c63b8aa85a",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/5e15da9f9e40bad1e4572f231a8459c63b8aa85a",
-          "description": "AU-SEMANTIC-R026 (schema-drift package re-homed) merged to the default branch in this commit; same implementation commit as AU-BOUNDARY-R035."
-        }
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R027",
       "title": "Capability-gap checks must search the target system's own vocabulary",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "c23e42b6ed4357f8e2b3ed02558727cc385d5678",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c23e42b6ed4357f8e2b3ed02558727cc385d5678",
-          "description": "AU-SEMANTIC-R027.1 merged to the default branch in this commit (PR #139, AU-SEMANTIC-R022.1/R025.1/R027.1: typed models + refusal tests)."
-        }
-      ],
-      "rollup": true,
-      "children": [
+      "delivery_state": "VERIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
         "AU-SEMANTIC-R027.1"
       ]
     },
     {
       "id": "AU-SEMANTIC-R027.1",
       "title": "Typed capability-gap record refuses an unverified \"missing\" verdict",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "c23e42b6ed4357f8e2b3ed02558727cc385d5678",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c23e42b6ed4357f8e2b3ed02558727cc385d5678",
-          "description": "AU-SEMANTIC-R027.1 merged to the default branch in this commit (PR #139, AU-SEMANTIC-R022.1/R025.1/R027.1: typed models + refusal tests)."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "da51647a7383"
       ],
-      "depends_on": []
+      "verified_by": [
+        "tests/unit/test_capability_gap_check.py:15",
+        "tests/unit/test_capability_gap_check.py:21",
+        "tests/unit/test_capability_gap_check.py:27"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R028",
       "title": "Configured embedding dimension must match the deployed model's output size",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "implementation",
-          "result": "passed",
-          "commit": "12e4a7fe9749d054a7921ce022be558f1a85783b",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/12e4a7fe9749d054a7921ce022be558f1a85783b",
-          "description": "Part of the requirement is implemented on the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "12e4a7fe9749d054a7921ce022be558f1a85783b",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/12e4a7fe9749d054a7921ce022be558f1a85783b",
-          "description": "Implementation merged to the default branch; the commit names this requirement."
-        }
-      ],
-      "remaining": "resolved_kg_embedding_dim()/configured_embedding_dimension() correctly fail loud (RuntimeError) on an explicit KG_EMBEDDING_DIM-vs-derived-model mismatch on main, but no test on main exercises that mismatch path -- only indirect fixture usage of configured_embedding_dimension() exists."
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }

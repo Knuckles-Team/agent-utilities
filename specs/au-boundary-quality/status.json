@@ -1,175 +1,128 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "spec_id": "AU-QUAL-01",
   "owner_repo": "agent-utilities",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-QUAL-R001",
     "AU-QUAL-R002",
     "AU-QUAL-R003",
     "AU-QUAL-R004",
     "AU-QUAL-R005",
+    "AU-QUAL-R005.1",
+    "AU-QUAL-R005.2",
     "AU-QUAL-R006",
     "AU-QUAL-R007",
-    "AU-QUAL-R008",
-    "AU-QUAL-R005.1",
-    "AU-QUAL-R005.2"
+    "AU-QUAL-R008"
   ],
-  "delivery_state": "BUILDING",
-  "acceptance_state": "NOT_AUDITED",
-  "evidence": [],
   "requirements": [
     {
       "id": "AU-QUAL-R001",
       "title": "Liveness deferrals fail visibly when they expire",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "c15d278239d31c2028a7f501f76d709747d8ee61",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c15d278239d31c2028a7f501f76d709747d8ee61",
-          "description": "Implemented on the default branch; exercised by tests/gates/test_liveness_deferred.py::test_review_date_gate_catches_stale_and_honors_fresh"
-        }
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/harness/test_memorydata_bakeoff_cli.py:17",
+        "tests/harness/test_memorydata_bakeoff_cli.py:28"
       ]
     },
     {
       "id": "AU-QUAL-R002",
       "title": "Tiny-profile RBAC and bootstrap-isolation tests cover real code",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "a50d12c5fc4f0955713f37ae8f7320952f781e3e",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/a50d12c5fc4f0955713f37ae8f7320952f781e3e",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "ce632099b6b9271954723ba26de9684882f5552f",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ce632099b6b9271954723ba26de9684882f5552f",
-          "description": "AU-QUAL-R002 implementation (a50d12c5fc) merged to the default branch; proof commit ce632099b6 (Merge origin/main into feat/land-agent-security) is an ancestor of origin/main."
-        }
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-QUAL-R003",
       "title": "Connector validation uses EG's composed GraphSchema",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "077ec5e55292a85ea167bfdc9956e675b410f5eb",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/077ec5e55292a85ea167bfdc9956e675b410f5eb",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "c62dfed3c8696abc1fdb00d61cd4b4fad77e75ef",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c62dfed3c8696abc1fdb00d61cd4b4fad77e75ef",
-          "description": "AU-QUAL-R003 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "50f312aeb06c"
+      ],
+      "verified_by": [
+        "tests/unit/knowledge_graph/core/test_committed_shacl.py:22",
+        "tests/unit/knowledge_graph/core/test_committed_shacl.py:29",
+        "tests/unit/knowledge_graph/core/test_committed_shacl.py:41"
       ]
     },
     {
       "id": "AU-QUAL-R004",
       "title": "Named AU test failures are fixed, not skipped",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "c7e28f433ae9516885e65694f19a371b0642f7fc",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c7e28f433ae9516885e65694f19a371b0642f7fc",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "576cf41ee890eb57898e9a68f1c0899c0825655c",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/576cf41ee890eb57898e9a68f1c0899c0825655c",
-          "description": "AU-QUAL-R004 merged to the default branch in this commit."
-        }
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0fa2df86ace4",
+        "4771f8a9ee09"
+      ],
+      "verified_by": [
+        "tests/gates/test_tracked_privacy_commit_history.py:102",
+        "tests/gates/test_tracked_privacy_commit_history.py:113",
+        "tests/gates/test_tracked_privacy_commit_history.py:88"
       ]
     },
     {
       "id": "AU-QUAL-R005",
       "title": "Test files are included in mypy with real fixes",
-      "delivery_state": "BUILDING",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "ed6485573f1e506acf80c7a1478365312bc93261",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ed6485573f1e506acf80c7a1478365312bc93261",
-          "description": "AU-QUAL-R005 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "AU-QUAL-R006",
-      "title": "A privacy check covers the final tree and commit history",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "576cf41ee890eb57898e9a68f1c0899c0825655c",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/576cf41ee890eb57898e9a68f1c0899c0825655c",
-          "description": "AU-QUAL-R006 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "AU-QUAL-R007",
-      "title": "Liveness placeholder detector ignores documentation prose",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "f93efd64d0019f3f0aba0d579f3d7c00db2d0923",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f93efd64d0019f3f0aba0d579f3d7c00db2d0923",
-          "description": "Implemented on the default branch; exercised by tests/gates/test_liveness_analyzer_compat.py::test_docstring_prose_is_not_a_placeholder_finding"
-        }
-      ]
-    },
-    {
-      "id": "AU-QUAL-R008",
-      "title": "Liveness reconciler rescues exact service-registry targets",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "cf1cdce6a6e494ba9f7c014bf449e98b72f794f9",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/cf1cdce6a6e494ba9f7c014bf449e98b72f794f9",
-          "description": "Implementation merged to the default branch; the commit names this requirement."
-        }
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-QUAL-R005.1",
+        "AU-QUAL-R005.2"
       ]
     },
     {
       "id": "AU-QUAL-R005.1",
       "title": "Remaining scope of AU-QUAL-R005 (slice .1): Test files are included in mypy with real fixes",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "f25a287bac6c96b8f6ea51f11d528502a7ca6924",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f25a287bac6c96b8f6ea51f11d528502a7ca6924",
-          "description": "AU-QUAL-R005.1 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "f25a287bac6c"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-QUAL-R005.2",
       "title": "Remaining scope of AU-QUAL-R005 (slice .2): Test files are included in mypy with real fixes",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-QUAL-R006",
+      "title": "A privacy check covers the final tree and commit history",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0fa2df86ace4"
+      ],
+      "verified_by": [
+        "tests/gates/test_tracked_privacy_commit_history.py:102",
+        "tests/gates/test_tracked_privacy_commit_history.py:113",
+        "tests/gates/test_tracked_privacy_commit_history.py:88"
+      ]
+    },
+    {
+      "id": "AU-QUAL-R007",
+      "title": "Liveness placeholder detector ignores documentation prose",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/gates/test_liveness_analyzer_compat.py:164",
+        "tests/gates/test_liveness_analyzer_compat.py:175",
+        "tests/gates/test_liveness_analyzer_compat.py:89"
+      ]
+    },
+    {
+      "id": "AU-QUAL-R008",
+      "title": "Liveness reconciler rescues exact service-registry targets",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "eb077e60c21b"
+      ],
+      "verified_by": [
+        "tests/gates/test_liveness_reconciler.py:269",
+        "tests/gates/test_liveness_reconciler.py:298",
+        "tests/gates/test_liveness_reconciler.py:335"
+      ]
     }
   ]
 }

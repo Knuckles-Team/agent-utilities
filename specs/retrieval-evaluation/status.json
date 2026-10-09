@@ -1,42 +1,20 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "spec_id": "AU-RETRIEVAL-001",
   "owner_repo": "agent-utilities",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "AU-RETRIEVAL-R001"
-  ],
-  "delivery_state": "LANDED",
-  "acceptance_state": "NOT_AUDITED",
-  "evidence": [
-    {
-      "kind": "merged_head",
-      "result": "passed",
-      "commit": "64d317c9e38596557fe6b38538cbcf36fd50f8fc",
-      "url": "https://github.com/Knuckles-Team/agent-utilities/commit/64d317c9e38596557fe6b38538cbcf36fd50f8fc",
-      "description": "Every requirement in this spec is merged to the default branch."
-    }
   ],
   "requirements": [
     {
       "id": "AU-RETRIEVAL-R001",
       "title": "Benchmark structure-aware retrieval against served hybrid search",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "997da1a18e8d72c07eeb51732c27d23d89ed5f54",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/997da1a18e8d72c07eeb51732c27d23d89ed5f54",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "64d317c9e38596557fe6b38538cbcf36fd50f8fc",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/64d317c9e38596557fe6b38538cbcf36fd50f8fc",
-          "description": "AU-RETRIEVAL-R001 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "64d317c9e385"
+      ],
+      "verified_by": []
     }
   ]
 }

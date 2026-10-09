@@ -1,117 +1,80 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "spec_id": "AU-DEV-001",
   "owner_repo": "agent-utilities",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-DEV-R001",
-    "AU-DEV-R002",
-    "AU-DEV-R003",
     "AU-DEV-R001.1",
     "AU-DEV-R001.2",
+    "AU-DEV-R002",
+    "AU-DEV-R003",
     "AU-DEV-R003.1",
     "AU-DEV-R003.2"
-  ],
-  "delivery_state": "LANDED",
-  "acceptance_state": "NOT_AUDITED",
-  "evidence": [
-    {
-      "kind": "merged_head",
-      "result": "passed",
-      "commit": "ed6485573f1e506acf80c7a1478365312bc93261",
-      "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ed6485573f1e506acf80c7a1478365312bc93261",
-      "description": "Every requirement in this spec is merged to the default branch."
-    }
   ],
   "requirements": [
     {
       "id": "AU-DEV-R001",
       "title": "A development skill documents AU's contribution workflow",
-      "delivery_state": "BUILDING",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "ed6485573f1e506acf80c7a1478365312bc93261",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ed6485573f1e506acf80c7a1478365312bc93261",
-          "description": "AU-DEV-R001 merged to the default branch in this commit."
-        }
-      ],
-      "remaining": "AU's own agent-utilities-development skill exists and covers gates/architecture/identity, but does not document 'supported build hosts' or the eg-land-gate --fanout default; AGENTS.md (240 lines) is a full engineering contract, not trimmed to navigation+pointer; the sibling epistemic-graph/graph-os/"
-    },
-    {
-      "id": "AU-DEV-R002",
-      "title": "Deployment and genesis tooling move to graph-os",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "fb585908f23aef35d8fddfd7268daeb8a4dffc76",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/fb585908f23aef35d8fddfd7268daeb8a4dffc76",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "29d80148b46232fb176db1bf9b0bd1e19f50f445",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/29d80148b46232fb176db1bf9b0bd1e19f50f445",
-          "description": "AU-DEV-R002 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "AU-DEV-R003",
-      "title": "Skill inventory refresh stays deterministic after moves",
-      "delivery_state": "BUILDING",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "ed6485573f1e506acf80c7a1478365312bc93261",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ed6485573f1e506acf80c7a1478365312bc93261",
-          "description": "AU-DEV-R003 merged to the default branch in this commit."
-        }
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-DEV-R001.1",
+        "AU-DEV-R001.2"
       ]
     },
     {
       "id": "AU-DEV-R001.1",
       "title": "typed DevelopmentSkillTopicInventory model (agent_utilities/skills/dev_skill_topics.py) that refuses a skill missing any required topic, plus its refusal test (",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "f25a287bac6c96b8f6ea51f11d528502a7ca6924",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f25a287bac6c96b8f6ea51f11d528502a7ca6924",
-          "description": "AU-DEV-R001.1 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "f25a287bac6c"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-DEV-R001.2",
       "title": "Remaining scope of AU-DEV-R001 (slice .2): A development skill documents AU's contribution workflow",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-DEV-R002",
+      "title": "Deployment and genesis tooling move to graph-os",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/gates/test_boundary_coverage_gate.py:76"
+      ]
+    },
+    {
+      "id": "AU-DEV-R003",
+      "title": "Skill inventory refresh stays deterministic after moves",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-DEV-R003.1",
+        "AU-DEV-R003.2"
+      ]
     },
     {
       "id": "AU-DEV-R003.1",
       "title": "typed SkillInventoryRefreshEntry model (agent_utilities/skills/inventory_refresh_model.py) that refuses a refresh which mutates before printing its plan, or cla",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "f25a287bac6c96b8f6ea51f11d528502a7ca6924",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f25a287bac6c96b8f6ea51f11d528502a7ca6924",
-          "description": "AU-DEV-R003.1 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "f25a287bac6c"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-DEV-R003.2",
       "title": "Remaining scope of AU-DEV-R003 (slice .2): Skill inventory refresh stays deterministic after moves",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }

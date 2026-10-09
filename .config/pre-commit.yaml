@@ -79,10 +79,15 @@ repos:
   - id: nbqa-ruff
     args: ["--fix"]
 - repo: https://github.com/Knuckles-Team/pipelines
-  rev: 444b232c7975e125a24b17d53ff615f5ad26a4cd # public docs contract
+  rev: main # pipelines is always referenced at main, never SHA-pinned
   hooks:
   - id: public-surface
     stages: [pre-commit, pre-push, manual]
+  - id: spec-status
+  - id: spec-decomposition
+  - id: spec-trailers
+    stages: [pre-push]
+    args: ["--base-ref", "origin/main"]
 - repo: local
   hooks:
   # --locked: report lock drift without rewriting uv.lock or provisioning
