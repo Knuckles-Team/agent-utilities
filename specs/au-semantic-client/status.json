@@ -31,11 +31,14 @@
     "AU-SEMANTIC-R021.3",
     "AU-SEMANTIC-R021.4",
     "AU-SEMANTIC-R022",
+    "AU-SEMANTIC-R022.1",
     "AU-SEMANTIC-R023",
     "AU-SEMANTIC-R024",
     "AU-SEMANTIC-R025",
+    "AU-SEMANTIC-R025.1",
     "AU-SEMANTIC-R026",
     "AU-SEMANTIC-R027",
+    "AU-SEMANTIC-R027.1",
     "AU-SEMANTIC-R028"
   ],
   "delivery_state": "BUILDING",
@@ -460,7 +463,18 @@
       "id": "AU-SEMANTIC-R022",
       "title": "Graph-schema DTOs become EG-generated types",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "evidence": [],
+      "rollup": true,
+      "children": [
+        "AU-SEMANTIC-R022.1"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R022.1",
+      "title": "Typed EG-generated DTO composition and refusal behavior for graph-schema",
+      "delivery_state": "BUILDING",
+      "evidence": [],
+      "depends_on": []
     },
     {
       "id": "AU-SEMANTIC-R023",
@@ -501,7 +515,18 @@
       "id": "AU-SEMANTIC-R025",
       "title": "Retrieval and neural-search engines move to EG",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "evidence": [],
+      "rollup": true,
+      "children": [
+        "AU-SEMANTIC-R025.1"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R025.1",
+      "title": "Typed EG-client composition and refusal behavior for retrieval",
+      "delivery_state": "BUILDING",
+      "evidence": [],
+      "depends_on": []
     },
     {
       "id": "AU-SEMANTIC-R026",
@@ -521,7 +546,18 @@
       "id": "AU-SEMANTIC-R027",
       "title": "Capability-gap checks must search the target system's own vocabulary",
       "delivery_state": "UNKNOWN",
-      "evidence": []
+      "evidence": [],
+      "rollup": true,
+      "children": [
+        "AU-SEMANTIC-R027.1"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R027.1",
+      "title": "Typed capability-gap record refuses an unverified \"missing\" verdict",
+      "delivery_state": "BUILDING",
+      "evidence": [],
+      "depends_on": []
     },
     {
       "id": "AU-SEMANTIC-R028",
