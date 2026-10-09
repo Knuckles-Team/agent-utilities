@@ -265,11 +265,27 @@ _SYSTEM_PROMPT = (
     "filter on `type`, not `label`; edges use `src`/`dst`/`rel`, not invented column "
     "names).\n"
     "  - sparql: SPARQL 1.1 SELECT/ASK over the RDF projection.\n"
+    "Aggregate/count/group-by rule: a question asking for a COUNT, SUM, AVG, or a "
+    "breakdown GROUPED BY a label or property (e.g. 'how many nodes by label') must "
+    "use the cypher dialect, never sql or sparql. An aggregated sql/sparql row (one "
+    "row per group, not per node) carries no per-row node id, and the engine's "
+    "row-level authorization REJECTS every such row outright; cypher aggregates are "
+    "the only dialect the engine authorizes for a grouped/aggregate projection. For "
+    "example: MATCH (n) RETURN n.node_type AS label, COUNT(*) AS count.\n"
     "Rules: emit ONLY one query, NEVER a mutation (no CREATE/MERGE/DELETE/INSERT/DROP/"
     "SET/UPDATE). Ground every label / table / column you reference in the provided "
     "schema — never invent a column name. "
     'Respond with ONLY a JSON object: {"dialect": "...", "query": "..."}.'
 )
+
+#: Substring of the `secured_reads.row_node_ids`/`filter_rows` PermissionError raised
+#: when a sql/sparql/uql result row carries no governed node id (CONCEPT:AU-KG.query.
+#: ask-gateway-rest-twin) — an aggregate/grouped projection on those dialects has no
+#: per-row id by construction, so the engine's row-level authorization rejects it
+#: outright. Used to recognize the failure deterministically (never by re-deriving it
+#: from prose) and steer a bounded replan toward the one dialect (cypher) whose
+#: aggregate path the engine authorizes (CONCEPT:AU-KG.query.query-aggregation).
+_GOVERNED_NODE_ID_ERROR_MARKER = "without a governed node id"
 
 
 def is_llm_configured() -> bool:
@@ -506,7 +522,28 @@ def _execution_retry_text(
     query: str,
     error: str,
 ) -> str:
-    """Build the bounded correction prompt after an execution failure."""
+    """Build the bounded correction prompt after an execution failure.
+
+    A ``sql``/``sparql`` aggregate projection always fails this exact way (see
+    :data:`_GOVERNED_NODE_ID_ERROR_MARKER`): the result has no per-row node id for
+    the engine's row-level authorization to check, so it is rejected regardless of
+    how many times the same dialect is retried. Recognizing that specific failure
+    and naming the one dialect the engine DOES authorize for an aggregate
+    projection (cypher) gives the bounded replan a real chance to succeed, instead
+    of retrying the same ungovernable shape until the correction budget is spent.
+    """
+    if _GOVERNED_NODE_ID_ERROR_MARKER in error and dialect in ("sql", "sparql"):
+        return (
+            f"{text}\n\nYour previous {dialect} query failed "
+            "and must be corrected.\n"
+            f"Previous query: {query}\nError: {error}\n"
+            f"This error means the aggregated/grouped {dialect} result carries no "
+            "per-row node id, so the engine's row-level authorization rejects every "
+            "row outright — retrying the same dialect will fail again. Regenerate "
+            "the query using the cypher dialect instead, with an aggregate "
+            "RETURN (for example: MATCH (n) RETURN n.node_type AS label, "
+            "COUNT(*) AS count). Do not turn a query error into an empty answer."
+        )
     return (
         f"{text}\n\nYour previous {dialect} query failed "
         "and must be corrected.\n"

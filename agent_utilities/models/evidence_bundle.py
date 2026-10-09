@@ -48,6 +48,12 @@ __all__ = ["EvidenceBundle"]
 
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
+#: G32 bounds on the inline row summary `from_nl_query` folds into
+#: `answer_candidate` — enough to answer "how many X by label"-shaped questions
+#: without the final string growing unbounded on a wide result set.
+_NL_QUERY_SUMMARY_MAX_ROWS = 10
+_NL_QUERY_SUMMARY_MAX_CHARS = 500
+
 
 def _sentences(text: str) -> list[str]:
     """Split templated prose into non-empty, stripped sentences (deterministic)."""
@@ -865,7 +871,37 @@ class EvidenceBundle(BaseModel):
     # nl_query / nl_to_query payload
     # ------------------------------------------------------------------
     @staticmethod
+    def _nl_query_row_entry(row: dict[str, Any]) -> str:
+        """Render one result row as a compact ``key=value, key=value`` fragment.
+
+        Nested values (dict/list) are skipped — a scalar-only summary stays
+        short and readable; the full row survives unabridged in ``claims``.
+        """
+        parts = [f"{k}={v}" for k, v in row.items() if not isinstance(v, dict | list)]
+        return ", ".join(parts) if parts else str(row)
+
+    @classmethod
+    def _nl_query_row_summary(cls, rows: list[dict[str, Any]]) -> str:
+        """Build a concise, non-fabricated summary of the first few result rows.
+
+        Every value comes straight from an already-executed, already-authorized
+        result row (G32 — a GROUP BY/COUNT answer must carry its rows, not just a
+        count). Nothing here invents content; it is truncated defensively so a
+        wide result set or a long value never produces an unbounded string.
+        """
+        shown = rows[:_NL_QUERY_SUMMARY_MAX_ROWS]
+        entries = [cls._nl_query_row_entry(r) for r in shown if isinstance(r, dict)]
+        summary = "; ".join(e for e in entries if e)
+        remaining = len(rows) - len(shown)
+        if remaining > 0:
+            summary += f"; … ({remaining} more row(s))"
+        if len(summary) > _NL_QUERY_SUMMARY_MAX_CHARS:
+            summary = summary[: _NL_QUERY_SUMMARY_MAX_CHARS - 1] + "…"
+        return summary
+
+    @classmethod
     def _nl_query_answer_candidate(
+        cls,
         error: Any,
         results: list[Any],
         payload: dict[str, Any],
@@ -874,9 +910,12 @@ class EvidenceBundle(BaseModel):
     ) -> str:
         if error:
             return ""
-        if results or "results" in payload:
-            return f"{row_count} row(s) for: {question}".strip()
-        return ""
+        if not (results or "results" in payload):
+            return ""
+        base = f"{row_count} row(s) for: {question}".strip()
+        rows = [r for r in results if isinstance(r, dict)]
+        summary = cls._nl_query_row_summary(rows) if rows else ""
+        return f"{base}: {summary}" if summary else base
 
     @staticmethod
     def _nl_query_error(error: Any) -> dict[str, Any] | None:
@@ -896,9 +935,11 @@ class EvidenceBundle(BaseModel):
         accepted. Each KG result row IS an atomic fact, so ``results`` maps
         straight through to ``claims``; the bare provenance-id strings in
         ``citations`` become minimal ``evidence_spans``. There is no prose
-        "answer" field in this payload, so ``answer_candidate`` is a
-        deterministic, templated restatement of the row count — never an
-        invented summary. ``confidence`` is always ``None``.
+        "answer" field in this payload, so ``answer_candidate`` is a deterministic
+        restatement of the row count PLUS a compact ``key=value`` summary of the
+        first few rows (G32 — a successful query answers with its own rows, never
+        a blank string with the content stranded in ``claims``) — never a
+        fabricated interpretation of them. ``confidence`` is always ``None``.
         """
         error = payload.get("error")
         results = list(payload.get("results") or [])

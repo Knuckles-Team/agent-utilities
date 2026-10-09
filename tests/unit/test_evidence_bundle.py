@@ -228,7 +228,10 @@ def test_from_nl_query_maps_results_and_citations():
 
     assert b.claims == payload["results"]
     assert b.evidence_spans == [{"ref": "agent:foo"}]
-    assert b.answer_candidate == "1 row(s) for: which agents call run_agent?"
+    # G32: the answer carries the row content itself, not just a count.
+    assert b.answer_candidate == (
+        "1 row(s) for: which agents call run_agent?: id=agent:foo, name=foo"
+    )
     assert b.confidence is None
     dumped = json.dumps(b.model_dump(), default=str)
     assert payload["generated_query"] in dumped
@@ -261,6 +264,83 @@ def test_from_nl_query_error_path():
     assert b.confidence is None
     assert b.next_actions
     assert any(t.get("error") for t in b.reasoning_trace)
+
+
+def test_from_nl_query_g32_aggregate_rows_become_answer_candidate_and_claims():
+    """G32 — a successful GROUP BY/COUNT-style answer must carry its rows in
+    ``answer_candidate``, not just a bare row count, and the rows themselves
+    (the only evidence an aggregate projection carries — it has no per-row
+    provenance id to cite) remain fully available in ``claims``.
+    """
+    payload = {
+        "request": "How many nodes does the graph hold, by label?",
+        "dialect": "cypher",
+        "generated_query": "MATCH (n) RETURN n.node_type AS label, COUNT(*) AS count",
+        "planner": "agent-utilities-fleet-llm",
+        "results": [
+            {"label": "Session", "count": 12},
+            {"label": "RuntimeSignal", "count": 8},
+        ],
+        "row_count": 2,
+        "citations": [],
+        "schema": {},
+    }
+    b = EvidenceBundle.from_nl_query(payload)
+
+    assert b.error is None
+    assert b.claims == payload["results"]
+    assert b.answer_candidate == (
+        "2 row(s) for: How many nodes does the graph hold, by label?: "
+        "label=Session, count=12; label=RuntimeSignal, count=8"
+    )
+
+
+def test_from_nl_query_g32_governed_node_id_denial_surfaces_as_error():
+    """G32 — the exact live failure (a sql/sparql aggregate projection denied by
+    the engine's row-level authorization) must surface through ``error``, never
+    as a silently empty success. This is the regression this fix closes: the
+    query is genuinely correct, execution genuinely fails, and that failure
+    must stay visible.
+    """
+    payload = {
+        "request": "How many nodes does the graph hold, by label?",
+        "dialect": "sql",
+        "generated_query": "SELECT node_type, COUNT(*) AS node_count FROM nodes GROUP BY node_type",
+        "planner": "agent-utilities-fleet-llm",
+        "attempts": [
+            {
+                "attempt": 2,
+                "phase": "execution",
+                "dialect": "sql",
+                "query": "SELECT node_type, COUNT(*) AS node_count FROM nodes GROUP BY node_type",
+                "error": (
+                    "query execution failed: Graph result contains a row "
+                    "without a governed node id"
+                ),
+            }
+        ],
+        "error": (
+            "query execution failed: Graph result contains a row without a "
+            "governed node id"
+        ),
+        "schema": {},
+    }
+    b = EvidenceBundle.from_nl_query(payload)
+
+    assert b.answer_candidate == ""
+    assert b.claims == []
+    assert b.error == {
+        "code": "operation_failed",
+        "message": (
+            "query execution failed: Graph result contains a row without a "
+            "governed node id"
+        ),
+    }
+    assert b.next_actions
+    assert any(
+        "without a governed node id" in str(t.get("error", ""))
+        for t in b.reasoning_trace
+    )
 
 
 # ---------------------------------------------------------------------------
