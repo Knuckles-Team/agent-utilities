@@ -266,3 +266,124 @@ def test_kg_2_305_nl_query_mcp_tool_registered():
             np.AuNlPlanner = orig_planner
     finally:
         kg_server._get_engine = orig_get
+
+
+# ---------------------------------------------------------------------------
+# G32 — a sql/sparql aggregate projection has no per-row node id, so the
+# engine's row-level authorization (secured_reads.row_node_ids) rejects it
+# outright with a PermissionError containing "without a governed node id".
+# The bounded self-correction loop must recognize that failure and steer the
+# replan to the cypher dialect (the one dialect the engine authorizes for an
+# aggregate/grouped projection) rather than retrying the same ungovernable
+# shape, or silently fail-closed to a clean, inspectable error.
+# ---------------------------------------------------------------------------
+
+
+class _GovernedAggregateEngine:
+    """A fake engine whose ``sql()`` always rejects an aggregate projection
+    exactly as ``secured_reads``/``engine_query._governed_engine_surface_rows``
+    does, while ``query_cypher()`` (the engine's governed aggregate path)
+    succeeds.
+    """
+
+    def __init__(self):
+        self.sql_calls: list[str] = []
+        self.cypher_calls: list[str] = []
+
+    def sql(self, query):
+        self.sql_calls.append(query)
+        raise PermissionError("Graph result contains a row without a governed node id")
+
+    def query_cypher(self, query, *a, **k):
+        self.cypher_calls.append(query)
+        return [
+            {"label": "Session", "count": 3},
+            {"label": "RuntimeSignal", "count": 2},
+        ]
+
+
+def test_g32_execution_retry_text_steers_sql_aggregate_failure_to_cypher():
+    """Pure unit test of the new deterministic retry guidance (nl_planner._execution_retry_text)."""
+    retry = nl_planner._execution_retry_text(
+        "how many nodes by label?",
+        "sql",
+        "SELECT node_type, COUNT(*) FROM nodes GROUP BY node_type",
+        "query execution failed: Graph result contains a row without a governed node id",
+    )
+    assert "cypher" in retry
+    assert "retrying the same dialect will fail again" in retry
+
+    # An unrelated sql failure (e.g. a schema error) gets the generic retry text,
+    # never the cypher steer — that would be a wrong diagnosis for a different bug.
+    unrelated = nl_planner._execution_retry_text(
+        "how many nodes by label?",
+        "sql",
+        "SELECT type FROM nodes",
+        "query execution failed: Schema error: No field named type",
+    )
+    assert "cypher dialect instead" not in unrelated
+
+
+def test_g32_governed_node_id_failure_self_corrects_to_cypher():
+    """A sql aggregate attempt that fails on the governed-node-id check self-
+    corrects (within the default max_corrections=1 budget) to a cypher
+    aggregate query that succeeds — the rows reach the caller instead of a
+    silently empty answer.
+    """
+    eng = _GovernedAggregateEngine()
+    calls = {"n": 0}
+
+    def _run(prompt, system):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return (
+                '{"dialect": "sql", "query": '
+                '"SELECT node_type, COUNT(*) AS c FROM nodes GROUP BY node_type"}'
+            )
+        # Second attempt: the model "followed" the retry guidance.
+        assert "cypher" in prompt
+        return (
+            '{"dialect": "cypher", "query": '
+            '"MATCH (n) RETURN n.node_type AS label, COUNT(*) AS count"}'
+        )
+
+    out = nl_planner.nl_query(
+        eng, "how many nodes by label?", planner=nl_planner.AuNlPlanner(run=_run)
+    )
+
+    assert "error" not in out
+    assert out["dialect"] == "cypher"
+    assert out["results"] == [
+        {"label": "Session", "count": 3},
+        {"label": "RuntimeSignal", "count": 2},
+    ]
+    assert out["row_count"] == 2
+    assert len(eng.sql_calls) == 1
+    # One schema-probe cypher call (build_schema_context) plus the real one.
+    assert eng.cypher_calls[-1] == (
+        "MATCH (n) RETURN n.node_type AS label, COUNT(*) AS count"
+    )
+
+
+def test_g32_exhausted_governed_node_id_failure_surfaces_as_error_not_empty_success():
+    """When every bounded attempt keeps choosing an aggregate sql query, the
+    final response carries a real, inspectable error — never a silently
+    empty/successful-looking answer (the exact G32 failure mode).
+    """
+    eng = _GovernedAggregateEngine()
+    planner = nl_planner.AuNlPlanner(
+        run=lambda prompt, system: (
+            '{"dialect": "sql", "query": '
+            '"SELECT node_type, COUNT(*) AS c FROM nodes GROUP BY node_type"}'
+        )
+    )
+
+    out = nl_planner.nl_query(eng, "how many nodes by label?", planner=planner)
+
+    assert "results" not in out
+    assert "without a governed node id" in out["error"]
+    assert out["generated_query"] == (
+        "SELECT node_type, COUNT(*) AS c FROM nodes GROUP BY node_type"
+    )
+    # Both bounded attempts ran (default max_corrections=1 → 2 attempts).
+    assert len(eng.sql_calls) == 2

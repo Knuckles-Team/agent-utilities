@@ -26,3 +26,6 @@
 Four additional AU workstreams (final composition, ontology/SHACL/OWL clean cut, public application control plane, public docs) are named in `spec.md` but still await stable requirement IDs through review; track them there rather than inventing a synthetic ID here.
 - [ ] Unwrap the run envelope at one chokepoint for outbound chat text. Closes AU-INTEGRATION-R020.
 - [ ] Reuse `unwrap_run_envelope` in the PR #60 late-reply delivery path once both PRs land. Tracks AU-INTEGRATION-R020.
+- [x] Steer `nl_planner.nl_query`'s bounded retry to cypher on a governed-node-id denial, and fold successful aggregate rows into `EvidenceBundle.from_nl_query`'s `answer_candidate`. Closes AU-INTEGRATION-R021.
+- [ ] Give `nl_query.nl_to_query` (the `graph_ask` single-shot path) the same bounded self-correction loop `nl_planner.nl_query` has, so a denied sql/sparql aggregate on that path can also recover to cypher instead of returning only a system-prompt hint. Tracks AU-INTEGRATION-R021.
+- [ ] Give the engine's sql/sparql/uql surfaces real query-text tenant/owner-scope pushdown (mirroring `query_cypher`'s `_scoped_cypher_query`), so a non-aggregate projection with no id column is no longer fail-closed solely for lacking one. Tracks AU-INTEGRATION-R021.
