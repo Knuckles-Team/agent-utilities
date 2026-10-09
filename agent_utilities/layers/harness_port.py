@@ -48,6 +48,12 @@ class HarnessRequest(_Frozen):
     response_format: Literal["text", "json"] = "text"
     max_steps: int = Field(default=30, ge=1)
     allowed_tools: tuple[str, ...] = ()
+    #: The committed topology plan node's native sub-agent allowance
+    #: (AU-CONTROL-R018): how many native sub-agents this run may spawn
+    #: through the harness's own sub-agent tool. ``0`` (the default) disables
+    #: them; an adapter with no sub-agent tool to grant it through refuses a
+    #: request asking for more than zero, rather than silently honor fewer.
+    max_subagents: int = Field(default=0, ge=0)
 
 
 class UsageReport(_Frozen):

@@ -5,6 +5,10 @@ unchanged. That path keeps typed tool calls, structured output, token
 accounting, the Langfuse/OTel trace export and the RunTrace write. The adapter
 only asks for the rich envelope (``include_run_summary=True``) and reads it
 into a :class:`RunOutcome`. It never writes a second trace.
+
+It grants no native sub-agent allowance (AU-CONTROL-R018): a request naming
+``max_subagents`` above zero is refused closed rather than silently run with
+fewer sub-agents than the committed plan granted.
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ from agent_utilities.layers.harness_port import (
     HarnessRequest,
     OutcomeStatus,
     RunOutcome,
+    refused,
 )
 
 Runner = Callable[..., Awaitable[str]]
@@ -109,6 +114,16 @@ class NativeHarness:
         )
 
     async def run(self, request: HarnessRequest) -> RunOutcome:
+        if request.max_subagents > 0:
+            # AU-CONTROL-R018: this adapter's run_agent path has no native
+            # sub-agent tool to grant the allowance through yet. Fail closed
+            # rather than silently run with fewer sub-agents than committed.
+            return refused(
+                NATIVE_HARNESS,
+                request,
+                "native harness has no sub-agent tool to grant max_subagents "
+                f"{request.max_subagents} through; request max_subagents=0",
+            )
         start = time.monotonic()
         try:
             raw = await asyncio.wait_for(self._call(request), request.timeout_s)
