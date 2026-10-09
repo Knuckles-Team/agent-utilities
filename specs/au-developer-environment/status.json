@@ -45,9 +45,7 @@
       "title": "Deployment and genesis tooling move to graph-os",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/gates/test_boundary_coverage_gate.py:76"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-DEV-R003",

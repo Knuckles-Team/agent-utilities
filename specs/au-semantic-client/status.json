@@ -50,28 +50,20 @@
     {
       "id": "AU-SEMANTIC-R001",
       "title": "OntologyLifecycle.set_active() fails closed, not a silent local fallback",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "2648d0b28ad0"
       ],
-      "verified_by": [
-        "tests/conftest.py:918",
-        "tests/gates/test_agent_utilities_governance_pack.py:43",
-        "tests/gates/test_agent_utilities_governance_pack.py:66"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R002",
       "title": "AU verifies domain-pack class names against EG's schema-class list",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "2648d0b28ad0"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/domain_packs/test_pack_loader.py:316",
-        "tests/unit/knowledge_graph/domain_packs/test_pack_loader.py:333",
-        "tests/unit/knowledge_graph/domain_packs/test_pack_loader.py:347"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R003",
@@ -83,15 +75,11 @@
     {
       "id": "AU-SEMANTIC-R004",
       "title": "AU's remaining SHACL shape files move into EG-owned schema packs",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "afe05ab38e0f"
       ],
-      "verified_by": [
-        "tests/unit/test_promotion_governance.py:112",
-        "tests/unit/test_promotion_governance.py:130",
-        "tests/unit/test_promotion_governance.py:92"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R005",
@@ -110,15 +98,11 @@
     {
       "id": "AU-SEMANTIC-R007",
       "title": "AU tests drop pyshacl and assert through EG shape validation",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "afe05ab38e0f"
       ],
-      "verified_by": [
-        "tests/unit/test_promotion_governance.py:112",
-        "tests/unit/test_promotion_governance.py:130",
-        "tests/unit/test_promotion_governance.py:92"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R008",
@@ -157,7 +141,7 @@
     {
       "id": "AU-SEMANTIC-R010",
       "title": "Graph-compute and session facades route through the generated EG client",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "5d44f029d3fd"
       ],
@@ -169,15 +153,11 @@
     {
       "id": "AU-SEMANTIC-R010.1",
       "title": "AU holds one typed composition of the generated EG client for graph-compute/session ops",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "5d44f029d3fd"
       ],
-      "verified_by": [
-        "tests/unit/test_graph_compute_client.py:29",
-        "tests/unit/test_graph_compute_client.py:35",
-        "tests/unit/test_graph_compute_client.py:43"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R011",
@@ -237,7 +217,7 @@
     {
       "id": "AU-SEMANTIC-R016",
       "title": "Document, session and feed source ingestion moves to the SDK",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "76d440ff79dc"
       ],
@@ -249,28 +229,20 @@
     {
       "id": "AU-SEMANTIC-R016.1",
       "title": "The AU-SEMANTIC-R016 migration scope is a typed, validated manifest",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "76d440ff79dc"
       ],
-      "verified_by": [
-        "tests/unit/core/test_r016_migration_scope.py:17",
-        "tests/unit/core/test_r016_migration_scope.py:23",
-        "tests/unit/core/test_r016_migration_scope.py:28"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R017",
       "title": "Vendor enrichment extraction and writeback move to the SDK and EG",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "2e5c8d7f2d8b"
       ],
-      "verified_by": [
-        "tests/unit/governance/test_eg_relational_authority_handoff.py:13",
-        "tests/unit/governance/test_eg_relational_authority_handoff.py:20",
-        "tests/unit/governance/test_eg_relational_authority_handoff.py:29"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R018",
@@ -282,15 +254,11 @@
     {
       "id": "AU-SEMANTIC-R019",
       "title": "Remaining EG-bound standardization, infra and governance modules move out",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "2e5c8d7f2d8b"
       ],
-      "verified_by": [
-        "tests/unit/governance/test_eg_relational_authority_handoff.py:13",
-        "tests/unit/governance/test_eg_relational_authority_handoff.py:20",
-        "tests/unit/governance/test_eg_relational_authority_handoff.py:29"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R020",
@@ -326,13 +294,11 @@
     {
       "id": "AU-SEMANTIC-R021.2",
       "title": "`extraction/schema_discovery.py` moves behind EG pack compilation",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "690785a51851"
       ],
-      "verified_by": [
-        "tests/unit/test_ontology_rest_granular.py:151"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R021.3",
@@ -344,19 +310,17 @@
     {
       "id": "AU-SEMANTIC-R021.4",
       "title": "`scripts/scaffold_ontology_leg.py` and its connector-certification step are removed",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "023174b91e2e",
         "690785a51851"
       ],
-      "verified_by": [
-        "tests/unit/test_ontology_rest_granular.py:151"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R022",
       "title": "Graph-schema DTOs become EG-generated types",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -366,15 +330,11 @@
     {
       "id": "AU-SEMANTIC-R022.1",
       "title": "Typed composition of the generated graph-schema DTO surface",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "da51647a7383"
       ],
-      "verified_by": [
-        "tests/unit/test_capability_gap_check.py:15",
-        "tests/unit/test_capability_gap_check.py:21",
-        "tests/unit/test_capability_gap_check.py:27"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R023",
@@ -388,16 +348,12 @@
       "title": "External graph and database backends move into EG as federation sources",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/gates/test_cpd_gate.py:149",
-        "tests/gates/test_cpd_gate.py:175",
-        "tests/gates/test_cpd_gate.py:61"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R025",
       "title": "Retrieval and neural-search engines move to EG",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -407,15 +363,11 @@
     {
       "id": "AU-SEMANTIC-R025.1",
       "title": "Typed composition of the generated EG retrieval surface",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "da51647a7383"
       ],
-      "verified_by": [
-        "tests/unit/test_capability_gap_check.py:15",
-        "tests/unit/test_capability_gap_check.py:21",
-        "tests/unit/test_capability_gap_check.py:27"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R026",
@@ -427,7 +379,7 @@
     {
       "id": "AU-SEMANTIC-R027",
       "title": "Capability-gap checks must search the target system's own vocabulary",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -437,15 +389,11 @@
     {
       "id": "AU-SEMANTIC-R027.1",
       "title": "Typed capability-gap record refuses an unverified \"missing\" verdict",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "da51647a7383"
       ],
-      "verified_by": [
-        "tests/unit/test_capability_gap_check.py:15",
-        "tests/unit/test_capability_gap_check.py:21",
-        "tests/unit/test_capability_gap_check.py:27"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R028",

@@ -163,19 +163,16 @@
     {
       "id": "AU-BOUNDARY-R013",
       "title": "Restrict graph-os to AU's public API only",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "5b4e8d0a31d0"
       ],
-      "verified_by": [
-        "tests/unit/test_api_messaging.py:12",
-        "tests/unit/test_api_messaging.py:25"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R014",
       "title": "Move graph-os boundary modules out of AU",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "63731a44a881",
         "6ffbecc433c4",
@@ -183,10 +180,7 @@
         "d09cad07e875",
         "d6d5697ae63d"
       ],
-      "verified_by": [
-        "tests/unit/observability/test_gateway_metrics_health_sample_degrades_gracefully.py:30",
-        "tests/unit/observability/test_gateway_metrics_health_sample_degrades_gracefully.py:37"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R015",
@@ -205,14 +199,11 @@
     {
       "id": "AU-BOUNDARY-R017",
       "title": "Split messaging behavior and authority across AU, graph-os, and EG",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "5b4e8d0a31d0"
       ],
-      "verified_by": [
-        "tests/unit/test_api_messaging.py:12",
-        "tests/unit/test_api_messaging.py:25"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R018",
@@ -311,6 +302,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "4d0883da01d2",
+        "5c70aeb872d9",
         "743e98cda405",
         "8edddc8b0a00",
         "9fec85433f51"
@@ -369,13 +361,12 @@
     {
       "id": "AU-BOUNDARY-R028.4",
       "title": "Retire `kg/security/{cognitive_trap_defense,policy_ingestor,graph_validator,rule_ingestor}.py`",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
+        "5c70aeb872d9",
         "9fec85433f51"
       ],
-      "verified_by": [
-        "tests/unit/test_research_synergies.py:72"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R028.5",
@@ -505,16 +496,12 @@
     {
       "id": "AU-BOUNDARY-R035",
       "title": "Re-home the schema-drift package before it lands",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "bcfbc23cd1e6",
         "c7fc09d3d2f6"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/core/test_source_sync.py:1575",
-        "tests/unit/knowledge_graph/core/test_source_sync.py:1718",
-        "tests/unit/knowledge_graph/core/test_source_sync.py:2089"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R036",
@@ -555,15 +542,11 @@
     {
       "id": "AU-BOUNDARY-R038",
       "title": "Add a cross-owner component registry and path guard",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "8821aee3c37f"
       ],
-      "verified_by": [
-        "tests/gates/test_boundary_coverage_gate.py:106",
-        "tests/gates/test_boundary_coverage_gate.py:76",
-        "tests/gates/test_boundary_coverage_gate.py:95"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R039",
@@ -620,16 +603,12 @@
     {
       "id": "AU-BOUNDARY-R043",
       "title": "Retained agent surface is declared and import-bounded",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "8a45ab8013ad",
         "fdeabad709b3"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/test_assimilation_breadth.py:212",
-        "tests/unit/knowledge_graph/test_assimilation_plan_synthesis.py:50",
-        "tests/unit/knowledge_graph/test_assimilation_plan_synthesis.py:94"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R044",
@@ -694,27 +673,20 @@
     {
       "id": "AU-BOUNDARY-R048",
       "title": "Domain models, shapes, assets and skill content are placed",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "49b087cb97e4"
       ],
-      "verified_by": [
-        "tests/gates/test_prebundled_skill_runtime_harness.py:184",
-        "tests/gates/test_prebundled_skill_runtime_harness.py:198"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R049",
       "title": "Every AU write-back sink runs through the SDK governed write-back contract",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "00234474001c"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/enrichment/test_writeback_governed.py:105",
-        "tests/unit/knowledge_graph/enrichment/test_writeback_governed.py:119",
-        "tests/unit/knowledge_graph/enrichment/test_writeback_governed.py:91"
-      ]
+      "verified_by": []
     }
   ]
 }

@@ -12,28 +12,20 @@
     {
       "id": "AU-FREEZE-R001",
       "title": "Canonical AU release-evidence freeze manifest",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "4059a262d70e"
       ],
-      "verified_by": [
-        "tests/unit/core/test_release_freeze.py:46",
-        "tests/unit/core/test_release_freeze.py:54",
-        "tests/unit/core/test_release_freeze.py:60"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-FREEZE-R002",
       "title": "Quarantine unresolved scanner findings from the freeze",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "4059a262d70e"
       ],
-      "verified_by": [
-        "tests/unit/core/test_release_freeze.py:46",
-        "tests/unit/core/test_release_freeze.py:54",
-        "tests/unit/core/test_release_freeze.py:60"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-FREEZE-R003",

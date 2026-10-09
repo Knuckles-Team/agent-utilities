@@ -19,26 +19,18 @@
     {
       "id": "AU-RETIRE-R001",
       "title": "Complete inventory and retirement of duplicate graph engine code",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "6a408267e403"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/test_retirement_inventory.py:24",
-        "tests/unit/knowledge_graph/test_retirement_inventory.py:31",
-        "tests/unit/knowledge_graph/test_retirement_inventory.py:42"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-RETIRE-R002",
       "title": "Enrichment edges carry a provenance rung and confidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/unit/knowledge_graph/enrichment/test_extract_classify.py:120",
-        "tests/unit/knowledge_graph/enrichment/test_models.py:21",
-        "tests/unit/knowledge_graph/enrichment/test_models.py:33"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-RETIRE-R003",
@@ -81,48 +73,32 @@
       "title": "Per-stage timing instrumentation across the full ingest path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/unit/knowledge_graph/core/test_gitlab_indexer.py:127",
-        "tests/unit/knowledge_graph/core/test_gitlab_indexer.py:173",
-        "tests/unit/knowledge_graph/core/test_gitlab_indexer.py:304"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-RETIRE-R006",
       "title": "Delta ingest reaps nodes for deleted files",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "5822ee9bef09"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/test_ingestion_perf_optimizations.py:362",
-        "tests/unit/knowledge_graph/test_ingestion_perf_optimizations.py:380",
-        "tests/unit/knowledge_graph/test_ingestion_perf_optimizations.py:393"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-RETIRE-R007",
       "title": "Deterministic embedding admission classifier at the ingest chokepoint",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/unit/knowledge_graph/ingestion/test_embedding_admission.py:28",
-        "tests/unit/knowledge_graph/ingestion/test_embedding_admission.py:47",
-        "tests/unit/knowledge_graph/ingestion/test_embedding_admission.py:56"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-RETIRE-R008",
       "title": "Sequence ingestion-economics work ahead of file relocation",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "6a408267e403"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/test_retirement_inventory.py:24",
-        "tests/unit/knowledge_graph/test_retirement_inventory.py:31",
-        "tests/unit/knowledge_graph/test_retirement_inventory.py:42"
-      ]
+      "verified_by": []
     }
   ]
 }

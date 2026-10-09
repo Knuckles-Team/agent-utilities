@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-SEC-01",
   "owner_repo": "agent-utilities",
-  "delivery_state": "VERIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "AU-SEC-R001",
     "AU-SEC-R002",
@@ -19,135 +19,101 @@
     {
       "id": "AU-SEC-R001",
       "title": "Tiny profile grants scoped authority, not blanket admin",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "19109362ddd4",
         "2acbf25f8bb2"
       ],
-      "verified_by": [
-        "tests/integration/profiles/test_tiny_profile_admin_scope.py:64",
-        "tests/integration/profiles/test_tiny_profile_admin_scope.py:79",
-        "tests/unit/core/test_request_identity.py:888"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R002",
       "title": "Control view failure never falls back to the content graph",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "2acbf25f8bb2",
         "caeeff7c3ef9"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/test_control_backend_binding.py:90",
-        "tests/unit/security/test_authority_audit.py:33"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R003",
       "title": "Caches subscribe to invalidation with volatility-bounded TTL",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "2acbf25f8bb2",
         "45f3c3459198"
       ],
-      "verified_by": [
-        "tests/unit/caching/test_freshness.py:105",
-        "tests/unit/caching/test_freshness.py:115",
-        "tests/unit/caching/test_freshness.py:95"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R004",
       "title": "AU treats schema drift as a fail-closed typed result",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "2acbf25f8bb2",
         "9cc9e08c1a0e"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/core/test_source_sync.py:2089",
-        "tests/unit/knowledge_graph/core/test_source_sync.py:2140",
-        "tests/unit/knowledge_graph/schema_drift/test_classify.py:32"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R005",
       "title": "AU proposes schema-repair mappings; EG alone activates them",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "2acbf25f8bb2",
         "9cc9e08c1a0e",
         "c7fc09d3d2f6"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/core/test_source_sync.py:2089",
-        "tests/unit/knowledge_graph/core/test_source_sync.py:2140",
-        "tests/unit/knowledge_graph/ontology/test_connector_manifest_gate_sdk_ontology_pack.py:51"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R006",
       "title": "Elevation can be requested, approved, and revoked",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "2acbf25f8bb2",
         "d1b9fc6dc5e5"
       ],
-      "verified_by": [
-        "tests/unit/core/test_request_identity.py:225",
-        "tests/unit/core/test_request_identity.py:238"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R007",
       "title": "Guardrail tightening is automatic; loosening needs approval",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0b70fad31246",
         "2acbf25f8bb2"
       ],
-      "verified_by": [
-        "tests/unit/security/test_authority_audit.py:33",
-        "tests/unit/security/test_authority_audit.py:44"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R008",
       "title": "AU allowlist is generated from the canonical scope registry",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "2acbf25f8bb2",
         "eba6b8e9a661"
       ],
-      "verified_by": [
-        "tests/unit/security/test_authority_audit.py:33",
-        "tests/unit/security/test_authority_audit.py:44"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R009",
       "title": "Learned scores never grant security authority",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "2acbf25f8bb2"
       ],
-      "verified_by": [
-        "tests/unit/security/test_authority_audit.py:33",
-        "tests/unit/security/test_authority_audit.py:44"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R010",
       "title": "The shared tenant hierarchy reads as the service identity",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "3fb99d2ff295"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/core/test_tenant_registry_control_graph.py:176",
-        "tests/unit/knowledge_graph/core/test_tenant_registry_control_graph.py:188"
-      ]
+      "verified_by": []
     }
   ]
 }

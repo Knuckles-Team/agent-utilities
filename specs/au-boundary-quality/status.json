@@ -21,10 +21,7 @@
       "title": "Liveness deferrals fail visibly when they expire",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/harness/test_memorydata_bakeoff_cli.py:17",
-        "tests/harness/test_memorydata_bakeoff_cli.py:28"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-QUAL-R002",
@@ -36,29 +33,21 @@
     {
       "id": "AU-QUAL-R003",
       "title": "Connector validation uses EG's composed GraphSchema",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "50f312aeb06c"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/core/test_committed_shacl.py:22",
-        "tests/unit/knowledge_graph/core/test_committed_shacl.py:29",
-        "tests/unit/knowledge_graph/core/test_committed_shacl.py:41"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-QUAL-R004",
       "title": "Named AU test failures are fixed, not skipped",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0fa2df86ace4",
         "4771f8a9ee09"
       ],
-      "verified_by": [
-        "tests/gates/test_tracked_privacy_commit_history.py:102",
-        "tests/gates/test_tracked_privacy_commit_history.py:113",
-        "tests/gates/test_tracked_privacy_commit_history.py:88"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-QUAL-R005",
@@ -90,39 +79,27 @@
     {
       "id": "AU-QUAL-R006",
       "title": "A privacy check covers the final tree and commit history",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0fa2df86ace4"
       ],
-      "verified_by": [
-        "tests/gates/test_tracked_privacy_commit_history.py:102",
-        "tests/gates/test_tracked_privacy_commit_history.py:113",
-        "tests/gates/test_tracked_privacy_commit_history.py:88"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-QUAL-R007",
       "title": "Liveness placeholder detector ignores documentation prose",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/gates/test_liveness_analyzer_compat.py:164",
-        "tests/gates/test_liveness_analyzer_compat.py:175",
-        "tests/gates/test_liveness_analyzer_compat.py:89"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-QUAL-R008",
       "title": "Liveness reconciler rescues exact service-registry targets",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "eb077e60c21b"
       ],
-      "verified_by": [
-        "tests/gates/test_liveness_reconciler.py:269",
-        "tests/gates/test_liveness_reconciler.py:298",
-        "tests/gates/test_liveness_reconciler.py:335"
-      ]
+      "verified_by": []
     }
   ]
 }

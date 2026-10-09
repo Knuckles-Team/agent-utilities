@@ -51,15 +51,11 @@
     {
       "id": "AU-CONTROL-R002",
       "title": "Component routing through one committed graph-engine decision",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "4351f26b3d3b"
       ],
-      "verified_by": [
-        "tests/unit/decide/test_routing_consumers.py:20",
-        "tests/unit/decide/test_routing_consumers.py:29",
-        "tests/unit/decide/test_routing_consumers.py:49"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R003",
@@ -78,27 +74,20 @@
     {
       "id": "AU-CONTROL-R005",
       "title": "Advisory pre-tool risk scoring",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "47a52e7442bd"
       ],
-      "verified_by": [
-        "tests/unit/decide/test_risk_consumer.py:11",
-        "tests/unit/decide/test_risk_consumer.py:24"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R006",
       "title": "Cost-aware routing informed by usage accounting",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "4351f26b3d3b"
       ],
-      "verified_by": [
-        "tests/unit/decide/test_routing_consumers.py:20",
-        "tests/unit/decide/test_routing_consumers.py:29",
-        "tests/unit/decide/test_routing_consumers.py:49"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R007",
@@ -110,54 +99,38 @@
     {
       "id": "AU-CONTROL-R008",
       "title": "Free-text task mapping accepted only as a labelled claim",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "fdd333b5545a"
       ],
-      "verified_by": [
-        "tests/unit/test_task_classification.py:30",
-        "tests/unit/test_task_classification.py:37",
-        "tests/unit/test_task_classification.py:65"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R009",
       "title": "Swarm topology ontology and schema publication",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "da99e968d6c7"
       ],
-      "verified_by": [
-        "tests/unit/decide/test_swarm_topology_schema.py:136",
-        "tests/unit/decide/test_swarm_topology_schema.py:88",
-        "tests/unit/decide/test_swarm_topology_schema.py:95"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R010",
       "title": "Reference swarm topology templates",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "da99e968d6c7"
       ],
-      "verified_by": [
-        "tests/unit/decide/test_swarm_topology_schema.py:136",
-        "tests/unit/decide/test_swarm_topology_schema.py:88",
-        "tests/unit/decide/test_swarm_topology_schema.py:95"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R011",
       "title": "Consume the generated topology contract via a pinned dependency",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "da99e968d6c7"
       ],
-      "verified_by": [
-        "tests/unit/decide/test_swarm_topology_schema.py:136",
-        "tests/unit/decide/test_swarm_topology_schema.py:88",
-        "tests/unit/decide/test_swarm_topology_schema.py:95"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R012",
@@ -205,130 +178,90 @@
     {
       "id": "AU-CONTROL-R017",
       "title": "Single re-decision on capacity denial for topology admission",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "6d8865040871"
       ],
-      "verified_by": [
-        "tests/unit/decide/test_topology_consumer.py:193",
-        "tests/unit/decide/test_topology_consumer.py:208",
-        "tests/unit/decide/test_topology_consumer.py:222"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R018",
       "title": "Subagent allowance negotiated into the run specification",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "d008da7e66d1"
       ],
-      "verified_by": [
-        "tests/unit/layers/test_harness_port.py:192",
-        "tests/unit/layers/test_harness_port.py:198",
-        "tests/unit/layers/test_harness_port.py:210"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R019",
       "title": "Swarm continuation restricted to narrow-only decisions",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "21ccce45c2d7"
       ],
-      "verified_by": [
-        "tests/unit/decide/test_continuation_consumer.py:68",
-        "tests/unit/decide/test_continuation_consumer.py:75",
-        "tests/unit/decide/test_continuation_consumer.py:87"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R020",
       "title": "Learned topology routing term with a benchmark gold set",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "21ccce45c2d7",
         "33dc0f5e9908",
         "75dc28c16382"
       ],
-      "verified_by": [
-        "tests/benchmarks/swarm_topology/test_equal_budget_benchmark.py:26",
-        "tests/benchmarks/swarm_topology/test_equal_budget_benchmark.py:38",
-        "tests/benchmarks/swarm_topology/test_equal_budget_benchmark.py:45"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R021",
       "title": "Harness and sandbox access via direct typed ports, not a registrar",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/unit/test_agent_control_plane_ports.py:134",
-        "tests/unit/test_agent_control_plane_ports.py:178",
-        "tests/unit/test_agent_control_plane_ports.py:217"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R022",
       "title": "Model selection routed through the committed decision, not ad hoc",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "4351f26b3d3b"
       ],
-      "verified_by": [
-        "tests/unit/decide/test_routing_consumers.py:20",
-        "tests/unit/decide/test_routing_consumers.py:29",
-        "tests/unit/decide/test_routing_consumers.py:49"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R023",
       "title": "Catalog entries attributed to their originating server",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/unit/test_capability_binding_survives_real_guards.py:43",
-        "tests/unit/test_capability_binding_survives_real_guards.py:54",
-        "tests/unit/test_capability_binding_survives_real_guards.py:70"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R024",
       "title": "Durable Agent Library with list, get and save",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "d10020c23444"
       ],
-      "verified_by": [
-        "tests/unit/decide/test_assembly_consumer.py:109",
-        "tests/unit/decide/test_assembly_consumer.py:140",
-        "tests/unit/decide/test_assembly_consumer.py:81"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R025",
       "title": "Pre-built role agents from packaged fleet prompts",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "d10020c23444"
       ],
-      "verified_by": [
-        "tests/unit/decide/test_assembly_consumer.py:109",
-        "tests/unit/decide/test_assembly_consumer.py:140",
-        "tests/unit/decide/test_assembly_consumer.py:81"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R026",
       "title": "Assembled agent graphs are committed, published and saved for reuse",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "d10020c23444"
       ],
-      "verified_by": [
-        "tests/unit/decide/test_assembly_consumer.py:109",
-        "tests/unit/decide/test_assembly_consumer.py:140",
-        "tests/unit/decide/test_assembly_consumer.py:81"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R027",
@@ -373,58 +306,42 @@
     {
       "id": "AU-CONTROL-R031",
       "title": "`find` ranks fleet tools with native capabilities",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1ff1099e5d57",
         "4c334b7fc9ad",
         "df00e9a0b560",
         "e822fa6bb112"
       ],
-      "verified_by": [
-        "tests/unit/mcp/test_ensure_tools_registered_fleet_attach.py:25",
-        "tests/unit/mcp/test_ensure_tools_registered_fleet_attach.py:48",
-        "tests/unit/mcp/test_ensure_tools_registered_fleet_attach.py:81"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R032",
       "title": "`act` calls a fleet tool by its server and tool id",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1ff1099e5d57",
         "e822fa6bb112"
       ],
-      "verified_by": [
-        "tests/unit/test_intent_fleet_ranking_and_ties.py:42",
-        "tests/unit/test_intent_fleet_ranking_and_ties.py:61",
-        "tests/unit/test_intent_fleet_ranking_and_ties.py:76"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R033",
       "title": "A read-only action tie runs the declared default action",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1ff1099e5d57"
       ],
-      "verified_by": [
-        "tests/unit/test_intent_fleet_ranking_and_ties.py:42",
-        "tests/unit/test_intent_fleet_ranking_and_ties.py:61",
-        "tests/unit/test_intent_fleet_ranking_and_ties.py:76"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R034",
       "title": "An unmatched read intent falls back to the NL planner",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1ff1099e5d57"
       ],
-      "verified_by": [
-        "tests/unit/test_intent_fleet_ranking_and_ties.py:42",
-        "tests/unit/test_intent_fleet_ranking_and_ties.py:61",
-        "tests/unit/test_intent_fleet_ranking_and_ties.py:76"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R035",

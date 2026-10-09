@@ -32,123 +32,83 @@
     {
       "id": "AU-INTEGRATION-R001",
       "title": "Clustered mode deliberately refuses local-only agent writes",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "daa321626142"
       ],
-      "verified_by": [
-        "tests/unit/orchestration/test_agent_library.py:160",
-        "tests/unit/orchestration/test_agent_library.py:205",
-        "tests/unit/test_native_cypher_routing.py:257"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-INTEGRATION-R002",
       "title": "Control graph auto-creation and messaging intake propagation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/unit/deployment/test_backends.py:92"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-INTEGRATION-R003",
       "title": "Reconcile previously tracked fixes against current main",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/gates/test_exact_local_release_contract.py:383",
-        "tests/unit/gateway/test_gateway_widgets_extra.py:143",
-        "tests/unit/gateway/test_widget_connector_imports.py:128"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-INTEGRATION-R004",
       "title": "Remove the unintended nltk dependency from AU's lock",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/gates/test_exact_local_release_contract.py:383",
-        "tests/unit/gateway/test_gateway_widgets_extra.py:143",
-        "tests/unit/gateway/test_widget_connector_imports.py:128"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-INTEGRATION-R005",
       "title": "Contract compatibility hook validates against a pinned artifact",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/harness/test_memorydata_bakeoff_cli.py:17",
-        "tests/harness/test_memorydata_bakeoff_cli.py:28"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-INTEGRATION-R006",
       "title": "epistemic-graph is a core AU dependency",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/gates/test_exact_local_release_contract.py:383",
-        "tests/unit/gateway/test_gateway_widgets_extra.py:143",
-        "tests/unit/gateway/test_widget_connector_imports.py:128"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-INTEGRATION-R007",
       "title": "Gold-set generation is synthetic, not manually labelled",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/unit/decide/test_continuation_consumer.py:108",
-        "tests/unit/decide/test_continuation_consumer.py:94",
-        "tests/unit/decide/test_gold_set.py:20"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-INTEGRATION-R008",
       "title": "Regression baseline stays green with EG installed",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/unit/core/test_config.py:782",
-        "tests/unit/core/test_config.py:800",
-        "tests/unit/core/test_config.py:806"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-INTEGRATION-R009",
       "title": "Resolve expired liveness deferrals with recorded evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/harness/test_memorydata_bakeoff_cli.py:17",
-        "tests/harness/test_memorydata_bakeoff_cli.py:28"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-INTEGRATION-R010",
       "title": "Kafka enqueue-only-proof contract runs and passes honestly",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "35fde39bdb9d"
       ],
-      "verified_by": [
-        "tests/unit/release/test_eg_kafka_gate_evidence.py:44",
-        "tests/unit/release/test_eg_kafka_gate_evidence.py:57",
-        "tests/unit/release/test_eg_kafka_gate_evidence.py:66"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-INTEGRATION-R011",
       "title": "Prove disposability before pruning a branch checkout",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/unit/test_merge_queue.py:520",
-        "tests/unit/test_merge_queue.py:553",
-        "tests/unit/test_merge_queue.py:572"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-INTEGRATION-R012",
@@ -199,22 +159,14 @@
       "title": "Published ontology-deletion commit matches its source patch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/conftest.py:918",
-        "tests/gates/test_agent_utilities_governance_pack.py:43",
-        "tests/gates/test_agent_utilities_governance_pack.py:66"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-INTEGRATION-R017",
       "title": "Published source history is an ancestor of main",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": [
-        "tests/conftest.py:918",
-        "tests/gates/test_agent_utilities_governance_pack.py:43",
-        "tests/gates/test_agent_utilities_governance_pack.py:66"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-INTEGRATION-R018",
@@ -240,41 +192,29 @@
     {
       "id": "AU-INTEGRATION-R019",
       "title": "Messaging direct turns use a configured budget and never discard an over-budget run",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "f94a3c109517"
       ],
-      "verified_by": [
-        "tests/unit/messaging/test_direct_reply_budget.py:20",
-        "tests/unit/messaging/test_direct_reply_budget.py:30",
-        "tests/unit/messaging/test_direct_reply_budget.py:39"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-INTEGRATION-R020",
       "title": "Outbound chat text never carries the run envelope",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "6778d5dfd79b"
       ],
-      "verified_by": [
-        "tests/unit/messaging/test_run_envelope_unwrap.py:29",
-        "tests/unit/messaging/test_run_envelope_unwrap.py:36",
-        "tests/unit/messaging/test_run_envelope_unwrap.py:43"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-INTEGRATION-R021",
       "title": "An aggregate ask answers with its own rows, never a silent empty answer",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "00220bc40313"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/core/test_nl_planner.py:224",
-        "tests/unit/knowledge_graph/core/test_nl_planner.py:306",
-        "tests/unit/knowledge_graph/core/test_nl_planner.py:329"
-      ]
+      "verified_by": []
     }
   ]
 }
