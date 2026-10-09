@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1193
+total_concepts: 1192
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2237,13 +2237,6 @@ concepts:
   code_paths:
   - agent_utilities/graph/parallel_engine.py
   doc: gap-fill the workflow
-- id: AU-ECO.ui.agent-manager-dashboard
-  name: Agent Manager Dashboard
-  pillar: AU-ECO
-  status: live
-  code_paths:
-  - agent_utilities/ecosystem/agent_manager_dashboard.py
-  doc: Agent Manager Dashboard
 - id: AU-ECO.ui.company-infrastructure-orchestration
   name: Company Infrastructure Orchestration
   pillar: AU-ECO
