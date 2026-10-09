@@ -802,26 +802,34 @@ agent-utilities-messaging = "agent_utilities.messaging.daemon:main"
 agent-utilities-memory = "agent_utilities.knowledge_graph.memory.cli:main"
 agent-utilities = "agent_utilities.cli:main"
 agent-utilities-acp = "agent_utilities.protocols.acp_adapter:main"
-# setup-config is graph-os-owned (GRAPHOS-DEPLOY-R007.2): graph_os.deployment.cli:main.
-# Declaring it here too was an install-time console-script name collision.
-# agent_utilities.deployment.cli remains, still exercised directly by
-# tests/unit/deployment/test_codex_registration.py and reachable via
-# `python -m agent_utilities.deployment.cli`; only the duplicate registration
-# is removed here.
-# Holistic deployment health sweep (brew/flutter-doctor style); also
-# `python -m agent_utilities.deployment.doctor`.
-agent-utilities-doctor = "agent_utilities.deployment.doctor:main"
-# agent-utilities-venv is graph-os-owned (GRAPHOS-DEPLOY-R007.4): graph_os.deployment.venv_sync:main.
-# Declaring it here too was an install-time console-script name collision.
-# agent_utilities.deployment.venv_sync remains -- it still has real non-test
-# importers (agent_utilities/deployment/venv_autosync.py,
+# setup-config is graph-os-owned (GRAPHOS-DEPLOY requirement R.007.2):
+# graph_os.deployment.cli:main. Declaring it here too was an install-time
+# console-script name collision. agent_utilities.deployment.cli remains,
+# still exercised directly by tests/unit/deployment/test_codex_registration.py
+# and reachable via `python -m agent_utilities.deployment.cli`; only the
+# duplicate registration is removed here.
+# agent-utilities-doctor is graph-os-owned (GRAPHOS-DEPLOY requirement R.007.1):
+# graph_os.deployment.doctor:main. Declaring it here too was an install-time
+# console-script name collision (both packages registered the SAME entry
+# point name; pip resolves the winner nondeterministically by install
+# order). agent_utilities.deployment.doctor remains -- its checks are still
+# imported directly by agent_utilities.mcp.tools.compliance_tools,
+# agent_utilities.mcp.tools.state_tools, and
+# agent_utilities.knowledge_graph.research.evolution_state -- only the
+# duplicate console-script registration is removed here.
+# agent-utilities-venv is graph-os-owned (GRAPHOS-DEPLOY requirement R.007.4):
+# graph_os.deployment.venv_sync:main. Declaring it here too was an
+# install-time console-script name collision. agent_utilities.deployment.venv_sync
+# remains -- it still has real non-test importers
+# (agent_utilities/deployment/venv_autosync.py,
 # agent_utilities/deployment/doctor.py) -- only the duplicate registration
 # is removed here.
-# graph-os-release-canary is graph-os-owned (GRAPHOS-DEPLOY-R007.5): graph_os.deployment.release_canary:main.
-# Declaring it here too was an install-time console-script name collision.
-# agent_utilities.deployment.release_canary remains -- it still has a real
-# non-test importer (scripts/release/promote_local_release.py) -- only the
-# duplicate registration is removed here.
+# graph-os-release-canary is graph-os-owned (GRAPHOS-DEPLOY requirement R.007.5):
+# graph_os.deployment.release_canary:main. Declaring it here too was an
+# install-time console-script name collision. agent_utilities.deployment.release_canary
+# remains -- it still has a real non-test importer
+# (scripts/release/promote_local_release.py) -- only the duplicate
+# registration is removed here.
 agent-utilities-validate-skills = "agent_utilities.skills.runtime_validation:main"
 agent-utilities-validate-skill-fleet = "agent_utilities.skills.fleet_harness.cli:main"
 graph-os-certify-skills = "agent_utilities.deployment.skill_validation:main"

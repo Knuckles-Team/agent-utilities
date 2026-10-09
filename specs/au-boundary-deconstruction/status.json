@@ -31,6 +31,14 @@
     "AU-BOUNDARY-R026",
     "AU-BOUNDARY-R027",
     "AU-BOUNDARY-R028",
+    "AU-BOUNDARY-R028.1",
+    "AU-BOUNDARY-R028.2",
+    "AU-BOUNDARY-R028.3",
+    "AU-BOUNDARY-R028.4",
+    "AU-BOUNDARY-R028.5",
+    "AU-BOUNDARY-R028.6",
+    "AU-BOUNDARY-R028.7",
+    "AU-BOUNDARY-R028.8",
     "AU-BOUNDARY-R029",
     "AU-BOUNDARY-R030",
     "AU-BOUNDARY-R031",
@@ -347,7 +355,55 @@
     },
     {
       "id": "AU-BOUNDARY-R028",
-      "title": "Move remaining graph standardization and security modules to EG",
+      "title": "Move remaining graph standardization and security modules to EG (rollup)",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R028.1",
+      "title": "Retire kg/standardization/{cohorts,consolidation,standards}.py (excludes drift.py)",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R028.2",
+      "title": "Retire kg/infra/{placement_optimizer,inventory_collector}.py",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R028.3",
+      "title": "Retire kg/quantum/{budget,__init__}.py and observability/quantum_trace.py",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R028.4",
+      "title": "Retire kg/security/{cognitive_trap_defense,policy_ingestor,graph_validator,rule_ingestor}.py",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R028.5",
+      "title": "Retire protocols/enterprise/{__init__,read_models}.py",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R028.6",
+      "title": "Retire observability/{trace_ontology,self_ingest,audit_logger}.py",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R028.7",
+      "title": "Retire governance/relational_authority.py and .json",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R028.8",
+      "title": "Retire kg/research/placement_mining.py",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },
