@@ -1496,11 +1496,17 @@ def _load_and_validate_manifest(path: Path, label: str) -> tuple[Any, Any, list[
 
 
 def _compiled_manifest_graph(manifest: Any, label: str) -> tuple[Any, list[str]]:
-    from .manifest_compiler import compile_manifest, export_manifest_ttl
+    # AU-BOUNDARY-R030: the hand-written Turtle emitter moved to
+    # ``agent_connector_sdk.manifest.ontology_pack``; this gate re-validates
+    # against the SDK's own ``ConnectorManifest`` and compiles through it
+    # rather than rendering Turtle locally (callers still on the local
+    # ``.manifest_compiler`` copy are tracked in specs/au-boundary-deconstruction).
+    from agent_connector_sdk.manifest.model import ConnectorManifest as SDKManifest
+    from agent_connector_sdk.manifest.ontology_pack import compile_manifest_ontology
 
     try:
-        spec = compile_manifest(manifest)
-        ttl = export_manifest_ttl(spec, source=manifest.resolved_ontology_source)
+        sdk_manifest = SDKManifest.model_validate(manifest.model_dump(mode="python"))
+        ttl = compile_manifest_ontology(sdk_manifest)
         import rdflib
 
         g = rdflib.Graph()
