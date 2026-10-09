@@ -91,6 +91,8 @@ def test_the_vocabulary_is_referenced_by_its_core_source_id() -> None:
         assert spec.class_iri.startswith(SWARM_NS)
 
 
+@pytest.mark.spec("AU-CONTROL-R009")
+@pytest.mark.spec("AU-CONTROL-R010")
 @pytest.mark.parametrize("spec", REFERENCE_TEMPLATES, ids=lambda s: s.graph_id)
 def test_every_reference_template_conforms(
     engine_graph: Any, spec: TemplateSpec
@@ -131,6 +133,7 @@ def _verifier_pass_without_verifier(spec: TemplateSpec) -> TemplateSpec:
     ],
     ids=lambda value: getattr(value, "__name__", str(value)),
 )
+@pytest.mark.spec("AU-CONTROL-R009")
 def test_each_planted_defect_is_flagged(
     engine_graph: Any, plant: Any, graph_id: str
 ) -> None:
@@ -158,6 +161,7 @@ _CONTEXT = {
 _SLOT_AGENT = {"agent_id": "agent:slot", "definition_digest": "sha256:" + "2" * 64}
 
 
+@pytest.mark.spec("AU-CONTROL-R010")
 def test_the_publisher_sends_every_template_with_its_topology_facts() -> None:
     graphs = _Graphs()
 
