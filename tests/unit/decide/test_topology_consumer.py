@@ -15,9 +15,11 @@ import pytest
 
 from agent_utilities.decide.consumers.assembly import Assembler
 from agent_utilities.decide.consumers.topology import (
+    CAPACITY_DENIED,
     INDEPENDENT_SUBTASKS,
     TaskShape,
     TopologyAsk,
+    ask_topology,
     family_of,
     install_topology,
     plan_of,
@@ -74,6 +76,30 @@ ABSTAINED = {
         },
     }
 }
+CAPACITY_DENIED_RESULT = {
+    "record": {
+        "record_id": RECORD_ID,
+        "outcome": {
+            "outcome": "abstained",
+            "reasons": [{"reason": CAPACITY_DENIED}],
+        },
+    }
+}
+
+
+class _SequencedGraphs:
+    """An L3 agent-graph client answering each successive ``assemble`` call
+    with the next result of a fixed sequence (repeats the last past the end).
+    """
+
+    def __init__(self, results: list[dict[str, Any]]) -> None:
+        self.results = results
+        self.requests: list[Any] = []
+
+    async def assemble(self, request: Any) -> Any:
+        self.requests.append(request)
+        index = min(len(self.requests) - 1, len(self.results) - 1)
+        return self.results[index]
 
 
 @pytest.fixture
@@ -172,3 +198,36 @@ def test_a_plan_admission_names_its_record_and_positive_widths() -> None:
         admission_from_plan(
             broken, record_id=RECORD_ID, tenant="t", delegation_id="d:1"
         )
+
+
+def _ask(**over: Any) -> TopologyAsk:
+    return TopologyAsk(task_classes=(INDEPENDENT_SUBTASKS,), max_width=8, **over)
+
+
+def test_capacity_denial_gets_exactly_one_narrower_redecision() -> None:
+    graphs = _SequencedGraphs([CAPACITY_DENIED_RESULT, SOLVED])
+    assembler = Assembler(graphs, "tenant-t")
+    answer = asyncio.run(ask_topology(assembler, _ask(), [TEMPLATE_REF]))
+    assert answer.reason == "solved"
+    assert plan_of(answer.result) == PLAN
+    assert len(graphs.requests) == 2
+    first_caps = graphs.requests[0]["requirements"]["topology"]["caps"]
+    second_caps = graphs.requests[1]["requirements"]["topology"]["caps"]
+    assert first_caps["max_width"] == 8
+    assert second_caps["max_width"] == 4, "the re-decision asks narrower, never wider"
+
+
+def test_a_second_capacity_denial_is_not_re_decided_again() -> None:
+    graphs = _SequencedGraphs([CAPACITY_DENIED_RESULT, CAPACITY_DENIED_RESULT])
+    assembler = Assembler(graphs, "tenant-t")
+    answer = asyncio.run(ask_topology(assembler, _ask(), [TEMPLATE_REF]))
+    assert answer.reason == f"abstained: {CAPACITY_DENIED}"
+    assert len(graphs.requests) == 2, "at most one re-decision, never a loop"
+
+
+def test_a_non_capacity_abstention_is_not_re_decided() -> None:
+    graphs = _SequencedGraphs([ABSTAINED, SOLVED])
+    assembler = Assembler(graphs, "tenant-t")
+    answer = asyncio.run(ask_topology(assembler, _ask(), [TEMPLATE_REF]))
+    assert answer.reason == "abstained: infeasible"
+    assert len(graphs.requests) == 1, "only a capacity denial triggers a re-decision"
