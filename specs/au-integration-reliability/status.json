@@ -37,7 +37,7 @@
     {
       "id": "AU-INTEGRATION-R002",
       "title": "Control graph auto-creation and messaging intake propagation",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -45,6 +45,13 @@
           "commit": "46da005a6c4c8e760f63e8ad7ebd389410229e1a",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/46da005a6c4c8e760f63e8ad7ebd389410229e1a",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "46da005a6c4c8e760f63e8ad7ebd389410229e1a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/46da005a6c4c8e760f63e8ad7ebd389410229e1a",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
       "remaining": "messaging_intake_enabled threading into InProcessBackend.apply is on main, but __control__ graph auto-creation is not: graph_compute.py's _ensure_local_graph_ready still returns early (does nothing) whenever the local graph is __commons__, so a fresh packaged engine's first WorkItem still has no __c"
