@@ -931,6 +931,71 @@ def _prohibited_identity_violations(
     return violations
 
 
+def _commit_message_range(root: Path) -> list[str]:
+    """Git ``log`` selector for the not-yet-public commits (AU-QUAL-R006).
+
+    A commit already reachable from the public remote was already disclosed;
+    re-flagging it on every later commit would be a permanent, unfixable
+    failure rather than a leak-prevention signal. So scope to commits this
+    commit/push is about to make public: everything on ``HEAD`` not already
+    on ``origin/main``. With no such base (a fresh repo, a detached scan, or
+    ``origin/main`` itself), fall back to just the commit being made.
+    """
+    base = subprocess.run(
+        ["git", "merge-base", "HEAD", "origin/main"],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+        env=sanitized_git_env(),
+    )
+    merge_base = base.stdout.strip()
+    if base.returncode == 0 and merge_base:
+        return [f"{merge_base}..HEAD"]
+    return ["-1"]
+
+
+def _commit_messages(root: Path) -> list[tuple[str, str]]:
+    """Return ``(short SHA, full message)`` for each not-yet-public commit."""
+    if not (root / ".git").exists():
+        return []
+    result = subprocess.run(
+        ["git", "log", "--format=%h%x00%B%x01", *_commit_message_range(root)],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+        env=sanitized_git_env(),
+    )
+    if result.returncode != 0:
+        return []
+    entries: list[tuple[str, str]] = []
+    for chunk in result.stdout.split("\x01"):
+        sha, separator, message = chunk.partition("\x00")
+        if separator and sha:
+            entries.append((sha, message))
+    return entries
+
+
+def _commit_message_violations(
+    root: Path,
+    ordinals: dict[tuple[str, str, str], int],
+    identifiers: frozenset[str],
+) -> list[Violation]:
+    """Apply the runtime-source classifier to each not-yet-public commit message."""
+    violations: list[Violation] = []
+    for sha, message in _commit_messages(root):
+        label = f"commit:{sha}"
+        for number, line in enumerate(message.splitlines(), 1):
+            for category in classify_runtime_source_line(line, identifiers=identifiers):
+                content_hash = _content_hash(line)
+                ordinal = _next_ordinal(ordinals, (label, category, content_hash))
+                violations.append(
+                    Violation(label, number, category, content_hash, ordinal)
+                )
+    return violations
+
+
 def scan(
     root: Path = ROOT, *, prohibited_identities: tuple[bytes, ...] = ()
 ) -> list[Violation]:
@@ -944,6 +1009,7 @@ def scan(
     violations.extend(
         _prohibited_identity_violations(root, ordinals, prohibited_identities)
     )
+    violations.extend(_commit_message_violations(root, ordinals, identifiers))
     for path in _tracked_artifacts(root):
         if not path.is_file():
             continue
