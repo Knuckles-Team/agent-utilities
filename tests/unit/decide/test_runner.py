@@ -65,6 +65,7 @@ def test_an_unavailable_engine_costs_only_the_fallback() -> None:
     assert choice.reason.startswith("unavailable: ConnectionError: engine down")
 
 
+@pytest.mark.spec("AU-CONTROL-R004")
 def test_an_escalated_answer_re_enters_as_a_resolution() -> None:
     transport = FakeTransport(answer=abstained())
     escalated = Escalated(

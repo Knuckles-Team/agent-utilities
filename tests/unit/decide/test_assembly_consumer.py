@@ -43,6 +43,7 @@ def _install(box: list[FakeGraphs], result: dict[str, Any], **kw: Any) -> FakeGr
     return graphs
 
 
+@pytest.mark.spec("AU-CONTROL-R003")
 def test_eg_assembles_the_agent_and_the_goal_is_only_a_claim(installed) -> None:
     solved = {"record": {"outcome": {"outcome": "solved"}}, "agents": [AGENT]}
 
