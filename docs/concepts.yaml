@@ -4928,16 +4928,17 @@ concepts:
   - agent_utilities/knowledge_graph/memory/rlm_memory.py
   doc: RLM Memory Extraction Signature
 - id: AU-KG.memory.semantic-response-cache
-  name: See module docstring for the full safety
+  name: the freshness half of the cache contract
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/caching/freshness.py
   - agent_utilities/caching/semantic_cache.py
   - agent_utilities/harness/trace_backend.py
   - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/observability/gateway_metrics.py
-  doc: See module docstring for the full safety
+  doc: the freshness half of the cache contract
 - id: AU-KG.memory.targeted-add-update-delete
   name: targeted ADD/UPDATE/DELETE learner
   pillar: AU-KG
@@ -7426,6 +7427,7 @@ concepts:
   - agent_utilities/orchestration/engine.py
   - agent_utilities/orchestration/failure_translation.py
   - agent_utilities/orchestration/manager.py
+  - agent_utilities/orchestration/run_envelope.py
   doc: every terminal outcome of
 - id: AU-ORCH.execution.nl-compilation-pipeline
   name: Semantic Workflow Retrieval
@@ -8618,7 +8620,6 @@ concepts:
   - agent_utilities/graph/state.py
   - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/messaging/agent_channel.py
-  - agent_utilities/messaging/router.py
   - agent_utilities/models/agent.py
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/engine.py
