@@ -1,0 +1,15 @@
+{
+  "epistemic_graph_version": "2.27.0",
+  "epistemic_graph_commit": "5140b5c75041de6aed33921f6b8bbb1da05c4d63",
+  "gate": "scripts/constrained_parallelism_gate.sh",
+  "steps": [
+    "build_cdc_kafka_feature",
+    "exact_select",
+    "enqueue_only_test_constrained_1",
+    "enqueue_only_test_constrained_2"
+  ],
+  "result": "passed",
+  "evidence_kind": "external_dependency",
+  "recorded_by": "AU release checklist (AU-INTEGRATION-R010)",
+  "url": "https://github.com/Knuckles-Team/epistemic-graph/commit/5140b5c75041de6aed33921f6b8bbb1da05c4d63"
+}
