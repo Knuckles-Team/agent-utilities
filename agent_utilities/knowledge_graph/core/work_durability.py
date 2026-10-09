@@ -276,6 +276,15 @@ class WorkItemBackendUnavailable(RuntimeError):
     """
 
 
+class ControlGraphUnavailable(WorkItemBackendUnavailable):
+    """Raised when the ``__control__`` WorkItem authority view cannot be opened.
+
+    AU-SEC-R002: falling back to the caller's content graph would split WorkItem
+    authority and leak control state into content, so the failure is surfaced
+    instead.
+    """
+
+
 class NativeWorkItemRequired(WorkItemBackendUnavailable):
     """Raised when production cannot reach the engine-native WorkItem verbs."""
 

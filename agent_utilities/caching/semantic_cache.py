@@ -16,7 +16,13 @@ just a performance one, so every default here is the conservative one:
   ``True`` — there is no way to "forget" to declare it, because the default is the refusal.
 * **Freshness-bounded.** :attr:`SemanticCachePolicy.freshness_tolerance_seconds` must be an
   explicit non-negative int. ``None`` (the default) means "the caller never said how stale an
-  answer may be", which is treated identically to "never" — refuse to serve from cache.
+  answer may be", which is treated identically to "never" — refuse to serve from cache —
+  UNLESS the policy names the KG classes the answer depends on
+  (:attr:`SemanticCachePolicy.depends_on_classes`) and every one of them declares an
+  ``eg:volatilityClass``: then the declared bound is the tolerance (AU-SEC-R003, see
+  :mod:`agent_utilities.caching.freshness`). A declared bound only ever CAPS a caller's
+  tolerance, and an entry is dropped the moment the engine reports a write to one of its
+  classes.
 * **Fails to a live call, never to a stale answer.** Every refusal path in :meth:`SemanticCache.lookup`
   returns ``hit=False`` with a specific ``reason`` — it never raises and never invents a response;
   the caller always falls through to its own live call on anything but an explicit hit.
@@ -51,10 +57,16 @@ import math
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agent_utilities.caching.freshness import (
+    FreshnessHub,
+    combine_tolerance,
+    freshness_hub,
+)
 from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
@@ -146,6 +158,11 @@ class SemanticCachePolicy(BaseModel):
     similarity_threshold: float = Field(
         default=_DEFAULT_SIMILARITY_THRESHOLD, ge=0.0, le=1.0
     )
+    #: The KG graph and classes the cached answer depends on (AU-SEC-R003). When set, the classes'
+    #: declared volatility bounds the tolerance and an engine write to any of them drops the
+    #: entry.
+    graph: str = ""
+    depends_on_classes: frozenset[str] = Field(default_factory=frozenset)
 
     model_config = ConfigDict(extra="forbid")
 
@@ -253,6 +270,8 @@ class _Entry:
         "created_at",
         "tolerance_seconds",
         "priority_rank",
+        "graph",
+        "classes",
     )
 
     def __init__(
@@ -261,14 +280,18 @@ class _Entry:
         embedding: list[float],
         response_text: str,
         created_at: float,
-        tolerance_seconds: int,
+        tolerance_seconds: float,
         priority_rank: int,
+        graph: str = "",
+        classes: frozenset[str] = frozenset(),
     ) -> None:
         self.embedding = embedding
         self.response_text = response_text
         self.created_at = created_at
         self.tolerance_seconds = tolerance_seconds
         self.priority_rank = priority_rank
+        self.graph = graph
+        self.classes = classes
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -335,8 +358,11 @@ class SemanticCache:
         embed_fn: Any = None,
         max_buckets: int = _DEFAULT_MAX_BUCKETS,
         max_entries_per_bucket: int = _DEFAULT_MAX_ENTRIES_PER_BUCKET,
+        freshness: Callable[[str], FreshnessHub] = freshness_hub,
     ) -> None:
         self._embed_fn = embed_fn or _default_embed_fn
+        # ``graph -> FreshnessHub`` (AU-SEC-R003); the process-wide hubs by default.
+        self._freshness = freshness
         self._max_buckets = max_buckets
         self._max_entries_per_bucket = max_entries_per_bucket
         # Keyed by fingerprint; each bucket keeps the ORIGINAL SemanticCacheKey alongside its
@@ -350,6 +376,44 @@ class SemanticCache:
     @staticmethod
     def _master_switch_enabled() -> bool:
         return bool(setting("AU_SEMANTIC_CACHE", False))
+
+    def _tolerance(self, policy: SemanticCachePolicy) -> float | None:
+        """The effective freshness tolerance for ``policy``: the caller's, capped by the declared
+        volatility of the classes it depends on. ``None`` refuses (AU-SEC-R003)."""
+        declared = None
+        if policy.depends_on_classes:
+            hub = self._freshness(policy.graph)
+            hub.attach(self)
+            declared = hub.ttl_for(policy.depends_on_classes)
+        return combine_tolerance(policy.freshness_tolerance_seconds, declared)
+
+    def invalidate_classes(self, graph: str, classes: frozenset[str]) -> int:
+        """Drop every entry of ``graph`` (or of no stated graph) that depends on any of
+        ``classes`` — an engine write touched them (AU-SEC-R003). Returns the entries dropped."""
+        return self._drop_entries(
+            lambda entry: (
+                entry.graph in ("", graph) and not entry.classes.isdisjoint(classes)
+            )
+        )
+
+    def invalidate_graph(self, graph: str) -> int:
+        """Drop every class-dependent entry of ``graph`` (or of no stated graph): the engine
+        reported a write it could not attribute, or its feed could not be followed."""
+        return self._drop_entries(
+            lambda entry: entry.graph in ("", graph) and bool(entry.classes)
+        )
+
+    def _drop_entries(self, doomed: Any) -> int:
+        dropped = 0
+        with self._lock:
+            for fingerprint in list(self._buckets):
+                bucket_key, entries = self._buckets[fingerprint]
+                kept = [entry for entry in entries if not doomed(entry)]
+                dropped += len(entries) - len(kept)
+                self._buckets[fingerprint] = (bucket_key, kept)
+        if dropped:
+            _record_op("invalidate", "freshness")
+        return dropped
 
     def _embed(self, text: str) -> list[float] | None:
         try:
@@ -393,10 +457,8 @@ class SemanticCache:
             return SemanticCacheLookup(key=key, outcome="disabled")
         if not policy.side_effect_free:
             return SemanticCacheLookup(key=key, outcome="refused_side_effect")
-        if (
-            policy.freshness_tolerance_seconds is None
-            or policy.freshness_tolerance_seconds < 0
-        ):
+        tolerance = self._tolerance(policy)
+        if tolerance is None:
             return SemanticCacheLookup(key=key, outcome="refused_freshness")
 
         embedding = self._embed(query_text)
@@ -413,8 +475,7 @@ class SemanticCache:
         best_stale = False
         for entry in bucket:
             age = now - entry.created_at
-            tolerance = min(policy.freshness_tolerance_seconds, entry.tolerance_seconds)
-            if age > tolerance:
+            if age > min(tolerance, entry.tolerance_seconds):
                 best_stale = True
                 continue
             similarity = _cosine_similarity(embedding, entry.embedding)
@@ -455,10 +516,8 @@ class SemanticCache:
         if not policy.side_effect_free:
             _record_op("store", "refused_side_effect")
             return False
-        if (
-            policy.freshness_tolerance_seconds is None
-            or policy.freshness_tolerance_seconds < 0
-        ):
+        tolerance = self._tolerance(policy)
+        if tolerance is None:
             _record_op("store", "refused_freshness")
             return False
 
@@ -477,8 +536,10 @@ class SemanticCache:
             embedding=embedding,
             response_text=response_text,
             created_at=time.time(),
-            tolerance_seconds=policy.freshness_tolerance_seconds,
+            tolerance_seconds=tolerance,
             priority_rank=priority.rank,
+            graph=policy.graph,
+            classes=frozenset(policy.depends_on_classes),
         )
         with self._lock:
             if key.fingerprint not in self._buckets:

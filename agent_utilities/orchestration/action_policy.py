@@ -897,7 +897,7 @@ class ActionPolicy:
         if rule.tier == TIER_FORBIDDEN:
             base.reason = "forbidden by policy"
             return base
-        granted_id = self._granted_approval_id(request)
+        granted_id = self.granted_approval_id(request)
         if granted_id:
             base.decision = DECISION_ALLOW
             base.reason = "matching durable approval granted"
@@ -980,6 +980,17 @@ class ActionPolicy:
         return base
 
     # ── side effects: approval queue, audit ledger, notification ────
+
+    def granted_approval_id(self, request: ActionRequest) -> str | None:
+        """Return an approval bound to this exact request, never a target match.
+
+        Public read-only probe (AU-SEC-R007): a caller outside this class --
+        e.g. a guardrail evolution step checking for an already-approved
+        loosening -- may ask whether a durable approval exists without going
+        through :meth:`decide`, which has queueing/audit side effects. Shares
+        the lookup in :meth:`_granted_approval_id` rather than reimplementing it.
+        """
+        return self._granted_approval_id(request)
 
     def _granted_approval_id(self, request: ActionRequest) -> str | None:
         """Return an approval bound to this exact request, never a target match."""

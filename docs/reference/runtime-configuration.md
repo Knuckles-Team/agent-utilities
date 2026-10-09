@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-579 typed fields · 366 runtime-only call-site inputs.
+579 typed fields · 367 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -1055,6 +1055,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `SKILL_GRAPH_CRAWL_TIMEOUT` | 1 |
 | `SKILL_GRAPH_MAX_PAGES` | 1 |
 | `SLACK_APP_TOKEN` | 1 |
+| `SOURCE_CONTRACT_EVOLUTION_POLICY` | 1 |
 | `SOURCE_CREDENTIALS` | 1 |
 | `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE` | 1 |
 | `STARDOG_ENDPOINT` | 1 |
