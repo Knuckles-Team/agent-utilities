@@ -131,6 +131,32 @@ def _cypher_literal(value: Any) -> str:
     )
 
 
+def _run_batch_update(graph: Any, operations: list[dict[str, Any]]) -> Any:
+    """Run ``BatchUpdate``, annotating a validated native refusal before re-raising.
+
+    ``execute_write`` wraps every raw native failure in :class:`CypherEngineError`,
+    which copies the native ``code`` into a validated ``engine_error_code`` the
+    public error boundary (``security.error_surface.public_error_payload``) can
+    report (e.g. epistemic-graph's clustered-mode ``LOCAL_ONLY_CLUSTER_REFUSAL``,
+    wire code ``CLUSTER_MUTATION_UNAVAILABLE`` — AU-INTEGRATION-R001). The typed
+    ``BatchUpdate`` path (:meth:`EpistemicGraphBackend.add_node`,
+    :meth:`EpistemicGraphBackend.add_edge`, :meth:`EpistemicGraphBackend.
+    apply_typed_batch`) previously let a refusal through unannotated. This
+    keeps the exception's own type and identity (every existing typed-write
+    caller still sees exactly what it raised before) and only adds the same
+    validated code, so a refusal is reported rather than silently flattened
+    into an unlabeled failure. Returns ``batch_update``'s own result
+    unchanged (``apply_typed_batch`` is the one caller that uses it).
+    """
+    try:
+        return graph.batch_update(operations)
+    except Exception as exc:  # noqa: BLE001 - attach the validated native refusal code, then re-raise unchanged
+        code = validated_engine_error_code(getattr(exc, "code", None))
+        if code is not None:
+            exc.engine_error_code = code
+        raise
+
+
 class EpistemicGraphBackend(GraphBackend):
     """One-process adapter over the authoritative Rust graph service."""
 
@@ -184,7 +210,7 @@ class EpistemicGraphBackend(GraphBackend):
         that already own typed node/edge preparation can collapse their durable
         writes without bypassing this backend's graph-scoped authority.
         """
-        return self._graph.batch_update(operations)
+        return _run_batch_update(self._graph, operations)
 
     @staticmethod
     def _inline_cypher_params(
@@ -558,7 +584,7 @@ class EpistemicGraphBackend(GraphBackend):
             {"op": "upsert_node", "id": node_id, "properties": row}
         ]
         operations.extend(self._projected_operations(node_id, row))
-        self._graph.batch_update(operations)
+        _run_batch_update(self._graph, operations)
 
     def _projected_operations(
         self, node_id: str, row: Mapping[str, Any]
@@ -641,7 +667,8 @@ class EpistemicGraphBackend(GraphBackend):
         relationship = str(properties.get("relationship") or rel_type).strip()
         if not relationship:
             raise ValueError("relationship is required")
-        self._graph.batch_update(
+        _run_batch_update(
+            self._graph,
             [
                 {
                     "op": "upsert_edge",
@@ -652,7 +679,7 @@ class EpistemicGraphBackend(GraphBackend):
                         "relationship": relationship,
                     },
                 }
-            ]
+            ],
         )
 
     def get_node_properties(self, node_id: str) -> dict[str, Any] | None:
