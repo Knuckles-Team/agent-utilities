@@ -32,10 +32,9 @@ Both paths return ``None`` when no engine vector surface is reachable at all.
 There is no designation fallback to an in-process capability index —
 :mod:`.capability_index` stays in the loop only as a bounded, non-authoritative
 cache (reward write-back via ``record_outcome``), never as a read-path fallback;
-an engine without either vector surface is unavailable. Never raises — a plan
-the engine build doesn't understand (e.g. an older engine without the
-``Filter`` op) degrades to the next tier, exactly like every other
-engine-surface consumer in this codebase.
+an engine without either vector surface is unavailable. Vector-plan errors
+(e.g. an older engine without the ``Filter`` op) degrade to the next tier.
+Missing or mismatched verified read authority raises before either tier runs.
 
 **X-4 — ontology-subsumption-aware push-down.** The ``capabilities`` restriction
 is always hierarchy-aware (an isolated engine-derived projection may be injected
@@ -55,6 +54,12 @@ untouched: identical plan, identical behaviour to pre-X-4.
 
 import logging
 from typing import Any
+
+from agent_utilities.knowledge_graph.core.session import (
+    GraphSession,
+    SessionRequiredError,
+    resolve_session,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -378,6 +383,7 @@ def engine_filtered_search(
     label: str = "",
     capability_hierarchy: Any | None = None,
     active_release_channel: Any | None = None,
+    session: GraphSession | None = None,
 ) -> list[tuple[str, float]] | None:
     """Return ``(id, score)`` candidates from the engine's native filtered ANN.
 
@@ -385,10 +391,20 @@ def engine_filtered_search(
     real, authoritative answer: the engine ran the filtered plan and no entity
     qualified.
 
-    ``capability_hierarchy`` (X-4) may inject an isolated engine-derived
+    ``session`` must be the verified ambient authority (or omitted to inherit
+    it); ``kg:read`` is required before ontology or vector access. ``tenant``
+    remains a compatibility assertion for existing callers, never an authority
+    source. ``capability_hierarchy`` (X-4) may inject an isolated engine-derived
     projection; omitting it classifies the composed GraphSchema through
     ``OwlReason``. See the module docstring for the push-down/post-filter split.
     """
+    session = resolve_session(session, required_scope="kg:read")
+    if tenant is not None and tenant != session.tenant:
+        raise SessionRequiredError(
+            "Capability search tenant must match the verified GraphSession"
+        )
+    tenant = session.tenant
+
     capability_hierarchy = _search_hierarchy(
         engine, required_caps, capability_hierarchy
     )
