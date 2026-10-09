@@ -48,9 +48,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events: []
 identity:
   id_field: {}
@@ -80,18 +94,18 @@ schema_mappings:
 sync: []
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-27T02:41:56Z'
+  generated_at: '2026-10-09T08:32:25Z'
   source_artifacts:
   - spark_mcp/ontology/spark.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: 4eab4ced58ca35687794b0b127b2b4b15f2d6e4e23954dc12c92eebe4f66c097
+    hash: 70fba5882d09e32ec7e00842f7de03a98db8261db9588f33c16a09d596db9436
     triple_count: 41
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 9a07e79c710a9b8ad9473e79d083d78ed0d61422
+  source_commit: 6bc843581053741a926003900f8f0ab15829164c
 policy:
   pii_fields: {}
   tenant_boundary: null

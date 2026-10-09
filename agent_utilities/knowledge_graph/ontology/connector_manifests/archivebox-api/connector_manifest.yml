@@ -32,9 +32,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events:
 - name: archivebox-snapshots.updated
   resource: web_snapshot
@@ -102,20 +116,20 @@ sync:
     doc_type: web_snapshot
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-10-09T08:31:20Z'
   source_artifacts:
   - archivebox_api/connectors/mcp_source_presets.json
   - archivebox_api/connectors/tool_schema_fingerprints.json
   - archivebox_api/ontology/archivebox.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: 6dc284691a1498aad339af5e6c62306af996eb3a36d10fded74f8b6afdc7338e
+    hash: 21610d6d078298dfdfdab6663bbb83bc3fbe72496093be88dcebed3176a1f1f8
     triple_count: 47
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 8e33311e3a98170e00d8118d2a9a6481a0122746
+  source_commit: 39fe1cf92addccf00fcf0d130cd9957703cab489
 policy:
   pii_fields: {}
   tenant_boundary: null

@@ -112,20 +112,20 @@ sync:
     doc_type: paperless-document-reference
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-09-20T00:00:00Z'
+  generated_at: '2026-10-09T08:32:12Z'
   source_artifacts:
   - paperless_ngx_mcp/connectors/mcp_source_presets.json
   - paperless_ngx_mcp/connectors/tool_schema_fingerprints.json
   - paperless_ngx_mcp/ontology/paperless.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: b23d9d6d30379acaafa964fb47a13097010dfd70f7decc48cef1ef004f50849f
+    hash: e452ba88307e1c5c68c453617cb6a8ac6710275ab7f63beeddc97f93d9454fbf
     triple_count: 37
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 685f8f64c8cd6759407c1ad64c915f960cdf9ca1
+  source_commit: 5c3c1313bae63f1f7aff938d8657d39dfdfd7d54
 policy:
   pii_fields: {}
   tenant_boundary: null

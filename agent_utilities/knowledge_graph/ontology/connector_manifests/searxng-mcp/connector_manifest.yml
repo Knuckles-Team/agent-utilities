@@ -36,9 +36,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events:
 - name: searxng-web-search.updated
   resource: search_result
@@ -122,20 +136,20 @@ sync:
     doc_type: search_result
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-10-09T08:32:23Z'
   source_artifacts:
   - searxng_mcp/connectors/mcp_source_presets.json
   - searxng_mcp/connectors/tool_schema_fingerprints.json
   - searxng_mcp/ontology/searxng.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: d63d239f764120d792b8219c831075e8b85f99f874a01fe46e8a7494d27cf01e
+    hash: 5c37c1988960b8eeb18e6cb06080ee36162ccd1824c6a3e769189cdaeb1eb6a3
     triple_count: 49
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: d10e6912e43f469f8285498167b168761b6f2c62
+  source_commit: 629a67c2f065c543ce567e7e8a08a7fd4436c0a1
 policy:
   pii_fields: {}
   tenant_boundary: null

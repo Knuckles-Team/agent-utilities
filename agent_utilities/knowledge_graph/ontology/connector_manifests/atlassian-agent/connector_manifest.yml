@@ -40,9 +40,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events:
 - name: atlassian-confluence-pages.updated
   resource: confluence_page
@@ -147,20 +161,20 @@ sync:
     doc_type: jira_issue
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-10-09T08:31:24Z'
   source_artifacts:
   - atlassian_agent/connectors/mcp_source_presets.json
   - atlassian_agent/connectors/tool_schema_fingerprints.json
   - atlassian_agent/ontology/atlassian.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: 4c34d353d8b83828904232ccae436a4bd874e4a9e95fbfddf05b60dac1cc0e23
+    hash: 8f253052e43e84d01470eb89e143b0d16ec4afd07911ab202a1b4986dd498fc9
     triple_count: 49
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: b6ab178dddda44ed8b77936a1344add9629e97be
+  source_commit: b76dae74d1263fbcd23bf7235087d9c83fb603f0
 policy:
   pii_fields: {}
   tenant_boundary: null
