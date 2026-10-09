@@ -11,7 +11,7 @@ An **ontology** is the foundational artifact organizing ontological resources ac
 
 1. **Object types** — fundamental data-entity definitions; properties, metadata, behavioral config; can integrate with external systems; user-editable.
 2. **Link types** — relationships between object types; directional and semantic; metadata-reference config.
-3. **Action types** — function-backed or rules-based operations; parameters with filtering/defaults; submission criteria; side effects (notifications, webhooks, schedule triggers); inline edits, batched execution, permissions.
+3. **Action types** — function-backed or rules-based operations. Parameters with filtering/defaults; submission criteria; side effects (notifications, webhooks, schedule triggers); inline edits, batched execution, permissions.
 4. **Interfaces** — abstract type definitions for polymorphic modeling; implementation + extension; interface-specific link types.
 5. **Shared properties** — reusable property definitions across object types; struct-compatible; metadata-reference support.
 6. **Object type groups** — organizational containers for related object types (logical categorization, search/explore taxonomy).

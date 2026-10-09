@@ -6,8 +6,8 @@
 
 **A million agents are rows, not processes.** A dormant agent instance is a durable
 `eg-statechart` `MachineInstance` (its `dormant ⇄ active` lifecycle) plus a per-tenant
-graph node — **no connection, no thread, no heartbeat while dormant**. You pay only for
-the agents you activate.
+graph node — **no connection, no thread, no heartbeat while dormant**. The operator pay only for
+the agents the operator activate.
 
 This is a *composition* of three stores that already exist, plus one worker loop. It is
 **not** a new scheduler framework or actor library (the ADR-6 non-goals):

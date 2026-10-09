@@ -29,7 +29,7 @@
 A **DAG** (Directed Acyclic Graph) is a directed graph with no cycles.  The
 **critical path** is the longest weighted path from any source node to any
 sink node.  Its length equals the **makespan** — the minimum possible
-completion time regardless of how many parallel workers you use.
+completion time in either case of how multiple parallel workers the operator use.
 
 - **Topological Sort**: A linear ordering of DAG vertices such that for
   every directed edge (u, v), u appears before v in the ordering.
@@ -100,7 +100,7 @@ for each node — its long-run importance.
 For a graph with adjacency matrix A, the entry **(A^k)[i][j]** equals the
 number of distinct walks of length k from vertex i to vertex j.
 
-This enables answering queries like "How many reasoning paths of length 3
+This enables answering queries like "How multiple reasoning paths of length 3
 connect concept A to concept B?"
 
 **Module**: `formal_reasoning_core.count_paths_of_length()`
@@ -212,7 +212,7 @@ d-separation implies **conditional independence**: X ⊥ Y | Z
 
 Inspired by MedCausalX's `<causal>` and `<verify>` tokens.  Checks whether
 a reasoning chain's intermediate steps maintain causal consistency with the
-underlying SCM by verifying:
+underlying SCM by checking:
 
 1. Causal direction matches the DAG
 2. No reversed causality
@@ -356,13 +356,13 @@ High surprise = frequently visited but far away = novel connection.
 
 ### Implementation Shortfall
 
-The difference between the **decision price** (price when you decide to trade)
+The difference between the **decision price** (price when the operator decide to trade)
 and the **actual average execution price**.  This is the total cost of trading,
 composed of:
 
 - **Permanent market impact**: Price change that persists (information leakage)
 - **Temporary market impact**: Price change that reverses (liquidity displacement)
-- **Timing risk**: Variance due to price volatility during execution
+- **Timing risk**: Variance because price volatility during execution
 
 ### Limit Order Book (LOB)
 
@@ -373,7 +373,7 @@ priority.  Key concepts:
 - **Ask**: Lowest price a seller is willing to accept
 - **Spread**: Ask - Bid (the cost of immediacy)
 - **Mid-price**: (Bid + Ask) / 2
-- **Market order**: Executes immediately at best available price (takes liquidity)
+- **Market order**: Runs immediately at best available price (takes liquidity)
 - **Limit order**: Rests in the book until matched or cancelled (provides liquidity)
 
 ### Almgren-Chriss Model

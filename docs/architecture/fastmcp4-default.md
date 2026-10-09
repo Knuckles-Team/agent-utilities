@@ -65,7 +65,7 @@ meta-tool (`find_tools`/`list_catalog`/`load_tools`/`unload_tools`/`multiplexer_
   `pyproject.toml` — accurate for both a dev checkout and a deployed wheel.
 - Derives the `mcp` floor transitively from `fastmcp-slim`'s own installed metadata
   (fastmcp's real runtime dependency) instead of a second, hand-maintained constraint
-  that could drift from what fastmcp itself requires.
+  that can drift from what fastmcp itself requires.
 - Wired into `agent-utilities doctor` as the `mcp_sdk_floor` check (fails with a concrete
   remediation — reinstall/re-lock the `[mcp]` extra — instead of an opaque import crash
   at serve time) and covered by a CI regression test
@@ -94,7 +94,7 @@ built by kaniko from a single `--context` directory that is **one au worktree**.
 no workspace root in that context and no `uv.lock`. Two independent consequences:
 
 * uv honours `[tool.uv] override-dependencies` **only from the workspace root manifest**,
-  so even a uv-driven build of the package alone would not see it; and
+  so even a uv-driven build of the package alone will not see it; and
 * the build used plain pip, which cannot read `[tool.uv]` tables at all.
 
 The build therefore resolved its own dependency set, and the Dockerfile compensated with
@@ -118,11 +118,11 @@ The fix is to carry the override into the build by the same mechanism:
   `epistemic-graph[full]` pinned to the staged kernel-injected wheel.
 * No blanket `--prerelease=allow`: the `>=4.0.0b1` override is itself the explicit
   prerelease signal uv needs for that one package. A global prerelease mode bleeds
-  (verified: it pulled `sqlalchemy 2.1.0b3`).
+  (checked: it pulled `sqlalchemy 2.1.0b3`).
 
 **Keep `overrides.txt` in sync with the workspace root whenever that table changes.**
 
-## Why a metadata-only floor check could not have caught this
+## Why a metadata-only floor check can not have caught this
 
 `check_mcp_sdk_floor()` originally read the declared floor from `agent-utilities`' own
 installed `.dist-info`. In this runtime that is precisely the wrong side of the
@@ -185,8 +185,8 @@ retired runtimes cannot repopulate a replacement catalog epoch.
 For a network child, the multiplexer mints a short-lived run token using the
 existing `AGENT_UTILITIES_TOKEN_SECRET` (`security.run_token`) and binds the
 normalized task request, owning server, method, exact revision, and the
-verified `{tenant, owner, scopes}`. The child additionally requires its
-FastMCP-verified service bearer to match configured issuer/audience and carry
+checked `{tenant, owner, scopes}`. The child also requires its
+FastMCP-checked service bearer to match configured issuer/audience and carry
 `mcp:delegate` (or an administrative equivalent). For a local stdio child,
 each connection generation receives a random private channel secret through a
 parent-controlled environment variable; the task proof carries a second MAC

@@ -3,7 +3,7 @@
 `graphos-certification-load` is the only load command accepted by the production
 certification campaign. The campaign requires it to invoke
 `scripts.scale.loadgen` with `--engine live`, `--scale 1.0`, the exact campaign
-duration, the campaign report path, and the release digest supplied by the
+duration, the campaign report path, and the release digest provided by the
 signed release manifest.
 
 The load generator validates the remaining runtime boundary before it opens an
@@ -14,7 +14,7 @@ engine client. A live run fails closed unless all of the following are present:
   `KG_IDENTITY_OAUTH2`, or `GRAPH_SERVICE_AUTH_SECRET`) and either an authenticated
   engine TLS profile (`ENGINE_TLS_PROFILE_REF` or `ENGINE_TLS_PROFILE`) or the
   complete injected bundle (`ENGINE_CA_BUNDLE` plus `ENGINE_TLS_SERVER_NAME`, with
-  `ENGINE_CLIENT_CERT` and `ENGINE_CLIENT_KEY` supplied together when mTLS is used);
+  `ENGINE_CLIENT_CERT` and `ENGINE_CLIENT_KEY` provided together when mTLS is used);
 - `LOADGEN_TENANT`, `LOADGEN_PRINCIPAL`, and `LOADGEN_AUDIENCE`;
 - immutable `LOADGEN_RELEASE_DIGEST`, `LOADGEN_TOPOLOGY_DIGEST`,
   `LOADGEN_IMAGE_DIGEST`, and `LOADGEN_WORKLOAD_CONTRACT_DIGEST` values.
@@ -48,7 +48,7 @@ python -m scripts.scale.loadgen_source_authority \
 The gate requires a regular, tracked file, the exact origin URL and commit,
 matching bytes, and a `services.items` registration for `loadgen` in the
 workspace manifest. It never accepts a workspace snapshot with no Git root or
-an unregistered copy. Its JSON output supplies the source-authority digest for
+an unregistered copy. Its JSON output provides the source-authority digest for
 that exact manifest; a digest produced for `compose.yml` must never be reused
 for `k8s/manifests.yaml`. The deployment adapter must reject the deployment if
 either definition's gate fails. Missing or failed output is a hard preflight failure
@@ -62,7 +62,7 @@ graphos-certification-load --engine mock --scale 0.001 --duration-s 5 \
 ```
 
 Mock reports are marked `runtime.mode=mock`; the production campaign rejects
-them regardless of their SLO result. A mock run therefore provides regression
+them in either case of their SLO result. A mock run therefore provides regression
 coverage but can never qualify live certification.
 
 The gateway k6 scenario and the AU certification load are separate workloads:
@@ -97,7 +97,7 @@ certification remains fail-closed.
 The AU-owned replacement source is `deploy/loadgen/`. It follows the existing
 release-template/Kustomize convention and renders both production Compose and
 Kubernetes output, plus a separate non-certifying mock overlay, only when the
-operator supplies a digest-pinned `repo@sha256:<64hex>` image and the complete
+operator provides a digest-pinned `repo@sha256:<64hex>` image and the complete
 release/topology/contract/source/workload-identity binding. Generate and check
 the bundle with `scripts/release/render_loadgen_assets.py` and
 `scripts/release/check_loadgen_assets.py`; the resulting

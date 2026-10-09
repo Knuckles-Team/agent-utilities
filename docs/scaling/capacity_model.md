@@ -13,7 +13,7 @@
 > review correctly called that out — a modeled shard/worker/node COUNT is not
 > a demonstrated CAPACITY. The linear arithmetic below (`capacity_model.py`)
 > is still here and still useful as a **first-order infrastructure-sizing
-> tool** (how many PG shards/L0 shards/nodes to provision), but it is no
+> tool** (how multiple PG shards/L0 shards/nodes to provision), but it is no
 > longer what "1M" MEANS. What "1M residents, sustained" means now is defined
 > precisely by [`workload_contract.yml`](./workload_contract.yml) +
 > [`workload_contract.py`](./workload_contract.py) — registered agents,
@@ -30,7 +30,7 @@
 > real-multi-node scenarios are documented and skip-marked, not faked.
 >
 > The measured anchors below (transport latency, per-shard write throughput,
-> per-agent working-set) still stand and now ALSO anchor several
+> per-agent working-set) still stand and now ALSO anchor multiple
 > `workload_contract.yml` fields directly (see that file's `# anchor:` comments)
 > so the contract and this model cannot silently drift apart —
 > `tests/scale/test_workload_contract.py` cross-checks them.
@@ -66,12 +66,12 @@ the server sheds excess concurrent load with a `BUSY` response
 
 ## Three-axis framing
 
-Scaling is **not** a single dimension. We size three independent axes and take
+Scaling is **not** a single dimension. This repository size three independent axes and take
 the max of the resulting infrastructure:
 
 | Axis | Driver | Knob in `core/config.py` |
 |------|--------|--------------------------|
-| **Active concurrency** | agents executing *right now* | `worker_pool_size` × node count; **queue-driven dispatch is the implemented scale-out path for this axis** — `agent_dispatch_backend=queue` + N `agent-dispatch-worker` hosts (see [`architecture/agent_dispatch.md`](../architecture/agent_dispatch.md), CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch). Deployment/live status is separate evidence. |
+| **Active concurrency** | agents running *right now* | `worker_pool_size` × node count; **queue-driven dispatch is the implemented scale-out path for this axis** — `agent_dispatch_backend=queue` + N `agent-dispatch-worker` hosts (see [`architecture/agent_dispatch.md`](../architecture/agent_dispatch.md), CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch). Deployment/live status is separate evidence. |
 | **Resident population** | total agents whose state must persist | `graph_service_endpoints` (PG/L0 shard fan-out — the L0 side is the implemented tenant-partitioned engine-sharding path, see [`architecture/engine_sharding.md`](../architecture/engine_sharding.md), CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw). Deployment/live status is separate evidence. |
 | **Event throughput** | graph events/sec driving fan-out | `kafka_bootstrap_servers` partitions |
 
@@ -95,7 +95,7 @@ adjustable in one place:
 | `MIN_KAFKA_PARTITIONS` | 3 | floor for ordering/parallelism headroom |
 
 `OPS_PER_SEC_PER_KAFKA_PARTITION` is the **one constant tied to the measured
-anchor** — one consumer connection drains ~5,000 ops/sec, so we size one
+anchor** — one consumer connection drains ~5,000 ops/sec, so this repository size one
 partition per connection. The rest are conservative planning round numbers, not
 measurements.
 
@@ -178,7 +178,7 @@ accepted them. That stage is now implemented:
 
 - agent turns ride the session-keyed `agent_turns` queue
   (`AGENT_DISPATCH_BACKEND=queue`; transport follows `TASK_QUEUE_BACKEND`);
-- any host running `agent-dispatch-worker` claims and executes them against the
+- any host running `agent-dispatch-worker` claims and runs them against the
   shared state store (AU-OS.state.unified-durable-state-externalization), so "Workers = ceil(active / 25)" maps to a
   **stateless dispatch-worker fleet** spread across "Nodes", not to one
   process's coroutine cap;

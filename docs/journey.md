@@ -23,7 +23,7 @@ In that single millisecond, a spark of execution is struck. But this is not a ba
 
 Before a single line of reasoning can be formed, the **Agent OS Kernel** (`CONCEPT:AU-OS.safety.doom-loop-detection`) wakes. It operates as the foundational substrate, resolving standardized XDG directories to load the system config and establish safe boundaries.
 
-The first order of business is sovereignty and security. The kernel boots the **Security & Auth module** (`CONCEPT:AU-OS.config.secrets-authentication`), verifying the execution token against JWT and OAuth SSO providers. In tandem, the **Cognitive Resource Scheduler** (`CONCEPT:AU-OS.state.cognitive-scheduler-preemption`) analyzes the current system workload. Rather than letting the incoming agent swarm consume arbitrary hardware cycles, it dynamically interrogates the configured model routing layer to establish hard context-window constraints, allocates a strict **Agent Token Quota**, and sets up the execution threads.
+The first order of business is sovereignty and security. The kernel boots the **Security & Auth module** (`CONCEPT:AU-OS.config.secrets-authentication`), checking the execution token against JWT and OAuth SSO providers. In tandem, the **Cognitive Resource Scheduler** (`CONCEPT:AU-OS.state.cognitive-scheduler-preemption`) analyzes the current system workload. Rather than letting the incoming agent swarm consume arbitrary hardware cycles, it dynamically interrogates the configured model routing layer to establish hard context-window constraints, allocates a strict **Agent Token Quota**, and sets up the execution threads.
 
 ```
                   ┌─────────────────────────────────────┐
@@ -37,19 +37,19 @@ Security & Auth (OS-5.1)   Cognitive Scheduler (OS-5.2)  Sensory Guardrails (AU-
  - Secret Encryption        - Process Concurrency         - Prompt Injection Check
 ```
 
-As the task preparation begins, the **Declarative Sensory Guardrails & Safety Contracts** (`CONCEPT:AU-OS.governance.reactive-multi-axis-budget`) register themselves. Every tool that the swarm will eventually discover is bound by a strict **Tool Guard** that intercepts attempts to execute destructive commands, cross-checked by the **Telemetry & Observability** stack (`CONCEPT:AU-OS.governance.wasm-micro-agent-sandbox`). Every action, token spent, and state mutation is logged securely via OpenTelemetry hooks.
+As the task preparation begins, the **Declarative Sensory Guardrails & Safety Contracts** (`CONCEPT:AU-OS.governance.reactive-multi-axis-budget`) register themselves. Every tool that the swarm will eventually discover is bound by a strict **Tool Guard** that intercepts attempts to run destructive commands, cross-checked by the **Telemetry & Observability** stack (`CONCEPT:AU-OS.governance.wasm-micro-agent-sandbox`). Every action, token spent, and state mutation is logged securely via OpenTelemetry hooks.
 
 But safety is reactive as well as proactive. The kernel activates **Reactive Budget Guardrails** (`CONCEPT:AU-OS.governance.reactive-multi-axis-budget`). If a model experiences an infinite reasoning loop, or if the API costs spike unexpectedly, the budget guards trigger a homeostatic downgrade—throttling the execution rate or swapping expensive frontier models for lighter, highly optimized local models.
 
-To scale under load, the engine relies on its **Massive Scale Architecture & Sandbox** (`CONCEPT:AU-OS.host.homeostatic-recovery-daemon`). Using the **Distributed Replay & Compliance Engine** (`CONCEPT:AU-OS.observability.deterministic-replay`), every system state mutation is recorded in an immutable ledger, ensuring 100% auditing compliance. If the agent needs to run a temporary script or perform a quick data calculation, it does not do so on the host OS; instead, it boots the **OS-Level Hardened Tool Sandbox Executor**—an isolated WebAssembly virtual machine that operates with zero network access and strict memory ceilings.
+To scale under load, the engine relies on its **Massive Scale Architecture & Sandbox** (`CONCEPT:AU-OS.host.homeostatic-recovery-daemon`). Using the **Distributed Replay & Compliance Engine** (`CONCEPT:AU-OS.observability.deterministic-replay`), every system state mutation is recorded in an immutable ledger, ensuring 100% auditing compliance. If the agent needs to run a temporary script or perform a quick data calculation, it does not do so on the host OS. Instead, it boots the **OS-Level Hardened Tool Sandbox Executor**—an isolated WebAssembly virtual machine that operates with zero network access and strict memory ceilings.
 
-Finally, the **Epistemic Resource Scheduler** (`CONCEPT:AU-OS.scaling.epistemic-dynamic-priority-quota`) and the **Ontological Guardrail Engine** (`CONCEPT:AU-OS.governance.reactive-multi-axis-budget`) coordinate. They ensure that the executing process is granted access only to the specific conceptual nodes and databases authorized for this specific company role, wrapping the entire operating environment in secure, mathematical boundary logic.
+Finally, the **Epistemic Resource Scheduler** (`CONCEPT:AU-OS.scaling.epistemic-dynamic-priority-quota`) and the **Ontological Guardrail Engine** (`CONCEPT:AU-OS.governance.reactive-multi-axis-budget`) coordinate. They ensure that the running process is granted access only to the specific conceptual nodes and databases authorized for this specific company role, wrapping the entire operating environment in secure, mathematical boundary logic.
 
 ---
 
 ## Chapter 2: The Blueprint & The Coalition (Planning & Orchestration)
 
-Now secure within its sandbox, the system must figure out *how* to execute the developer's grand mandate. This is where the **Graph Orchestration Engine (Pillar 1)** takes control.
+Now secure within its sandbox, the system must figure out *how* to run the developer's grand mandate. This is where the **Graph Orchestration Engine (Pillar 1)** takes control.
 
 The query enters the **Intelligence Graph Core** (`CONCEPT:AU-ORCH.execution.inject-signal-board-observations`). The Core is the brain’s drafting table, designed to structure execution not as a linear sequence, but as a dynamic directed acyclic graph (DAG).
 
@@ -74,13 +74,13 @@ With the task breakdown mapped, the **Specialist Routing & Discovery engine** (`
 
 Every step along this planning path is governed by **Execution Safety & State Checkpointing** (`CONCEPT:AU-ORCH.execution.execution-budget-caps`). If a specialist fails, or a network link drops, the checkpointing system can freeze the graph state and replay the execution from the last safe node without losing hours of context.
 
-But what if a new tool or API is introduced during execution? The **Capability Wiring Engine** (`CONCEPT:AU-ORCH.adapter.kg-graph-materialization`) dynamically binds new tools to the active agents on the fly, injecting required connection secrets and parameters. The **Agent Orchestrator** (`CONCEPT:AU-ORCH.execution.inject-signal-board-observations`) acts as the conductor, managing the active lifecycles of these spawned runner processes.
+But what if a new tool or API is introduced during execution? The **Capability Wiring Engine** (`CONCEPT:AU-ORCH.adapter.kg-graph-materialization`) dynamically binds new tools to the active agents while running, injecting required connection secrets and parameters. The **Agent Orchestrator** (`CONCEPT:AU-ORCH.execution.inject-signal-board-observations`) acts as the conductor, managing the active lifecycles of these spawned runner processes.
 
-To ensure the planning itself is robust, the system leverages the **DSTDD (Design-Spec-Test Driven Development) Pipeline** (`CONCEPT:AU-ORCH.planning.legal-automation-roadmap`). Before writing a single line of executable plan, the orchestrator generates a structural spec and validates it against simulated edge cases.
+To ensure the planning itself is robust, the system use the **DSTDD (Design-Spec-Test Driven Development) Pipeline** (`CONCEPT:AU-ORCH.planning.legal-automation-roadmap`). Before writing a single line of executable plan, the orchestrator generates a structural spec and validates it against simulated edge cases.
 
 As execution proceeds, the **Prediction Linkage Layer** (`CONCEPT:AU-ORCH.planning.spec-driven-pipeline`) analyzes execution traces from previous iterations, using them to predict and bypass potential routing errors. For exceptionally complex problems where agents must negotiate latent spaces, the **RecursiveMAS Latent Orchestrator** (`CONCEPT:AU-ORCH.planning.journey-milestone`) projects multi-agent dialogue into continuous latent vector states to converge on the optimal solution.
 
-When it is time to execute the massive task list, the **Parallel Engine** (`CONCEPT:AU-ORCH.execution.parallel-engine-visualizer`) fires up, dispatching up to 300+ specialist agents simultaneously. The engine enforces thread safety via asynchronous semaphores, gathering results through the **RLM-Native Hierarchical Synthesis engine** (`CONCEPT:AU-ORCH.execution.parallel-engine-visualizer`) to merge fragmented outputs into a single, cohesive business report.
+When it is time to run the massive task list, the **Parallel Engine** (`CONCEPT:AU-ORCH.execution.parallel-engine-visualizer`) fires up, dispatching up to 300+ specialist agents simultaneously. The engine enforces thread safety via asynchronous semaphores, gathering results through the **RLM-Native Hierarchical Synthesis engine** (`CONCEPT:AU-ORCH.execution.parallel-engine-visualizer`) to merge fragmented outputs into a single, cohesive business report.
 
 This swarm structure is mapped directly to real corporate hierarchies via **Autonomous Department Orchestration** (`CONCEPT:AU-ORCH.execution.autonomous-department-orchestration`). Agents belong to specific departments (e.g., "Risk", "Finance", "Legal") with explicit `reportsTo` chains. As actions are taken, the **Reactive Event Sourcing engine** (`CONCEPT:AU-ORCH.reactive.event-sourcing-ledger`) publishes state events to a ledger, distributing them safely to **WASM Micro-Agent Execution sandboxes** (`CONCEPT:AU-ORCH.sandbox.compiled-orchestration-kernel`) for distributed, lightweight processing.
 
@@ -88,7 +88,7 @@ This swarm structure is mapped directly to real corporate hierarchies via **Auto
 
 ## Chapter 3: The Library of Truth (Epistemic Knowledge Graph)
 
-To plan and execute accurately, the swarm needs a source of truth—a deep, structured organizational memory. It turns to the **Epistemic Knowledge Graph (Pillar 2)**.
+To plan and run accurately, the swarm needs a source of truth—a deep, structured organizational memory. It turns to the **Epistemic Knowledge Graph (Pillar 2)**.
 
 The gateway to this memory is the **Active Knowledge Graph** (`CONCEPT:AU-KG.query.object-graph-mapper`). This is the system's global cognitive map, housing all shared knowledge, past experience, system states, and business logic.
 
@@ -112,9 +112,9 @@ When an agent needs context, the unified **MemoryEngine** (`CONCEPT:AU-KG.memory
 
 To prevent context window bloat and context collapse, the **MemoryOptimizationEngine** continuously applies EWC (Elastic Weight Consolidation) and atomic elastic context operators (`SKIP`, `COMPRESS`, `ROLLBACK`, `SNIPPET`, `DELETE`), squeezing long trails of reasoning into tight, high-fidelity context blocks.
 
-To understand the relationships between financial concepts, the system utilizes the **Ontology & Epistemics layer** (`CONCEPT:AU-KG.ingest.engineering-rules`). This is strictly governed by the **Single Company Brain** (`CONCEPT:AU-KG.query.vendor-agnostic-traversal`), which utilizes an **Ontology Alignment Bridge** and rigorous **SHACL** validations to align local corporate models with international standards like BFO (Basic Formal Ontology) and PROV-O. Furthermore, an **Entailment-Aware Permission Scoper** ensures that every piece of information is accessed with strict role-based semantics, guaranteeing absolute semantic provenance.
+To understand the relationships between financial concepts, the system use the **Ontology & Epistemics layer** (`CONCEPT:AU-KG.ingest.engineering-rules`). This is strictly governed by the **Single Company Brain** (`CONCEPT:AU-KG.query.vendor-agnostic-traversal`), which use an **Ontology Alignment Bridge** and rigorous **SHACL** validations to align local corporate models with international standards like BFO (Basic Formal Ontology) and PROV-O. Furthermore, an **Entailment-Aware Permission Scoper** ensures that every piece of information is accessed with strict role-based semantics, guaranteeing absolute semantic provenance.
 
-When retrieving memories, the **Graph Integrity & Retrieval engine** (`CONCEPT:AU-KG.memory.auto-similarity-memory-graph`) ensures that the returned nodes are cryptographically fingerprinted and structurally valid. It utilizes **Inductive Knowledge Synthesis** (`CONCEPT:AU-KG.compute.cross-pillar-synergy`) to deduce new facts from existing connections—for example, automatically recognizing that a sudden spike in one asset class represents a systemic risk to a correlated portfolio.
+When fetching memories, the **Graph Integrity & Retrieval engine** (`CONCEPT:AU-KG.memory.auto-similarity-memory-graph`) ensures that the returned nodes are cryptographically fingerprinted and structurally valid. It use **Inductive Knowledge Synthesis** (`CONCEPT:AU-KG.compute.cross-pillar-synergy`) to deduce new facts from existing connections—for example, automatically recognizing that a sudden spike in one asset class represents a systemic risk to a correlated portfolio.
 
 To find structural similarities between different business scenarios, the **Topological Analysis Engine** (`CONCEPT:AU-KG.compute.spectral-cluster-navigator`) performs spectral clustering and analogy searches. If the current market regime shift looks similar to a historical event in 2008, the topological engine calculates the "blast radius" of potential asset depreciations and pulls the corresponding remediation playbook.
 
@@ -124,7 +124,7 @@ To ensure memories remain stable and free of cognitive drift, the **Memory Stabi
 
 Retrievals are accelerated by **Vectorized Retrieval** (`CONCEPT:AU-KG.memory.auto-similarity-memory-graph`) and a **Time-Series Graph** (`CONCEPT:AU-KG.research.research-pipeline-runner`) that caches high-density asset pricing series. When agents write their decisions, they do so through the **Centralized Epistemic Gateway & Transaction Proxy** (`CONCEPT:AU-KG.query.vendor-agnostic-traversal`), which forces ACID compliance across the graph DB.
 
-Under the hood, these graph calculations are blazingly fast. The engine bypasses slow Python graph traversal by routing key routines to the compiled Rust **`epistemic-graph` Compute Engine** (`CONCEPT:AU-KG.query.vendor-agnostic-traversal`) and executing logical forward-chaining rules on its **Rust-Compiled Epistemic Reasoning Backend** (`CONCEPT:AU-KG.query.vendor-agnostic-traversal`). Vectorized matrix math and market tick simulation are offloaded to the same **High-Performance Quant Engine** (`CONCEPT:AU-KG.query.vendor-agnostic-traversal`). All of this is reached **out-of-process** over a length-prefixed MessagePack client (UDS/TCP) — **not** PyO3 or in-process FFI — so the engine stays GIL-free and horizontally scalable.
+Internally, these graph calculations are blazingly fast. The engine bypasses slow Python graph traversal by routing key routines to the compiled Rust **`epistemic-graph` Compute Engine** (`CONCEPT:AU-KG.query.vendor-agnostic-traversal`) and running logical forward-chaining rules on its **Rust-Compiled Epistemic Reasoning Backend** (`CONCEPT:AU-KG.query.vendor-agnostic-traversal`). Vectorized matrix math and market tick simulation are offloaded to the same **High-Performance Quant Engine** (`CONCEPT:AU-KG.query.vendor-agnostic-traversal`). All of this is reached **out-of-process** over a length-prefixed MessagePack client (UDS/TCP) — **not** PyO3 or in-process FFI — so the engine stays GIL-free and horizontally scalable.
 
 If the swarm needs to simulate the outcome of a trade before committing it to the production graph, it spawns a **Speculative Graph Brancher** (`CONCEPT:AU-KG.query.vendor-agnostic-traversal`), creating a virtual workspace that can be discarded or merged. The **Semantic Compactor & Refactorer** (`CONCEPT:AU-KG.query.vendor-agnostic-traversal`) keeps the graph lean, weeding out stale nodes and merging duplicate concepts.
 
@@ -132,7 +132,7 @@ If the swarm needs to simulate the outcome of a trade before committing it to th
 
 ## Chapter 4: The Swarm & The Consensus (Ecosystem Peripherals)
 
-Having loaded the plan and retrieved its memory context, the swarm is ready to interact with the real world. It utilizes the **Ecosystem & Peripherals (Pillar 4)** layers to communicate and execute.
+Having loaded the plan and fetched its memory context, the swarm is ready to interact with the real world. It use the **Ecosystem & Peripherals (Pillar 4)** layers to communicate and run.
 
 The primary gateway for tool execution is the **Tool Interface & MCP Factory** (`CONCEPT:AU-ECO.messaging.native-backend-abstraction`). The factory dynamically instantiates Model Context Protocol (MCP) servers, translating complex internal tools into standard schemas that external LLMs can introspect and invoke with zero friction.
 
@@ -148,26 +148,26 @@ A2A Network (ECO-4.1)      Market Connectors (AU-ECO.ui.company-infrastructure-o
  - Epistemic Consensus      - Trade Order Execution      - Multi-scale Event Streams
 ```
 
-As the parallel specialists run, they communicate over the **A2A (Agent-to-Agent) Network & Consensus engine** (`CONCEPT:AU-ECO.mcp.fastmcp-middleware`). Rather than executing in isolated bubbles, the Risk Agent and the Trade Execution Agent discover each other on a local peer network, negotiating transaction parameters and reaching cryptographic consensus before executing a portfolio swap.
+As the parallel specialists run, they communicate over the **A2A (Agent-to-Agent) Network & Consensus engine** (`CONCEPT:AU-ECO.mcp.fastmcp-middleware`). Rather than running in isolated bubbles, the Risk Agent and the Trade Execution Agent discover each other on a local peer network, negotiating transaction parameters and reaching cryptographic consensus before running a portfolio swap.
 
 Every interaction is mapped inside the **Community Telemetry & Ecosystem Map** (`CONCEPT:AU-ECO.toolkit.journey-map-narrative`), which tracks service health across all active agent packages.
 
 For direct execution against the system's own memory, the **KG MCP Server & Execution environment** (`CONCEPT:AU-ECO.toolkit.journey-map-adoption`) exposes the Knowledge Graph as a set of standard tools, allowing external agents to query database states natively.
 
-To handle massive asynchronous volumes, the ecosystem utilizes the **Native Messaging Backend Abstraction** (`CONCEPT:AU-ECO.toolkit.journey-map-milestones`), managing high-throughput event queues. If the user wants to ingest a new external library or skill, the **Agent Toolkit Ingestor** (`CONCEPT:AU-ECO.mcp.toolkit-live-discovery`) parses its API footprint, discovers active endpoints in real-time via **MCP Live Discovery** (`CONCEPT:AU-ECO.mcp.toolkit-live-discovery`), and registers it within the **Self-Documenting Skill-Graph** (`CONCEPT:AU-ECO.mcp.toolkit-live-discovery`).
+To handle massive asynchronous volumes, the ecosystem use the **Native Messaging Backend Abstraction** (`CONCEPT:AU-ECO.toolkit.journey-map-milestones`), managing high-throughput event queues. If the user wants to ingest a new external library or skill, the **Agent Toolkit Ingestor** (`CONCEPT:AU-ECO.mcp.toolkit-live-discovery`) parses its API footprint, discovers active endpoints in real-time via **MCP Live Discovery** (`CONCEPT:AU-ECO.mcp.toolkit-live-discovery`), and registers it within the **Self-Documenting Skill-Graph** (`CONCEPT:AU-ECO.mcp.toolkit-live-discovery`).
 
-Finally, when deploying real software services or provisioning databases, the **Company Infrastructure Orchestration layer** pulls pre-validated layouts from the **Infrastructure Blueprint Library**, spawning verified docker containers via the **Pluggable Event Queue Backend** (`CONCEPT:AU-ECO.bus.pluggable-queue-backend`) using NATS or Kafka.
+Finally, when deploying real software services or provisioning databases, the **Company Infrastructure Orchestration layer** pulls pre-validated layouts from the **Infrastructure Blueprint Library**, spawning checked docker containers via the **Pluggable Event Queue Backend** (`CONCEPT:AU-ECO.bus.pluggable-queue-backend`) using NATS or Kafka.
 
 ---
 
 ## Chapter 5: The Forge of Intellect (Agentic Harness & Self-Improvement)
 
-As the execution swarm completes its rebalancing actions, it must answer a crucial question: *Did we do a good job?* The system does not just accept output; it continuously grades and improves itself via **Agentic Harness Engineering (Pillar 3)**.
+As the execution swarm completes its rebalancing actions, it must answer a important question: *Did this repository do a good job?* The system does not just accept output. It continuously grades and improves itself via **Agentic Harness Engineering (Pillar 3)**.
 
 Every output and reasoning path passes through the **Agentic Harness Core** (`CONCEPT:AU-AHE.harness.harness-evolution`) and is evaluated by the **Continuous Evaluation Engine** (`CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort`). The engine decomposes the outcome into fine-grained, structured rewards:
 - *Did the trade violate risk thresholds? (Risk Reward: -1.0 to 1.0)*
 - *Was the portfolio allocation mathematically optimal? (Execution Reward)*
-- *Did we minimize transaction costs? (Cost Reward)*
+- *Did this repository minimize transaction costs? (Cost Reward)*
 
 If the cumulative score falls below a threshold, the harness rejects the output, forcing the graph to backtrack and try an alternative reasoning path.
 
@@ -218,15 +218,15 @@ The entire GUI loop is run by the **Desktop Cockpit Orchestrator** (`CONCEPT:AU-
   └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-The interface is structured as an **Ecosystem Dynamic Tab Matrix** (`CONCEPT:AU-GBOT.cockpit.pillar-overview`). Developers can drag and drop plugins on the fly, reorganizing their workspaces in real-time with smooth resize transitions.
+The interface is structured as an **Ecosystem Dynamic Tab Matrix** (`CONCEPT:AU-GBOT.cockpit.pillar-overview`). Developers can drag and drop plugins while running, reorganizing their workspaces in real-time with smooth resize transitions.
 
 Directly inside the window sits the **Embedded Terminal Sandbox** (`CONCEPT:AU-GBOT.cockpit.concept-2`), letting developers watch raw logs and run background shell executions without ever leaving the cockpit.
 
-Suddenly, the Trading Swarm prepares to submit a portfolio transaction worth millions of dollars. Because this tool is flagged as sensitive, the execution halts.
+Suddenly, the Trading Swarm prepares to submit a portfolio transaction worth millions of dollars. Because this tool is flagged as sensitive, the execution stops.
 
-In the center of the screen, the **Universal Tool Approval Gate** (`CONCEPT:AU-GBOT.cockpit.concept-3`) pops up. It displays a beautiful, high-contrast visual diff of the proposed transaction, the exact code block that generated it, and the computed risk score. The developer reviews the details and clicks **[Approve]**, releasing the asyncio Future and letting the execution swarm proceed.
+In the center of the screen, the **Universal Tool Approval Gate** (`CONCEPT:AU-GBOT.cockpit.concept-3`) pops up. It shows a beautiful, high-contrast visual diff of the proposed transaction, the exact code block that generated it, and the computed risk score. The developer reviews the details and clicks **[Approve]**, releasing the asyncio Future and letting the execution swarm proceed.
 
-As the trades execute, the **Topological Cockpit Memory** (`CONCEPT:AU-GBOT.cockpit.concept-4`) renders a real-time, hardware-accelerated force-directed layout of the active Virtual Context Blocks, showing exactly which files and memories the agents are accessing. In the background, the **Multi-Tenant Daemon & Tray** (`CONCEPT:AU-GBOT.cockpit.concept-5`) runs continuously, alerting the user to automated background optimizations.
+As the trades run, the **Topological Cockpit Memory** (`CONCEPT:AU-GBOT.cockpit.concept-4`) renders a real-time, hardware-accelerated force-directed layout of the active Virtual Context Blocks, showing exactly which files and memories the agents are accessing. In the background, the **Multi-Tenant Daemon & Tray** (`CONCEPT:AU-GBOT.cockpit.concept-5`) runs continuously, alerting the user to automated background optimizations.
 
 Finally, the **High-Performance Visual Finance Cockpit** (`CONCEPT:AU-GBOT.cockpit.concept-6`) streams real-time candlesticks, moving averages, and backtest results directly to the screen via OpenGL-accelerated charts, letting the human pilot monitor the entire mathematical performance of **Operation Emerald Horizon** at 60fps.
 
@@ -241,7 +241,7 @@ catch: no two clients run the same tools. One firm runs **ServiceNow** for servi
 management; the firm next door runs **ERPNext**. One models its processes in
 **Camunda**; another documents them in **Archi** and inventories them in **LeanIX**.
 
-A lesser system would need a bespoke integration per product. This one does not,
+A lesser system will need a bespoke integration per product. This one does not,
 because of the **Vendor-Neutral Enterprise Crosswalk** (`CONCEPT:AU-KG.ingest.enterprise-source-extractor`). The
 crosswalk defines a small set of canonical ArchiMate concepts — `ApplicationEvent`,
 `BusinessProcess`, `BusinessTask`, `BusinessCapability`, `BusinessActor` — and binds
@@ -288,18 +288,18 @@ Some questions, though, must never be stale. For those, the **virtual REST
 federation** (`CONCEPT:AU-KG.memory.tiered-memory-caching`, `engine_federation.register_rest_source`) queries a
 live system on demand — invoking the very same extractor at query time, TTL-cached,
 and unioning the fresh records with what's already materialized. No data is
-duplicated that doesn't need to be; nothing is reasoned over that has gone cold.
+duplicated that doesn't must be; nothing is reasoned over that has gone cold.
 
 The result is an organization that is *legible*. A single traversal runs from a
 high-level business capability down through the ServiceNow incident, the Camunda
 model, the GitLab repository, and the exact source function that supports it —
-regardless of which vendor's logo is on the login screen.
+in either case of which vendor's logo is on the login screen.
 
 ---
 
 ## Chapter 8: The Trusted Brain (Source Truth, Permissions, and the Compounding Loop)
 
-A brain that ingests everything is not yet a brain you can trust. The moment the
+A brain that ingests everything is not yet a brain the operator can trust. The moment the
 enterprise points this system at *real* client data — incidents, compensation,
 contracts, code — three questions stop being academic: when two systems disagree,
 who is right? who is allowed to see what? and when a human says "that's wrong,"
@@ -317,14 +317,14 @@ ServiceNow owns an incident's `status`, an analyst contributes its
 `business_impact`, and a low-trust importer later tries to overwrite the status
 while adding a `customer` link, the brain keeps ServiceNow's status, keeps the
 analyst's impact, *and* accepts the new customer link — a true golden record
-assembled from many hands. Each attribute remembers its own lineage, written
+assembled from multiple hands. Each attribute remembers its own lineage, written
 durably onto the node, so this survives a restart: a fresh process reconstructs
 who-owns-what straight from the graph.
 
 The second answer is **permission**. Reads now flow through a secured path that
 filters nodes by classification and role, scopes queries to a tenant, and writes
 an audit entry for every access — mandatory for anything marked RESTRICTED. The
-marketing agent simply cannot retrieve the HR compensation node; the reasoner
+marketing agent simply cannot fetch the HR compensation node; the reasoner
 cannot leak it through an inferred edge, because derived facts inherit the
 strictest secrecy of their parents. The brain is no longer one big shared folder
 with better search; it is the *right* brain for the *right* workflow.
@@ -338,7 +338,7 @@ against backsliding. A correction today is a behavior tomorrow.
 
 And because memory is only useful if it arrives at the right moment, retrieval
 itself is now disciplined: a **token budget** caps how much context any task pulls
-(no more memory eating the window), and a task-scoped router returns the handful of
+(no more memory eating the window), and a task-scoped router returns the a small number of
 pieces that matter for the work in front of it rather than everything it knows.
 
 With these three answers in place, the company brain is finally safe to run an

@@ -25,7 +25,7 @@ of a flat vector index.
   change feed. A genuine native connector, not an `mcp_tool` preset, because
   git has real revision semantics a filesystem walk cannot express — see the
   module's own docstring for the full preset-vs-connector reasoning. Ships
-  two domain-pack presets, `au-pillars`/`au-skills`, proving several
+  two domain-pack presets, `au-pillars`/`au-skills`, proving multiple
   structurally different static markdown corpora can be mounted at once with
   epistemic-graph authoritative across them.)
 - **Ingestion**: `ContentType.CONNECTOR` adaptor in `knowledge_graph/ingestion/engine.py`;

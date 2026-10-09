@@ -63,7 +63,7 @@ block differs (stdio can use the zero-config bootstrap; streamable-http cannot).
 > host previously pointed at a remote/shared engine), **removing or blanking the
 > `GRAPH_SERVICE_ENDPOINTS` environment variable is not enough** — an absent env
 > var doesn't block the config.json projection, so the old remote endpoint keeps
-> winning. You must delete the key from `config.json` itself (`setup-config` /
+> winning. The operator must remove the key from `config.json` itself (`setup-config` /
 > `graph_configure action=set` / hand-editing the file) to actually reach the
 > local-engine path.
 
@@ -117,7 +117,7 @@ local**:
    condition, not just profile-gated). Configure exactly one of `KG_AUTH_TOKEN_REF`
    (a secret reference resolving to a provisioned JWT) or `KG_IDENTITY_OAUTH2` (a
    client-credentials block). For a genuinely zero-external-IdP pod, the simplest
-   choice is a self-issued static token stored in your secret backend and
+   choice is a self-issued static token stored in the operator's secret backend and
    referenced by `KG_AUTH_TOKEN_REF` — no Keycloak/OIDC required.
 2. **Inbound per-request identity** — `apply_served_security_profile()` refuses to
    start unless `--auth-type`/`AUTH_TYPE` resolves to a real scheme (`static` is the
@@ -131,7 +131,7 @@ local**:
 Everything else — `GRAPH_SERVICE_ENDPOINTS` unset, `GRAPH_SERVICE_PERSIST_DIR`,
 `ENGINE_LIFECYCLE` — is identical to the stdio column above. `DEPLOYMENT_PROFILE`
 does not have to be `tiny` here (it only gates stdio's zero-config identity path);
-`single-node-prod` is equally valid for a served self-contained pod. If you do set
+`single-node-prod` is equally valid for a served self-contained pod. If the operator do set
 `DEPLOYMENT_PROFILE` to anything other than `tiny` (or `APP_PROFILE=production`),
 also set `EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF` — `_resolve_engine_encryption_key()`
 requires an explicit reference outside the tiny/dev combination rather than
@@ -179,7 +179,7 @@ multiple pods for scale." For the **self-contained** shape (this page), that is
 literally true and nothing more: each pod's `graph-os` autostarts (or shares, if
 already running in that pod) its OWN local engine with its OWN
 `GRAPH_SERVICE_PERSIST_DIR`. Two self-contained pods do **not** share a knowledge
-graph — there is no coordination between them. If you need N replicas serving the
+graph — there is no coordination between them. If the operator need N replicas serving the
 **same** graph, that is the horizontal-scale-out shape: point every replica's
 `GRAPH_SERVICE_ENDPOINTS` at one shared out-of-process engine instead (see
 [Split-storage engine](split-storage-engine.md) / [Enterprise](enterprise.md)) —

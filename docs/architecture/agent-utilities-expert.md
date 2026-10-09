@@ -13,7 +13,7 @@ The delegate is:
 - **native:** its template and structured prompt ship with the package;
 - **KG-bound:** it queries `code_context`, graph search, and the documentation graph
   before making repository or architecture claims;
-- **dispatchable:** `graph_orchestrate` resolves and executes it through the standard
+- **dispatchable:** `graph_orchestrate` resolves and runs it through the standard
   execution seam;
 - **policy-bound:** every tool call inherits verified `ActorContext`, ActionPolicy,
   tenant, and ACL enforcement;

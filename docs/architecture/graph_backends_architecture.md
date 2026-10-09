@@ -18,7 +18,7 @@ FalkorDB are first-class mirror targets (drivers install as optional extras unde
 `backends/contrib/`). There is **no tier vocabulary** — it is the engine authority
 plus mirrors.
 
-> **Verified parity (KG-2.7).** Node properties (declared / ad-hoc / nested),
+> **Checked parity (KG-2.7).** Node properties (declared / ad-hoc / nested),
 > edge existence, **edge properties**, and vector search round-trip on **every**
 > backend; the full cross-backend matrix and how to run it live are in
 > [backend-parity-and-profile-testing](../guides/backend-parity-and-profile-testing.md).
@@ -26,7 +26,7 @@ plus mirrors.
 > [owl_rdf_layer](owl_rdf_layer.md)).
 
 > **PostgreSQL runs Apache AGE (`GRAPH_PG_AGE=1` / `backend_type=age`).** This
-> executes **real openCypher** via AGE's `cypher()` function — `count(r)`,
+> runs **real openCypher** via AGE's `cypher()` function — `count(r)`,
 > `RETURN … AS alias`, multi-hop and variable-length traversal all work natively —
 > retiring the bounded regex Cypher→SQL transpiler (still the default when AGE is
 > off). pgvector continues to back embeddings. Image: `docker/pg-age.compose.yml`.
@@ -75,7 +75,7 @@ graph TB
 
 ## Durability — the engine is redb-authoritative BY DEFAULT (CONCEPT:AU-KG.backend.backend-modes)
 
-**The engine is a durable source of truth out of the box — not a rebuildable
+**The engine is a durable source of truth by default — not a rebuildable
 cache.** As of "THE FLIP" (CONCEPT:AU-KG.backend.backend-modes), a stock `epistemic-graph-server`
 built with the standard `--features full` includes the **`redb`** store, so its
 persist backend (`EPISTEMIC_GRAPH_PERSIST_BACKEND`) defaults to `redb` and runs in
@@ -165,7 +165,7 @@ operational id-anchored Cypher subset on the write path. ² FalkorDB vector sear
 is code-correct (Cypher `CREATE VECTOR INDEX` + `db.idx.vector.queryNodes`) but
 the `falkordb` image SIGILLs on 768-dim vector ops on non-AVX2 host CPUs.
 
-## PostgreSQL Mirror Deep Dive
+## PostgreSQL Mirror Detailed review
 
 PostgreSQL is the richest **mirror** target: it combines three PostgreSQL
 extensions into a unified graph + vector + search store, so the engine's
@@ -279,7 +279,7 @@ durability is configured on the **`epistemic-graph-server`** process itself
 
 The engine has always been vendor-agnostic, but historically only **one** backend
 was live per process. The **named multi-connection registry** lets a deployment
-keep several live connections side by side and run the *same* graph tools against
+keep multiple live connections side by side and run the *same* graph tools against
 any one — or fan out to all — with the backend choice fully abstracted behind a
 `target` parameter. No code is forked into a separate server: every existing
 `graph_*` MCP tool and its REST twin gains this for free.
@@ -318,7 +318,7 @@ Every `graph_query` / `graph_search` / `graph_write` (and the heavier
 | `"all"` or `"a,b"` or `["a","b"]` | **fan-out** — per-connection labeled results (`{"targets": {...}, "errors": {...}}`), partial success: one backend failing never aborts the others |
 
 **Writes** only fan out on an *explicit* multi-target value (`"all"`/list) — the
-default and a single named target stay single-write, so you never accidentally
+default and a single named target stay single-write, so the operator never accidentally
 triple-write.
 
 ### Portability: one query, every backend
@@ -331,23 +331,23 @@ openCypher. Each backend advertises a `cypher_support` tier:
 | neo4j, falkordb | `full` | native Cypher |
 | **Postgres via Apache AGE** (`backend: "age"`) | `full` | native openCypher (`count(r)`, aliases, multi-hop, `-[*1..2]->`, edge props) + pgvector |
 | Postgres regex transpiler (`backend: "postgresql"`) | `subset` | only the bounded operational subset the engine emits; fallback when the AGE extension is absent |
-| epistemic_graph (in-memory) | `subset` | AU-P0-2: label/property `MATCH` + a real `WHERE` predicate + aggregates/`DISTINCT` route to the engine's OWN native Cypher executor (`GraphComputeEngine.query_cypher`, its `eg-query` parser — still a bounded grammar, e.g. no comma-separated disjoint `MATCH` patterns or arbitrary function calls) instead of a client-side regex scan-and-eval; a rejected/unsupported shape raises (`CypherEngineError`/`NotImplementedError`) rather than silently returning `[]`. Two AU-specific shapes (the virtual `id` node-identity accessor; relationship-type traversal/merge, keyed by `rel_type` not the engine's `relationship`/`type`) stay on typed engine methods because native routing would give silently-wrong results. |
+| epistemic_graph (in-memory) | `subset` | AU-P0-2: label/property `MATCH` + a real `WHERE` predicate + aggregates/`DISTINCT` route to the engine's OWN native Cypher executor (`GraphComputeEngine.query_cypher`, its `eg-query` parser — still a bounded grammar, e.g. no comma-separated disjoint `MATCH` patterns or arbitrary function calls) instead of a client-side regex scan-and-eval; a rejected/unsupported shape raises (`CypherEngineError`/`NotImplementedError`) rather than silently returning `[]`. Two AU-specific shapes (the virtual `id` node-identity accessor; relationship-type traversal/merge, keyed by `rel_type` not the engine's `relationship`/`type`) stay on typed engine methods because native routing will give silently-wrong results. |
 
-**Register Postgres connections as `age`** (not `postgresql`) when you want one
+**Register Postgres connections as `age`** (not `postgresql`) when the operator want one
 query to run unchanged across neo4j + falkordb + postgres. `list_connections`
 reports each connection's `cypher_support` so fan-out callers can tell which
 backends can serve a full query.
 
 ## Connection roles + live config (CONCEPT:AU-KG.backend.connection-registry)
 
-Every registered connection carries a **role**, so you can safely attach an existing
+Every registered connection carries a **role**, so the operator can safely attach an existing
 third-party graph as a data source — not just for mirroring:
 
 | role | meaning | `target=` writes |
 |---|---|---|
 | `read` (default) | external **data source** — query/profile/imprint only | rejected |
 | `read_write` | full query + write target | allowed |
-| `mirror` | receives fan-out replication of *our* KG | rejected (written only via the outbox) |
+| `mirror` | receives fan-out replication of *this repository's* KG | rejected (written only via the outbox) |
 
 ```jsonc
 // KG_CONNECTIONS entry — role + a secret reference (kept out of config.json)
@@ -362,7 +362,7 @@ third-party graph as a data source — not just for mirroring:
 - **Durable + live:** `graph_configure add_connection/remove_connection` persists the
   list to `config.json` (survives restart). `profile_connection`
   introspects a foreign graph's schema and writes a self-describing
-  `ExternalGraphReference` catalog node, mapping its labels onto our ontology.
+  `ExternalGraphReference` catalog node, mapping its labels onto this repository's ontology.
 - **Generic live config:** legacy `graph_configure get_config|list_config` remains
   read-only; updates use `graph_config action=set`, the sole governed mutation path.
   It validates against `AgentConfig`, passes the ActionPolicy approval gate, persists
@@ -374,12 +374,12 @@ third-party graph as a data source — not just for mirroring:
 
 ## Mirror every write to N stores at once (CONCEPT:AU-KG.backend.mirror-health-repair)
 
-Where KG-2.63 lets you *target* several connections per call, **fan-out** makes
+Where KG-2.63 lets the operator *target* multiple connections per call, **fan-out** makes
 mirroring available for every write: the epistemic-graph engine is
 unconditionally the **authority** store that serves reads and acks writes, and
 each mutation is replicated — losslessly and asynchronously — to any set of
 durable backends named in `GRAPH_MIRROR_TARGETS`; the zero-infra default is
-unchanged (it is only built when you configure a mirror set). There is no
+unchanged (it is only built when the operator configure a mirror set). There is no
 separate fan-out mode switch and no authority selector — naming a mirror set is
 the only thing that turns fan-out on, and the read authority is always the
 engine.
@@ -431,7 +431,7 @@ Three modes, all explicit:
 
 On a single-level store (AGE, FalkorDB) `"dedicated"` **supersedes** the
 connection's own graph name — those connection profiles require one, so
-dedicating could otherwise never be expressed. It is logged, never silent.
+dedicating can otherwise never be expressed. It is logged, never silent.
 
 ### The non-empty-default guard (CONCEPT:AU-KG.backend.mirror-nonempty-default-guard)
 
@@ -484,7 +484,7 @@ above. **LadybugDB** can be a 4th local-write mirror — config only: add a
 `kg_connections` entry `{"name":"local-ladybug","backend":"ladybug","db_path":"<data_dir>/mirror_ladybug.db"}`
 and list it in `GRAPH_MIRROR_TARGETS`. Its single-writer file lock is serialised
 by its one drainer thread; ad-hoc props fold into the `metadata` JSON column and
-edge props into the `properties` JSON column (durably stored, conformance-verified).
+edge props into the `properties` JSON column (durably stored, conformance-checked).
 
 ### Native cross-backend migration (CONCEPT:AU-KG.backend.mirror-health-repair)
 
@@ -607,7 +607,7 @@ flowchart LR
     WLOCK --> FIX2["split control plane onto __control__ graph<br/>(distinct GraphCore = distinct lock)"]
 ```
 
-The fixes attack both axes: the **write-coalescer (EG-KG.sharding.per-graph-write-coalescer)** turns many
+The fixes attack both axes: the **write-coalescer (EG-KG.sharding.per-graph-write-coalescer)** turns multiple
 concurrent single-op writes into one lock acquisition per batch (~57× fewer
 acquisitions in the engine benchmark), and routing the scheduler/control plane
 onto a separate **`__control__`** engine graph gives it its own lock so ingestion

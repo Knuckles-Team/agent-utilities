@@ -1,4 +1,4 @@
-# Verified Identity Carrier Contract (GOC-15)
+# Checked Identity Carrier Contract (GOC-15)
 
 CONCEPT:AU-OS.identity.verified-carrier-contract
 
@@ -6,7 +6,7 @@ CONCEPT:AU-OS.identity.verified-carrier-contract
 > in production. This document is the canonical reference GOC-17–23 (and any
 > other lane minting or consuming caller identity — GOC-85's remote MCP
 > broker in particular) must build against. It **corrects two false premises**
-> that circulated in planning before this lane verified `main`; see
+> that circulated in planning before this lane checked `main`; see
 > [Premise corrections](#premise-corrections-read-first) before designing
 > anything against this contract.
 >
@@ -44,7 +44,7 @@ CONCEPT:AU-OS.identity.verified-carrier-contract
 
 ## The carrier that is actually live today
 
-Two verified, already-fail-closed, already-tested primitives, one per
+Two checked, already-fail-closed, already-tested primitives, one per
 language, connected by one wire dict. **This lane does not invent a third.**
 
 ```
@@ -75,8 +75,8 @@ EG:  RequestContextClaims  →  server::auth::VerifiedRequestContext (post-verif
   which the native `epistemic_graph` client packs into the `eg2.` MsgPack
   envelope. This dict shape — not the JSON Schema — is the operative carrier.
 * **EG identity primitive:** `crates/eg-types/src/acl.rs::RequestContextClaims`
-  — the wire *representation*, untrusted until verified.
-* **EG verified/authoritative primitive:** `server::auth::VerifiedRequestContext`
+  — the wire *representation*, untrusted until checked.
+* **EG checked/authoritative primitive:** `server::auth::VerifiedRequestContext`
   (non-constructible outside the module; only produced after MAC + audience +
   tenant + policy-version + replay-nonce verification) →
   `server::access::CarrierAuthority::from_verified()`, which derives
@@ -92,7 +92,7 @@ is the field-level contract every consumer of this lane must match.
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `principal` | string | always | Authenticated subject. AU sets it to `actor.actor_id` (the verified JWT `sub`/`client_id`/`azp`). Hashed by the engine before persisting `ChangeEnvelope` provenance — never logged raw. |
+| `principal` | string | always | Authenticated subject. AU sets it to `actor.actor_id` (the checked JWT `sub`/`client_id`/`azp`). Hashed by the engine before persisting `ChangeEnvelope` provenance — never logged raw. |
 | `tenant` | string | always | Tenant security boundary. Must equal `GraphSession.actor.tenant_id`; EG separately compares it against the deployment's own configured tenant on auxiliary surfaces (Iceberg — see below). |
 | `audience` | string | always | Server-validated intended audience (`AUTH_JWT_AUDIENCE`/`MCP_JWT_AUDIENCE`), never accepted from a request payload. |
 | `agent_id` | string | always | Effective ACL/RBAC subject. Equals `principal` unless a spawn is running under an ENFORCED delegation (see Delegation below), in which case it is the per-run agent-instance id. |
@@ -102,7 +102,7 @@ is the field-level contract every consumer of this lane must match.
 | `policy_version` | string | always | Exact policy bundle/version this authority was minted under (`KG_POLICY_VERSION`). |
 | `node` | string \| absent | optional | ADR-3/W1.9 node-bound envelope target. `#[serde(default)]`; omitted claim ≠ error on either side. |
 | `priority` | string \| absent | optional | Advisory QoS class (W2.4), one of `interactive`/`orchestration`/`hydration`/`background_ingestion`; MAC-covered so it cannot be forged to jump the admission queue. Omitted entirely for an untagged caller (byte-identical to a pre-W2.4 envelope). |
-| `oidc_token` | string \| absent | optional | RFC 8693 exchanged token, present only under an enforced `SpawnDelegation` that carries one. **Not MAC-covered** — its own signature is its trust anchor; the engine independently RSA/JWKS-verifies it and cross-checks subject/tenant against the SAME context (`server::auth::bind_verified_identity`). |
+| `oidc_token` | string \| absent | optional | RFC 8693 exchanged token, present only under an enforced `SpawnDelegation` that carries one. **Not MAC-covered** — its own signature is its trust anchor; the engine independently RSA/JWKS-checks it and cross-checks subject/tenant against the SAME context (`server::auth::bind_verified_identity`). |
 
 **Explicitly NOT part of this layer** (a deliberate separation, not a gap):
 `request_id`, `trace_id`, `issued_at`/`expires_at`, `schema_version`. Replay/
@@ -119,22 +119,22 @@ field to a `deny_unknown_fields` struct is a breaking deploy-order change,
 exactly like W2.4's `priority` rollout note already documents in
 `session.py::engine_verified_context`'s docstring).
 
-## Per-surface carrier status (verified against `main`)
+## Per-surface carrier status (checked against `main`)
 
 | Surface | Carrier today | Per-caller principal? | Reject-bad proof |
 |---|---|---|---|
-| `eg2.` primary protocol (REST/WS/SSE/MCP → engine) | `RequestContextClaims` above, MAC + audience + tenant + policy + replay-nonce verified (`server/auth.rs`) | Yes | `tests/unit/test_graph_session.py` (AU side, cross-tenant/unauthenticated); EG `server/auth.rs` unit suite (MAC/replay/audience) |
-| Iceberg REST catalog | `authenticated_iceberg_bearer` — projects an **already OIDC-verified** bearer's own `subject`/`tenant` claim; **tenant claim required (not merely compared-if-present)** and rejected on mismatch against `EPISTEMIC_GRAPH_TENANT` (`src/server/auth.rs:334`) | Yes (per-subject, since GOC-222) | **Already a full negative matrix**: `src/server/auth.rs` `mod iceberg_bearer_carrier` — `different_tenant_mints_no_carrier_and_is_denied`, `missing_tenant_claim_mints_no_carrier`, `no_verified_claims_mints_no_carrier`, `empty_subject_mints_no_carrier`, `distinct_subjects_bind_distinct_non_admin_principals`. **No further work needed here** — do not re-implement. |
-| S3 SigV4 / KV-cache bearer / `/sparql` SELECT-CONSTRUCT-ASK bearer | `mint_fixed_service_carrier` — ONE fixed `service:<name>` principal for every caller who passes that surface's own protocol-native check | **No** — deliberately: "none of these protocols carries a distinguishable per-caller principal" (doc comment, `server/auth.rs`) | N/A by design — this is a real architectural decision already made, not an oversight. **If GOC-18/19/20 (SPARQL/federation) need per-caller isolation, that requires adding an OIDC-bearer leg to those surfaces mirroring `authenticated_iceberg_bearer`** — same shape, new call site. That is future work this lane scopes but does not implement (see below). |
+| `eg2.` primary protocol (REST/WS/SSE/MCP → engine) | `RequestContextClaims` above, MAC + audience + tenant + policy + replay-nonce checked (`server/auth.rs`) | Yes | `tests/unit/test_graph_session.py` (AU side, cross-tenant/unauthenticated); EG `server/auth.rs` unit suite (MAC/replay/audience) |
+| Iceberg REST catalog | `authenticated_iceberg_bearer` — projects an **already OIDC-checked** bearer's own `subject`/`tenant` claim; **tenant claim required (not merely compared-if-present)** and rejected on mismatch against `EPISTEMIC_GRAPH_TENANT` (`src/server/auth.rs:334`) | Yes (per-subject, since GOC-222) | **Already a full negative matrix**: `src/server/auth.rs` `mod iceberg_bearer_carrier` — `different_tenant_mints_no_carrier_and_is_denied`, `missing_tenant_claim_mints_no_carrier`, `no_verified_claims_mints_no_carrier`, `empty_subject_mints_no_carrier`, `distinct_subjects_bind_distinct_non_admin_principals`. **No further work needed here** — do not re-implement. |
+| S3 SigV4 / KV-cache bearer / `/sparql` SELECT-Build-ASK bearer | `mint_fixed_service_carrier` — ONE fixed `service:<name>` principal for every caller who passes that surface's own protocol-native check | **No** — deliberately: "none of these protocols carries a distinguishable per-caller principal" (doc comment, `server/auth.rs`) | N/A by design — this is a real architectural decision already made, not an oversight. **If GOC-18/19/20 (SPARQL/federation) need per-caller isolation, that requires adding an OIDC-bearer leg to those surfaces mirroring `authenticated_iceberg_bearer`** — same shape, new call site. That is future work this lane scopes but does not implement (see below). |
 | Native SQL wire (pgwire/mysql-wire/mssql-wire) | `authenticated_sql_wire_actor` — HMAC-derived opaque principal per `(protocol, agent_id)` after SCRAM/HMAC password proof | Yes | Covered by that module's own SCRAM/HMAC test suite (not re-audited by this lane; out of the listed W01 surface set) |
 | WebUI browser boundary | See below | Yes (the signed-in human's own token) | See below |
 | Observability exports | **Not yet instrumented with a carrier at all** (W01 gap, confirmed) | No | Out of scope for this lane's implementation pass; flagged for GOC-15-W06 follow-on |
 
-## WebUI browser credential boundary (verified)
+## WebUI browser credential boundary (checked)
 
 `agent-webui`'s `oidc_session.py` (`agent/agent_webui/oidc_session.py`) is a
 pure-ASGI middleware mounted **outside**
-`agent_utilities.security.request_identity.ActorIdentityMiddleware`. Verified
+`agent_utilities.security.request_identity.ActorIdentityMiddleware`. Checked
 mechanism, reading the live code (not the module docstring alone):
 
 1. The authorization-code exchange runs **server-side** with a confidential
@@ -157,11 +157,11 @@ mechanism, reading the live code (not the module docstring alone):
 **This satisfies the lane's "no data-plane surface may infer identity from an
 untrusted... browser credential" invariant already**: the browser's own
 credential is opaque (sealed) and the identity actually used downstream is
-independently re-verified server-side on every request, not trusted from the
+independently re-checked server-side on every request, not trusted from the
 cookie's mere presence. No code change was required here; this section is the
 recorded proof.
 
-**One doc-drift correction while verifying this surface:**
+**One doc-drift correction while checking this surface:**
 `docs/architecture/identity-inheritance.md`'s "Deferred / roadmap" section
 (unchanged since commit `3e13feeec`) still lists **"graph-os on-behalf-of
 token exchange in `execute_agent`"** — RFC 8693 delegation carrying the
@@ -177,14 +177,14 @@ that stale entry (see the diff to `identity-inheritance.md` in this change).
 ## Bounds already enforced (vs. the lane's proposed bounds)
 
 The lane brief proposed carrier ≤16 KiB / delegation depth ≤8 / scopes ≤128 /
-TTL ≤15 min / clock skew ≤60 s as new bounds to add. Verified against `main`:
+TTL ≤15 min / clock skew ≤60 s as new bounds to add. Checked against `main`:
 
 * **TTL/clock skew**: already enforced — `RequestContextPolicy` +
   `server/auth.rs`'s envelope timestamp/nonce checks (durable replay-nonce
   acceptance, per this file's module docstring) and AU's
   `GraphSession.ensure_authority_current()` (fails closed on expired bearer).
 * **Delegation depth / scope count / total size**: **not currently bounded**
-  as an explicit numeric limit on either side — this is a real, verified gap.
+  as an explicit numeric limit on either side — this is a real, checked gap.
   `_apply_spawn_delegation` only validates principal-first/agent-last/`len≥2`
   shape, not a maximum chain length; `RequestContextClaims.scopes` has no
   cardinality cap; there is no explicit total-envelope-size cap distinct from
@@ -201,7 +201,7 @@ TTL ≤15 min / clock skew ≤60 s as new bounds to add. Verified against `main`
 ## What this lane did NOT do (and why)
 
 * **Did not promote the dead JSON Schema to "v3."** Formalizing an unused
-  projection would create a second, competing "canonical schema" next to the
+  projection will create a second, competing "canonical schema" next to the
   one actually on the wire — exactly the duplicate-implementation failure
   this program has hit three times. If a future lane wants a
   language-neutral schema artifact for the carrier (e.g. for a non-Rust,
@@ -210,14 +210,14 @@ TTL ≤15 min / clock skew ≤60 s as new bounds to add. Verified against `main`
 * **Did not add a competing carrier type in AU or EG.** `ActorContext`/
   `GraphSession` (AU) and `RequestContextClaims`/`VerifiedRequestContext`/
   `CarrierAuthority` (EG) are the carrier. GOC-85 and every other consumer
-  should construct/consume through these, not a new dataclass.
+  should build/consume through these, not a new dataclass.
 * **Did not re-implement the Iceberg tenant-mismatch negative matrix** — it
   already exists and is complete (see table above).
 * **Did add** (this change): `agent_utilities.security.request_identity.CARRIER_CLAIM_FIELDS`
   / `OPTIONAL_CARRIER_CLAIM_FIELDS` (the exact field-name sets from the table
   above, exported as the one place to import them from) and
   `validate_carrier_claims()`, a fail-closed shape-check helper for any new
-  adapter (SPARQL/federation/observability) that needs to verify a claims
+  adapter (SPARQL/federation/observability) that needs to check a claims
   dict has the right shape before propagating it — so those lanes import a
   shared check instead of hand-rolling a second key list. See
   `agent_utilities/security/request_identity.py` and its test,
@@ -228,7 +228,7 @@ TTL ≤15 min / clock skew ≤60 s as new bounds to add. Verified against `main`
 GOC-85's per-principal remote MCP session isolation in
 `agent_utilities/mcp/multiplexer.py` should:
 
-1. **Mint one `GraphSession` per verified remote principal** through the
+1. **Mint one `GraphSession` per checked remote principal** through the
    existing `mint_graph_session(actor)` /
    `_mint_graph_session(actor, audience=..., policy_version=...)` path — the
    same function every other served transport already uses. Do not invent a
@@ -240,7 +240,7 @@ GOC-85's per-principal remote MCP session isolation in
    authority even if they share a tenant.
 3. **Reject reconnect that changes actor/tenant mid-session** — the same
    invariant `ActorIdentityMiddleware` already enforces per-request; a
-   long-lived remote MCP session must re-verify on reconnect, not persist the
+   long-lived remote MCP session must re-check on reconnect, not persist the
    first principal across a changed credential.
 4. **Narrow via `GraphSession.with_actor`/scopes intersection only** — never
    widen. If GOC-85 needs a scoped child session (e.g. one OAuth-broker
@@ -262,7 +262,7 @@ GOC-85's per-principal remote MCP session isolation in
 * Delegation-depth/scope-count/size bounds are **unenforced** (see above).
 * Key rotation / overlap window for the OIDC verifiers EG already runs
   (`server::oidc`) was not re-audited by this lane — assume unchanged from
-  whatever GOC-01 verified.
+  whatever GOC-01 checked.
 * Mixed-version carrier behavior (an older client's envelope missing
   `priority`/`oidc_token` against a newer engine, and vice versa) is
   documented as a **deploy-ordering constraint** in

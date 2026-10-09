@@ -8,12 +8,12 @@ The release-grade skill campaign is one current, four-stage contract:
 2. `graph-os-generate-skill-certification` derives a strict deployment document
    from an exact release specification, externally signed promotion evidence, the
    active AgentConfig document, and an external runtime-profile document.
-3. `graph-os-certify-skills` creates one verified, in-process HTTPS loopback OIDC
+3. `graph-os-certify-skills` creates one checked, in-process HTTPS loopback OIDC
    authority, starts the selected installed `graph-os`, runs the packaged
-   readiness probe from the same release, executes all twenty direct/delegated
+   readiness probe from the same release, runs all twenty direct/delegated
    cases, and publishes signed validation and lifecycle evidence.
 4. `graph-os-verify-skill-certification` independently reopens the referenced
-   inputs, verifies both signatures, and cross-binds every release, runtime,
+   inputs, checks both signatures, and cross-binds every release, runtime,
    catalog, process, engine, and validation digest.
 
 No command assumes a release installation directory. The GraphOS executable is
@@ -62,7 +62,7 @@ and all three commands must resolve to executable, non-symlink, non-shell regula
 files. The check never returns a path, endpoint, command, credential, or file
 content.
 
-Run the isolated readiness check before generating or executing a campaign:
+Run the isolated readiness check before generating or running a campaign:
 
 ```bash
 agent-utilities-doctor --only skill_certification
@@ -118,7 +118,7 @@ values. The generated
 booleans, and environment-variable names. It contains no command argv, endpoint,
 credential, identity, profile content, certificate material, or filesystem path.
 
-The generator verifies the release evidence signature before producing output. It
+The generator checks the release evidence signature before producing output. It
 also recomputes the release-specification, promotion-evidence, GraphOS,
 configuration, and profile digests. It independently attests the installed release
 closure and writes these mandatory fields inside the deployment's top-level
@@ -134,7 +134,7 @@ closure and writes these mandatory fields inside the deployment's top-level
 ```
 
 The count shown is the schema minimum, not a fixed release count. The generator
-derives all four values from the verified promotion evidence and installed release;
+derives all four values from the checked promotion evidence and installed release;
 they are not operator-supplied CLI values. The configuration must describe exactly
 one `light` and one `normal` chat model. Both models must:
 
@@ -146,7 +146,7 @@ one `light` and one `normal` chat model. Both models must:
 Before any service starts, private DNS must resolve to exactly one loopback,
 RFC1918, or IPv6 ULA address. The governed request transport independently
 resolves and pins every call, retains logical Host/SNI for hostname verification,
-verifies the connected peer, and rejects public or ambiguous rebinding. Public,
+checks the connected peer, and rejects public or ambiguous rebinding. Public,
 unreferenced, missing, duplicate-tier, or ambiguous model entries are rejected.
 Only a canonical model-registry digest and aggregate booleans/counts are retained;
 model identifiers, DNS names, and addresses are not.
@@ -190,7 +190,7 @@ no disable switch.
 ## Readiness and lifecycle execution
 
 `graph-os-skill-readiness` is the packaged probe invoked as a short-lived process
-from the exact release by the orchestrator. Do not launch it separately during an
+from the exact release by the orchestrator. Do not start it separately during an
 exact campaign: only `graph-os-certify-skills` owns the authority and complete
 zero-to-one-to-zero lifecycle. The probe proves:
 
@@ -216,7 +216,7 @@ graph-os-certify-skills \
   --lifecycle-evidence <external-lifecycle.json>
 ```
 
-Before service startup, the orchestrator re-verifies the signed promotion evidence
+Before service startup, the orchestrator re-checks the signed promotion evidence
 and recomputes the specification, promotion, GraphOS, configuration, profile,
 model-registry, Agent Utilities tree, distribution closure, and release-Python
 digests plus the Agent Utilities file count. A passing lifecycle proves all of the
@@ -247,13 +247,13 @@ The normative lifecycle schema is
 ## Validation evidence
 
 The validator receives release, GraphOS, engine, configuration, profile, and model
-registry digests only from the already verified deployment. Its signed subject
+registry digests only from the already checked deployment. Its signed subject
 binds the exact one-skill catalog, canonical test catalog, both case digests,
 direct/delegated execution, configured model class, exact skill body, one
 metadata-only Langfuse lookup, and one governed parent-graph trace readback per
 case. Passing evidence requires two cases, one complete direct/delegated pair.
 
-The two development cases additionally bind one externally supplied, digest-bound
+The two development cases also bind one externally supplied, digest-bound
 RF-021 candidate identity. Their retained `architecture` evidence contains exactly
 three content-free tool observations: an authoritative component/capability join,
 advisory discovery parsed from the existing flat-text `graph_search` contract with

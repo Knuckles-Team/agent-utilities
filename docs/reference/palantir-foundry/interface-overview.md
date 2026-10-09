@@ -14,8 +14,8 @@ An interface is "an Ontology type that describes the shape of an object type and
 
 ## Implementation & polymorphism
 
-- **Multiple implementation** — many object types can implement the same interface, enabling polymorphic workflows.
-- **Interface usage** — workflows interact with several object types in aggregate or independently without knowing specifics.
+- **Multiple implementation** — multiple object types can implement the same interface, enabling polymorphic workflows.
+- **Interface usage** — workflows interact with multiple object types in aggregate or independently without knowing specifics.
 
 ## Inheritance & extension
 

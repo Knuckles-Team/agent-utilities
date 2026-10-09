@@ -82,7 +82,7 @@ The Permissions Kernel is the authorization authority for MCP tools in the
 `tool_guard.py` pipeline:
 
 1. A `PermissionsKernel` and signed `AgentIdentity` are mandatory; a missing authority fails closed
-2. If the policy returns `ALLOW` → tool executes without further checks
+2. If the policy returns `ALLOW` → tool runs without further checks
 3. If the policy returns `DENY` → execution is rejected and cannot be approved around
 4. If the policy returns `REQUIRE_APPROVAL` → the human-approval flow is triggered
 5. Ontological argument guardrails remain an additional policy constraint
@@ -105,16 +105,16 @@ empty, incomplete, or malformed document aborts bootstrap with no fallback to
 broader defaults.
 
 Graph construction and the generic served-agent factory both call the same
-verified context bootstrap. An explicitly injected kernel and identity must be
-provided together and verify against each other; otherwise the signing-key
+checked context bootstrap. An explicitly injected kernel and identity must be
+provided together and check against each other; otherwise the signing-key
 reference is resolved in memory and one shared context is issued. Ontology
 `ActionExecutor` instances likewise require an explicit kernel and never create
 their own authority. Run `agent-utilities doctor --only permission_governance`
-to verify the redacted signing, policy, and identity contract.
+to check the redacted signing, policy, and identity contract.
 
 ## Integration with systems-manager
 
-The `systems-manager` MCP server should run with an **admin** identity, allowing it to execute OS-level commands without approval. Other agents requesting OS operations must route through `systems-manager`, which validates the caller's identity before proxying the command.
+The `systems-manager` MCP server should run with an **admin** identity, allowing it to run OS-level commands without approval. Other agents requesting OS operations must route through `systems-manager`, which validates the caller's identity before proxying the command.
 
 ```mermaid
 sequenceDiagram

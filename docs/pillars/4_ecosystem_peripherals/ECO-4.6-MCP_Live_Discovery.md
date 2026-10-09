@@ -94,9 +94,9 @@ Beyond static ingestion-time discovery, **AU-ECO.mcp.toolkit-live-discovery** su
 
 When an MCP client passes query filters or custom headers requesting context-scoped capabilities:
 1. **Direct KG Resolution**: The `DynamicToolOrchestrator` queries the Active Knowledge Graph using optimized, LLM-free Cypher matching against `CallableResource` nodes to filter the active tools list.
-2. **Lazy Cache Freshness Guard**: The orchestrator verifies the server node's last updated timestamp:
+2. **Lazy Cache Freshness Guard**: The orchestrator checks the server node's last updated timestamp:
    - If the age exceeds **24 hours**, it returns the cached list instantly to keep request latencies under sub-milliseconds.
-   - Concurrently, it schedules a **non-blocking background task** (`refresh_cached_tools`) to execute live introspection against the target server subprocess and asynchronously update the graph database entries.
+   - Concurrently, it schedules a **non-blocking background task** (`refresh_cached_tools`) to run live introspection against the target server subprocess and asynchronously update the graph database entries.
 
 ---
 

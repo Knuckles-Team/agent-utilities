@@ -16,14 +16,14 @@ The KG worker pool drains **one** queue partitioned into functional *lanes*
    `scheduled_job` tick per due-minute, per schedule. If the consumer ever falls
    behind (an engine outage, an older build), thousands of duplicate interval
    ticks accumulate. Because the rotation offers the lane with the most pending
-   work, those cheap-but-numerous maint ticks then occupy most workers — the
+   work, those cheap-but-multiple maint ticks then occupy most workers — the
    throughput lanes get only their minimum coverage. (Measured: ~1051 stale ticks
    across 22 schedules occupying ~5 of 8 workers.)
 2. **Per-element engine round-trips on the review hot path.** The world-model gate
-   checks "do we already have this item?" per article. Each check is a
+   checks "do this repository already have this item?" per article. Each check is a
    `has_node` call — a MessagePack/UDS round-trip to the engine process. At 50k
    reviews/hr × ~4 identity keys that is hundreds of thousands of round-trips the
-   review plane does not need to serialize on.
+   review plane does not must serialize on.
 
 ## Three mechanisms
 
@@ -52,11 +52,11 @@ flowchart TD
 #### Shard-writer floor on the codebase cap (CONCEPT:AU-KG.ingest.floor-codebase-admission-cap)
 
 The derived `codebase_cap` (`workers − reserved − Σ other-pending-lane minimums`)
-collapses to **~1-3 on a busy box** with many pending lanes. That caps the number
+collapses to **~1-3 on a busy box** with multiple pending lanes. That caps the number
 of *distinct* repos written concurrently — and because each repo routes its
 structural writes to its own `code:<repo>` graph (KG-2.269) that hashes to ONE of
 the engine's **K durable redb shard writers** (EG-KG.backend.sharded-k-way-durable `FNV-1a(name) % K`), it caps
-how many shard writers run at once. The profiler saw exactly this: one hot
+how multiple shard writers run at once. The profiler saw exactly this: one hot
 `eg-redb` writer at ~90% while the other K-1 sat at 0%, and `parallelism_factor`
 stuck at ~2.8 against a K=4 substrate.
 
@@ -163,7 +163,7 @@ dimension.
 
 The lanes partition the *queue* by domain; two **pools** partition the *worker
 budget* into two isolated back-pressure domains (the Prefect two-pool move) so the
-write-lock-bound half can never starve the I/O-bound half:
+write-lock-bound half can never starve the `I/O`-bound half:
 
 * **acquisition** — pull raw SourceDocuments in (`connectors` lane: connector
   delta syncs, the feed sweep; plus the `content_url` crawl, budgeted here via a

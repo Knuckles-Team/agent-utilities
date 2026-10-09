@@ -122,7 +122,7 @@ gcm.release_lock("customer:001", "agent:risk-analyzer")
 Concurrency control applies identically to all actor types:
 
 - A **human analyst** updating a customer risk score gets the same CAS check as an **AI agent**
-- A **hybrid team** (human + AI pair) holding a lock blocks other actors just like a single agent would
+- A **hybrid team** (human + AI pair) holding a lock blocks other actors just like a single agent will
 - An **automated service** (CI/CD pipeline) writing build status gets version tracking just like a human developer
 
 The `ActorType` is recorded for provenance but does not affect concurrency behavior.

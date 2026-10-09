@@ -53,14 +53,14 @@
     "AU-BOUNDARY-R048",
     "AU-BOUNDARY-R049"
   ],
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
   "evidence": [],
   "requirements": [
     {
       "id": "AU-BOUNDARY-R001",
       "title": "Retire AU's duplicated gateway module",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -68,14 +68,29 @@
           "commit": "0a5c4db6a11cd7174011de101e1829f3ec65fe0a",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/0a5c4db6a11cd7174011de101e1829f3ec65fe0a",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "aa5eba73e0f71a847fd550dd8efe957ad2be3d3c",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/aa5eba73e0f71a847fd550dd8efe957ad2be3d3c",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
     },
     {
       "id": "AU-BOUNDARY-R002",
       "title": "Retire AU's deployment and skill-certification tooling",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "fca0c5ee42b36107f810d928c080f76f56acd96c",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/fca0c5ee42b36107f810d928c080f76f56acd96c",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R003",
@@ -290,8 +305,16 @@
     {
       "id": "AU-BOUNDARY-R026",
       "title": "Move vendor enrichment extractors and write-back to the SDK",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "0e44186eac39e0c8d6ebb860a7343e550ff942e4",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/0e44186eac39e0c8d6ebb860a7343e550ff942e4",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R027",
@@ -350,7 +373,7 @@
     {
       "id": "AU-BOUNDARY-R032",
       "title": "Delete AU's legacy SPARQL backend and setup path",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -358,6 +381,13 @@
           "commit": "3bde01e76585582a83bf6e069e4b4672456a866c",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/3bde01e76585582a83bf6e069e4b4672456a866c",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a05257fb65417c1520f2a2c37f16e72bf29971e3",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/a05257fb65417c1520f2a2c37f16e72bf29971e3",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
     },
@@ -410,7 +440,7 @@
     {
       "id": "AU-BOUNDARY-R038",
       "title": "Add a cross-owner component registry and path guard",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -418,6 +448,13 @@
           "commit": "2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
           "description": "architecture/component-registry-boundary-seeds.yml adds graph-os and agent-connector-sdk boundary seeds citing requirements.md/coverage.md rows; scripts/check_boundary_owners.py rejects a module or console script matching a seed unless coverage.md records it as relocating there; wired as a blocking pre-commit hook (passes against the real tree today); tests/gates/test_boundary_owners_gate.py covers the real tree plus fixtures for a wrong-owner module, a wrong-owner console script, a recorded still-present module, and an unrecorded one."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "aa5eba73e0f71a847fd550dd8efe957ad2be3d3c",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/aa5eba73e0f71a847fd550dd8efe957ad2be3d3c",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
       "remaining": "Only the module-path and console-script seeds derivable from requirements.md/coverage.md text are encoded (graph-os and agent-connector-sdk owners); seeds for other destination repositories (epistemic-graph, repository-manager) are out of this requirement's two-owner scope and are not covered by this gate."
@@ -437,7 +474,7 @@
     {
       "id": "AU-BOUNDARY-R041",
       "title": "Finance modules that produced fabricated data are removed",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -445,13 +482,20 @@
           "commit": "e1508be891cfdee91c1ebc9e5a28ad2cbdb9d060",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/e1508be891cfdee91c1ebc9e5a28ad2cbdb9d060",
           "description": "Implementation commit is published on a branch (cut/fabricated-finance-modules); not yet merged to the default branch. Deletes the three confirmed fabricators (exchange_bridge.py, knowledge_graph/core/quant_tasks.py, strategy_engine.py) and the synthetic/prediction-market providers inside market_data.py; the remaining nine named modules and five content-host modules did not fabricate data on inspection and are not deleted (see PR body for the per-module discrepancy)."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "dbe24ea1b0d33b397703eeefdca208b5d3761502",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/dbe24ea1b0d33b397703eeefdca208b5d3761502",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
     },
     {
       "id": "AU-BOUNDARY-R042",
       "title": "Every package directory has one recorded disposition",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -459,6 +503,13 @@
           "commit": "2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
           "description": "scripts/check_boundary_coverage.py parses coverage.md's inventory table (shared scripts/boundary_inventory.py) and compares it against the real agent_utilities/ tree, failing on an unlisted, stale, duplicate, or undecided row. Run against today's tree it correctly finds exactly the 17 known undecided directories (images/, data/, protocols/voice_supply_chain/, and 14 skill-content directories) and nothing else wrong; tests/gates/test_boundary_coverage_gate.py pins that exact evidence plus fixtures for each failure class and a passing case. Wired report-only in .github/workflows/advisory.yml (continue-on-error), not as a blocking pre-commit hook, because it is red against the real tree today."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a4079bc8d2ed57b45d82956a8bd0bef56d794e02",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/a4079bc8d2ed57b45d82956a8bd0bef56d794e02",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
       "remaining": "Cannot reach a passing delivery_state while 8 directories stay undecided in coverage.md: images/, data/, protocols/voice_supply_chain/, and 5 skill-content directories under skills/ (agent-utilities-deployment, agent-utilities-development, agent-utilities-evolution, agent-utilities-self-evolution, workflows). The nine graph-os-owned skill-content directories previously listed here (agent-utilities-source-integration, autonomous-contribution, graph-engine-and-modalities, graph-ingestion-and-integration, graph-modeling-and-mutation, graph-orchestration-and-automation, graph-query-and-explanation, graph-research-and-analysis, graph-runtime-and-governance) moved to graph-os and were deleted from AU, dropping their coverage.md rows. This requirement's own text forbids inventing a disposition for the remainder; an owner must rule on each row before the gate can move to the blocking commit-stage hook set."
@@ -496,7 +547,7 @@
     {
       "id": "AU-BOUNDARY-R048",
       "title": "Domain models, shapes, assets and skill content are placed",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -511,14 +562,29 @@
           "commit": "4f1f26c10fec5ae50d805300f73b1034943f4006",
           "url": "https://github.com/Knuckles-Team/graph-os/commit/4f1f26c10fec5ae50d805300f73b1034943f4006",
           "description": "Destination: moved/merged skill content received into graph_os/skills/. Published on a branch in the graph-os repository; not yet merged to its default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "fca0c5ee42b36107f810d928c080f76f56acd96c",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/fca0c5ee42b36107f810d928c080f76f56acd96c",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
     },
     {
       "id": "AU-BOUNDARY-R049",
       "title": "Every AU write-back sink runs through the SDK governed write-back contract",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "0e44186eac39e0c8d6ebb860a7343e550ff942e4",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/0e44186eac39e0c8d6ebb860a7343e550ff942e4",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
     }
   ]
 }

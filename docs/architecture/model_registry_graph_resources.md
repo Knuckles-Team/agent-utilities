@@ -5,7 +5,7 @@
 > (`docs/architecture/sampling_profiles.md` covers the sibling sampling-profile axis). This
 > closes two gaps: (1) a model's capability/cost/observability contract lived only in code/
 > config, never as a graph-addressable resource with provenance; (2) the router picked a
-> model but **discarded** what it rejected and why, so model choice could never become an
+> model but **discarded** what it rejected and why, so model choice can never become an
 > evolution target — there was no counterfactual to learn from.
 
 ## Why
@@ -68,7 +68,7 @@ the live projection so the tool is useful before the first sync.
 
 `ModelRegistry.explain_pick_for_task()` (`agent_utilities/models/model_registry.py`) wraps
 the existing `pick_for_task`/`pick_for_task_adaptive` — it **delegates the actual choice**
-to them (so the explanation can never disagree with the live picker) and additionally scores
+to them (so the explanation can never disagree with the live picker) and also scores
 every candidate in the eligible pool: tag match, tier rank under the same
 `_TIER_PRIORITY` table the picker uses, a derived score, and — for every non-chosen
 candidate — a `rejection_reason` (missing required tag(s), or a worse tier rank).
@@ -78,11 +78,11 @@ caller's nominal `complexity`: confidence-gated routing (`pick_for_task_adaptive
 shift the tier up or down, and both sides now derive it from the one shared
 `_effective_tier` helper so they cannot drift. Scoring in the unshifted frame made the
 chosen model come out with the LOWEST score in its own record and left the real reason
-(the confidence gate) unstated — a persisted `RoutingDecisionNode` an auditor would read
+(the confidence gate) unstated — a persisted `RoutingDecisionNode` an auditor will read
 exactly backwards. When a shift happened the reason says so explicitly
 (`... for complexity 'light' (confidence-shifted from 'medium')`). Surfacing the shift as
 a first-class field on `RoutingDecision` rather than inside the reason string is
-D-W15-9. The result is bounded to `MAX_ROUTING_CANDIDATES` (8) regardless of registry
+D-W15-9. The result is bounded to `MAX_ROUTING_CANDIDATES` (8) in either case of registry
 size, so persisting one decision per routing call never writes an unbounded dump.
 
 ```mermaid
@@ -137,7 +137,7 @@ The `openai` provider path in `create_model` (`_provider == "openai"`) previousl
    through `pydantic-ai-slim[openai]` — no new dependency) to confirm a configured model id
    actually exists, rather than assuming it. Wired into a new `agent-utilities-doctor` check,
    `openai_catalog` (static by default: credential-tier + configured-model-count only;
-   `live=True` additionally probes the catalogue) — reachable via both the doctor CLI and
+   `live=True` also probes the catalogue) — reachable via both the doctor CLI and
    `graph_configure(action="preflight")`.
 
 **Credential-leak boundary**: `verify_openai_model` returns only a class-name-only `error`

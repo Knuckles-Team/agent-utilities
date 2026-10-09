@@ -106,7 +106,7 @@ Renders 4 Markdown files from KG state:
 LLM-powered transcript compression and Context Management:
 - **Observations**: Extracts decisions, preferences, lessons, context from raw conversations using a 🔴/🟡/🟢 priority system.
 - **Mementos**: Segments long-running agent action-observation cycles and compresses them into dense `MementoBlock` nodes (preserving precise formulas and state).
-- **KV Cache Compaction**: Intercepts the history stream and constructs a sawtooth context pattern (`[Past Mementos] + [Current Active Block]`) to prevent context window explosion and OOM errors during infinite-horizon tasks.
+- **KV Cache Compaction**: Intercepts the history stream and builds a sawtooth context pattern (`[Past Mementos] + [Current Active Block]`) to prevent context window explosion and OOM errors during infinite-horizon tasks.
 - Cursor-based incremental processing (avoid re-processing seen messages)
 - Per-source parsers for Claude, Codex, Grok JSONL formats
 

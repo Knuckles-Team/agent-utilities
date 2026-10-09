@@ -7,16 +7,16 @@ architecture docs stay in sync with the code.
 
 ## Why it was a real migration, not a rename
 
-The framework was already on the v1 **capabilities** API, and our model factory builds *typed*
+The framework was already on the v1 **capabilities** API, and this repository's model factory builds *typed*
 `Model` objects (never `provider:model` strings), so the headline prefix changes
 (`openai:`→Responses, `grok:`→`xai:`, gemini-module removal) don't affect us. But v2 *removed*
-several APIs we used, which required real changes:
+multiple APIs this repository used, which required real changes:
 
 | Removed in v2 | Replacement | Where |
 |---|---|---|
 | `MCPServerSSE` / `MCPServerStreamableHTTP` / `MCPServerStdio` / `FastMCPToolset` | unified `MCPToolset` + transports | `mcp/toolset_factory.py`, agent factory, agent_runner, graph builder/executor, core config |
 | `pydantic_ai.mcp.load_mcp_servers` | `load_mcp_toolsets` | `graph/executor.py`, `core/config.py` |
-| `pydantic_graph.persistence` (package) + `Graph.run(persistence=)` | our own `BaseStatePersistence` (write-only snapshot stores) | `core/checkpoint/manager.py` |
+| `pydantic_graph.persistence` (package) + `Graph.run(persistence=)` | this repository's own `BaseStatePersistence` (write-only snapshot stores) | `core/checkpoint/manager.py` |
 | `Agent.to_a2a()` | `fasta2a.pydantic_ai.agent_to_a2a` | `server/app.py` |
 | `pydantic_graph.beta.*` | promoted to top-level `pydantic_graph` | guarded imports across `graph/*`, `orchestration/engine.py`; `iter_graph` retains an `EndMarker` fallback for supported pre-promotion 2.x environments while the production lock resolves Pydantic AI 2.21 |
 | `stream.usage()` (method) | `stream.usage` (property) | `graph/_router_impl.py`, `graph/executor.py` |
@@ -86,7 +86,7 @@ now come from Pydantic AI Harness 0.14.0 and share one compatible dependency lin
 ## Native ergonomics wired (synergy)
 
 Two v2-native capabilities are wired into the agent factory as **opt-in** synergy (opt-in
-because both are expensive / behavior-changing; our richer custom systems — KG memory,
+because both are expensive / behavior-changing; this repository's richer custom systems — KG memory,
 ontological guardrails, multi-tier Monty sandbox, multiplexer, held-turns — stay):
 
 - **`Thinking(effort=)`** — native provider extended thinking, added to every built agent when
@@ -102,7 +102,7 @@ ontological guardrails, multi-tier Monty sandbox, multiplexer, held-turns — st
 v2 also **auto-injects `ToolSearch` and a pending-message-drain (mid-run steering) capability**
 natively — both visible in every built agent's `root_capability` tree.
 
-## Native protocol adapters vs. our plugins
+## Native protocol adapters vs. this repository's plugins
 
 v2's native UI/protocol adapters live in `pydantic_ai.ui`: **AG-UI** (`ag_ui`) and **Vercel AI**
 (`vercel_ai`), plus `Agent.to_web()` and `Agent.to_cli()`. ACP is a separate,
@@ -115,12 +115,12 @@ editor-facing stdio JSON-RPC adapter from
 Editors launch `agent-utilities-acp` as a subprocess. Harness provides streamed
 text/thinking, rich filesystem/shell tool presentation, deferred-tool approval,
 per-workspace sessions, cancellation, model selection, usage limits, and ACP
-capability negotiation. `FileAcpSessionStore` supplies durable conversation
+capability negotiation. `FileAcpSessionStore` provides durable conversation
 restore with validated atomic files.
 
 ACP is not mounted at `/acp`: neither Harness nor the retired adapter is an ASGI
 application. Harness 0.14 also does not implement ACP session modes, fork, or
-resume. Ask/plan/execute semantics, graph checkpoints, and plan provenance remain
+resume. Ask/plan/run semantics, graph checkpoints, and plan provenance remain
 Graph-OS/Pydantic Graph responsibilities and are passed through the graph wrapper's
 session-scoped dependencies.
 

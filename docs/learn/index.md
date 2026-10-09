@@ -37,7 +37,7 @@ that repo's `LearnView`) drives:
 What an interface, an object type, and a link type are, and how they compose
 into a governed schema — with a short quiz at the end.
 
-### [Querying with UQL](lessons/querying-with-uql/01-your-first-uql-pipeline.md)
+### [Querying with UQL](lessons/querying-with-uql/01-the operator's-first-uql-pipeline.md)
 
 The engine's native cross-modal query language: one pipelined text query
 composing graph traversal, vector rank, lexical search, time travel, and

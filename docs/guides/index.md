@@ -1,8 +1,8 @@
 # Guides & Recipes
 
-Task-oriented how-tos across the **79 guides** in this repository — narrower and more hands-on than the [architecture reference](../architecture/index.md), which explains *why* a subsystem is built the way it is. If you're trying to *do* something (deploy, configure, integrate, migrate), start here; if you're trying to *understand* something, start there.
+Task-oriented how-tos across the **79 guides** in this repository — narrower and more hands-on than the [architecture reference](../architecture/index.md), which explains *why* a subsystem is built the way it is. If the operator're trying to *do* something (deploy, configure, integrate, migrate), start here. If the operator're trying to *understand* something, start there.
 
-The most load-bearing guides — [Quick Start](quick-start.md), [Installation](installation.md), [Consumption Models](consumption-models.md), and the [Pre-bundled Workflow Skill Suite](kg-skill-suite.md) — stay directly in the site nav; everything else is grouped here.
+The most load-bearing guides — [Quick Start](quick-start.md), [Installation](installation.md), [Consumption Models](consumption-models.md), and the [Pre-bundled Workflow Skill Suite](kg-skill-suite.md) — stay directly in the site nav. Everything else is grouped here.
 
 ## Onboarding & first run
 
@@ -32,7 +32,7 @@ Every way to stand this up — profiles, private-repo CI, sovereign/air-gapped, 
 - [Safe Redeploy Runbook](redeploy_kg_server.md)
 - [Backend parity & deployment-profile testing](backend-parity-and-profile-testing.md)
 - [Process Lifecycle Management](process-lifecycle.md)
-- [Scalable Frontends — one shared backend, many thin instances](scalable-frontends.md)
+- [Scalable Frontends — one shared backend, multiple thin instances](scalable-frontends.md)
 - [Single-GPU LLM serving — tuning for extraction throughput](single-gpu-llm-serving.md)
 
 ## Configuration, secrets & identity
@@ -55,7 +55,7 @@ Using and extending the graph itself — schema, retrieval scoring, long-context
 - [KG-Native Orchestration](kg_native_orchestration.md)
 - [KG Schema Extensions: Research Assimilation](kg_schema_extensions.md)
 - [Universal Knowledge Assimilation Engine](knowledge-assimilation.md)
-- [Scoring Methodology & Retrieval Semantics](scoring_methodology.md)
+- [Scoring Method & Retrieval Semantics](scoring_method.md)
 - [Registry Hot Cache](registry-cache.md)
 - [Lossless Context Management (LCM) Guide](lcm_memory.md)
 - [Recursive Language Models (RLM)](rlm.md)
@@ -65,7 +65,7 @@ Using and extending the graph itself — schema, retrieval scoring, long-context
 
 ## Orchestration & agent runtime
 
-How agents, skills, and workflows execute — routing, evolution, and the conductor/loop mechanics underneath.
+How agents, skills, and workflows run — routing, evolution, and the conductor/loop mechanics underneath.
 
 - [Agents & Orchestration](agents.md)
 - [Agent Registry](agent-registry.md)

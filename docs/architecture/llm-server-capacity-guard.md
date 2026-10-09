@@ -23,14 +23,14 @@ NVRM: Out of memory [NV_ERR_NO_MEMORY]   →  GPU/driver OOM  →  the whole HOS
 
 A 35B model on a 121 GB unified box has a **finite** concurrent-sequence budget
 (KV-cache + activations). Exceed it and memory exhausts. The risk is the **remote
-server's** capacity, but our concurrency limits were sized from the **local** host:
+server's** capacity, but this repository's concurrency limits were sized from the **local** host:
 
 | Local-derived limit (the bug) | Where |
 |---|---|
 | embed fan-out ≈ `2 × compute_ingest_worker_count` (cpu/load), capped 16 | `knowledge_graph/enrichment/semantic.py::_embed_concurrency` |
 | ingest write/parse pools ≈ cpu/mem anchor | `knowledge_graph/core/engine_tasks.py::compute_ingest_worker_count` |
 | adaptive ramp ceiling = `MODEL_MAX_CONCURRENCY` (default **512**) | `core/model_capacity_autoscale.py` |
-| `PriorityModelGate` capacity = adaptive target (could ramp to 512) | `core/resource_priority.py` |
+| `PriorityModelGate` capacity = adaptive target (can ramp to 512) | `core/resource_priority.py` |
 
 Three demand sources, each sized locally, can sum to **hundreds** of in-flight
 requests — potentially far more than a single accelerator can serve without OOM.
@@ -137,7 +137,7 @@ host — a workstation accelerator ≠ an edge device ≠ a cluster.
 
 When two models share one device's memory (generator + embedder), the
 server config must leave room for **both** plus the system. Align the server's
-`--max-num-seqs` with our client ceiling (**client ceiling ≤ server `--max-num-seqs`**):
+`--max-num-seqs` with this repository's client ceiling (**client ceiling ≤ server `--max-num-seqs`**):
 
 ```bash
 # qwen generator (the 35B MoE) — the latency-sensitive model
@@ -152,7 +152,7 @@ vllm serve bge-m3 \
   --max-num-seqs 16
 ```
 
-Then set, per model in our config:
+Then set, per model in this repository's config:
 
 ```jsonc
 // qwen — server says --max-num-seqs 32

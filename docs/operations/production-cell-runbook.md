@@ -7,12 +7,12 @@ measured topology input and a signed release are required before any apply.
 The production reference is a global GraphOS control plane plus one or more cell
 data planes. A cell is the failure and recovery boundary; a tenant placement maps to
 one cell and one of 20 MultiRaft groups. Every group has three replicas spread across
-zones. A replacement release is prepared in isolation and activated by one fenced,
+zones. A replacement release is prepared in isolation and enabled by one fenced,
 atomic route cutover; two application/protocol versions never serve concurrently.
 
 ## Platform preflight
 
-Before rendering a release, verify all of these conditions:
+Before rendering a release, check all of these conditions:
 
 1. Capture a measured ResourcePool input with a timestamp and non-secret evidence
    reference. The renderer is the sole source of replica/resource bounds; the
@@ -43,7 +43,7 @@ Before rendering a release, verify all of these conditions:
 The runtime Secret supplies the engine authentication secret, the
 `PERSISTENCE_IDENTITY_HMAC_KEY` value, workload principals and
 tenants, audience, policy version, OIDC/JWKS settings, database/broker locations,
-Langfuse settings and `OTEL_EXPORTER_OTLP_ENDPOINT`. The analytics worker additionally
+Langfuse settings and `OTEL_EXPORTER_OTLP_ENDPOINT`. The analytics worker also
 requires `GRAPH_OS_ANALYTICS_PRINCIPAL` and `GRAPH_OS_ANALYTICS_TENANT`. All values are
 runtime references; documentation, manifests, logs and evidence must not retain their
 contents. ConfigMaps contain only the neutral
@@ -90,15 +90,15 @@ unverified TLS/discovery/OIDC, digest drift, non-retained authority, or an
 unbounded metric. Run the rollback renderer with `--rollback` and review it as a
 separate artifact; it never changes a live cluster by itself.
 
-The compatibility gate verifies exact Epistemic Operations schemas, Epistemic Graph,
+The compatibility gate checks exact Epistemic Operations schemas, Epistemic Graph,
 Agent Utilities, connector catalog, the ten consolidated skills, ontology lock and
 index migration catalog. It invokes external signature verifiers and refuses tags,
 `latest`, sentinel digests, unknown keys or unsigned artifacts.
 
-Assemble and verify the release in this order: protocol schemas, Epistemic Graph,
+Assemble and check the release in this order: protocol schemas, Epistemic Graph,
 Agent Utilities, connector bundles, skills, ontology lock, then the migration catalog.
-Fence admissions and writes, capture the signed pre-cutover snapshot, execute the
-one-time persisted-state migration, start only the exact new release, verify its
+Fence admissions and writes, capture the signed pre-cutover snapshot, run the
+one-time persisted-state migration, start only the exact new release, check its
 watermarks, then atomically move traffic. The prior release remains fenced and cannot
 read or write migrated state.
 
@@ -113,7 +113,7 @@ read or write migrated state.
 - Dispatch, ingestion and analytics workers scale from queue depth/consumer lag/job
   backlog. CPU is a secondary front-door signal only.
 - The analytics Deployment must run `graph-os-analytics-worker`, while the engine has
-  `EG_ANALYTICS_WORKERS=0`. The worker uses a verified v2 context with `kg:write` and
+  `EG_ANALYTICS_WORKERS=0`. The worker uses a checked v2 context with `kg:write` and
   `analytics:worker`, renewable leases, fencing, cooperative cancellation and governed
   KnowledgeBatch results.
 - Projection, indexing, truth maintenance and reasoning remain inside the engine
@@ -138,13 +138,13 @@ checkpoint age and restore validation. On an alert:
 2. preserve raw aggregate telemetry and the exact release/configuration digests;
 3. protect quorum and interactive serving before background work;
 4. scale only the worker tier associated with the measured queue;
-5. if the RPO or coordinator integrity alert fires, execute the disaster-recovery
-   procedure rather than deleting or recreating retained claims.
+5. if the RPO or coordinator integrity alert fires, run the disaster-recovery
+   procedure rather than removing or recreating retained claims.
 
 Langfuse reachability is not equivalent to trace delivery. Validate both the MCP trace
 list operation and a new opaque local-model trace correlated by a non-identifying trace
 reference. A successful empty list proves only authentication/TLS reachability.
-The `identity-tls-policy-trace` certification hook must additionally prove an
+The `identity-tls-policy-trace` certification hook must also prove an
 unverified request is rejected, the peer workload identity is mTLS-authenticated, a
 stale policy is rejected, the new opaque trace is visible, and no trace content was
 captured.

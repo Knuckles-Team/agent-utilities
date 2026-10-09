@@ -1,6 +1,6 @@
 # For AI Agents
 
-If you are an AI agent (Claude Code, Cursor, Codex, or any other tool) that has been
+If the operator are an AI agent (Claude Code, Cursor, Codex, or any other tool) that has been
 pointed at this repository — to use it, deploy it, or work on it — the canonical
 instructions live outside this MkDocs site, in the repository root, so they load
 automatically into agent context:
@@ -28,7 +28,7 @@ automatically into agent context:
   Python library, the MCP server, and the shared HTTP gateway.
 - **Working on this codebase itself?** `AGENTS.md`'s working-discipline sections
   (query the KG before grepping, Wire-First, fail-closed, no-legacy, branching &
-  isolation) are mandatory reading before your first edit.
+  isolation) are mandatory reading before the operator's first edit.
 - **Just need the facts fast?** [Start Here](start-here.md) is the same
   five-minute orientation a human gets, and [`docs/status.md`](status.md) is the
   generated concept/capability registry — the honest, drift-free source for "what

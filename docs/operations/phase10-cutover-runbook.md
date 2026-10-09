@@ -2,12 +2,12 @@
 
 <!-- CURRENT-ONLY-CONTRACT: DATED-HISTORICAL-RECORD (GOC-59, 2026-08-09) -->
 > **GOC-59 dated historical record, 2026-08-09:** this dated, point-in-time
-> runbook intentionally names several now-retired configuration keys
+> runbook intentionally names multiple now-retired configuration keys
 > (`check_current_only_contract` findings) as evidence of what was found live
 > on the `graph-os-host` drifted twin and as the exact guard-rail commands to
 > detect their reappearance. Rewriting the runbook to obscure those names
-> would destroy its audit value without changing cluster state, and this lane
-> has no live-cluster access to re-verify or re-apply it. Left open — carried
+> will destroy its audit value without changing cluster state, and this lane
+> has no live-cluster access to re-check or re-apply it. Left open — carried
 > and owned, not silently cleared. `scripts/check_current_only_contract.py`
 > reads the HTML-comment marker line directly above as this file's own,
 > intrinsic declaration that it is such a record (WD10-R-RESIDZERO retired
@@ -20,7 +20,7 @@
 > (`kubectl get/describe/exec -- cat`, no `apply`/`patch`/`delete`/`rollout`/`scale`
 > executed) plus source inspection of au `638ea524` and eg `2595a24`, on 2026-07-25.
 > This extends `reports/phase10-redeploy-plan.md` (the investigation) with the
-> **exact per-workload edit list** the live cutover executes, reconciles that plan's
+> **exact per-workload edit list** the live cutover runs, reconciles that plan's
 > one open ambiguity (the identity contract), and records the eg build-feasibility
 > result. The live cutover happens later under the user's explicit approval — nothing
 > here is auto-applied by any agent or pipeline.
@@ -47,7 +47,7 @@ The task brief flagged a conflict between the redeploy plan's blocker #1
 (`KG_AUTH_TOKEN_REF`/`KG_IDENTITY_OAUTH2`) and a messaging-bundle finding
 (`AUTH_JWT_AUDIENCE`/`MCP_JWT_AUDIENCE` + `KG_POLICY_VERSION`). Both are correct —
 they are two **different, sequential** gates in the same boot path, not competing
-theories, and the plan under-verified the first one because it stopped at
+theories, and the plan under-checked the first one because it stopped at
 "unverified — needs the rehearsal step" rather than actually running it.
 
 **The two gates, read directly from `agent_utilities/security/request_identity.py`:**
@@ -75,7 +75,7 @@ So a process that mints its **own** identity (graph-os, the standalone messaging
 daemon, ingest-worker) must satisfy **both** gates in order; a process that only
 **validates callers' tokens** (the served HTTP path) only ever touches gate 2.
 
-**Definitive live status, verified directly against the cluster (not inferred):**
+**Definitive live status, checked directly against the cluster (not inferred):**
 
 | Key | Where it lives | Confirmed live? |
 |---|---|---|
@@ -115,7 +115,7 @@ frames that already returned — most likely via an identity-source entry inside
 own dedicated `config.json` (mounted read-write at `/root/.config/agent-utilities`
 from its own separate `aum-config` hostPath), mirroring the same
 config.json-carries-`KG_IDENTITY_OAUTH2` pattern found on `graph-os` in this
-investigation. That file could not be read directly (the pod was mid-`CrashLoopBackOff`
+investigation. That file can not be read directly (the pod was mid-`CrashLoopBackOff`
 5-minute backoff at verification time — no running container to `exec` into; restart
 count 826 and climbing). What **is** directly confirmed absent from every object this
 Deployment actually consumes — its Deployment-level `env:`, its own Secret
@@ -123,7 +123,7 @@ Deployment actually consumes — its Deployment-level `env:`, its own Secret
 has `KG_POLICY_VERSION=homelab-v1` but no audience key, and isn't even wired to this
 Deployment — **its `envFrom` is only its own Secret**, confirmed via direct dump) —
 is `AUTH_JWT_AUDIENCE`/`FASTMCP_SERVER_AUTH_JWT_AUDIENCE` anywhere reachable. That
-gap is sufficient on its own to explain the proven failure, regardless of exactly
+gap is enough on its own to explain the proven failure, in either case of exactly
 which of `audience`/`policy_version` its config.json leaves blank. (Function names/line
 numbers in the traceback — `_mint_process_session`/`main` at 195/170 — don't match
 `638ea524`'s current `daemon.py`, i.e. the crashed process was running slightly older
@@ -141,9 +141,9 @@ Deployment's identity config (a second location to keep in sync forever) — it 
 `messaging.daemon.run_forever(engine, platforms, stop_event)` **directly** — never
 `daemon.mint_process_identity()` — running the co-service thread under
 `_authorized_background_thread(session, ...)` where `session` is `graph-os`'s own
-already-minted `bootstrap_session` (verified: `co_service_supervisor.py:207,283-305`).
+already-minted `bootstrap_session` (checked: `co_service_supervisor.py:207,283-305`).
 The bundled co-service **never independently mints**, so it inherits whatever identity
-`graph-os` already has — verified, working. Retiring the standalone Deployment (§2
+`graph-os` already has — checked, working. Retiring the standalone Deployment (§2
 item e) resolves this crash cause completely, with no config to fix in place.
 
 ---
@@ -163,7 +163,7 @@ ExternalSecret-managed — `kubectl patch` is the correct, direct tool for it.
 
 ### (a) Strip the retired engine-mode env var from `platform/graph-os`
 
-**Already resolved on the live object — re-verify, do not blindly re-apply.** Direct
+**Already resolved on the live object — re-check, do not blindly re-apply.** Direct
 inspection of the live Deployment's `.spec.template.spec.containers[0].env` (not the
 `kubectl.kubernetes.io/last-applied-configuration` annotation) shows **no retired
 engine-mode key at all** (see the exact name in `core/config.py`
@@ -175,7 +175,7 @@ the migrated `-next` paths. **This is a real landmine for the cutover mechanics,
 not a closed issue**: if any future step does a full `kubectl apply -f` of a
 manifest matching that stale annotation (or of the rendered
 `deploy/k8s/production-cell/` assets / `deploy/swarm/graphos.stack.yml` without
-hand-verifying they don't carry that key), it reintroduces the retired key and
+hand-checking they don't carry that key), it reintroduces the retired key and
 the migrated hostPaths regress in the same stroke. The cutover must use **targeted
 patches only** (as this whole runbook does), never a wholesale manifest apply against
 `platform/graph-os`.
@@ -210,13 +210,13 @@ Confirmed live via direct hostPath/config.json inspection (not inference):
 
 This directly, first-hand confirms plan §3.3/§9 blocker #3: this pod is one
 unplanned restart away from the full retired-key + invalid-`secrets_backend` crash
-chain, **and** it would also fail identity gate 1 (its config.json has neither
+chain, **and** it will also fail identity gate 1 (its config.json has neither
 `KG_IDENTITY_OAUTH2` nor `KG_AUTH_TOKEN_REF` — confirmed absent).
 
 **Option 1 — ALIGN (matches the plan and the existing "twin daemon" architecture
 doc; recommended default).** JSON-Patch with `test` guards so the patch fails loud
 (atomically, no partial application) if the array order ever differs from what was
-just verified, rather than silently patching the wrong volume. Resolve
+just checked, rather than silently patching the wrong volume. Resolve
 `<hostpath-root>` (see the conventions table) before running:
 
 ```bash
@@ -240,7 +240,7 @@ kubectl rollout status deployment/graph-os-host -n platform
 - **Rollback:** the same `--type=json` pattern with the three `hostPath.path` values
   swapped back to the pre-migration paths (`<hostpath-root>/kg-src/agent-utilities`,
   `<hostpath-root>/kg-src/epistemic-graph`, `<hostpath-root>/.config/agent-utilities`
-  — the originals, confirmed still present on disk, not deleted by this step) — or
+  — the originals, confirmed still present on disk, not removed by this step) — or
   `kubectl apply -f graph-os-host-pre-cutover-<ts>.yaml` using the saved backup.
 
 **Option 2 — RETIRE only with a replacement host (not recommended for this
@@ -296,17 +296,17 @@ kubectl exec -n platform deploy/graph-os -- python3 -c \
 
 - **Workload:** `graph-os` (and, after (b), `graph-os-host` — same config.json).
 - **Rollback:** N/A (verification-only step, no mutation).
-- **Status: READY** (confirmed present; re-verify, don't skip, immediately pre-cutover).
+- **Status: READY** (confirmed present; re-check, don't skip, immediately pre-cutover).
 
 ### (e) Retire `apps/agent-utilities-messaging`
 
 Uses the already-prepared `deploy/k8s/messaging-bundle-retirement.yaml` almost
 verbatim — its STEP 1–3 sequencing is correct and independently confirmed against the
 current live objects. **The one easy-to-miss prerequisite: retiring the standalone
-Deployment BEFORE moving its channel token(s) into `graph-os`'s own secret would
+Deployment BEFORE moving its channel token(s) into `graph-os`'s own secret will
 silently drop messaging entirely** (no crash, just `configured_platforms()` returning
 empty, so the co-service never starts) rather than fixing it — sequencing matters.
-Because the retired Deployment is being **deleted**, none of the original plan §4.4
+Because the retired Deployment is being **removed**, none of the original plan §4.4
 in-place fixes (rewrite its 9 plaintext keys, fix its `tcp://` scheme, add it its own
 `GRAPH_SERVICE_AUTH_SECRET`) are needed at all — retirement obviates them.
 
@@ -346,8 +346,8 @@ kubectl delete secret agent-utilities-messaging -n apps
   them up).
 - **Rollback:** `kubectl scale deployment/agent-utilities-messaging -n apps --replicas=1`
   (fully reversible up until the `delete` calls in STEP 3's second half — the
-  scale-to-0-first-then-delete sequencing is deliberately the rollback window). Once
-  deleted, restoring it means re-applying the pre-existing (broken) Deployment/Secret
+  scale-to-0-first-then-remove sequencing is deliberately the rollback window). Once
+  removed, restoring it means re-applying the pre-existing (broken) Deployment/Secret
   manifests — no worse than today's state, since it starts crash-looping either way.
 - **Status: BLOCKED — needs execution at cutover**, specifically **needs the two token
   values copied from OpenBao `apps/agent-utilities-messaging` into `apps/graph-os`**
@@ -386,7 +386,7 @@ kubectl rollout status deployment/epistemic-graph -n platform
   `GRAPH_SERVICE_AUTH_SECRET`/signer keys must be **reused verbatim, never
   regenerated** (rotating them breaks every connected client fleet-wide).
 - **Rollback:** same `--type=json` pattern, `hostPath.path` back to
-  `<hostpath-root>/eg-bin` (kept on disk, not deleted) — or
+  `<hostpath-root>/eg-bin` (kept on disk, not removed) — or
   `kubectl apply -f epistemic-graph-pre-cutover-<ts>.yaml`.
 - **Ordering constraint (plan §5.1, unchanged):** the engine rebuild and the
   `graph-os`/`graph-os-host` source sync must land in the **same window, engine
@@ -417,7 +417,7 @@ kubectl rollout status deployment/graph-os -n platform
 ```
 
 `au-config`/`au-src`/`eg-src` indices for `graph-os` were confirmed in the same order
-as `graph-os-host`'s (au-src=0, eg-src=1, au-config=2) — re-verify with
+as `graph-os-host`'s (au-src=0, eg-src=1, au-config=2) — re-check with
 `kubectl get deployment graph-os -n platform -o jsonpath='{.spec.template.spec.volumes[*].name}'`
 immediately before applying, same defensive posture as §2(b).
 

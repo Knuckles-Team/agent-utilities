@@ -8,7 +8,7 @@ fallback binary, skipped case, or mock live evidence.
 
 ## Generate the campaign manifest
 
-First promote the exact local release and independently verify its signed
+First promote the exact local release and independently check its signed
 promotion evidence. Set `EXACT_LOCAL_EVIDENCE_VERIFIER_COMMAND` to a JSON argv
 array naming the deployment-owned verifier. Then generate the campaign input:
 
@@ -22,7 +22,7 @@ generate-exact-local-gates-manifest \
 ```
 
 The source root is used only to hash the current certification harness and its
-fixed test catalog. It is never copied into the manifest. The generator verifies
+fixed test catalog. It is never copied into the manifest. The generator checks
 the promotion signature and release specification, requires successful
 zero-process pre/post gates plus passing canary and doctor checks, cross-checks the engine
 identity against the native artifact digest, and emits the strict
@@ -59,8 +59,8 @@ python scripts/certification/run_exact_engine_campaigns.py \
 ```
 
 The work root, authority file, and output parent must be caller-owned private
-Linux locations. The output directory must not exist. The producer verifies and
-stages the one digest-pinned full engine once, verifies the release Python and
+Linux locations. The output directory must not exist. The producer checks and
+stages the one digest-pinned full engine once, checks the release Python and
 source-frozen Epistemic Graph producer tree, and invokes every child with argv
 and a minimal isolated environment. It runs G-37 performance first, followed by
 G-02/G-05 fault and restart, G-01/G-04 protocol authorization, G-14 multimodal,
@@ -79,7 +79,7 @@ A successful final directory contains exactly these closure-ready documents:
 Each document is semantically validated by the closure validators before the
 directory is atomically published. Timeouts, non-zero exits, output overflow,
 artifact or source mutation, malformed evidence, extra output, and any failed
-campaign delete the unpublished staging directory and fail closed. Child output
+campaign remove the unpublished staging directory and fail closed. Child output
 is drained but not retained. Temporary engine, environment, and Markdown
 artifacts are removed; the six aggregate JSON documents contain no local paths,
 environment values, payloads, or personal identifiers.
@@ -119,7 +119,7 @@ bind-exact-local-release-evidence \
   --output "${PRIVATE_EVIDENCE_ROOT}/exact-artifact-closure.json"
 ```
 
-The binder independently re-verifies promotion evidence and regenerates the
+The binder independently re-checks promotion evidence and regenerates the
 expected campaign manifest. It rejects any release, specification, harness,
 catalog, Agent Utilities, GraphOS, engine, or campaign digest mismatch. It also
 requires the complete 60-case G-02/G-05 crash matrix and both G-05 restart
@@ -131,7 +131,7 @@ all seven G-15 KnowledgeBatch families, requirements, and snapshot cases; all
 nine G-17 restart, retraction, causal, and fenced-repair cases; and passing
 G-08 WorkItem lifecycle, local G-09 inbox-to-WorkItem crash replay, G-26/G-30/
 G-32/G-34, and G-35 permission-governance details from cryptographically
-verified exact-local evidence. The closure exposes those shared exact-local
+checked exact-local evidence. The closure exposes those shared exact-local
 bytes as the separately digest-bound `workItemAgentBus`, `exactLocal`, and
 `permissionGovernance` campaign summaries.
 
@@ -151,4 +151,4 @@ python scripts/check_exact_artifact_closure.py
 
 This source guard validates the schemas, exact gate and test inventories,
 console entry points, documentation, and current manifest agreement. It does
-not execute or replace any exact-artifact campaign.
+not run or replace any exact-artifact campaign.

@@ -385,7 +385,7 @@ in its typed request.
   the accelerator substrate is available.
 - **Cross-encoder fine-tune (AU-KG.retrieval.unset-dependency-free).** `NeuralCrossEncoderReranker` runs a stock
   distilled model (`cross-encoder/ms-marco-MiniLM-L-6-v2`); fine-tuning the reranker on
-  our own graded-relevance traces is deferred.
+  this repository's own graded-relevance traces is deferred.
 
 ## Empirical parity + training track (Round 5)
 

@@ -65,7 +65,7 @@ correctly said "not yet callable, run `load_tools`"; `list_catalog` said
 "mounted: true". A caller that reasonably reads `list_catalog` as the
 authoritative browse surface — which is literally its stated purpose — was
 told a tool was ready when a **second/subagent session that had never run its
-own `load_tools`** would get `"No such tool available"` from the exact same
+own `load_tools`** will get `"No such tool available"` from the exact same
 name.
 
 ### Bug 2 — `resolve_and_mount` silently dropped unresolvable requested tools
@@ -86,11 +86,11 @@ told it *why*, or even *that* something had gone wrong for that specific tool.
 list after a dynamic mount. On failure it logged a `logger.warning` — visible
 only to the **server operator** — and returned nothing. `load_session_tools`
 (the `load_tools` core) reported `newly_exposed` as an unconditional success
-whenever the mount itself succeeded, regardless of whether the client was
+whenever the mount itself succeeded, in either case of whether the client was
 ever actually told. A client whose notification silently failed to arrive
-kept its stale tool list and would hit `"no such tool"` on the very name
+kept its stale tool list and will hit `"no such tool"` on the very name
 `load_tools` had just reported as newly available — a THIRD way the same
-symptom could occur, indistinguishable from Bug 1 at the calling agent's
+symptom can occur, indistinguishable from Bug 1 at the calling agent's
 vantage point.
 
 ### Bug 4 — a mounted fleet tool was invisible to the intent-verb surface
@@ -120,7 +120,7 @@ parallel structure:
   means: the process-level fact is now `process_running` /
   `servers_running`, and `"mounted"` (drilldown) / `"dispatchable_tools"`
   (summary) are computed by calling `tool_dispatchable()` per tool — so they
-  **cannot** claim a tool is usable when a call would actually be rejected,
+  **cannot** claim a tool is usable when a call will actually be rejected,
   because they run the identical check the rejection path runs.
 - `SessionVisibilityMiddleware._visible()` and `on_call_tool()` now delegate to
   `tool_dispatchable()` too, deleting the middleware's own duplicated
@@ -154,7 +154,7 @@ This is not the first time this exact shape of bug has appeared. Naming it:
 
 > **The favorable-restatement anti-pattern.** A status field is *derived* by a
 > second layer instead of *read through* from the one component that actually
-> performed (or can verify) the operation. The restatement drifts toward
+> performed (or can check) the operation. The restatement drifts toward
 > "looks more done than it is" because the second layer encodes what the
 > operation was *supposed* to mean, not what actually happened — and nothing
 > forces the two to be re-checked against each other when either side changes.
@@ -175,7 +175,7 @@ invariant, both present in every instance found so far:
 1. **Two names for what reads like one concept** (`mounted` process-level vs.
    `mounted` session-level; `active` requested vs. `active` confirmed;
    `status` claim vs. `status` fact) — when a second field is added that
-   *could* answer the same question a first field already answers, the two
+   *can* answer the same question a first field already answers, the two
    are now free to disagree, and nothing enforces that they don't.
 2. **A success value assigned before, or independent of, the fallible step it
    describes** — set from an input parameter or an early branch, then never
@@ -195,7 +195,7 @@ codebase — cited here so this RCA generalizes rather than narrates one fix:
    only recognized `dict`/`str` results; `graph_query`/`graph_ask`/`nl_query`
    return a typed `EvidenceBundle`, which matched neither branch and fell
    through to `return result is not None` — true for *any* non-empty bundle
-   regardless of its content. **Fixed** (`51182953`): dump the model first so
+   in either case of its content. **Fixed** (`51182953`): dump the model first so
    `EvidenceBundle.error` is honored as the one source of truth. The
    poisoned path was `_record_dispatch_outcome(..., success=True)`, which fed
    the capability router's learned reward for that tool/task-class — a
@@ -208,9 +208,9 @@ codebase — cited here so this RCA generalizes rather than narrates one fix:
    `f"catalog discovery budget exceeded after {budget:g}s"`. The *aggregate*
    claim is true — the overall pass did exceed budget — but probes are
    admitted through a bounded `asyncio.Semaphore(16)`, so a "pending" task
-   may never have started running at all; it could have been queued behind
+   may never have started running at all; it can have been queued behind
    15 others the entire time. Every still-pending server is given the
-   identical, specific-sounding reason regardless of which is true. This is a
+   identical, specific-sounding reason in either case of which is true. This is a
    close cousin of the main invariant (a plausible-sounding cause substituted
    for an unverified one, rather than a favorable status substituted for an
    unfavorable one) — flagged here as **still open**, not fixed by this
@@ -227,10 +227,10 @@ codebase — cited here so this RCA generalizes rather than narrates one fix:
    (never raises). So a caller can read `active: true` on a record whose
    nested `engine.loaded_to_engine` is `false` in the very same response.
    D-OB-14 records this as fixed ("Now `active` reflects what the engine
-   actually confirmed") — **verified against current `main` while writing
+   actually confirmed") — **checked against current `main` while writing
    this RCA, that fix is not present here**; it most likely lives on a
    still-unmerged sibling branch, the same "fixed but not yet landed" state
-   this RCA's own fix is in. Recorded as a still-open, independently-verified
+   this RCA's own fix is in. Recorded as a still-open, independently-checked
    instance in [Known gaps](#known-gaps-this-rca-surfaces-not-fixed-here)
    rather than silently assumed closed.
 
@@ -265,7 +265,7 @@ can independently drift:
   these into one function, not keep them in sync by convention.
 - **Any error-message template applied uniformly across a batch** ("budget
   exceeded", "timeout", "not found") to the whole batch after only the
-  aggregate condition was checked, when per-item causes could differ (this
+  aggregate condition was checked, when per-item causes can differ (this
   RCA's item 2).
 - **Provenance/telemetry/reward-feeding status fields specifically** — per
   N1, a favorable restatement here doesn't just mislead a display, it can
@@ -301,7 +301,7 @@ surgical to the RCA the operator asked for.
   recorded separately as `D-DESYNC-1` (`reports/deferred/lane-mcp-desync.md`)
   — reproduced identically on the unmodified base commit, not introduced by
   this fix.
-- This RCA's own citations against current `main` (`64a41727`) were verified
+- This RCA's own citations against current `main` (`64a41727`) were checked
   by direct file read while writing this document, not copied from the fix
   branch's commit message — which is how the two still-open gaps above were
   found.

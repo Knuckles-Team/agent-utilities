@@ -78,7 +78,7 @@ Mines challenging distractors from query decomposition to calibrate retriever pr
 # nDCG Retrieval Scoring (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)
 
 ## Overview
-Normalized Discounted Cumulative Gain computation for retrieval quality assessment. Uses binary relevance against gold document sets. Aligns with BrowseComp-Plus evaluation methodology (Section 4.1). Integrated into `RetrievalQualityGate.compute_ndcg()` and consumed by `EvaluationEngine.evaluate_disentangled()`.
+Normalized Discounted Cumulative Gain computation for retrieval quality assessment. Uses binary relevance against gold document sets. Aligns with BrowseComp-Plus evaluation method (Section 4.1). Integrated into `RetrievalQualityGate.compute_ndcg()` and consumed by `EvaluationEngine.evaluate_disentangled()`.
 
 ## Implementation Details
 - **Source Code**: ``agent_utilities/knowledge_graph/retrieval/retrieval_quality.py``

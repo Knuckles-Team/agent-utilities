@@ -97,11 +97,11 @@ reply is tagged with the selected registry model name and carries image attachme
 the vision model (ECO-4.67).
 `MESSAGING_AGENT` names which agent the universal path routes a chat turn to (default the
 `messaging-assistant` identity); an unresolved name still flows through the full
-orchestration graph, which is exactly the dynamic-delegation behaviour we want.
+orchestration graph, which is exactly the dynamic-delegation behaviour this repository want.
 
 ## Instinctive reactions (AU-ECO.messaging.messaging-renderer-core-reaction → core ECO-4.79/4.81)
 
-The agent reacts to your messages with an emoji where the platform supports it — 👍 to
+The agent reacts to the operator's messages with an emoji where the platform supports it — 👍 to
 acknowledge a request, ❤️ for praise/thanks, etc. **As of ECO-4.79/4.81 the reaction logic is
 no longer owned by messaging** — it is a first-class output of the universal orchestrator
 (`orchestration/reactions.py`), so every entrypoint inherits it. Messaging is now a
@@ -117,19 +117,19 @@ other surfaces: [`reactions.md`](reactions.md).
 
 - **Voice (ECO-4.68):** a voice note / audio with no text is transcribed via the
   audio-transcriber Whisper backend (`transcribe_voice`, lazy-loaded, off the event loop)
-  and the transcript flows through the normal path — so you can just talk. Opt-out
+  and the transcript flows through the normal path — so the operator can just talk. Opt-out
   `MESSAGING_VOICE=0`; model via the required operator-selected
   `MESSAGING_VOICE_MODEL` when voice intake is enabled.
 - **Image (ECO-4.67):** image attachments are downloaded and passed as inline
-  `BinaryContent` to the configured **vision-capable** model, so you can upload a
+  `BinaryContent` to the configured **vision-capable** model, so the operator can upload a
   picture and ask about it. Images ride the same burst → one multimodal agent turn.
 
 ## Burst coalescing (ECO-4.63)
 
-When you fire several messages in quick succession, the agent collapses them into **one
+When the operator fire multiple messages in quick succession, the agent collapses them into **one
 holistic reply with one LLM call** instead of answering each separately. A per-conversation
 debounce (`BurstCoalescer`, `messaging/coalescer.py`) accumulates messages and flushes the
-batch when you pause for `MESSAGING_BURST_WINDOW_S` (default 2.5s) or `MESSAGING_BURST_MAX_S`
+batch when the operator pause for `MESSAGING_BURST_WINDOW_S` (default 2.5s) or `MESSAGING_BURST_MAX_S`
 (default 12s) elapses. Per-message side effects that must stay immediate — last-active
 channel, KG history ingest, loop-reply delivery, `/commands` — run per message; only the
 agent reply (and its single reaction) coalesce. `BurstCoalescer` is a shared core primitive
@@ -155,7 +155,7 @@ single source of truth shared by every platform and importable by agent-terminal
 (`command_specs()`). On connect the daemon calls `backend.register_commands(...)` on every
 backend; each registers the menu where its platform supports a **runtime** command API
 (Telegram `setMyCommands`) and no-ops where commands are set via app-manifest/admin
-(Slack/Teams/Mattermost) or a separate interaction model (Discord). Regardless of menu
+(Slack/Teams/Mattermost) or a separate interaction model (Discord). In either case of menu
 support, commands also work as **typed `/cmd` text on any backend** — the inbound handler
 parses a leading `/cmd` and `handle_command` answers built-ins (`/help`, `/status`,
 `/tools`); agent-owned commands such as `/skill` fall through to the model/agent.
@@ -177,7 +177,7 @@ Messaging ships as **one fenced serving implementation** (`messaging/daemon.run_
 `_serve`) reused by two explicit intake callers:
 
 1. **Bundled (explicit owner only).** `graph-os` self-composes messaging only when
-   its caller supplies `messaging_intake_enabled=True` explicitly. Credential
+   its caller provides `messaging_intake_enabled=True` explicitly. Credential
    detection (`co_service_supervisor.detect_composition` →
    `messaging.daemon.configured_platforms`) still controls send capability, but never
    grants inbound ownership. The shared `run_forever` entrypoint submits the
@@ -238,11 +238,11 @@ bounded node per tenant/actor and a maximum of five item references; replaying
 the same item does not consume another slot, and a new window resets that
 bounded state with CAS.
 
-The same bounded runner executes MessagingService's synchronous ActionPolicy
+The same bounded runner runs MessagingService's synchronous ActionPolicy
 read and audit boundary before provider lookup. Cancellation or a deadline at
 that boundary fails closed without invoking the provider. The adapter also
 recomputes the actor hash from the authenticated GraphSession and rejects a
-caller-supplied actor reference that does not match it.
+caller-provided actor reference that does not match it.
 
 Only the verified tenant needed for native WorkItem partitioning, HMAC
 persistence references, the request digest, and a `contact_*` receipt enter

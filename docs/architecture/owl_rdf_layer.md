@@ -107,7 +107,7 @@ can be inferred to relate to a deployed service or an agent capability, not silo
 Every long-running objective is a **Loop** (AU-KG.research.these-properties-carry) — kind `research`, `develop`, or
 `skill` — and the **one** `LoopController` (formerly the "golden loop") advances every
 active Loop through a single hot path: research loops acquire sources + reason, `develop`
-loops run act→validate (their `validation_cmd`), `skill` loops execute their skill /
+loops run act→validate (their `validation_cmd`), `skill` loops run their skill /
 skill-workflow. There is no separate goal-runner or research-runner — the goal system is a
 thin adapter onto `LoopController.run_loop`. The single entrypoint is the **`graph_loops`**
 MCP tool (`submit` / `list` / `run` / `drive` / `cancel`); `submit_loop` is the shared
@@ -141,7 +141,7 @@ pivots, `/evidence` raw outputs) whose layers are **first-class ontology classes
 object-properties** (`research_artifact`/`claim`/`code_spec`/`evidence`/`exploration_node`;
 `contains`/`grounded_in`/`implemented_by`). `grounded_in` is transitive with a `supports`
 inverse, so reasoning chains a claim → evidence → ecosystem code/service automatically —
-which is why we extrapolate cross-domain links from the *first* compiled artifact rather
+which is why this repository extrapolate cross-domain links from the *first* compiled artifact rather
 than only "at critical mass". The ARA Compiler grounds each claim to the ecosystem it
 touches; the ARA Seal verifies it (L1 = SHACL + interface conformance + OWL consistency,
 L2 = rigor, L3 = exec-reproducibility with `/evidence` withheld via markings, AU-KG.ontology.redact-object-materialize-restricted) and

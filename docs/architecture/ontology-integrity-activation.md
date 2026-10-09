@@ -51,10 +51,10 @@ through **before** calling `add_triples`:
    `GraphComputeEngine.icv_configure` (→ `client.rdf.icv_configure`,
    `IcvConfigure` on the wire) — the only supported registration API. It never
    bypasses, relaxes, or reimplements the guard.
-2. **Reads back and verifies** the registration took effect with a
+2. **Reads back and checks** the registration took effect with a
    *zero-triple* `add_triples("")` probe. The guard evaluates graph
    authority/policy presence before it ever inspects the triples supplied, so
-   an empty probe exercises the exact same check a real load would hit — using
+   an empty probe exercises the exact same check a real load will hit — using
    only the engine's own existing authority, never a second validator.
 3. Only then does the caller proceed to load real ontology content.
 
@@ -74,7 +74,7 @@ and is not treated as a binding mismatch.
 
 Re-running activation against an already-activated graph (a restart, a second
 boot, a repeated MCP call) is a no-op success: no second `IcvConfigure` call,
-no error. (The engine's own `IcvConfigure` handler is additionally
+no error. (The engine's own `IcvConfigure` handler is also
 policy-idempotent server-side for byte-identical calls — this module's check
 is an independent, testable guarantee on top of that.)
 
@@ -119,8 +119,8 @@ serve as if ontology activation succeeded when it did not.
 ## Diagnosing "ontology not activated" live
 
 1. **Check readiness.** Call `graph_analyze(action="readiness")` (or the REST
-   twin) and read `checks.ontology_activation`. `state` + `reason` tell you
-   which of the failure modes above you're in; `detail.graph` names the exact
+   twin) and read `checks.ontology_activation`. `state` + `reason` tell the operator
+   which of the failure modes above the operator're in; `detail.graph` names the exact
    named graph.
 2. **Check the boot log.** `_sync_ontologies_at_boot` logs `"Ontology graph
    activation failed at boot: <reason>"` at `ERROR` when `activate_graph()`

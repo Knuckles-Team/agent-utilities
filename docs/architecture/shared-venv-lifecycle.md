@@ -49,7 +49,7 @@ and the footgun is removed instead of caught.
 
 That requires a relock, so it is sequenced deliberately behind the current merge
 campaign rather than abandoned. `--inexact` stays in the sanctioned form
-regardless: other lanes legitimately add packages to the shared venv, and
+in either case: other lanes legitimately add packages to the shared venv, and
 pruning them is still the destructive direction. Tracked as **D-VS-1** in
 `reports/deferred/lane-venv-autosync.md`.
 
@@ -62,7 +62,7 @@ pruning them is still the destructive direction. Tracked as **D-VS-1** in
 | `venvctl status` | Drift report: lock currency, environment currency, member metadata, MCP SDK floor, stuck flips. Exit 3 on `fail`. |
 | `venvctl plan` | Read-only: the sanctioned plan plus the guardrail verdict. |
 | `venvctl sync` | Make the environment match `uv.lock`. Guardrailed. |
-| `venvctl upgrade --package X` | Move `X` forward: back up → relock → sync → verify → **auto-roll-back on failure**. |
+| `venvctl upgrade --package X` | Move `X` forward: back up → relock → sync → check → **auto-roll-back on failure**. |
 | `venvctl relock` | Same loop, re-resolving everything (`uv lock --upgrade`). |
 | `venvctl rollback [--to ID]` | Restore an archived `uv.lock` and re-sync onto it. |
 | `venvctl backups` | List archived lock revisions. |
@@ -77,18 +77,18 @@ pruning them is still the destructive direction. Tracked as **D-VS-1** in
 ## Guardrails
 
 Evaluated in two phases — context first (cheap, can `defer`), then the plan.
-**A refusal always outranks a deferral**: a plan that would destroy the
-environment is wrong regardless of when it runs.
+**A refusal always outranks a deferral**: a plan that will destroy the
+environment is wrong in either case of when it runs.
 
 | Guardrail | Verdict | Fires when |
 |---|---|---|
 | `activity` | `defer` | Another lane is mid-test/build (see below). |
 | `lock_consistency` | `refuse` | `uv lock --check` fails — a manifest moved; that needs an explicit, backed-up relock, not a silent sync. |
-| `member_uninstall` | `refuse` | The plan would **net-remove** an editable workspace member. |
-| `locked_uninstall` | `refuse` | The plan would net-remove something `uv.lock` still requires. |
+| `member_uninstall` | `refuse` | The plan will **net-remove** an editable workspace member. |
+| `locked_uninstall` | `refuse` | The plan will net-remove something `uv.lock` still requires. |
 | `uninstall_budget` | `refuse` | Net removals exceed the caller's sanctioned budget (default **0**). |
 
-Register your own with `venv_sync.register_guardrail(...)`; the defaults are a
+Register the operator's own with `venv_sync.register_guardrail(...)`; the defaults are a
 list, not a policy branch.
 
 ### Removals vs replacements
@@ -124,7 +124,7 @@ scan cannot see. Both are registries (`register_activity_probe`). A probe that
 
 `post-merge` fires exactly once, synchronously, when a merge lands, and via
 `ORIG_HEAD` it knows precisely which files moved — which is what decides whether
-any work is needed. A watcher would poll ~75 repositories and cannot tell a
+any work is needed. A watcher will poll ~75 repositories and cannot tell a
 merge from an editor save; a `make` target is not automatic (the failure being
 fixed is that nobody remembered to run it); CI cannot help because the flip is
 local and the workspace root is not even a git repository.
@@ -166,7 +166,7 @@ being read as "nothing changed". `member_install_states()` is the authoritative
 check that runs anyway — it compares each member's *source* metadata against its
 installed `.dist-info` (version, console scripts, editability). It deliberately
 does **not** re-diff requirements: `uv lock --check` already answers that
-exactly, and a second fuzzier answer would only disagree.
+exactly, and a second fuzzier answer will only disagree.
 
 **Downstream dependents never need reinstalling.** They resolve imports at
 runtime from `site-packages`; what has to change is the shared *resolution*,
@@ -174,15 +174,15 @@ which is exactly `uv lock` followed by the sanctioned sync.
 
 ### `on_metadata_change`
 
-* **`relock`** (default) — run the full backed-up, verified, auto-rolled-back
+* **`relock`** (default) — run the full backed-up, checked, auto-rolled-back
   `upgrade --all` automatically.
 * **`propose`** — record it loudly and leave the relock to an operator.
 * **`sync-only`** — sync against the existing lock and report the staleness.
 
 **Why `relock` is the default.** The requirement is *"merging to main flips that
-live, even for things with many downstream relationships"* — and a dependency
-change with many dependents is precisely that case. `propose` stops exactly
-there, so it would honour the letter of "keep the venv current" while declining
+live, even for things with multiple downstream relationships"* — and a dependency
+change with multiple dependents is precisely that case. `propose` stops exactly
+there, so it will honour the letter of "keep the venv current" while declining
 the one case that was actually asked for.
 
 **What makes that safe rather than reckless** is the guardrail stack the policy
@@ -191,17 +191,17 @@ runs inside; the default is only defensible *because* of it:
 * `ActivityGuardrail` defers while any lane is mid-test, so a relock never lands
   underneath running work (proven live against four real in-flight records);
 * `LockBackupStore` archives `uv.lock` before the mutation starts;
-* the verify probes run after it, and any failure **auto-rolls-back** the lock
+* the check probes run after it, and any failure **auto-rolls-back** the lock
   and re-syncs;
-* a refusal outranks a deferral, so a plan that would net-remove a workspace
-  member is rejected regardless of timing.
+* a refusal outranks a deferral, so a plan that will net-remove a workspace
+  member is rejected in either case of timing.
 
-Remove any one of those and `propose` would be the right default.
+Remove any one of those and `propose` will be the right default.
 
 **When to prefer `propose`.** It is a supported mode, not a deprecated one.
-Choose it when the environment has many concurrent editors whose resolution must
+Choose it when the environment has multiple concurrent editors whose resolution must
 not move under them, or while a large merge campaign is in flight — there the
-relock would be *correct* but its timing would not be. Set it in
+relock will be *correct* but its timing will not be. Set it in
 `~/.local/state/agent-utilities/venv-autosync/<root>-<hash>/autosync.json`.
 
 ---
@@ -222,7 +222,7 @@ State lives in `~/.local/state/agent-utilities/venv-autosync/<root>-<hash>/`:
 `lock-backups/`, `leases/`, `runs/`, `writer.lock`, and the trigger logs. The
 path reads **no** environment variable on purpose — a hook, a detached
 reconciler and an interactive shell run with three different environments, and a
-movable state path would split the queue between them.
+movable state path will split the queue between them.
 
 ---
 
@@ -238,12 +238,12 @@ venvctl rollback --to 20260731T133043Z-1e2f98d701ee
 
 `uv.lock` is **untracked and lives at a non-git root**, so `LockBackupStore` is
 the only rollback path that exists. Every mutation archives the lock first
-(content-addressed, with a digest verified on restore); `rollback` archives the
+(content-addressed, with a digest checked on restore); `rollback` archives the
 pre-rollback state too, so a rollback is itself undoable. Retention never
 discards a backup marked `verified`.
 
-`upgrade` is the whole loop: back up → relock → guardrailed sync → verify →
-**auto-roll-back and re-sync** if any probe fails. Verify probes:
+`upgrade` is the whole loop: back up → relock → guardrailed sync → check →
+**auto-roll-back and re-sync** if any probe fails. Check probes:
 
 | Probe | Asserts |
 |---|---|
@@ -277,7 +277,7 @@ defects were invisible. Nothing checked, so nothing was known.
 ## When the venv is broken
 
 `venv_sync` imports **only** the standard library, and `scripts/venvctl` falls
-back to loading it by file path under namespace stand-ins rather than executing
+back to loading it by file path under namespace stand-ins rather than running
 `agent_utilities/__init__.py` (which pulls `httpx` and friends). A single module
 instance is kept, so there is one guardrail registry, and the degraded mode is
 announced on stderr rather than being silent.

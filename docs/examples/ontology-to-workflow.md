@@ -12,9 +12,9 @@ and closed out with run-level provenance — the run's `RunTrace` gets an
 
 **Prerequisites (ladder rung).** Single-host rung or above from
 [Deployment configurations](../guides/deployment-configurations.md): a running
-`graph-os` MCP server (or gateway) backed by an engine you can write to. No
+`graph-os` MCP server (or gateway) backed by an engine the operator can write to. No
 Camunda deployment is required — the fixture stands in for the engine's BPMN
-XML. Deep dive: [Ontology system](../architecture/ontology_system.md).
+XML. Detailed review: [Ontology system](../architecture/ontology_system.md).
 
 All fixture files live in [`examples/ontology_workflow/`](https://github.com/Knuckles-Team/agent-utilities/tree/main/examples/ontology_workflow/).
 
@@ -108,7 +108,7 @@ REST twin: `POST /api/graph/workflows` with body
 `{"action":"compile_process","workflow":"bpmn_process:order_fulfillment:1:demo","name":"process_order_fulfillment"}`.
 
 **Expected output** — the `compile_and_store` report plus `status` and the
-stored topology diagram (`mermaid` is `null` when no diagram could be stored):
+stored topology diagram (`mermaid` is `null` when no diagram can be stored):
 
 ```json
 {
@@ -148,10 +148,10 @@ Compilation semantics worth noticing:
 - The stored `WorkflowDefinition` gets a
   `(:WorkflowDefinition)-[:REALIZES]->(:BusinessProcess)` bridge edge.
 
-## 4. Execute through the ontology gate (AU-ORCH.execution.ontology-validation-execution-path)
+## 4. Run through the ontology gate (AU-ORCH.execution.ontology-validation-execution-path)
 
 MCP call (also in
-[`examples/ontology_workflow/execute_workflow_call.json`](https://github.com/Knuckles-Team/agent-utilities/blob/main/examples/ontology_workflow/execute_workflow_call.json)):
+[`examples/ontology_workflow/execute_workflow_call.json`](https://github.com/Knuckles-Team/agent-utilities/blob/main/examples/ontology_workflow/run_workflow_call.json)):
 
 ```json
 {

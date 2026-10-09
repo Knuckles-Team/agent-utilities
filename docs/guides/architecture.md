@@ -88,7 +88,7 @@ graph TD
 
 The framework provides three canonical protocol adapters:
 
-1. **ACP (Agent Client Protocol)**: Editor-launched stdio JSON-RPC for coding-agent sessions
+1. **ACP (Agent Client Protocol)**: Editor-started stdio JSON-RPC for coding-agent sessions
 2. **A2A (Agent-to-Agent)**: Peer-to-peer agent communication and coordination
 3. **AG-UI**: Current streaming interface for native Pydantic AI clients
 
@@ -116,7 +116,7 @@ The graph bundle must contain a real Graph object with `.iter()` support. There
 is no alternate graph execution flag or model-mediated graph path.
 
 The **ACP adapter** uses Harness `AcpSessionConfig` to bind immutable,
-per-session graph context to one shared wrapper agent. Editors launch it over
+per-session graph context to one shared wrapper agent. Editors start it over
 stdio; it is never mounted as an HTTP application.
 
 The **A2A path** is graph-native
@@ -399,7 +399,7 @@ Level 3: Leaf States - MCP Tool Execution
 | agent-utilities Concept        | HSM Concept            | Details                                           |
 |--------------------------------|------------------------|---------------------------------------------------|
 | Root graph                     | Root state machine     | N Orchestration nodes                             |
-| Router -> Dispatcher            | Top-level transitions  | Router generates plan, dispatcher executes        |
+| Router -> Dispatcher            | Top-level transitions  | Router generates plan, dispatcher runs        |
 | Planner (re-plan only)         | Re-entry transition    | Invoked by verifier on score < 0.4                |
 | Synthesizer                    | Terminal action        | Composes final response from the results          |
 | `NODE_SKILL_MAP` agents        | Superstates (L1)       | N hardcoded domains                               |
@@ -409,7 +409,7 @@ Level 3: Leaf States - MCP Tool Execution
 | MCP tool call (stdio)          | Leaf states (L3)       | Atomic operations                                 |
 | Verifier feedback loop         | Re-entry transition    | Parent re-dispatches to child                     |
 | Circuit breaker (open)         | Guard condition        | Blocks entry to failed state                      |
-| `node_transitions` guard       | Watchdog timer         | Force-terminates after 50 transitions             |
+| `node_transitions` guard       | Watchdog timer         | Force-stop after 50 transitions             |
 | Memory-first dispatch          | Entry action           | Enriches context before first step                |
 | Research-before-execution      | Phase ordering         | Discovery completes before execution              |
 | Process-Guided Planning        | Knowledge Influx       | KG-native SOPs injected into Planner context      |
@@ -421,7 +421,7 @@ Level 3: Leaf States - MCP Tool Execution
 3. **Plan enhancements by level.** Routing concern -> L0. Domain behavior -> L1 specialist. Tool-level fix -> L3 MCP.
 4. **Use types as boundaries.** `ExecutionStep`, `GraphPlan`, `GraphResponse`, and `MCPAgent` are the boundary contracts between levels.
 5. **Defer flattening.** Never visualize the full system as one graph. Visualize one level at a time.
-6. **The growth test:** If tempted to add more nodes to a graph, ask whether you should add a new state machine instead.
+6. **The growth test:** If tempted to add more nodes to a graph, ask whether the operator should add a new state machine instead.
 
 ### Behavior Tree (BT) Concepts
 The graph incorporates key Behavior Tree patterns **inside** the HSM structure.
@@ -481,7 +481,7 @@ The graph incorporates key Behavior Tree patterns **inside** the HSM structure.
 
 ### Phase 4: Context Enrichment & Dispatch
 9. **Memory Selection**: On first entry, the `dispatcher` routes to `memory_selection_step` for RAG-style context injection.
-10. **Research-Before-Execution**: The dispatcher reorders the plan to guarantee research steps execute before specialist steps.
+10. **Research-Before-Execution**: The dispatcher reorders the plan to guarantee research steps run before specialist steps.
 11. **Dispatch**: The `dispatcher` spawns selected specialist nodes with concurrent execution via `parallel_batch_processor`.
 
 ### Phase 5: Parallel Execution

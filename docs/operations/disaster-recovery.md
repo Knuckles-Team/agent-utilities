@@ -42,11 +42,11 @@ retention can run.
 
 `graphos-restore-validation` runs daily against the latest complete bundle. It performs
 an offline restore into a dedicated scratch claim, checks the bundle and restored tree,
-starts the exact Epistemic Graph binary on loopback with verified context/RLS/signature
+starts the exact Epistemic Graph binary on loopback with checked context/RLS/signature
 enforcement, waits for startup recovery to reconcile prepared parents and retained
-cross-shard decisions, and runs a health RPC. Scratch data is deleted afterward.
+cross-shard decisions, and runs a health RPC. Scratch data is removed afterward.
 
-The job verifies the manifest-bound portable-file digests, then emits only digests
+The job checks the manifest-bound portable-file digests, then emits only digests
 and aggregate counts. It never emits archive locations,
 engine locations, principals, graph content or source labels. A failed restore job pages
 the recoverability SLO and blocks release promotion.
@@ -55,15 +55,15 @@ the recoverability SLO and blocks release promotion.
 
 1. Freeze release, ontology, index and placement changes in both cells.
 2. Fence writes to the failed cell through the global control plane.
-3. Select the newest bundle whose manifest and external object digest verify.
+3. Select the newest bundle whose manifest and external object digest check.
 4. Restore into fresh retained claims in the recovery cell. Never overwrite a running
    or partially restored target.
 5. Start the exact signed engine image with the same data-key authority. Startup must
    reconcile prepared transactions and retained cross-shard decisions before readiness.
-6. Verify coordinator receipt totals, graph health, placement epoch, projection/index
+6. Check coordinator receipt totals, graph health, placement epoch, projection/index
    cursors, tenant policy version and checkpoint age using aggregate probes.
 7. Shift a canary traffic slice, then all traffic, through the global control plane.
-8. Keep the old cell fenced until the new checkpoint and external archive copy verify.
+8. Keep the old cell fenced until the new checkpoint and external archive copy check.
 9. Record observed checkpoint age as RPO and fault-to-full-cutover time as RTO in signed
    operational evidence.
 

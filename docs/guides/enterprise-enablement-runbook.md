@@ -37,7 +37,7 @@ publish before their consumers:
 auto_push --phased
 ```
 
-Verify each dependency phase before advancing. The workspace manifest, rather than
+Check each dependency phase before advancing. The workspace manifest, rather than
 machine-specific paths or a handwritten repository list, defines the order.
 
 ## Stage B — Establish identity and secure transport
@@ -70,9 +70,9 @@ and ambiguous engine placement fail closed.
 For a supervised local engine, AgentConfig may omit `GRAPH_SERVICE_ENDPOINTS`; the
 packaged engine and its per-install authentication material are managed under the
 XDG runtime/data boundary. A distributed engine receives its shared authentication
-material from the deployment secret resolver at launch.
+material from the deployment secret resolver at start.
 
-Verify that unauthenticated access is rejected, valid identities resolve the intended
+Check that unauthenticated access is rejected, valid identities resolve the intended
 tenant, cross-tenant reads are denied, and every remote certificate chains through
 the selected TLS profile.
 
@@ -85,7 +85,7 @@ surfaces required by the topology:
 - `graph-os-daemon` for a headless KG host without an HTTP API;
 - `python -m agent_utilities` for the REST/API gateway.
 
-Hot-swap one compatible deployment unit at a time behind health checks. Verify
+Hot-swap one compatible deployment unit at a time behind health checks. Check
 metrics, an authenticated graph query, multiplexer health, and a clean doctor report
 before advancing.
 
@@ -105,7 +105,7 @@ not an AgentConfig literal. Non-secret pool controls remain in XDG AgentConfig:
 This externalizes session/turn/fleet metadata and queue-delivery state. It does
 not move execution checkpoints or create a second goal lifecycle: the
 engine-native WorkItem remains authoritative for claim, lease, fencing,
-`checkpoint_id`, idempotency, and terminal result. Verify that two gateway
+`checkpoint_id`, idempotency, and terminal result. Check that two gateway
 replicas cannot process the same delivery claim, leadership moves after a
 replica exits, and an interrupted WorkItem resumes only through its current
 native lease.
@@ -129,16 +129,16 @@ route endpoint. Pin `GRAPH_CLUSTER_ID` when the deployment has a known cluster d
 and set the discovery age/skew bounds explicitly for the environment. Unreachable,
 stale, wrong-context, or ambiguous authority fails closed.
 
-Verify coordinator health, route a graph to its authoritative group, and confirm
+Check coordinator health, route a graph to its authoritative group, and confirm
 that a failed group produces an explicit error rather than a local substitute.
 
-## Stage F — Verify governed retrieval
+## Stage F — Check governed retrieval
 
 The Company Brain boundary applies source-authority arbitration, confidence decay,
 field-level survivorship, tenant scoping, data ACLs, read audit, and durable human
 corrections. Identity from Stage B is mandatory.
 
-Verify a source conflict, an ACL-protected field, and a human correction end to end.
+Check a source conflict, an ACL-protected field, and a human correction end to end.
 
 ## Stage G — Enable propose-only learning and autonomy
 
@@ -193,7 +193,7 @@ endpoint, a runtime password reference, and the explicit publish gate:
 }
 ```
 
-Verify that the dataset answers a SPARQL query and that a harvested business process
+Check that the dataset answers a SPARQL query and that a harvested business process
 compiles to a governed workflow with provenance.
 
 ## Capability shutdown

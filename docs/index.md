@@ -16,7 +16,7 @@
   <article class="site-card">
     <h2 class="site-card__title">Build an agent</h2>
     <p class="site-card__body">Create a provider-aware agent, attach typed tools and reusable skills, and run it through one governed harness.</p>
-    <a href="guides/creating-an-agent/">Create your first agent →</a>
+    <a href="guides/creating-an-agent/">Create the operator's first agent →</a>
   </article>
   <article class="site-card">
     <h2 class="site-card__title">Coordinate work</h2>
@@ -78,7 +78,7 @@ WebUI presents the browser experience.
     <span class="site-flow__body">Agent Utilities selects models, skills, tools, and bounded graph evidence for the task.</span>
   </li>
   <li class="site-flow__step">
-    <strong class="site-flow__title">Execute under policy.</strong>
+    <strong class="site-flow__title">Run under policy.</strong>
     <span class="site-flow__body">Planners, agents, teams, and workflows operate within budgets, approvals, and safety constraints.</span>
   </li>
   <li class="site-flow__step">
@@ -102,7 +102,7 @@ WebUI presents the browser experience.
 
 !!! tip "Using the whole ecosystem?"
     Start with [GraphOS](https://knuckles-team.github.io/graph-os/) for the
-    composed public runtime. Use these Agent Utilities docs when you are
+    composed public runtime. Use these Agent Utilities docs when the operator are
     building or extending agent behavior inside that runtime.
 
 ## Control-plane capabilities
@@ -123,7 +123,7 @@ monolithic agent loop:
 
 Continue to the [architecture reference](architecture/index.md) for the module
 map, or browse the [documentation catalog](reference/documentation-catalog.md)
-when you need a specialized operational guide.
+when the operator need a specialized operational guide.
 
 ## Specification delivery
 

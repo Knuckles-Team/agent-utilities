@@ -60,7 +60,7 @@ flowchart LR
 | `MODEL_CONTEXT_ORDERING_VERSION` | `context-mmr-v1` | Cache/version boundary for evidence ordering |
 | `MODEL_CONTEXT_REDACTION_VERSION` | `permissioning-v1` | Cache/version boundary for redaction behavior |
 | `MODEL_TLS_PROFILE` / `MODEL_TLS_PROFILE_REF` | unset | Runtime trust-anchor and mTLS selection; verification is mandatory |
-| *(baked-in, no flag)* verified graph session | required | Every boundary requires middleware/process-minted sessions |
+| *(baked-in, no flag)* checked graph session | required | Every boundary requires middleware/process-minted sessions |
 
 The model endpoint/model/credential remain part of the existing typed chat-model
 configuration. TLS verification follows the shared environment/client trust
@@ -71,7 +71,7 @@ configuration; it is never disabled or hardcoded here.
 `python scripts/check_context_compiler_boundary.py` rejects provider calls or
 provider constructors outside the two approved transport/factory modules,
 rejects every direct Pydantic AI `Agent` import, alias, module-qualified
-constructor, and re-export outside `contextual_model.py`, and verifies that both
+constructor, and re-export outside `contextual_model.py`, and checks that both
 the model factory and the sole agent constructor install the mandatory wrapper.
 
 Focused behavior tests live in

@@ -14,7 +14,7 @@ at the gateway:
 - Every individual MCP server in the fleet (`agents/*`) ran its own
   `on_call_tool` path with **no** bridge from "the JWT this server itself
   validated" into `current_actor()` — so `current_actor()` was always the
-  privileged `SYSTEM_ACTOR`, regardless of who actually called the tool.
+  privileged `SYSTEM_ACTOR`, in either case of who actually called the tool.
 - The claims-to-roles mapping only read a generic `roles`/`realm_access.roles`
   shape. An Okta caller's `groups` claim and a Keycloak caller's
   `resource_access.<client>.roles` (client roles, as opposed to realm roles)
@@ -25,12 +25,12 @@ at the gateway:
   host, every DB connection) to every caller, configured once at deploy time.
   There was no way for an operator's Okta `k8s-prod-readers` group or a
   Keycloak `k8s-staging-admin` role to change what that operator's tool calls
-  could actually reach.
+  can actually reach.
 
 Net effect: a caller's IdP-side role/group model was discarded past the
 gateway, and the two IdPs the fleet is actually deployed against (Okta and
 Keycloak) were not interchangeable — a deployment moving from one to the
-other would silently lose authorization fidelity.
+other will silently lose authorization fidelity.
 
 ## The model
 
@@ -125,7 +125,7 @@ inherits this for free, with no flag. See
 ## The capability grammar
 
 `entitled_resources()`/`is_entitled()` (`agent_utilities/security/entitlements.py`)
-interpret capability strings uniformly, regardless of which IdP produced them:
+interpret capability strings uniformly, in either case of which IdP produced them:
 
 | Form | Meaning |
 | --- | --- |
@@ -140,11 +140,11 @@ back to a public default) — the resolver never invents access.
 
 ### Zero-config vs `IDENTITY_GROUP_CAPABILITY_MAP`
 
-**Zero-config (default)**: a group/role name **is** a capability. If your Okta
-group or Keycloak role is already named after the resource or namespace you
+**Zero-config (default)**: a group/role name **is** a capability. If the operator's Okta
+group or Keycloak role is already named after the resource or namespace the operator
 want it to grant, nothing else is required.
 
-**`IDENTITY_GROUP_CAPABILITY_MAP`**: needed when your IdP's group identifiers
+**`IDENTITY_GROUP_CAPABILITY_MAP`**: needed when the operator's IdP's group identifiers
 don't read as capability names — most commonly Okta, where the `groups` claim
 is often an opaque group ID rather than a human-readable name. Maps a raw
 group value to one or more capability strings; an unmapped group falls back to
@@ -204,7 +204,7 @@ A server does **not** re-implement any identity plumbing. It:
    `ActorContextMiddleware`), which gets it the validated-JWT → `current_actor()`
    bridge automatically (`_configure_middleware` in
    `agent_utilities/mcp/server_factory.py`).
-2. Wherever it would normally enumerate "all the backend resources I could
+2. Wherever it will normally list "all the backend resources I can
    offer" (contexts/hosts/connections/repos), replaces that with one call:
 
    ```python
@@ -259,7 +259,7 @@ Designed and recorded, **not yet implemented**:
   caller's own, not a shared server identity's.
 
 **Implemented since this section was last written** (GOC-15 correction,
-2026-08-16 — verified against `main`, do not re-plan this item):
+2026-08-16 — checked against `main`, do not re-plan this item):
 
 - **graph-os on-behalf-of token exchange in `execute_agent`.** This *was*
   deferred when this doc was written (commit `3e13feeec`), but per-agent
@@ -273,13 +273,13 @@ Designed and recorded, **not yet implemented**:
   `delegation` chain (principal-first, agent-last, `len ≥ 2`) onto every
   engine call a spawn makes under `on`, and forward an RFC 8693 exchanged
   `oidc_token` claim when the ambient `SpawnDelegation` carries one (W2.1-1) —
-  the engine independently RSA/JWKS-verifies that token and cross-checks its
+  the engine independently RSA/JWKS-checks that token and cross-checks its
   subject/tenant against the same request context
   (`server::auth::bind_verified_identity`). The chain is only emitted when
   its ultimate principal matches the session's own authenticated principal,
   so a spawn can never forge a chain for an identity it does not run under.
   Full field-level carrier contract, including this claim:
-  [Verified identity carrier contract](verified-identity-carrier-contract.md).
+  [Checked identity carrier contract](checked-identity-carrier-contract.md).
 
 ## Config reference
 
@@ -318,11 +318,11 @@ Enable the claims this normalizer reads, on the client used by callers:
 
 ### Okta setup
 
-1. **Groups claim**: Security → API → Authorization Servers → your
+1. **Groups claim**: Security → API → Authorization Servers → the operator's
    authorization server → **Claims** → add a claim named `groups`, value type
-   *Groups*, filter to the groups you want emitted (e.g. a regex matching your
+   *Groups*, filter to the groups the operator want emitted (e.g. a regex matching the operator's
    fleet's group naming convention), include in ID Token and/or Access Token.
-2. **Custom `roles` claim** (optional, if you prefer role semantics over
+2. **Custom `roles` claim** (optional, if the operator prefer role semantics over
    groups): a custom Authorization Server claim sourced from a user profile
    attribute or an Okta Expression Language expression, claim name `roles`.
 3. If Okta group IDs are opaque (`00g1a2b3c4D5e6F7g8h9`), configure

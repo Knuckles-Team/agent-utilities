@@ -1,6 +1,6 @@
 # Company Brain Architecture
 
-> Deep-dive into the architectural foundations of the Company Brain — the operational state infrastructure that makes the Knowledge Graph safe for multi-writer, multi-reader, multi-tenant organizational intelligence.
+> Detailed review into the architectural foundations of the Company Brain — the operational state infrastructure that makes the Knowledge Graph safe for multi-writer, multi-reader, multi-tenant organizational intelligence.
 
 ---
 
@@ -120,7 +120,7 @@ This means a human analyst and an AI agent writing to the same node are subject 
 
 ### 2. Ontology-First
 
-Most systems start with storage and bolt ontology on later. We start with OWL and bolt storage underneath. This means:
+Most systems start with storage and bolt ontology on later. This repository start with OWL and bolt storage underneath. This means:
 - Company-specific perspective is **native** — extend `ontology.ttl` without changing the engine
 - Reasoning is **built-in** — `OWLBridge.run_cycle()` discovers new facts automatically
 - Semantic subsumption enables **lensing** — the same state viewed through different perspectives
@@ -218,7 +218,7 @@ EventStreamIngester              ProvenanceTracker
 3. **Concurrency control** checks version vectors and acquires locks
 4. **Conflict resolution** detects contradictions and applies merge strategies
 5. **Tenant scoping** ensures mutations land in the correct namespace
-6. **Permission checks** verify the actor can write to the target node
+6. **Permission checks** check the actor can write to the target node
 7. **The engine** applies the mutation with full provenance metadata
 8. **OWL reasoning** triggers if the mutation crosses significance thresholds
 

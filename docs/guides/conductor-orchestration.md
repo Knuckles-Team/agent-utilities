@@ -30,7 +30,7 @@ ExecutionStep(
 
 The router's system prompt now includes CONCEPT:AU-ORCH.planning.recursion-nesting-depth instructions:
 
-> For EACH step in your plan, include a `refined_subtask` — a focused,
+> For EACH step in the operator's plan, include a `refined_subtask` — a focused,
 > specific instruction tailored for that specialist.
 
 ---

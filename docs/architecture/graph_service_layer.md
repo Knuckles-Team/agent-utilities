@@ -40,7 +40,7 @@ Python (agent-utilities API gateway)
 Agents can create ephemeral channels for P2P or group communication:
 
 - **1:1 channels**: `channel:p2p:<agent_a>:<agent_b>` — direct messaging
-- **Many:many channels**: `channel:group:<uuid>` — group created by any agent
+- **Multiple:multiple channels**: `channel:group:<uuid>` — group created by any agent
 - **Lifecycle**: Create → Join → Leave → Close
 - **KG Imprint**: On close, the channel creates a permanent KG record with:
   - Vectorized embedding of the conversation summary

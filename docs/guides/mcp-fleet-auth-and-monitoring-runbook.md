@@ -44,7 +44,7 @@ endpoint must match the egress and TLS policies. For HTTP Basic children, use
 
 For a child whose bearer is minted by an out-of-process refresh daemon this
 service does not control (BUG-051 — e.g. a cron job that rewrites a local
-token file on its own schedule, outside any OIDC grant this service could
+token file on its own schedule, outside any OIDC grant this service can
 mint itself), use `MCP_CLIENT_AUTH=rotating-file-bearer` and
 `MCP_BEARER_TOKEN_FILE=<path to a mode-0600 file holding just the token>`.
 The file is read fresh on every outbound request rather than cached at

@@ -15,7 +15,7 @@ engine's async write fan-out faithfully. Two test layers keep that promise hones
 Both stand real services up in **throwaway containers** via
 [`testcontainers`](https://testcontainers-python.readthedocs.io/) — on random
 free ports, torn down deterministically — so a run is hermetic and can be
-intentionally broken without touching anything you care about.
+intentionally broken without touching anything the operator care about.
 
 ## Install
 
@@ -78,7 +78,7 @@ publishes to Fuseki and is queryable over SPARQL.
 A live full-matrix probe (write via the engine, then read each mirror via
 `backend.execute`, all mirrors running) drove a phased program that closed the
 gaps. The `epistemic_graph` column is the authority; the rest are mirrors.
-**Verified current state:**
+**Checked current state:**
 
 | Capability | epistemic_graph (authority) | ladybug | pg-age (AGE) | neo4j | falkordb |
 |---|---|---|---|---|---|
@@ -93,9 +93,9 @@ gaps. The `epistemic_graph` column is the authority; the rest are mirrors.
 parser/planner serves explicit read and durable write modes; agent-utilities has
 no Python-side Cypher interpreter, scan fallback, or mutation compiler.
 ² FalkorDB vector search is **code-correct** (Cypher DDL `CREATE VECTOR INDEX` +
-`db.idx.vector.queryNodes`, verified with small vectors) but the
+`db.idx.vector.queryNodes`, checked with small vectors) but the
 `falkordb/falkordb` image **crashes (SIGILL) on 768-dim vector ops on non-AVX
-host CPUs** — verify on AVX-capable hardware.
+host CPUs** — check on AVX-capable hardware.
 
 What changed:
 - **Neo4j/FalkorDB are first-class mirrors** — they crashed on the standard write
@@ -149,7 +149,7 @@ Conventions to keep parity with this package:
 
 ## The REAL ephemeral engine in tests — `tiny_engine` / `engine_graph` (CONCEPT:AU-KG.memory.provides-real-ephemeral-one)
 
-Engine-backed tests validate against the **ACTUAL database we ship** — never
+Engine-backed tests validate against the **ACTUAL database this repository ship** — never
 SQLite, never a mock — deployed ephemerally and destroyed afterwards. Two
 first-class fixtures in `tests/conftest.py` (backed by `tests/_test_engine.py`)
 own this:

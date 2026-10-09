@@ -1,7 +1,7 @@
 # Ontology-native classification — full handoff (Phase A → checkpoint → Phase B)
 
 > **Status:** Phase A **IMPLEMENTED** 2026-06-20 (`CONCEPT:AU-KG.ontology.capability-node-aliases-lexical`) — A2 (served-catalog
-> ingest step) + A3 (capability schema + two surfaces) landed; A4/A5 = live re-ingest + verify
+> ingest step) + A3 (capability schema + two surfaces) landed; A4/A5 = live re-ingest + check
 > (runbook §6). **B not started** (checkpoint here per decision 2). **Decisions:** (1) Phase-A
 > capability source of truth = the **served multiplexer / registry catalog** (not AST); (2) build
 > **Phase A fully → checkpoint for review → then B**. **Goal:** classify a chat turn (lean-chat vs
@@ -68,7 +68,7 @@
 
 ---
 
-## 0. Session context — what we did and why (the road to this plan)
+## 0. Session context — what this repository did and why (the road to this plan)
 
 This work came out of debugging "why is the Telegram bot slow / not using tools / not
 formatted". Four things shipped to a local branch but were not published. The active
@@ -114,7 +114,7 @@ the 190 s budget** and timed out. Diagnosis chain:
 
 ---
 
-## 1. Problem (verified against the live KG, 2026-06-20)
+## 1. Problem (checked against the live KG, 2026-06-20)
 
 - KG = 73.7k nodes. Capability types exist — `NativeTool` (89), `Skill` (94),
   `BusinessCapability` (806), `Route` (179), `Resource` (42) — **but only from graph-os's own
@@ -142,7 +142,7 @@ fleet specialist registered" — **Phase A fixes both**.)
 Backend-agnostic by design: the lexical step lives in **epistemic-graph** (the one authority
 every deployment runs), **NOT** ParadeDB BM25. `postgresql_backend.lexical_search` (BM25,
 `paradedb.rank_bm25`) exists and works, but it is **Postgres-only** — neo4j/falkordb/ladybug have
-no equivalent — so binding the gate to it would silently fail on other backends.
+no equivalent — so binding the gate to it will silently fail on other backends.
 
 ---
 
@@ -160,7 +160,7 @@ no equivalent — so binding the gate to it would silently fail on other backend
   recorded not fatal). `_write_fleet_nodes` then `engine.add_node`s each tool as a `Tool` node and
   `link_nodes(..., "SERVES", ...)` to its `MCPServer`. Wired native/default-on into the boot ingest
   as **step 4** (`kg_server._ingest_capabilities`, via `sync_source(engine, "fleet", mode="full")`).
-  Excluded from the `*/20m` document sweep (capability vocab is slow-changing). *(We did not reuse
+  Excluded from the `*/20m` document sweep (capability vocab is slow-changing). *(This repository did not reuse
   `physical_distiller.distill_mcp_tool` — it writes evolved descriptions back to source, not a
   catalog enumerator; the multiplexer probe IS the served catalog the decision named.)*
 - **A3 (DONE). Schema + two surfaces.** The `Tool` node schema is the exact set the dispatcher
@@ -174,7 +174,7 @@ no equivalent — so binding the gate to it would silently fail on other backend
 - **A4. Re-ingest the fleet.** Run the live E2E protocol (`ingestion-validation-protocol` memory):
   restart graph-os, `go__source_sync` (or the bootstrap), re-run to prove `skipped_unchanged`.
   **Needs a healthy engine and configured embedding endpoint.**
-- **A5. Verify + profile.** `graph_query` for github/portainer returns `Tool`/`Skill` capability
+- **A5. Check + profile.** `graph_query` for github/portainer returns `Tool`/`Skill` capability
   nodes; capability-node count covers the fleet. **Then profile** the two slow turns (§6) —
   routing is now correct, so the profile is meaningful (where do the 3 min go: planning loops vs
   the actual tool call?).
@@ -200,7 +200,7 @@ the earlier accelerator-fault observation is stale). **The experiment was not ye
   `list_catalog`, which has creds) through `_write_fleet_nodes` produced correct `Tool` nodes —
   `mcp_server=portainer-mcp/github-mcp`, `tags=["portainer"]/["github"]`,
   `synonyms=["portainer","portainer-mcp"]/["github","github-mcp"]`, `relevance_score=0.5`,
-  `requires_approval=false` — verified via `graph_query`. Schema matches `config._fetch_tools`
+  `requires_approval=false` — checked via `graph_query`. Schema matches `config._fetch_tools`
   exactly, so the dispatcher now synthesizes a portainer/github specialist from these nodes.
 - **Config-resolution fix:** the multiplexer's default `_resolve_config_path` picked an empty
   0-byte `~/.gemini/antigravity/mcp_config.json` first → 0-server probe. `_resolve_fleet_config`
@@ -238,7 +238,7 @@ becomes meaningful.
 >   Keyword-dependent tests rewritten to the structural+lexical contract.
 > - **Design note / refinement vs the plan:** with keywords gone the keyword-driven "strength 1"
 >   vanishes, so the semantic tier is now gated on a *structural length band* (substantial lexical-miss
->   turns) instead of "every weak/none turn → search_hybrid" — otherwise trivial chat would pay 4.5 s
+>   turns) instead of "every weak/none turn → search_hybrid" — otherwise trivial chat will pay 4.5 s
 >   every turn, violating "max free reasoning". Both §6 validation cases name their capability
 >   (portainer/github) so they escalate via the **free** lexical tier; semantic is the fallback for
 >   paraphrases that name no capability.
@@ -329,7 +329,7 @@ dynamic budget + ack/deliver, and Telegram formatting. Use them to validate each
 - **Validate:** the follow-up contains real issues (not the timeout message); profile shows the
   time in the tool call, not planning loops.
 
-**Cross-cutting (already fixed, re-verify):** both turns must (a) get an immediate ack then a
+**Cross-cutting (already fixed, re-check):** both turns must (a) get an immediate ack then a
 follow-up (ack-now/deliver-later, ORCH-1.72), and (b) render Markdown as formatted Telegram HTML
 (ECO-4.0) — the latter only once the Telegram fix is merged+deployed.
 

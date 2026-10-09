@@ -19,7 +19,7 @@ is **transparent, KG-grounded, and verifiable** — the way it surpasses a train
 | | Delta | Where |
 |---|---|---|
 | **SWARM-1** | **One-shot `graph_agents(action="swarm")`** — a one-line goal → `Planner.decompose` → `ExecutionManifest.from_graph_plan` → `ParallelEngine.execute` → verify → synthesize → single deliverable. Governance ON by default (`verify=True`, `max_retries=2`). | `mcp/tools/agent_execution_tools.py` |
-| **SWARM-2** | **Planner→execute→verify loop** — each leaf with `success_criteria` judged against it; failures get one bounded re-dispatch with the judge's feedback before assembly. "The loop only closes when something with real judgment signs off." | `parallel_engine._verify_and_redispatch` |
+| **SWARM-2** | **Planner→run→verify loop** — each leaf with `success_criteria` judged against it; failures get one bounded re-dispatch with the judge's feedback before assembly. "The loop only closes when something with real judgment signs off." | `parallel_engine._verify_and_redispatch` |
 | **SWARM-3** | **Critical-path metric** — report the longest dependency chain (true wall-clock floor) + parallelism ratio, not raw wave count (the PARL insight: optimize critical steps, not total). | `parallel_engine._schedule_waves` |
 | **SWARM-4** | **Per-agent structured-output contract** — `AgentSpec.output_schema` forces JSON; a violation is a soft failure (retried/quarantined) so prose never poisons synthesis (Kimi guardrail #3). | `parallel_engine.enforce_structured_output` |
 | **SWARM-5** | **Retry-with-backoff** — per-agent (or manifest) `max_retries` with exponential backoff; recovers transient failures within a wave (distinct from the circuit breaker that disables chronic failures across waves). | `parallel_engine._run_one` |
@@ -28,10 +28,10 @@ is **transparent, KG-grounded, and verifiable** — the way it surpasses a train
 
 SWARM-8 (native PDF/PPT/Excel/web rendering) is deferred to an AU-ECO.connector.plane-provisioning-auth ecosystem peripheral.
 
-## What we deliberately did NOT adopt
+## What this repository deliberately did NOT adopt
 
-- **PARL training / Mooncake serving** — model + infra layers; we orchestrate hosted pydantic-ai
-  agents, not train K2.6 or run vLLM. Our decomposition is Planner/LLM-driven, not RL-optimized — a
+- **PARL training / Mooncake serving** — model + infra layers; this repository orchestrate hosted pydantic-ai
+  agents, not train K2.6 or run vLLM. This repository's decomposition is Planner/LLM-driven, not RL-optimized — a
   transparent + governed trade vs. trained + opaque.
 - "300 agents" is a **ceiling, not a guarantee** — SWARM-2's verify loop is the value, not the count.
 

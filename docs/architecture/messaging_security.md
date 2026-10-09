@@ -6,12 +6,12 @@ sanctioned **automation** (Claude→MCP, the message bots) can reach anything.
 
 ## The core idea
 
-Almost everything is **outbound-initiated** and therefore needs no inbound port:
+Almost everything is **outbound-start** and therefore needs no inbound port:
 
 - **Claude → MCP fleet** dials *out* through the multiplexer.
 - **Message send + long-poll** dial *out* to Telegram/Slack APIs.
 
-The only thing that wants to come *in* is a **webhook push**. We never open a port for it —
+The only thing that wants to come *in* is a **webhook push**. This repository never open a port for it —
 it rides an **outbound tunnel**.
 
 ```mermaid
@@ -37,15 +37,15 @@ flowchart LR
 | Mode | Ingress | Open ports | Edge node? | When |
 |---|---|---|---|---|
 | **Cloudflare Tunnel (recommended)** | `cloudflared` on the homelab → Cloudflare edge | **none** (outbound only) | **none needed** | True push, zero exposure, no infra to own. |
-| **pangolin / self-hosted tunnel** | WireGuard tunnel to your own edge | **none** (outbound only) | a small VPS edge | Fully self-hosted, no third party. |
+| **pangolin / self-hosted tunnel** | WireGuard tunnel to the operator's own edge | **none** (outbound only) | a small VPS edge | Fully self-hosted, no third party. |
 | **Opt-in (default polling)** | none | none | none | Baseline — long-poll is already near-real-time; webhook path inactive until `MESSAGING_WEBHOOK_BASE_URL` is set. |
 | **Public edge (Caddy)** | Caddy public HTTPS | inbound 443 (shared) | a reachable host | Only if Caddy is already public; harden per below. |
 
 ### Cloudflare Tunnel — no edge node required (recommended)
 
-You do **not** need to own an edge-ingress node. `cloudflared` runs **on the homelab host
+The operator do **not** must own an edge-ingress node. `cloudflared` runs **on the homelab host
 itself** and dials **outbound** to Cloudflare; Cloudflare *is* the public edge (TLS, DDoS,
-and **Zero-Trust Access** for human gating). Nothing listens on a public IP at your site.
+and **Zero-Trust Access** for human gating). Nothing listens on a public IP at the operator's site.
 
 ```
 Telegram ──HTTPS──▶ Cloudflare edge ──(outbound tunnel)──▶ cloudflared (homelab)
@@ -70,7 +70,7 @@ ranges lock that one open path.
   receiver (`MESSAGING_WEBHOOK_SECRET`); add Slack signing-secret HMAC for Slack. Only the
   platform's signed requests are accepted even if the URL leaks.
 - **Keycloak forward-auth** (Caddy `forward_auth` / oauth2-proxy) on every *human* surface
-  (WebUI, dashboards) — only your designated Keycloak group gets in. The webhook path is
+  (WebUI, dashboards) — only the operator's designated Keycloak group gets in. The webhook path is
   the sole unauthenticated route and is locked by the signature + IP allowlist.
 - **CrowdSec** at the edge — ban/rate-limit abusive IPs (+ Telegram publishes its sender
   IP ranges for an allowlist).
@@ -82,11 +82,11 @@ ranges lock that one open path.
 ## Services checklist
 
 Already running: **Caddy, CrowdSec, Keycloak, OpenBao, Eunomia**. To complete the secure
-push path you only add a tunnel — and with **Cloudflare Tunnel that's a single agent
+push path the operator only add a tunnel — and with **Cloudflare Tunnel that's a single agent
 (`cloudflared`) on an existing host, no new edge node**:
 
 - **Recommended:** Cloudflare Tunnel (`cloudflared`) + **Cloudflare Access** (Zero Trust)
-  for human routes. Keycloak can sit behind Access as the OIDC IdP so identity stays yours.
+  for human routes. Keycloak can sit behind Access as the OIDC IdP so identity stays the operator's.
 - **Fully self-hosted alternative:** pangolin (vendored in `open-source-libraries/pangolin`)
   on a small VPS edge.
 - **Already-public alternative:** Caddy public HTTPS + Keycloak `forward_auth` (webhook

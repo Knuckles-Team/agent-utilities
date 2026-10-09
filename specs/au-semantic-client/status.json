@@ -32,7 +32,7 @@
     "AU-SEMANTIC-R027",
     "AU-SEMANTIC-R028"
   ],
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
   "evidence": [],
   "requirements": [
@@ -292,7 +292,7 @@
     {
       "id": "AU-SEMANTIC-R023",
       "title": "Legacy SPARQL backend and setup modules are deleted",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -300,6 +300,13 @@
           "commit": "029ea71efc6a31e41aca68e989613b251a054554",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/029ea71efc6a31e41aca68e989613b251a054554",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a05257fb65417c1520f2a2c37f16e72bf29971e3",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/a05257fb65417c1520f2a2c37f16e72bf29971e3",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
     },
@@ -338,7 +345,7 @@
     {
       "id": "AU-SEMANTIC-R028",
       "title": "Configured embedding dimension must match the deployed model's output size",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -346,6 +353,13 @@
           "commit": "12e4a7fe9749d054a7921ce022be558f1a85783b",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/12e4a7fe9749d054a7921ce022be558f1a85783b",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "12e4a7fe9749d054a7921ce022be558f1a85783b",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/12e4a7fe9749d054a7921ce022be558f1a85783b",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
       "remaining": "resolved_kg_embedding_dim()/configured_embedding_dimension() correctly fail loud (RuntimeError) on an explicit KG_EMBEDDING_DIM-vs-derived-model mismatch on main, but no test on main exercises that mismatch path -- only indirect fixture usage of configured_embedding_dimension() exists."

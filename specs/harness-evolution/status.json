@@ -22,7 +22,7 @@
     {
       "id": "AU-HARNESS-R001",
       "title": "Capability-gated capture of policy trajectories",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -30,13 +30,20 @@
           "commit": "9cf51e005f1e171806057ebb1a6b6e4e16333691",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/9cf51e005f1e171806057ebb1a6b6e4e16333691",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3279dcc7d1d7d6337264a496709b185e21218971",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/3279dcc7d1d7d6337264a496709b185e21218971",
+          "description": "AU-HARNESS-R001 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-HARNESS-R002",
       "title": "External training path supports an optional KLPO method",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -44,13 +51,20 @@
           "commit": "c84b8710fe175e5759dfe25fd0fbfe6b63ab7e77",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c84b8710fe175e5759dfe25fd0fbfe6b63ab7e77",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "37a3800dd3b1c6985955dd6272b1980cf2693cca",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/37a3800dd3b1c6985955dd6272b1980cf2693cca",
+          "description": "AU-HARNESS-R002 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-HARNESS-R003",
       "title": "Graph-driven work market on Gap and WorkItem contracts",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -58,6 +72,13 @@
           "commit": "f9280a3bae30df17b30e3019d338b82a4b24f59e",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f9280a3bae30df17b30e3019d338b82a4b24f59e",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "d1fdedd885f3ce583815798fa2f7f30d9dfd1393",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/d1fdedd885f3ce583815798fa2f7f30d9dfd1393",
+          "description": "AU-HARNESS-R003 merged to the default branch in this commit."
         }
       ]
     },
@@ -90,7 +111,7 @@
     {
       "id": "AU-HARNESS-R007",
       "title": "One typed L4 harness port",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -98,13 +119,20 @@
           "commit": "579815031bcd75a6bf55a4a2bb686329081cde58",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/579815031bcd75a6bf55a4a2bb686329081cde58",
           "description": "Implementation and focused tests (tests/unit/layers/test_harness_port.py, 26 passed) on a review branch; not merged."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3df03825a49758a416ecc2ec58c09f8311f18538",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/3df03825a49758a416ecc2ec58c09f8311f18538",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
     },
     {
       "id": "AU-HARNESS-R008",
       "title": "Native harness over the pydantic-ai path",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -112,13 +140,20 @@
           "commit": "579815031bcd75a6bf55a4a2bb686329081cde58",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/579815031bcd75a6bf55a4a2bb686329081cde58",
           "description": "Implementation and focused tests (tests/unit/layers/test_harness_port.py, 26 passed) on a review branch; not merged."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "579815031bcd75a6bf55a4a2bb686329081cde58",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/579815031bcd75a6bf55a4a2bb686329081cde58",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
     },
     {
       "id": "AU-HARNESS-R009",
       "title": "Claude Code headless harness",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -126,13 +161,20 @@
           "commit": "579815031bcd75a6bf55a4a2bb686329081cde58",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/579815031bcd75a6bf55a4a2bb686329081cde58",
           "description": "Implementation and focused tests (tests/unit/layers/test_harness_port.py, 26 passed) on a review branch; not merged."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "579815031bcd75a6bf55a4a2bb686329081cde58",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/579815031bcd75a6bf55a4a2bb686329081cde58",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
     },
     {
       "id": "AU-HARNESS-R010",
       "title": "Per-node harness selection and L5 recording",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -140,14 +182,29 @@
           "commit": "579815031bcd75a6bf55a4a2bb686329081cde58",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/579815031bcd75a6bf55a4a2bb686329081cde58",
           "description": "Implementation and focused tests (tests/unit/layers/test_harness_port.py, 26 passed) on a review branch; not merged."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "579815031bcd75a6bf55a4a2bb686329081cde58",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/579815031bcd75a6bf55a4a2bb686329081cde58",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
     },
     {
       "id": "AU-HARNESS-R011",
       "title": "Run outcomes feed propose-only prompt evolution",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "755db4bb36b87c34fd1e471d87a9854b628cd1a2",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/755db4bb36b87c34fd1e471d87a9854b628cd1a2",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ]
     }
   ]
 }

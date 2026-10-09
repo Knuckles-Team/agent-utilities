@@ -11,7 +11,7 @@ provider-neutral and contains no deployment-specific endpoints or identities.
 - A non-loopback listener also requires direct TLS, or explicit trusted-ingress
   mode with an exact ingress-peer CIDR allowlist.
 - Network listeners require exact `Host` values. Browser and WebSocket clients
-  additionally require exact origins; an unset origin allowlist blocks requests
+  also require exact origins; an unset origin allowlist blocks requests
   that carry `Origin`.
 - Request bodies, connections, listener backlog, authentication values, and
   token responses are bounded. Duplicate credential headers are rejected.
@@ -80,7 +80,7 @@ servers:
   mints against an external IdP and atomically rewrites a mode-0600 file —
   `services/graphos-token-refresh/refresh-graphos-token.sh` is the reference
   daemon). A static header baked in at construction time goes stale the
-  moment that daemon rotates the file, and nothing inside this process would
+  moment that daemon rotates the file, and nothing inside this process will
   otherwise notice; reading fresh on every request renews the credential
   in-band, inside the same long-lived child session, with no reconnect. The
   file must hold exactly the bearer token (no surrounding whitespace beyond a

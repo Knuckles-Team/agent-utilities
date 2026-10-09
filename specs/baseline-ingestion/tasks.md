@@ -8,9 +8,9 @@ Status: BUILDING. Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md)
 - [x] Resolve `skill-provider:<name>` targets in the skill workflow handler; add the `baseline_prompts` maintenance tick.
 - [x] Register ontology providers on factory-built servers through the SDK helper (`AU-BASELINE-R005`).
 - [x] Add the configuration fields and regenerate the runtime configuration catalog.
-- [x] Run focused tests, ruff, complexity, env-sprawl, swallowed-error and event-loop gates.
-- [ ] Merge the SDK helper and release it; raise the AU SDK floor to that release.
-- [ ] Deploy a daemon-role process on an empty store; record the WorkItem list and the sparse-index ratio.
+- [x] Run focused tests, ruff, complexity, env-sprawl, swallowed-error and event-loop gates. Re-verified at `fd74ce90b`: `tests/unit/knowledge_graph/test_baseline_ingest.py`, `test_semantic_tiers.py`, `tests/unit/mcp/test_content_resources.py` — 25 passed (T-001–T-007 evidence recorded in test-spec.md). Covers AU-BASELINE-R002, R003, R004, R005's unit-level acceptance.
+- [ ] Merge the SDK helper and release it; raise the AU SDK floor to that release. The helper (`register_ontology_resources`) is already merged in agent-connector-sdk and AU pins it via `scripts/siblings.lock` (editable sibling, commit `3792610`), but agent-connector-sdk has no published PyPI release yet (no tags, not on PyPI) — a non-workspace install of AU would not get this code. Out of this lane's scope: a cross-repo package release.
+- [ ] Deploy a daemon-role process on an empty store; record the WorkItem list and the sparse-index ratio. Out of this lane's scope: a live deployment/ops action, not a code change.
 - [ ] Specify the EG op for EG-DECISION-ENGINE-R030 in the EG decision-engine spec: `Decide` with `QuestionKind::IngestionLane`, input (source kind, content class, byte size, needs vector), output (`SemanticQueueClass`, entry `SemanticStage`, reason).
 - [ ] Route the queue class through the EG decision once EG-DECISION-ENGINE-R030 ships.
 - [ ] Specify an EG S1 admission op for graph content (skills, prompts, code). `SemanticIndex` admits SQL-sourced bindings only.

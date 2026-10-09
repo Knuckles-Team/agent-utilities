@@ -204,7 +204,7 @@ authoritative.
 ## Activation binding and native admission (NE-113)
 
 Preparation evidence is not permission to write. Before a prepared envelope
-can enter the graph, the control plane must activate one exact, versioned
+can enter the graph, the control plane must enable one exact, versioned
 binding:
 
 ```text

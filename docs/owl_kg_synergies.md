@@ -2,7 +2,7 @@
 
 This report details the architectural mapping of deep synergies between the **OWL-first Epistemic Knowledge Graph**, the **Agent OS/Kernel**, and a highly scalable, **1-Million Agent Autonomous Enterprise Organization**.
 
-By unifying low-level kernel abstractions (resource limits, sandboxing, task scheduling) with high-level ontology systems (AR-Graphs, enterprise structures, multi-domain schemas), we unlock powerful emergent capabilities that no isolated agent system could ever achieve.
+By unifying low-level kernel abstractions (resource limits, sandboxing, task scheduling) with high-level ontology systems (AR-Graphs, enterprise structures, multi-domain schemas), this repository unlock powerful emergent capabilities that no isolated agent system can ever achieve.
 
 ---
 
@@ -38,7 +38,7 @@ By unifying low-level kernel abstractions (resource limits, sandboxing, task sch
     - If a low-priority task blocks a high-centrality node, the scheduler triggers **epistemic preemption**, pausing the low-priority agent's WASM state (`OS-5.5`) to free execution slots.
 
 ### B. Ontology-Driven Semantic Guardrails (`AU-OS.governance.reactive-multi-axis-budget` × `KG-2.2`)
-*   **The Synergy**: Classic safety guardrails rely on static regular expressions or basic semantic similarities. Our OS-level guardrail uses **OWL subsumption reasoning** to construct mathematical proof-of-safety boundaries.
+*   **The Synergy**: Classic safety guardrails rely on static regular expressions or basic semantic similarities. This repository's OS-level guardrail uses **OWL subsumption reasoning** to construct mathematical proof-of-safety boundaries.
 *   **Mechanism**: When an agent proposes a tool call (`ECO-4.0`), the tool schema and its exact parameter arguments are translated into a transient OWL Individual (e.g., `ToolCallInstance`).
     - The security kernel runs a fast Datalog reasoner (`KG-2.7`) to check if the `ToolCallInstance` falls under restricted classes (e.g., `RestrictedDirectoryWrite` or `NonCompliantNetworkEgress`).
     - If the reasoner infers that `ToolCallInstance` inherits from a banned policy node, the execution is blocked instantly. This provides a **zero-overhead, provably safe boundary** that prevents adversarial prompt injections from bypassing security filters.
@@ -53,7 +53,7 @@ By unifying low-level kernel abstractions (resource limits, sandboxing, task sch
 
 ## 2. Massively Scalable 1-Million Agent Organization
 
-To run an entire company of up to 1 million autonomous agents, centralized scheduling and graph routing become massive bottlenecks. We solve this by leveraging **OWL-sharded topologies** and **hierarchical semantic consensus**.
+To run an entire company of up to 1 million autonomous agents, centralized scheduling and graph routing become massive bottlenecks. This repository solve this by use **OWL-sharded topologies** and **hierarchical semantic consensus**.
 
 ```mermaid
 graph TD
@@ -98,9 +98,9 @@ graph TD
 
 ### B. Distributed Epistemic Consensus & Speculative Graph Branching (`KG-2.3` × `KG-2.7`)
 *   **Mechanism**: Under heavy concurrent loads, multiple agents often attempt to modify the same nodes in the Knowledge Graph.
-    - Instead of traditional distributed database locking (which causes deadlock cascades), we use **Speculative Graph Branching** (based on *Evolving Idea Graphs*).
+    - Instead of traditional distributed database locking (which causes deadlock cascades), this repository use **Speculative Graph Branching** (based on *Evolving Idea Graphs*).
     - When a department of agents makes a decision, the gateway spawns a transient, isolated graph branch (`KGTransaction`).
-    - Speculative reasoning loops execute within this branch. Once a consensus threshold (defined in the `PolicyNode`) is reached:
+    - Speculative reasoning loops run within this branch. Once a consensus threshold (defined in the `PolicyNode`) is reached:
       1. A semantic structural diff (`KGDiff`) is generated.
       2. The diff is validated against global graph integrity rules.
       3. The changes are merged back into the master brain database via a single atomic commit (`KGCommit`), guaranteeing **100% thread-safe isolation at scale**.
@@ -109,7 +109,7 @@ graph TD
 *   **Mechanism**: 1 million active agents generate billions of execution traces daily, leading to exponential database storage bloat.
     - An offline, high-performance Datalog compiler (`KG-2.7`) runs continuous **semantic garbage collection**.
     - It aggregates raw execution traces, interaction logs, and tool parameters.
-    - If 1,000 steps concluded that a library was stable, the engine deletes the individual `InteractionRecordNode`s and creates a single, synthesized fact triple:
+    - If 1,000 steps concluded that a library was stable, the engine removes the individual `InteractionRecordNode`s and creates a single, synthesized fact triple:
       `(:AgentUtilitiesClass) --isVerifiedStableUnder-- (:LinuxKernelNode)`
     - This maintains an incredibly lean, highly optimized epistemic base, keeping query latency flat even as the company's historical knowledge grows to petabytes.
 
@@ -166,7 +166,7 @@ By linking seemingly unrelated domains in the unified Knowledge Graph, powerful 
 
 ## 4. Ontological Matrix Registry
 
-We propose registering the following concept mappings to fully support these synergies:
+This repository propose registering the following concept mappings to fully support these synergies:
 
 | Concept ID | Canonical Name | Target Module | Purpose |
 |------------|----------------|---------------|---------|

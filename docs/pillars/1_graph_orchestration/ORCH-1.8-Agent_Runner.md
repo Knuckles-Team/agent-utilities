@@ -50,7 +50,7 @@ Queries the KG across three node types:
 | Semantic search | `engine.hybrid_search(name, top_k=3)` | Best-effort fuzzy match |
 
 ### 2. Config Builder
-Constructs a `create_graph_agent()` config from resolved metadata:
+Builds a `create_graph_agent()` config from resolved metadata:
 - **tag_prompts**: Agent name + tool descriptions + capabilities
 - **mcp_toolsets**: Dynamically created `MCPToolset` (stdio / SSE / streamable-HTTP transports) from URLs, built via `agent_utilities.mcp.toolset_factory`
 - **LLM settings**: Unified model routing via XDG `config.json`

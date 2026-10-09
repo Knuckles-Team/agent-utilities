@@ -42,7 +42,7 @@ flowchart LR
   as of generation N" for reproducibility.
 
 Replay determinism: `IncrementalObjectCentricDeriver` reaches the same
-aggregate DFG and the same final `ObjectState` for one object regardless of
+aggregate DFG and the same final `ObjectState` for one object in either case of
 whether its events arrived strictly in order or with a late insertion
 (`tests/unit/knowledge_graph/test_object_centric_derivation.py`).
 
@@ -60,7 +60,7 @@ boundary structural:
   reference to the model being checked — never re-derived from the run
   itself), and `export_digest`. `run_digest()` hashes exactly those five
   fields — two runs with the same digest are reproducible to the same result
-  regardless of `run_id`/`worker`/`created_at`.
+  in either case of `run_id`/`worker`/`created_at`.
 - **`Deviation`** is one typed, positioned mismatch
   (`unexpected_transition` / `unexpected_start` / `unexpected_end`), never a
   bare pass/fail boolean.

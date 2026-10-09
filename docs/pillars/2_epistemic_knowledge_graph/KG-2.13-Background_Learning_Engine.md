@@ -3,7 +3,7 @@
 ## Overview
 
 The Background Learning Engine runs an asynchronous, concurrency-bounded learner that turns
-conversation transcripts into **targeted ADD / UPDATE / DELETE memory edits** — not raw dumps —
+conversation transcripts into **targeted ADD / UPDATE / Remove memory edits** — not raw dumps —
 and writes them as **bi-temporal graph mutations** (KG-2.11). Assimilated from Quarq Agent's async
 learner (`agent-oss/agent.py`), with a memory-os-inspired **typed, outcome-grounded** extraction
 enhancement. Extends **KG-2.1** (+AHE-3 self-improvement).
@@ -17,7 +17,7 @@ enhancement. Extends **KG-2.1** (+AHE-3 self-improvement).
   grounding but cites no evidence is **dropped** (not stored as an unverified fact); persisted
   decisions get `GROUNDED_BY` edges to their evidence and `type:`/`train:` tags.
 - **Bi-temporal mutations.** `apply_edits` ADDs with full temporal stamps; UPDATE re-stamps and
-  supersedes; **DELETE is soft** (`status=REMOVED` + `valid_to`), preserving history.
+  supersedes; **Remove is soft** (`status=REMOVED` + `valid_to`), preserving history.
 - **Async controls.** `Semaphore(4)`, bounded exponential backoff (`with_backoff`, 2→60s, capped so
   CI never hangs), `schedule` + `await_pending` sync barrier. `resolve_relative_dates` converts
   "yesterday"/"N weeks ago" to absolute dates at learn time.

@@ -4,13 +4,13 @@ Status: BUILDING. Governing spec: [spec.md](spec.md).
 
 | Test ID | Requirement | Level | Setup and input | Expected observation | Evidence |
 |---|---|---|---|---|---|
-| T-001 | AU-BASELINE-R001 | Unit | Patched thread factory; two starts on one engine | One thread starts, named `KG-Baseline-Ingest`; the second start returns `False` | PENDING |
-| T-002 | AU-BASELINE-R001 | Unit | Switch off; thread factory raises; planner raises | Each case returns without raising | PENDING |
-| T-003 | AU-BASELINE-R002 | Unit | Temporary workspace manifest with core, skills and agents repositories | Prompts and three skill providers first, then the checked-out core repositories | PENDING |
-| T-004 | AU-BASELINE-R002 | Unit | Scopes `all`, a name list and `none`; cap of one; manifest read error | Each scope selects the expected repositories; the cap holds; prompts and skills survive the error | PENDING |
-| T-005 | AU-BASELINE-R003 | Unit | Recording engine that rejects one target | The other items queue; the rejection names the leg, class and exception type | PENDING |
-| T-006 | AU-BASELINE-R004 | Unit | Stage table and task types | S1 fast, S2 and S3 medium, S4 to S6 slow heavy; buckets 1, 2 and 3; stamped stage metadata | PENDING |
-| T-007 | AU-BASELINE-R005 | Unit with MCP client | Two temporary ontology providers | `resources/list` returns two `ontology://` and two `shapes://` URIs; a read returns the Turtle body | PENDING |
+| T-001 | AU-BASELINE-R001 | Unit | Patched thread factory; two starts on one engine | One thread starts, named `KG-Baseline-Ingest`; the second start returns `False` | PASS @ fd74ce90b |
+| T-002 | AU-BASELINE-R001 | Unit | Switch off; thread factory raises; planner raises | Each case returns without raising | PASS @ fd74ce90b |
+| T-003 | AU-BASELINE-R002 | Unit | Temporary workspace manifest with core, skills and agents repositories | Prompts and three skill providers first, then the checked-out core repositories | PASS @ fd74ce90b |
+| T-004 | AU-BASELINE-R002 | Unit | Scopes `all`, a name list and `none`; cap of one; manifest read error | Each scope selects the expected repositories; the cap holds; prompts and skills survive the error | PASS @ fd74ce90b |
+| T-005 | AU-BASELINE-R003 | Unit | Recording engine that rejects one target | The other items queue; the rejection names the leg, class and exception type | PASS @ fd74ce90b |
+| T-006 | AU-BASELINE-R004 | Unit | Stage table and task types | S1 fast, S2 and S3 medium, S4 to S6 slow heavy; buckets 1, 2 and 3; stamped stage metadata | PASS @ fd74ce90b |
+| T-007 | AU-BASELINE-R005 | Unit with MCP client | Two temporary ontology providers | `resources/list` returns two `ontology://` and two `shapes://` URIs; a read returns the Turtle body | PASS @ fd74ce90b |
 
 ## Negative and boundary cases
 

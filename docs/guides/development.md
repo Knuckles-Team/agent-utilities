@@ -66,7 +66,7 @@ Default: `pytest -m "not live"` runs unit + integration.
 ## Validation & Diagnostics
 
 ### Pre-Flight Checks
-Before modifying any file, verify:
+Before modifying any file, check:
 1. `python3 scripts/uv_workspace.py run --all-extras pytest -x` passes (baseline green)
 2. `python3 scripts/uv_workspace.py run --all-extras ruff check agent_utilities/` is clean
 
@@ -205,7 +205,7 @@ repairing its runtime connection profile.
 ## Adding New Modules
 
 1. Follow existing code style and conventions
-2. Add type hints and comprehensive docstrings
+2. Add type hints and complete docstrings
 3. Add unit tests in `tests/`
 4. Export in `__init__.py` if part of public API
 5. Use lazy imports for heavy dependencies
@@ -229,5 +229,5 @@ Every agent server automatically hosts an interactive Swagger UI for its APIs.
 - **URL**: `http://localhost:8000/docs`
 - **Spec**: `http://localhost:8000/openapi.json`
 
-This interface allows you to test `/health` and `/mcp` from a browser. ACP is
+This interface allows the operator to test `/health` and `/mcp` from a browser. ACP is
 validated separately over stdio with the Harness adapter tests.

@@ -5,7 +5,7 @@
 
 ## Search & discovery
 
-- **Text search** — keyword search + comprehensive property filters (dedicated search-syntax + text-search docs).
+- **Text search** — keyword search + complete property filters (dedicated search-syntax + text-search docs).
 - **Property filtering** — property-based constraints to locate matching objects.
 
 ## Analysis & visualization

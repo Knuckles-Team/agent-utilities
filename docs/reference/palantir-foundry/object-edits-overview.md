@@ -14,13 +14,13 @@
 ## Landing-page facts (verbatim from this URL)
 
 - Actions are "a single transaction that changes the properties of one or more objects, based on user-defined logic."
-- Users can "edit property values, add and remove links, and create and delete objects by applying Actions."
+- Users can "edit property values, add and remove links, and create and remove objects by applying Actions."
 - Constraint: "Actions are not yet supported on object types with Foundry stream datasources."
 - The page cross-references Actions, Workshop, Object Views, and the APIs sections for detail.
 
 ## Edit model (reconstructed from adjacent canonical pages)
 
-- An **edit** is the unit of mutation an Action applies: a property value set, a link add/remove, or an object create/delete, committed as part of a single Action transaction.
+- An **edit** is the unit of mutation an Action applies: a property value set, a link add/remove, or an object create/remove, committed as part of a single Action transaction.
 - Edits are **tracked per object** by the object backend (Object Storage tracks user-generated edits), forming an action/edit history.
 - **Undo / revert** and **user edit-history tracking** are listed as first-class Action observability/governance capabilities (see `action-types-overview.md`).
 - Edits drive **writeback** to the source datasource and are processed by the **Object Data Funnel** to keep the index synchronized (see `object-backend-overview.md`).

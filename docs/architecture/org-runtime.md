@@ -14,7 +14,7 @@ Three concept-anchored capabilities, all in
 | Capability | Concept | What it does |
 |---|---|---|
 | Recruiter / org-synthesis | `AU-ORCH.org.recruiter` | From a goal, draft an org chart (departments → roles) and **fill** each role — reuse an experienced `:Employee` if one exists, else hire a fresh template. Instantiates/reuses `:AgentRole`/`:Employee` KG nodes. |
-| Native WorkItem DAG | `AU-ORCH.org.work-item-dag` | Derive immutable `OrgPlanItem` definitions, submit their dependency graph as native `:WorkItem` records, and execute only under engine-issued claims, renewable leases, fencing, and terminal commits. `ManagerMode` is turn-local context, not another lifecycle. |
+| Native WorkItem DAG | `AU-ORCH.org.work-item-dag` | Derive immutable `OrgPlanItem` definitions, submit their dependency graph as native `:WorkItem` records, and run only under engine-issued claims, renewable leases, fencing, and terminal commits. `ManagerMode` is turn-local context, not another lifecycle. |
 | Self-Grown experience | `AU-AHE.org.role-experience` | Each item's outcome is written back through the AHE reward loop (`FeedbackService.record_action_outcome` with a `role_experience:<role>` action id), growing the `:Employee`'s `experienceProfile`/`experienceScore` — which the next recruiter run reads back. |
 
 ## Ontology additions (`ontology_company.ttl`)

@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-579 typed fields · 366 runtime-only call-site inputs.
+579 typed fields · 367 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -723,7 +723,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 
 ## Runtime-only call-site inputs
 
-These keys are discovered from literal `config.setting(...)` calls but are not durable AgentConfig fields. This includes secret values materialized only inside a child process for an upstream SDK. Persisted configuration must use the corresponding `*_REF` field; an ordinary durable setting belongs in AgentConfig and will then move into the typed tables above.
+These keys are discovered from literal `config.setting(...)` calls but are not durable AgentConfig fields. This includes secret values materialized only inside a child process for an upstream SDK. Persisted configuration must use the corresponding `*_REF` field. An ordinary durable setting belongs in AgentConfig and will then move into the typed tables above.
 
 | Environment key | Read sites |
 |---|---:|
@@ -1055,6 +1055,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `SKILL_GRAPH_CRAWL_TIMEOUT` | 1 |
 | `SKILL_GRAPH_MAX_PAGES` | 1 |
 | `SLACK_APP_TOKEN` | 1 |
+| `SOURCE_CONTRACT_EVOLUTION_POLICY` | 1 |
 | `SOURCE_CREDENTIALS` | 1 |
 | `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE` | 1 |
 | `STARDOG_ENDPOINT` | 1 |

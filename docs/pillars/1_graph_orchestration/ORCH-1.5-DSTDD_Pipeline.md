@@ -4,7 +4,7 @@
 The DSTDD (Design-Spec-Test Driven Development) pipeline is the formalized workflow that prevents architectural bloat. It ensures that all new features, external integrations, or research ideas are woven natively into the existing Knowledge Graph and 5-Pillar topology.
 
 ## The "Extend Before Invent" Mandate
-> "New functionality MUST first be expressed as an extension, augmentation, or composition of an existing pillar/concept before a new CONCEPT: tag or domain is introduced. The Knowledge Graph is the arbiter."
+> "New feature MUST first be expressed as an extension, augmentation, or composition of an existing pillar/concept before a new CONCEPT: tag or domain is introduced. The Knowledge Graph is the arbiter."
 
 ## Workflow
 1. **Design Phase**:

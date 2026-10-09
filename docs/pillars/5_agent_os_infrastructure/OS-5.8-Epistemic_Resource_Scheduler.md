@@ -21,7 +21,7 @@ Where `degree(agent_id)` is the number of edges (both in and out) connected to t
 |---|---|
 | 0.0 – 0.3 | Peripheral agent (leaf node, few connections) |
 | 0.3 – 0.6 | Mid-tier agent (moderate connectivity) |
-| 0.6 – 1.0 | Hub agent (routing bottleneck, many dependents) |
+| 0.6 – 1.0 | Hub agent (routing bottleneck, multiple dependents) |
 
 ### Stage 2: Dynamic Scaling
 

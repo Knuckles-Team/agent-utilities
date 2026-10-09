@@ -2,7 +2,7 @@
 
 > The 24/7 propose-only Loop engine that mines the ecosystem corpus for improvements,
 > distils them into reviewable specs, and develops the approved ones — made **legible
-> mid-flight** (you can see what it is doing and why), **steerable** (you can reprioritize,
+> mid-flight** (the operator can see what it is doing and why), **steerable** (the operator can reprioritize,
 > pause, and veto), and **governed** (nothing lands without a human/Claude gate).
 > Concepts: **AU-KG.research.evolutionstate-live-surface-per / AU-KG.research.saturation-gauge-aggregates-four / AU-KG.research.close-distill-develop-seam / AU-OS.config.autonomous-spec-develop-off** (flywheel transparency +
 > review-veto) and **AHE-3.71 / AU-AHE.harness.when-outcome-names-agent / AU-AHE.harness.callers-feed-back-per** (the per-agent hardening loop),
@@ -14,7 +14,7 @@ architecture it sits inside, read
 reason → measure → learn) and [Failure-Driven Evolution](failure_driven_evolution.md)
 (how production failures enter the loop as addressable gaps). This page does **not**
 re-derive those; it documents the **transparency + steering + governance** layer that
-was added on top, and the AHE-3.71/72/73 hardening cycle that makes "every exception you
+was added on top, and the AHE-3.71/72/73 hardening cycle that makes "every exception the operator
 resolve hardens the system" literally true.
 
 ---
@@ -49,7 +49,7 @@ scheduler's `self_evolution` schedule.
 Historically the cycle's **distill** stage wrote SDD markdown into `.specify/` and
 stopped there. The **develop / code** path (`change_publisher.governed_publish` →
 AU-AHE.harness.promotion-governance-validator–3.24) consumes *promoted proposal nodes*, not those `.md` files — so the two
-tracks were **disjoint**: a distilled spec was a dead-end file nothing could develop.
+tracks were **disjoint**: a distilled spec was a dead-end file nothing can develop.
 
 `LoopController._distill_specs` now closes that seam (CONCEPT:AU-KG.research.close-distill-develop-seam). After
 `write_spec_drafts` writes the markdown, each draft is persisted as a first-class,
@@ -57,7 +57,7 @@ queryable `:SpecProposal` node via
 `spec_proposals.persist_spec_proposal`, linked `DISTILLED_FROM` its source concepts so
 the *why* is traversable. The spec is then fed — **only after approval** — into the
 *existing* promotion pipeline as the proposal that pipeline already consumes (no new
-code-gen path). On the execute side, `LoopController._advance_develop` detects a
+code-gen path). On the run side, `LoopController._advance_develop` detects a
 spec-bound develop Loop (one carrying a `spec_id`) and routes it into
 `spec_proposals.develop_spec` → `governed_publish`, where the `merge_promotion`
 human-approval gate (OS-5.24) and the capability-ratchet regression gate (AU-AHE.evaluation.capability-benchmark-regression-ratchet)
@@ -133,7 +133,7 @@ deliberately never reachable from MCP/REST.
 
 ## 2. Transparency: live EvolutionState + the saturation gauge
 
-> "You cannot steer what you cannot see." The observation plane every steering action
+> "The operator cannot steer what the operator cannot see." The observation plane every steering action
 > hangs off. Concepts: **AU-KG.research.evolutionstate-live-surface-per** (live state + per-stage beacon), **AU-KG.research.saturation-gauge-aggregates-four**
 > (saturation gauge). Module:
 > `agent_utilities/knowledge_graph/research/evolution_state.py`.
@@ -141,7 +141,7 @@ deliberately never reachable from MCP/REST.
 ### The per-stage progress beacon (AU-KG.research.evolutionstate-live-surface-per)
 
 The deployed loop used to persist an `EvolutionCycle` audit node **only at finalize** —
-so until a cycle finished it was opaque, and an operator could not see "what is it
+so until a cycle finished it was opaque, and an operator can not see "what is it
 mining / distilling / developing right now, and why". `StageBeacon` fixes that. One
 beacon is created per `run_one_cycle`, and `beacon.enter(stage)` is called at **every**
 stage boundary (`_stage()` in `loop_controller.py` calls it before running each stage),
@@ -162,7 +162,7 @@ surface. It folds into **one** legible read:
   improving, how fast, and is it emitting code or only prose?
 - **`open_gaps`** — the recent per-cycle `open_gaps` trend (`_open_gaps_trend` reads the
   `EvolutionCycle` audit nodes' metadata).
-- **`ingestion_coverage`** — the AU-OS.deployment.flagging-repos ingestion-coverage % (how much of our corpus is
+- **`ingestion_coverage`** — the AU-OS.deployment.flagging-repos ingestion-coverage % (how much of this repository's corpus is
   ingested) via `deployment.doctor._check_ingestion_coverage`.
 - **`specs`** — the distilled-spec backlog counts + a pending sample
   (`spec_proposals.specs_summary`).
@@ -191,7 +191,7 @@ Crucially, when the gauge is high **and** velocity is `stalling`, it sets
 (`emit_saturation_signal`) carrying a recommendation — **but it never auto-fetches.**
 Acquiring more research / cloning more codebases is left as a *steerable decision* for
 Claude/the human (enable discovery, run background research, or add to the breadth
-corpus). This is the deliberate boundary: the loop tells you it is mined out; **you**
+corpus). This is the deliberate boundary: the loop tells the operator it is mined out; **the operator**
 decide to feed it.
 
 ### How it is surfaced (the "steerable" half)
@@ -262,7 +262,7 @@ human/Claude approves it — review-first by default, exactly as a 24/7 auto-cod
 
 ## 4. The AHE-3.71/72/73 hardening loop — one exception → a durable hardening
 
-> The mechanism that makes "every exception you resolve **hardens** the system" real,
+> The mechanism that makes "every exception the operator resolve **hardens** the system" real,
 > end-to-end for **one** agent. Modules:
 > `agent_utilities/harness/evolve_agent.py`,
 > `agent_utilities/harness/program_optimization.py`,
@@ -324,13 +324,13 @@ matrix's governance-bypass closure; see §8 below):
 
 - the candidate **beat baseline** (`edit.metadata["promote"]`);
 - the **`KG_AGENT_AUTO_APPLY`** gate is on (`config.kg_agent_auto_apply`, default `False`
-  / **shadow**) — this is a NECESSARY, no longer SUFFICIENT, condition; **and**
+  / **shadow**) — this is a NECESSARY, no longer Enough, condition; **and**
 - the SAME unified `action_policy.decide()` veto every other promotion vector passes —
   `artifact_promotion.promote(..., PromotionCandidate(artifact_kind="prompt", ...,
   policy_kind="promote_prompt_version"))` — whose shipped default tier
   (`approval_required`) means a benchmark win + `KG_AGENT_AUTO_APPLY=true` ALONE still
   does **not** apply; an operator must also relax that tier (or approve the queued
-  request). Before this closure, `KG_AGENT_AUTO_APPLY` alone was sufficient — weaker
+  request). Before this closure, `KG_AGENT_AUTO_APPLY` alone was enough — weaker
   governance than a skill-markdown promotion, which already went through
   `action_policy.decide()`.
 
@@ -342,7 +342,7 @@ and BOTH decisions (`apply_status` and the `action_decision` verdict). It never 
 raw trace examples, source-system identifiers, or a local path. The **live prompt is
 left untouched**. `EvolveAgent.approve_proposed_change(proposal_ref)` is the steerable
 reviewed apply path: a winning prompt can go live by review instead of by flipping the
-global gate. Approval verifies the proposal integrity reference, revalidates compiled
+global gate. Approval checks the proposal integrity reference, revalidates compiled
 metadata, binds the opaque component reference to the in-memory registry, and rejects
 workspace escapes. Background failure-cluster optimization is always review-only even
 when the global auto-apply gate is enabled; only the metric-scored per-agent hardening
@@ -372,7 +372,7 @@ flowchart LR
     policy -- "allow (operator-relaxed)" --> applied["StructuredPrompt.save() + commit"]
 ```
 
-This is the loop AGENTS.md points at: when you resolve an exception, the fix (a hardened
+This is the loop AGENTS.md points at: when the operator resolve an exception, the fix (a hardened
 prompt — and, by the same spine, a fixed tool binding or a new skill) becomes a durable
 hardening of the system so it self-handles that case next time.
 
@@ -392,15 +392,15 @@ Module: `agent_utilities/knowledge_graph/retrieval/active_reconstruction.py` (as
 from MRAgent, arXiv:2606.06036). Instead of one-shot top-k retrieval, `reconstruct()`
 walks a **Cue → Tag → Content** graph in an evidence-conditioned loop:
 
-1. **Cue → Tag** — activate candidate associative *tags* (relation types) on the current
+1. **Cue → Tag** — enable candidate associative *tags* (relation types) on the current
    cue frontier and keep only the `tag_top_k` most query-relevant (pruning the
-   combinatorial neighbour blow-up a fixed n-hop expansion would incur).
+   combinatorial neighbour blow-up a fixed n-hop expansion will incur).
 2. **(Cue, Tag) → Content** — expand content **only** along the selected tags, dropping
    neighbours below `relevance_floor`.
 3. **Content → Cue** — the best fresh content (`content_top_k`) becomes the next cue
    frontier (reverse traversal),
 
-so the walk progressively reconstructs a query-relevant subgraph and self-terminates
+so the walk progressively reconstructs a query-relevant subgraph and self-stop
 (reusing the shared `IterativeStopper`, AU-KG.retrieval.adaptive-stopping-iterative-retrieval) once fresh evidence stops arriving. It is
 **dependency-injected** (callers supply `neighbor_fn` and `score_fn`) with a
 dependency-free lexical default (`lexical_relevance` — no torch) and engine-backed
@@ -452,7 +452,7 @@ The few that exist:
 | `KG_LOOP_STANDARDIZE` (`config.kg_loop_standardize`) | — | enterprise standardization pass (needs a harvested estate) |
 | `KG_LOOP_DISCOVER` (`config.kg_loop_discover`) | off | opt-in research discovery/intake (external calls) |
 | **`KG_LOOP_AUTO_DEVELOP`** (`config.kg_loop_auto_develop`) | **`False`** | let the 24/7 loop auto-advance approved specs through the `spec_promotion` gate (review-first otherwise) |
-| **`KG_AGENT_AUTO_APPLY`** (`config.kg_agent_auto_apply`) | **`False`** (shadow) | NECESSARY but not SUFFICIENT: lets a hardened prompt that beat baseline be CONSIDERED for a live write; the `promote_prompt_version` ActionPolicy tier below must ALSO allow. Off ⇒ propose-only either way. |
+| **`KG_AGENT_AUTO_APPLY`** (`config.kg_agent_auto_apply`) | **`False`** (shadow) | NECESSARY but not Enough: lets a hardened prompt that beat baseline be CONSIDERED for a live write; the `promote_prompt_version` ActionPolicy tier below must ALSO allow. Off ⇒ propose-only either way. |
 | `spec_promotion` ActionPolicy tier | `approval_required` | the governance tier on spec→develop promotion (`deploy/action-policy.default.yml`) |
 | `promote_prompt_version` / `promote_tool_description_version` / `promote_mined_claim` ActionPolicy tiers | `approval_required` | the SAME unified gate (§8) every promotion vector passes; `KG_AGENT_AUTO_APPLY` alone can no longer apply a prompt, and `graph_ops_causal`'s `materialize_claims` alone can no longer promote a mined claim |
 
@@ -475,7 +475,7 @@ graph_loops action=specs status=pending_review
 graph_schedules action=list       # the self_evolution schedule + run state
 ```
 
-When `state.saturation.request_more` is true, the corpus looks mined out — **you** decide
+When `state.saturation.request_more` is true, the corpus looks mined out — **the operator** decide
 to acquire more (enable `KG_LOOP_DISCOVER`, run `graph_research action=background_research`,
 or clone more codebases into the breadth corpus). The loop will not auto-fetch.
 
@@ -503,9 +503,9 @@ default the winning candidate is **held** as a `ProposedPromptChange` under
 `.specify/proposals/` — review the before/after metric and approve it with
 `approve_proposed_change(proposal_id)` (or set `KG_AGENT_AUTO_APPLY` **and** relax the
 shipped `promote_prompt_version` ActionPolicy tier to let beats-baseline candidates land
-automatically — `KG_AGENT_AUTO_APPLY` alone is no longer sufficient, §8). Either way an
+automatically — `KG_AGENT_AUTO_APPLY` alone is no longer enough, §8). Either way an
 audit record and the manifest are written, so the hardening is never silent — and the
-next run self-handles the case you just fixed.
+next run self-handles the case the operator just fixed.
 
 ---
 

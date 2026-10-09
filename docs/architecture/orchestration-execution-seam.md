@@ -3,7 +3,7 @@
 > CONCEPT:AU-ORCH.execution.execution-seam-closure · AU-ORCH.dispatch.dispatch-half-skill-ingestion · AU-ORCH.execution.rich-result-wrapper · KG-2.296
 > The keystone that turns the ingested-but-dormant capability substrate into a working
 > "ingested skill/workflow → executed by a local LLM via real MCP tools" loop, with full
-> per-tool-call visibility in the epistemic-graph. Closes the highest-leverage gap from
+> per-tool-call visibility in the epistemic-graph. Closes the highest-use gap from
 > `reports/northstar-gap-orchestration-ontology-2026-06-28.md`.
 
 ## The seam, before and after
@@ -117,7 +117,7 @@ and steerable** after the fact. This seam is exactly what makes both true:
 - It writes **per-tool-call provenance** (`:ToolCall` under the run's `RunTrace`) so the
   orchestrator can answer *"what did the local LLM actually do?"* with a graph query —
   the prerequisite for the harness's *resolve-exceptions* job. When a delegated run
-  fails or returns an ungrounded answer, you read its `RunTrace`/`:ToolCall` chain to
+  fails or returns an ungrounded answer, the operator read its `RunTrace`/`:ToolCall` chain to
   see which tool failed and correlate its opaque payload digests, find **why**, fix the
   gap, and re-delegate without retaining raw payloads.
 
@@ -156,7 +156,7 @@ no `.task` — that previously crashed the manifest path after steps ran.)
 ## Skills-as-runnable (AU-ORCH.dispatch.dispatch-half-skill-ingestion) in depth
 
 Before the seam, a `:Skill` node (or a cold `AGENT_SKILL`) was only ever *retrieved* —
-it could be searched and cited but not **executed**. `_resolve_agent_from_kg`
+it can be searched and cited but not **executed**. `_resolve_agent_from_kg`
 (`orchestration/agent_runner.py`) now makes an ingested skill **directly dispatchable**:
 
 - It hydrates the skill's **instruction body as the system prompt** and its
@@ -190,7 +190,7 @@ streaming, and live steering of a delegated run.
 
 When `agent_name` is empty, `graph_orchestrate` is also the skill gateway. It asks the
 engine's hybrid KG index for typed `CallableResource(resource_type=AGENT_SKILL)` and
-`WorkflowDefinition` hits, executes the highest-ranked runnable target, and falls back to
+`WorkflowDefinition` hits, runs the highest-ranked runnable target, and falls back to
 the KG-bound `agent-utilities-expert` only when no typed target is found. Package skills
 bind to their owning MCP server through the persisted privacy-safe `provider://` identity;
 no filesystem path or child tool schema crosses the Codex boundary.

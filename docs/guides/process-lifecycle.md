@@ -4,10 +4,10 @@
 
 ## Overview
 
-When `agent-utilities` starts a server via `create_agent_server()` (the entrypoint used by `python -m agent_utilities`), it may spawn several child processes:
+When `agent-utilities` starts a server via `create_agent_server()` (the entrypoint used by `python -m agent_utilities`), it may spawn multiple child processes:
 
 - **MCP Servers**: stdio-based subprocesses for each configured MCP server
-- **Terminal UI**: The `agent-terminal-ui` process launched via `subprocess.Popen`
+- **Terminal UI**: The `agent-terminal-ui` process started via `subprocess.Popen`
 - **Background Threads**: Pipeline runners, maintenance tasks, cron schedulers
 
 If the main server process exits (via `SIGTERM`, `SIGINT`, or normal shutdown), these child processes must be cleaned up to avoid orphaned processes consuming system resources.

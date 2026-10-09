@@ -11,7 +11,7 @@
 
 ## Production status (D-W4KV-1) — LMCache attached to `apps/vllm-llm-gb10`
 
-★ **Closed 2026-08-07 (lane `w5-kv-wiring`).** Prior to this, the live production
+★ **Closed 2026-08-07 (lane `w5-kv-wiring`).** Before this, the live production
 deployment ran plain vLLM with no LMCache connector at all — `KVCacheLayeringPolicy`'s
 per-request `lmcache.skip_save` hint (folded into every chat call's
 `extra_body.kv_transfer_params`) was a documented no-op against real inference.
@@ -37,7 +37,7 @@ What actually shipped, and why it differs from the Compose-era plan those files 
   memory headroom to give a local L1 cache. `free -h` on GB10 shows ~119/121GB physically
   used — vLLM's `--gpu-memory-utilization 0.80` on Grace-Blackwell's UNIFIED memory
   consumes most of the node's real RAM in a way `kubectl top`/cgroup accounting cannot see
-  (it reports GB10 at ~20GB/16% used) — so the k8s scheduler would happily admit a new
+  (it reports GB10 at ~20GB/16% used) — so the k8s scheduler will happily admit a new
   cache pod there on the strength of a view of the node that is actively wrong, right up
   until it collided with the same OOM-overload failure class already on record for this
   host (memory `gb10-power-fault-and-vllm-topology.md`). Running the server on a
@@ -124,7 +124,7 @@ Two wiring paths reach the **same** engine store — pick one:
 | LMCache backend | external `EpistemicGraphExternalBackend` → EG-KG.backend.is-configured-so-co HTTP | built-in remote → EG-KG.ontology.resp2-resp3-codec-round/307 Redis wire |
 | Custom code | one adapter class (shipped) | **none** |
 | Surface used | `GET/PUT/HEAD /kv/<hash>`, `GET /kv/stats` (dedup counters, exists probe) | Redis RESP |
-| When | you want the native HTTP semantics / stats | **default / simplest** — recommended to start |
+| When | the operator want the native HTTP semantics / stats | **default / simplest** — recommended to start |
 
 Both hit `CONCEPT:EG-KG.memory.byte-bounded-tiers`/`EG-186`, so dedup + tiering are identical; the only
 difference is the wire LMCache speaks.
@@ -157,7 +157,7 @@ All deployment artifacts live in `services/vllm/` (co-located on GB10):
   wins over `LMCACHE_*` env vars).
 - **Path B — built-in Redis remote backend.** LMCache's `remote_url` accepts
   `redis://host:port`; `remote_serde: naive` stores bytes verbatim (the engine
-  dedups server-side). Point it at our Redis wire — **zero custom code**.
+  dedups server-side). Point it at this repository's Redis wire — **zero custom code**.
 - **Path A — external storage backend.** LMCache loads a custom backend that
   subclasses `lmcache.v1.storage_backend.abstract_backend.StorageBackendInterface`,
   referenced from YAML:
@@ -173,7 +173,7 @@ All deployment artifacts live in `services/vllm/` (co-located on GB10):
   (`CONCEPT:AU-KG.backend.kvcache-vllm-connector`), which drives the EG-KG.backend.is-configured-so-co HTTP surface. The connector reads
   `EPISTEMIC_GRAPH_KVCACHE_URL|ADDR|TOKEN` from env (`KvCacheConfig.from_env`).
 
-> **Version note.** Pin `lmcache` in `Dockerfile.lmcache` to the version your vLLM
+> **Version note.** Pin `lmcache` in `Dockerfile.lmcache` to the version the operator's vLLM
 > nightly expects, then validate. The `external_backends` mechanism and the
 > `StorageBackendInterface` method *signatures* are stable, but the `MemoryObj`
 > byte accessor and allocator call are lmcache-internal and can shift between
@@ -270,7 +270,7 @@ the EG-KG.backend.is-configured-so-co `/kv/stats` counters apply:
 **Engine-native spec** (CONCEPT:AU-KG.backend.lmcache-native-connector). The adapter is LMCache's `native_plugin`: LMCache's
 `NativeConnectorL2Adapter` owns the event-fd / task-demux machinery and drives a small **native
 client** — `EpistemicGraphL2Connector`
-(`agent_utilities.kvcache.l2_native_connector`) — that runs the HTTP I/O on a thread pool,
+(`agent_utilities.kvcache.l2_native_connector`) — that runs the HTTP `I/O` on a thread pool,
 signals a Linux `eventfd`, and delegates every `put`/`get`/`contains` to `EpistemicGraphKVBackend`
 (KG-2.306) over EG-187. Load it via:
 
@@ -281,11 +281,11 @@ signals a Linux `eventfd`, and delegates every `put`/`get`/`contains` to `Episte
   "adapter_params":{"base_url":"http://localhost:9130"}}'
 ```
 
-`adapter_params` are forwarded as keyword args (all optional — with none supplied the connector
+`adapter_params` are forwarded as keyword args (all optional — with none provided the connector
 reads `EPISTEMIC_GRAPH_KVCACHE_URL|ADDR|TOKEN` via `KvCacheConfig.from_env`): `base_url` / `addr`,
 `token`, `timeout_s`, `num_workers`, `max_connections`, `verify_tls`. There is deliberately **no**
 `submit_batch_delete` — the shared pool is evicted by the engine's own tiered store (EG-185), so
-LMCache never deletes remote blocks (the wrapper logs L2 delete as a no-op). Every transport error
+LMCache never removes remote blocks (the wrapper logs L2 remove as a no-op). Every transport error
 degrades to a cache miss (KG-2.306), so an unreachable engine never crashes token generation.
 
 > **Image requirement.** Both the native adapter and Path A need the `agent-utilities` wheel
@@ -294,7 +294,7 @@ degrades to a cache miss (KG-2.306), so an unreachable engine never crashes toke
 > `module_path` can point at either the wheel module or the baked plugin). The `resp` adapter has
 > no such dependency — use it if the native-adapter image is unavailable.
 
-**Standalone check (no vLLM reboot).** Because the adapter is plain Python over EG-KG.backend.is-configured-so-co, you can
+**Standalone check (no vLLM reboot).** Because the adapter is plain Python over EG-KG.backend.is-configured-so-co, the operator can
 exercise it directly against a running `epistemic-kvcache` — instantiate `EpistemicGraphL2Connector`,
 `submit_batch_set` a blob, `submit_batch_get` it back, and watch `GET /kv/stats`: `unique_blocks`
 and `logical_bytes` grow on a first put, and a **repeat-key** put trips `dedup_hits` while
@@ -320,7 +320,7 @@ restart — reuse that native APC (GPU-only) cannot provide.
 
 ## Deploy
 
-> The live vLLM is unchanged until you opt in. Nothing below restarts the live
+> The live vLLM is unchanged until the operator opt in. Nothing below restarts the live
 > service until Step 3, which is an explicit, windowed restart (GB10 SBSA reset
 > risk — do it deliberately).
 
@@ -391,7 +391,7 @@ DOCKER_HOST=ssh://<ssh-user>@<gpu-host> \
 
 ### Validate the adapter directly (no vLLM reboot)
 
-The native EG-KG.backend.is-configured-so-co L2 adapter (AU-KG.backend.lmcache-native-connector) is plain Python over the HTTP KV surface, so you can
+The native EG-KG.backend.is-configured-so-co L2 adapter (AU-KG.backend.lmcache-native-connector) is plain Python over the HTTP KV surface, so the operator can
 exercise it against a running `epistemic-kvcache` **without touching vLLM** — the fastest way
 to confirm dedup + `/kv/stats` before committing to a windowed vLLM restart:
 
@@ -474,7 +474,7 @@ adds a second, **app-level** use of the SAME `EpistemicGraphKVBackend` connector
 exposing the connector's `get(key) -> bytes | None` / `put(key, bytes) -> bool`
 shape) and `compile` will:
 
-1. Retrieve + policy-filter candidates as normal (unavoidable — this is how it
+1. Fetch + policy-filter candidates as normal (unavoidable — this is how it
    knows whether the underlying evidence changed).
 2. Compute a stable key from the **sorted post-policy evidence-id set** +
    `session.policy_version` + `token_budget` (folding in `top_k`,
@@ -586,7 +586,7 @@ restarted for this work.
 `ContextBundle`s via `ContextCompiler` (each with a fresh per-run nonce folded
 into the candidate text, so every invocation is genuinely novel to the
 server's persistent prefix cache — otherwise only the very first run of the
-script would show a true cold baseline), renders each with
+script will show a true cold baseline), renders each with
 `as_prompt_messages`, and sends 6 SHORT (`max_tokens=8`) chat-completion calls
 through `bundle_chat_completion` to `vllm.arpa` — one COLD call (first-ever
 exposure) then one WARM call (same bundle, different `turn_text`) per bundle —
@@ -635,7 +635,7 @@ above was missing: the SAME bundle, rendered through `as_prompt_messages`
 twice with a different trailing question, measurably reuses vLLM's own KV
 cache on the second call — via the exact wire (`ContextCompiler.compile` →
 `ContextBundle.as_prompt_messages` → `bundle_chat_completion` →
-`client.chat.completions.create`) a real caller would use.
+`client.chat.completions.create`) a real caller will use.
 
 ### How the two halves compose
 
@@ -673,7 +673,7 @@ live by the `graph_fork` MCP tool with `context_query` set) now engages the
 snapshot/fork rung **automatically** for a >1-branch cohort whenever the resolved
 `EpistemicGraphKVBackend` advertises `supports_fork()` — no caller wiring required.
 When a caller doesn't already have real vLLM/LMCache prefix-hash keys, the
-retrieved candidate set is itself content-hashed and stored into the shared KV
+fetched candidate set is itself content-hashed and stored into the shared KV
 store so there are real pages to snapshot+fork over, held once inside the engine as
 one shared, ref-counted copy that every branch's CoW fork points at.
 
@@ -747,6 +747,6 @@ stopped with `docker compose -f compose.kvcache.yml down`.
 - [LMCache — vLLM `--kv-transfer-config` / `LMCacheConnectorV1` (kv_both), offload KV](https://docs.lmcache.ai/getting_started/quickstart/offload_kv_cache.html)
 - [LMCache — Configuration reference (`LMCACHE_CONFIG_FILE`, `remote_url`, `remote_serde`)](https://docs.lmcache.ai/api_reference/configurations.html)
 - [LMCache — Configurable / external storage backends (`external_backends`, `extra_config`)](https://docs.lmcache.ai/kv_cache/storage_backends/external_backend.html)
-- [LMCache blog — Extending backends: custom `StorageBackendInterface` + packaging](https://blog.lmcache.ai/en/2025/09/11/extending-lmcache-backends-a-comprehensive-guide-to-custom-backend-development/)
+- [LMCache blog — Extending backends: custom `StorageBackendInterface` + packaging](https://blog.lmcache.ai/en/2025/09/11/extending-lmcache-backends-a-complete-guide-to-custom-backend-development/)
 - [LMCache — vLLM dynamic connector](https://docs.lmcache.ai/api_reference/dynamic_connector.html)
 - [vLLM docs — LMCache example](https://docs.vllm.ai/en/v0.10.1/examples/others/lmcache.html)

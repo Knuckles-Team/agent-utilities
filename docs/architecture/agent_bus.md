@@ -1,6 +1,6 @@
 # Agent Communication Bus (AgentBus)
 
-> One shared graph-os hub lets **any** session — many Claude Code sessions, other LLMs,
+> One shared graph-os hub lets **any** session — multiple Claude Code sessions, other LLMs,
 > sessions from any first-party provider, on **any host** — register, discover each other,
 > message each other, and hand work to the fleet, for the cost of the LLM calls each side
 > already makes. **CONCEPT:AU-ECO.bus.agentbus-federated-agent-agent / ECO-4.85 / AU-ECO.bus.federation-relay / AU-ORCH.routing.resolve-body-single-canonical / KG-2.141 / ECO-4.87.**
@@ -77,7 +77,7 @@ sequenceDiagram
 ## Store-and-forward — leave a message for a busy/offline peer (CONCEPT:AU-ECO.bus.store-and-forward-log)
 
 A **direct** send (`to=`) already survives an offline recipient: it materializes a durable
-`:BusMessage{recipient=to}` regardless of the peer's presence, so the peer picks it up on its
+`:BusMessage{recipient=to}` in either case of the peer's presence, so the peer picks it up on its
 next `receive`. The gap was **topic** messages — a `send(topic=…)` with **zero current
 subscribers** used to be dropped, and a peer that subscribed *later* never saw earlier traffic.
 
@@ -93,10 +93,10 @@ never get a duplicate.
   window (`TOPIC_REPLAY_RECENT_S`, 1h) so a joiner can catch up on what it just missed.
 - **Bounded growth:** topic-log entries carry `expires_at = created + TOPIC_MSG_TTL_S` (24h); the
   bus reaper `AgentBus.prune_topic_log()` runs on the messaging daemon's existing reaper cadence
-  (`router._inbox_reaper_loop`, alongside the ECO-4.83 inbox reaper) and deletes expired entries.
+  (`router._inbox_reaper_loop`, alongside the ECO-4.83 inbox reaper) and removes expired entries.
 - **Upsert-clobber safety:** each agent's replay cursor is its **own node**, never a property on
   the shared `:Topic` node — the durable backend replaces a node's whole property blob on upsert,
-  so a shared-node cursor would clobber every other agent's. (Same gotcha as `heartbeat`/inbox.)
+  so a shared-node cursor will clobber every other agent's. (Same gotcha as `heartbeat`/inbox.)
 
 ```mermaid
 sequenceDiagram
@@ -119,7 +119,7 @@ A session that has the `graph_bus` tool **appears online to peers without an exp
 `register` call**. Every `graph_bus` action resolves an acting id (the explicit
 `agent_id`/`sender`, else a stable served-session identity) and calls `AgentBus.touch(id)`,
 which **auto-creates** the `:BusAgent` on first reference and **bumps `last_seen`** on every
-subsequent action — so merely *using* the bus keeps you rosterable and `presence=online`
+subsequent action — so merely *using* the bus keeps the operator rosterable and `presence=online`
 (the roster still computes staleness lazily from `last_seen`, so a vanished session goes
 `offline` on its own with no reaper).
 
@@ -127,12 +127,12 @@ subsequent action — so merely *using* the bus keeps you rosterable and `presen
 (fallback `client_id`) is stable for the connection's life; `bus_tools._session_identity(ctx)`
 derives `session:<id>` from it so a call that passes **no** `agent_id` is still auto-registered
 and presence-tracked. **Limitation:** headless/in-process calls have no `Context` (identity is
-`""`), so there the caller must still pass an id explicitly — we never fabricate one. `touch`
+`""`), so there the caller must still pass an id explicitly — this repository never fabricate one. `touch`
 preserves an existing agent's capability/provider blob (no upsert clobber).
 
 ## Native capability — every agent knows the bus (CONCEPT:AU-ECO.bus.agent-bus-awareness)
 
-The bus is **not** an opt-in persona you must select; it is a native capability the *graph
+The bus is **not** an opt-in persona the operator must select; it is a native capability the *graph
 shaper* (the core orchestrator) and **every spawned swarm/sub-agent** inherit, per the
 *Universal capability* rule. Three seams make that true, all bottoming out at the one
 `create_agent` choke point (`agent/factory.py`):
@@ -150,7 +150,7 @@ shaper* (the core orchestrator) and **every spawned swarm/sub-agent** inherit, p
 
 For a deeper, focused profile there is also a standalone blueprint
 `prompts/bus_coordinator.json` (+ the `mcp_config.bus.json` preset that trims graph-os to just
-`graph_bus`+`graph_reach`) — used when you want a dedicated bus-first session on a small model.
+`graph_bus`+`graph_reach`) — used when the operator want a dedicated bus-first session on a small model.
 
 ```mermaid
 flowchart TD

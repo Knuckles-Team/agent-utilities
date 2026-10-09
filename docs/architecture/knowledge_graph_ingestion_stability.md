@@ -24,7 +24,7 @@ Unlinking the file allows a second process to create a new inode with the exact 
 ### Robust POSIX Advisory Locking (After)
 To prevent this concurrency hazard, the lock file is **never unlinked** from disk once created. Mutual exclusion is managed naturally via the filesystem inode's file-lock metadata.
 
-The background synchronization watcher (`agent_utilities/sdd/watcher.py`) no longer checks for file existence using `os.path.exists(lock_path)`. Instead, it attempts a **non-blocking lock acquisition** (`timeout=0`). If the lock is held by active ingestion, it gracefully skips the iteration; if acquired, it releases it immediately and runs the scan safely.
+The background synchronization watcher (`agent_utilities/sdd/watcher.py`) no longer checks for file existence using `os.path.exists(lock_path)`. Instead, it attempts a **non-blocking lock acquisition** (`timeout=0`). If the lock is held by active ingestion, it gracefully skips the iteration. If acquired, it releases it immediately and runs the scan safely.
 
 ### Process Synchronization Flow
 ```mermaid
@@ -61,7 +61,7 @@ LadybugDB uses native C++ bindings for high-performance SQLite operations and HN
 If the python interpreter performs garbage collection out-of-order, or if Python attempts to destroy the parent `Database` handle while the children `Connection` handles are still active, it results in native C++ null-pointer dereferences or double-free segmentation faults.
 
 ### Explicit Cleanup & Reference Ordering (After)
-We enforce a strict connection cleanup sequence in `LadybugBackend.close()` to ensure child handles are entirely freed and garbage-collected before unreferencing the parent database handles.
+This repository enforce a strict connection cleanup sequence in `LadybugBackend.close()` to ensure child handles are entirely freed and garbage-collected before unreferencing the parent database handles.
 
 ```mermaid
 graph TD

@@ -43,7 +43,7 @@ tunables → auto-sized via `compute_ingest_worker_count()` or named module cons
   read via the central `config` object, not bare `os.environ`.
 - **AUTO** — should be auto-detected/auto-sized from the runtime; the flag should be
   removed (or kept only as an override with an auto default).
-- **REMOVE** — always-on behavior or stale experiment; delete the flag.
+- **REMOVE** — always-on behavior or stale experiment; remove the flag.
 
 ## A. Deployment config — KEEP (read via `AgentConfig`)
 
@@ -85,7 +85,7 @@ tunables → auto-sized via `compute_ingest_worker_count()` or named module cons
 | `KG_ACL_DEFAULT_ALLOW` | `false` | With `KG_BRAIN_ENFORCE` on: allow nodes WITHOUT an ACL (escape hatch from the fail-closed default-deny) (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) |
 | *(no longer configurable)* connector default ACL | always quarantined | The dev/local opt-in back to a public-by-default unconfigured connector was removed outright: `default_external_access()` (`protocols/source_connectors/base.py`) now unconditionally returns `ExternalAccess.quarantined()` (deny-by-default, AU-P0-4) for any `mcp_package`/`mcp_tool` document with no `acl_*` fields — there is no environment escape hatch back to the legacy public default |
 | *(baked-in, no env var)* `MANDATORY_NAMED_CONNECTOR_SOURCES` | 12 identifiers | AU-P1-6: the 12 high-value named connectors (`jira`/`confluence` [atlassian-agent], `gitlab`, `servicenow`, `leanix`, `langfuse`, `tunnel_manager`, `microsoft-agent`, `container-manager-mcp`, `documentdb-mcp`, `repository-manager`, `systems-manager`, `vector-mcp`) are **unconditionally** required to pass the manifest gate — no operator opt-in needed, and no operator-extensible allowlist layered on top (that opt-in mechanism was removed; the mandatory baseline is the only enforcement). Resolved via the live fleet `agents/` checkout first, then the manifests bundled in-repo (`connector_manifest_gate.bundled_manifests_root()`, `knowledge_graph/ontology/connector_manifests/`) as a pinned fallback. See the constant's docstring for the honest scope note on which of the 12 have a live `sync_source` call site today. |
-| `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE`\* | `""` (empty) | Comma-separated allowlist of source keys (e.g. `"leanix,twenty"`) that MAY tombstone every previously-known node when a reconcile pass returns a genuinely empty live-id set. Empty by default: a transient fetch failure/skip (`fetch_ok=False`) never tombstones regardless of this list; an empty-but-successful fetch only tombstones for a source named here. Read in `knowledge_graph/core/source_sync._reconcile` (AU-P0-4) |
+| `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE`\* | `""` (empty) | Comma-separated allowlist of source keys (e.g. `"leanix,twenty"`) that MAY tombstone every previously-known node when a reconcile pass returns a genuinely empty live-id set. Empty by default: a transient fetch failure/skip (`fetch_ok=False`) never tombstones in either case of this list; an empty-but-successful fetch only tombstones for a source named here. Read in `knowledge_graph/core/source_sync._reconcile` (AU-P0-4) |
 | `KG_AMBIENT_EPISTEMIC` | `true` | W3.4 ambient epistemics for connector ingestion (CONCEPT:AU-KG.temporal.ambient-connector-valid-time / AU-KG.ingest.ambient-connector-provenance): maps a source record's own reported timestamp onto its bitemporal `valid_from`/`valid_to` (never fabricated — a source with no usable timestamp writes neither), and records one PROV-O `:Activity` + one summary `:Claim` per connector sync run (never per row). `false` reproduces pre-W3.4 behavior byte-for-byte. Read via `_ambient_epistemic_enabled()`, `knowledge_graph/ingestion/envelope_ingest.py` |
 | `KG_AMBIENT_EPISTEMIC_DISABLED_SOURCES` | `""` (empty) | Comma-separated per-source opt-out from `KG_AMBIENT_EPISTEMIC` (e.g. `"noisy-source,untrusted-source"`) — a named `sync_source` source key skips ambient valid-time/provenance stamping even while the global default stays ON. Same allowlist convention as `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE` above |
 | `INGESTION_CONFIDENCE_THRESHOLDS` | `{}` (empty) | JSON object mapping a domain/pack name to its minimum governed-promotion confidence (e.g. `{"cmdb": 0.8, "wiki": 0.5}`, CONCEPT:AU-KG.ingest.governed-claim-promotion). A domain with no entry falls back to the conservative `promotion.DEFAULT_CONFIDENCE_THRESHOLD` (`0.65`, matching the existing global `kb.extraction_run.NEEDS_REVIEW_CONFIDENCE_THRESHOLD`). ONE bounded mapping, not a per-domain flag family — read in `knowledge_graph/ingestion/promotion.resolve_confidence_threshold()` |
@@ -168,13 +168,13 @@ process reaches the ONE engine authority:
 
 - **`refcounted` (default) — shared tiny engine, auto-stops after idle.** The
   resolver passes `--idle-shutdown-secs <ENGINE_IDLE_SHUTDOWN_SECS>` (default 60);
-  the engine self-terminates that many seconds after its LAST client disconnects
+  the engine self-stop that multiple seconds after its LAST client disconnects
   (reference-counted, robust to client crashes). Best for a laptop/Pi where the
   engine shouldn't linger once nothing is using it.
 - **`persistent` — long-living local engine, never auto-stops.** Set
   `engine_lifecycle=persistent` (or `engine_idle_shutdown_secs=0`) and the resolver
   passes NO idle-shutdown flag: the engine runs forever like a local service, even
-  when idle. Best when you want a warm engine always ready (no cold-start on the
+  when idle. Best when the operator want a warm engine always ready (no cold-start on the
   next request).
 
 These are typed `AgentConfig` fields (`graph_service_endpoints`, `engine_lifecycle`,
@@ -185,7 +185,7 @@ persistently); `agent-utilities-doctor --preflight` flags such a lean binary.
 
 ## B. Daemon on/off toggles, all default ON — REMOVED (Phase 3) ✓
 
-**Done.** The six always-on toggles below were deleted and collapsed behind a single
+**Done.** The six always-on toggles below were removed and collapsed behind a single
 `KG_DEV_MODE` switch on `AgentConfig`, read through one `engine_tasks._kg_dev_mode()` helper
 that gates the maintenance scheduler + embedding-backfill startup. Production keeps every daemon
 on; `KG_DEV_MODE=1` silences the lot. Removed: `KG_EMBED_BACKFILL`, `KG_ENRICH_DAEMON`,
@@ -208,7 +208,7 @@ Original inventory (for reference):
 | `GRAPH_DIRECT_DISPATCH` | `true` | sync dispatch |
 | `KG_RETRIEVAL_QUALITY_GATE` | `true` | relevance filter |
 
-Nobody runs these off in production. **Action:** delete the env gates; if a dev escape
+Nobody runs these off in production. **Action:** remove the env gates; if a dev escape
 hatch is wanted, a single `KG_DEV_MODE=1` disables *all* background daemons.
 
 ### B.1 Safety overrides — KEEP (typed on `AgentConfig`)
@@ -224,17 +224,17 @@ wants every node still gets it, but only by writing that scan explicitly
 
 | Flag | Default | What it gates |
 |---|---|---|
-| `KG_EPISTEMIC_LIGHT_DEFAULT` | `true` | Attach the light epistemic envelope (confidence/source_refs/evidence_refs/policy_labels/provenance) onto every plain read-path row by default (CONCEPT:AU-KB-CURRENCY) — additive, never changes a caller's `list[dict]` shape. Opt-out for a deployment that must skip the extra batched `explain_provenance_by_ids` round trip on every read; a row already showing a contested/low-confidence signal is still resolved regardless (auto-on override). Typed `config.epistemic_light_default`, read in `knowledge_graph/core/epistemic_row.py`. |
+| `KG_EPISTEMIC_LIGHT_DEFAULT` | `true` | Attach the light epistemic envelope (confidence/source_refs/evidence_refs/policy_labels/provenance) onto every plain read-path row by default (CONCEPT:AU-KB-CURRENCY) — additive, never changes a caller's `list[dict]` shape. Opt-out for a deployment that must skip the extra batched `explain_provenance_by_ids` round trip on every read; a row already showing a contested/low-confidence signal is still resolved in either case (auto-on override). Typed `config.epistemic_light_default`, read in `knowledge_graph/core/epistemic_row.py`. |
 
 ## C. Ingest-throughput knobs — REMOVED ✓
 
-**Done.** All three deleted:
+**Done.** All three removed:
 - `KG_INGEST_FEATURES` / `KG_INGEST_PROFILE` → per-repo call-graph community detection is now
   **always on**. The hang risk that motivated the opt-out is fixed at the source: the engine's
   `community_detection` is deterministically bounded (15s wall-clock + iteration cap,
   epistemic-graph `algorithms.rs`), and `make_community_fn` loads its scratch tenant in **one
   `batch_update` round-trip** instead of per-element RPCs.
-  *Correction (verified against code):* one `KG_INGEST_PROFILE` read survives — pipeline
+  *Correction (checked against code):* one `KG_INGEST_PROFILE` read survives — pipeline
   phase selection in `knowledge_graph/pipeline/__init__.py` (`select_phases`; values
   `structural` | `full`, unset = full). It no longer gates community detection. It is
   tracked in the bare-read baseline (see section H).
@@ -287,7 +287,7 @@ opt-in, all off by default, single typed source of truth.
 
 | Family | Count | Notes |
 |---|---|---|
-| `KG_EA_WRITEBACK`, `KG_ENABLE_HARD_NEGATIVE_MINING`, `KG_BRAIN_ENFORCE`, `KG_RESEARCH_EXTERNAL`, `KG_PROCESS_WRITEBACK` | 5 | remaining experiment gates — graduate (always-on) or delete |
+| `KG_EA_WRITEBACK`, `KG_ENABLE_HARD_NEGATIVE_MINING`, `KG_BRAIN_ENFORCE`, `KG_RESEARCH_EXTERNAL`, `KG_PROCESS_WRITEBACK` | 5 | remaining experiment gates — graduate (always-on) or remove |
 
 **`KG_PROCESS_WRITEBACK` — outbound process-intelligence writeback (`CONCEPT:EG-KG.storage.nonblocking-checkpoint`,
 default off).** Opt-in because it performs *outbound* mutating calls into external
@@ -381,7 +381,7 @@ greenfield). Resolved through `AgentConfig.langfuse_host` / `langfuse_public_key
 ## G. Complete `AgentConfig` inventory — platform fields beyond the KG/graph flag audit
 
 Sections A–F are the original `KG_*`/`GRAPH_*` sprawl audit. `AgentConfig`
-(`core/config.py`, pydantic-settings) additionally carries the platform's general
+(`core/config.py`, pydantic-settings) also carries the platform's general
 configuration surface. **Totals, extracted programmatically from
 `AgentConfig.model_fields`: 244 fields, 242 distinct environment variables**
 (`SECRETS_VAULT_URL` and `SECRETS_VAULT_MOUNT` bind the single fields `vault_url`
@@ -432,7 +432,7 @@ therefore environment-settable; none are internal-only.
 
 | Flag | Default | What it sets |
 |---|---|---|
-| `DEFAULT_AGENT_NAME` | package name | Agent display name |
+| `DEFAULT_AGENT_NAME` | package name | Agent show name |
 | `AGENT_DESCRIPTION` | package description | Agent description |
 | `AGENT_SYSTEM_PROMPT` | `None` | System prompt override |
 | `WORKSPACE_PATH` | `None` | Workspace root override |
@@ -443,7 +443,7 @@ therefore environment-settable; none are internal-only.
 | `ENABLE_WEB_UI` | `false` | Serve the web UI |
 | `ENABLE_TERMINAL_UI` | `false` | Terminal UI mode (disables `GATEWAY_WORKERS>1`) |
 | `ENABLE_WEB_LOGS` | `true` | Web log streaming |
-| `ENABLE_ACP` | `false` | Deprecated gateway compatibility flag; ACP is launched separately |
+| `ENABLE_ACP` | `false` | Deprecated gateway compatibility flag; ACP is started separately |
 | `ACP_SESSION_ROOT` | `.acp-sessions` | Private durable store used by `agent-utilities-acp` |
 | `MCP_URL` | `None` | Remote MCP server URL the agent attaches to |
 | `MCP_CONFIG` | `None` | Path to `mcp_config.json` |
@@ -539,7 +539,7 @@ from fixed strings and enum-like identifiers such as `graph-os` or
 `engine.GetNodeProperties`, never from a request body/tool argument/model output) is
 sanitized (control characters stripped, length capped) but exported **literal**, so an
 operator can pick a service in Grafana/Tempo and the service graph renders correctly.
-Anything that could carry user content — span *attributes*, resource detector fields —
+Anything that can carry user content — span *attributes*, resource detector fields —
 still goes through `_opaque_label`/`_metadata_only_attributes` and is exported as an
 opaque, namespaced `pref_*` reference. See `_service_topology_label` vs `_opaque_label`
 in `agent_utilities/observability/custom_observability.py`.
@@ -581,7 +581,7 @@ in `agent_utilities/observability/custom_observability.py`.
 | `MAINTENANCE_PRIORITY` | `LOW` | Maintenance task priority (LOW/MEDIUM/HIGH) |
 | `WATCHDOG_PATTERNS` | `pyproject.toml, mcp_config.json, requirements*.txt` | File patterns for the file-watcher trigger (CONCEPT:AU-OS.safety.doom-loop-detection) |
 | `TOOL_GUARD_MODE` | `strict` | Sensitive-tool guard mode |
-| `SENSITIVE_TOOL_PATTERNS` | 67 regexes | Tool-name patterns treated as mutating/sensitive (delete/exec/deploy/...); override only to extend |
+| `SENSITIVE_TOOL_PATTERNS` | 67 regexes | Tool-name patterns treated as mutating/sensitive (remove/exec/deploy/...); override only to extend |
 
 ### G.10 Skills
 
@@ -691,12 +691,12 @@ ON in the same registry.)
 
 ## Coverage statement
 
-Verified against `agent_utilities/core/config.py` on this branch by extracting
+Checked against `agent_utilities/core/config.py` on this branch by extracting
 `AgentConfig.model_fields` programmatically: **244 fields / 242 distinct env
 variables, every one documented above** — sections A–F cover the KG/graph audit
 surface, section G the remaining platform fields (no field was deemed
 internal-only: every `AgentConfig` field declares an env alias and is settable
-from the environment). Section H additionally documents the user-facing flags
+from the environment). Section H also documents the user-facing flags
 that exist only as baseline-frozen bare `os.environ` reads. Drift fixed in this
 pass: `KG_LLM_CONCURRENCY` default is `4` (doc previously said 6), and
 `KG_INGEST_PROFILE` retains one phase-selection read despite the section C

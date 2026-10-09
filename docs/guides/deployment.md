@@ -35,7 +35,7 @@ Useful extras compose with `agent-utilities[serving,...]`:
 
 The epistemic-graph engine is the one database and ships with the wheel, so the
 out-of-box experience needs no external database server. Mirror drivers
-(`postgresql`, `neo4j`, `falkordb`) are only required when you fan writes out to
+(`postgresql`, `neo4j`, `falkordb`) are only required when the operator fan writes out to
 those mirrors.
 
 ---
@@ -96,7 +96,7 @@ in project configuration.
 > The engine is always the authority and always serves every read. A mirror
 > (Postgres, Neo4j, FalkorDB, Ladybug) only receives an **asynchronous, lossless**
 > copy of committed writes via a durable replay-on-reconnect outbox — it is never
-> on the read path. Enable mirrors only when you need external query, business
+> on the read path. Enable mirrors only when the operator need external query, business
 > intelligence, or disaster recovery.
 
 ---
@@ -229,7 +229,7 @@ docker compose -f docker/pg-age.compose.yml up -d
 
 External Neo4j/openCypher, AGE, LadybugDB/Kuzu, remote epistemic-graph, and
 GraphQL sources are declared through reference-only `EXTERNAL_GRAPH_CONNECTORS`.
-Deployment supplies the referenced connection, authentication, TLS, variables, and
+Deployment provides the referenced connection, authentication, TLS, variables, and
 mapping-policy documents; the repository retains no source-specific profile. Run the
 bounded `discover → propose → approve → external_graph_doctor → ingest` lifecycle
 described in [Universal External Graph Connectors](../architecture/universal-external-graph-connectors.md).

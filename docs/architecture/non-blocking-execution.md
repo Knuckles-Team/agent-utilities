@@ -68,7 +68,7 @@ and gated on vLLM availability.
 
 **A simple chat turn is run through the full multi-agent orchestration graph —
 router → planner/dispatcher → expert → verifier(+repair) → synthesizer — which is
-several *sequential* LLM rounds, each bounded by a 300-second node timeout, against
+multiple *sequential* LLM rounds, each bounded by a 300-second node timeout, against
 `LLM_BASE_URL = https://model-api.example.test/v1`.** When the configured model service is healthy this is still
 multi-round latency far above a chat budget; when the configured model endpoint is slow/down (an accelerator
 fault, see the workspace memory), the first router round alone can stall for up to
@@ -81,7 +81,7 @@ the 90 s observation cap.
 The **fast path exists but is far too narrow**: `is_trivial_query` only matches
 utterances of ≤ 6 words that start with a fixed greeting prefix
 (`hello`/`hi`/`thanks`/`what can you`…). A normal simple question
-("can you summarise this?", "what's the status of X?") does **not** qualify and
+("can the operator summarise this?", "what's the status of X?") does **not** qualify and
 takes the full graph. So "simple chat" is exactly the case that is slow.
 
 ## 3. The two-tier latency problem, stated plainly
@@ -101,7 +101,7 @@ takes the full graph. So "simple chat" is exactly the case that is slow.
 | **Med (correctness)** | `orchestration/manager.py::_scan_task` | Guarded on `hasattr(self.scanner, "analyze")`; `PromptInjectionScanner` has no `analyze` (only `scan_text`/`scan_conversation`/`evaluate`). The prompt-injection gate on **every** `execute_agent`/`compile_workflow` silently never fired — dead security code. | **Fixed inline** — call `scanner.scan_text(task).is_malicious`. |
 | Low | `orchestration/agent_runner.py::_build_execution_config` | Stray `print("DEBUG [agent_runner]: …")` on the spawn path → stdout noise (and a corruption risk for stdio-MCP transport). | **Fixed inline** — converted to `logger.debug`. |
 | Arch | `_build_execution_config` / `_execute_graph` | `get_recent_mementos` and `_resolve_agent_from_kg` run synchronous backend calls on the async path. | Flagged (P1) — `to_thread` or pre-prime; see §6. |
-| Arch | `graph/_router_impl.py` | `find_agent_for_tool` called **once per query word** (N+1), plus several more sync KG queries, before any LLM. | Flagged (P1/P2) — batch into one engine call / offload to Rust; see §7. |
+| Arch | `graph/_router_impl.py` | `find_agent_for_tool` called **once per query word** (N+1), plus multiple more sync KG queries, before any LLM. | Flagged (P1/P2) — batch into one engine call / offload to Rust; see §7. |
 | Arch | `graph/builder.py::create_agent` | Full graph topology + `discover_agents()` rebuilt on **every** turn; no per-config cache. | Flagged (P1) — cache the built graph; see §6. |
 
 > Only the two clearly-trivial, clearly-correct fixes were applied inline. The
@@ -113,14 +113,14 @@ For the messaging assistant, `_build_execution_config` sets `mcp_config=""` and
 `mcp_url=""`, so `create_agent` does **not** call `load_mcp_servers_from_config`
 and does **not** probe the fleet — good. But any caller that *does* pass an
 `mcp_config` (the full graph default is `DEFAULT_MCP_CONFIG`/`DEFAULT_MCP_URL`,
-both `None` today) would, per-turn, run `shutil.which` per server + secrets-client
-lookups + construct every fleet toolset, and the graph executor would then
+both `None` today) will, per-turn, run `shutil.which` per server + secrets-client
+lookups + build every fleet toolset, and the graph executor will then
 `enter_async_context` (connect) each one with a 60 s per-server timeout. This is a
 latent O(fleet) probe on the build path that must never reach the chat path.
 
 ## 6. Proposed architecture — fast path vs. full orchestration
 
-The universal path stays the **one** path; we make it *tiered* so a turn pays only
+The universal path stays the **one** path; this repository make it *tiered* so a turn pays only
 for the altitude it needs.
 
 ```mermaid
@@ -160,7 +160,7 @@ flowchart TD
 
 - **Session memento cache.** Keep a small per-session LRU cache
   `{session → (mementos, fetched_at)}`. `_build_execution_config` reads the cache
-  (zero I/O on the hot path).
+  (zero `I/O` on the hot path).
 - **Background refresh.** The existing `_persist_and_enrich` background task already
   *writes* the new memento after each turn — have it also **refresh the cache** for
   that session in the same background pass. So turn *N+1* reads turn *N*'s memento
@@ -270,7 +270,7 @@ router's pre-LLM discovery is one async call instead of N synchronous ones.
    fires only on a genuine non-timeout graph error). (CONCEPT:AU-ORCH.execution.chat-profile-timeouts)
 3. ✅ Session memento cache + background refresh so priming never blocks. (§6.2) —
    `knowledge_graph/memory/session_memento_cache.py` (`SessionMementoCache`,
-   `refresh_session_memento_cache`): `run_agent` reads the cache (zero I/O) via
+   `refresh_session_memento_cache`): `run_agent` reads the cache (zero `I/O`) via
    `_prime_recent_mementos`; a cold miss fetches once via `to_thread`; the background
    `_persist_and_enrich` pass (AU-ECO.messaging.debounce-timer-cancel) refreshes the cache after each turn so turn N+1
    reads turn N's memento from memory. (CONCEPT:AU-KG.memory.refresh-per-session-memento)

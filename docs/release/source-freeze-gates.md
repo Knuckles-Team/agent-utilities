@@ -16,12 +16,12 @@ The evidence shape is fixed by
 
 The Linux/WSL runner requires explicit roots for Agent Utilities, Epistemic
 Graph, Langfuse Agent, and the ecosystem checkout that contains `agents/` and
-`skills/`. It verifies that the three component roots are members of that
+`skills/`. It checks that the three component roots are members of that
 checkout. The release CLI always loads the adjacent canonical manifest: there
 is no repository discovery, manifest override, or ad-hoc command option. The
 runner also pins the reviewed manifest's exact SHA-256 in source, so even a
 schema-valid command-catalog change fails before root discovery or execution.
-Commands execute once, in manifest order, as argument arrays with no shell.
+Commands run once, in manifest order, as argument arrays with no shell.
 
 ```mermaid
 flowchart LR
@@ -40,7 +40,7 @@ directory, disabled Git configuration/pagers/prompts/optional locks, and only
 pinned `git` and `rg` links. The Python audit boundary blocks network sockets,
 all file writes, shell/process escape paths, and every child command except the
 reviewed read-only Git and ripgrep argv forms. Each command starts in a new
-process group; timeout, output overflow, success, and failure all terminate
+process group; timeout, output overflow, success, and failure all stop
 remaining descendants. Standard output and error are streamed through bounded
 digest-free counters and are never buffered or retained.
 
@@ -49,7 +49,7 @@ interpreter site directories are appended directly to `sys.path`; `.pth` files
 are never executed. This prevents package-startup code from running before the
 write, process, and network policy.
 
-The manifest additionally rejects build, install, service, mutation, live, and
+The manifest also rejects build, install, service, mutation, live, and
 network command arguments. Complete source digests run before and after every
 command over every root that command can inspect, followed by a final four-root
 digest. Tracked files under directories named `build`, `dist`, `site`, or
@@ -89,7 +89,7 @@ those wheel members byte-for-byte against the repository's file directly.
 It also removed a deadlock. `compatibility-matrix.yml` was one of the catalogued
 files, so every version bump staled the catalog, while the default-stage
 pre-commit gate that refused the stale catalog blocked the very bump commit that
-would have refreshed it.
+will have refreshed it.
 
 ## Run
 
@@ -111,7 +111,7 @@ python -I -S -B scripts/source_freeze_gate.py \
   --evidence "${RELEASE_EVIDENCE_ROOT}/source-freeze.json"
 ```
 
-The runner refuses to execute without `-I -S -B`; this excludes environment,
+The runner refuses to run without `-I -S -B`; this excludes environment,
 user-site, `.pth`, and bytecode startup effects before the manifest is pinned or
 the first source digest is taken.
 

@@ -26,7 +26,7 @@ it. Neither alone reaches the ceiling.
 | **Speculative decoding** | MTP / `draft-mtp`, `n-max 3`, `p-min 0.1` | +39% at Q3 (only +13% at Q4) | Drafts cheap tokens, verifies in one pass; the win scales with how cheap the pass is (so it compounds with low-bit). |
 | **Flash attention** | on, **uniform KV precision** | baseline-critical | Mixing KV precisions *disables* flash-attn → **−57%**. Keep KV uniform. |
 | **Parallelism** | `--parallel 1` | best single-job throughput | BS=1 MoE decode already saturates bandwidth; extra streams *split* it (−10%). |
-| **KV-cache reuse** | reuse across rounds on the same doc prefix | faster rounds 2+ | The prompt+document prefix is identical across our multi-round recall (KG-2.64); cache it. |
+| **KV-cache reuse** | reuse across rounds on the same doc prefix | faster rounds 2+ | The prompt+document prefix is identical across this repository's multi-round recall (KG-2.64); cache it. |
 
 ## What does NOT help (don't bother)
 
@@ -44,9 +44,9 @@ it. Neither alone reaches the ceiling.
 - Validate any new quant against extraction *coverage* (facts per doc) and
   *groundedness* (evidence_span actually substring-matches), not just tok/s.
 
-## Applying it to our stack
+## Applying it to this repository's stack
 
-- We serve via the configured **vLLM** endpoint, not llama.cpp — the *knowledge* transfers,
+- This repository serve via the configured **vLLM** endpoint, not llama.cpp — the *knowledge* transfers,
   the flags differ. The equivalents: pick a ~Q4/AWQ-or-better quant that holds
   groundedness, enable speculative decoding where the engine supports it, keep one
   high-throughput stream per extraction job, and let KG-2.65 serialize slot access

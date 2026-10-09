@@ -2,9 +2,9 @@
 
 ## Overview
 
-The **Ecosystem & Peripherals** pillar handles the integration boundary between the agent's internal reasoning and the external world. It defines how tools are discovered, how agents communicate with each other, and how dynamic skills are synthesized on the fly.
+The **Ecosystem & Peripherals** pillar handles the integration boundary between the agent's internal reasoning and the external world. It defines how tools are discovered, how agents communicate with each other, and how dynamic skills are synthesized while running.
 
-## Why We Built This (Rationale)
+## Why This repository Built This (Rationale)
 
 1. **Tool Sprawl**: Statically coding APIs for GitHub, Slack, GitLab, Docker, etc., creates an unmaintainable monolith.
 2. **Static Capability Degradation**: An agent restricted to its factory-installed tools becomes obsolete the moment a user asks it to perform a novel task.
@@ -19,7 +19,7 @@ The foundation is the **Model Context Protocol (MCP)**. Instead of hardcoding in
 When the system encounters a problem it lacks a tool for, the **SkillNeologismDetector** identifies the capability gap. The **SkillFactory** then uses execution traces to write a new, permanent `universal-skill` (complete with Python code and documentation). This ensures the agent's capabilities grow synchronously with the complexity of its environment.
 
 ### A2A Network & Consensus (AU-ECO.toolkit.journey-map-narrative)
-Agent-to-Agent (A2A) communication is configured via `a2a_config.json`. Remote agents are ingested as `CallableResource` nodes in the KG. The system supports multi-agent **Byzantine Fault Tolerance (BFT)** consensus algorithms, allowing a swarm of agents to vote on optimal pathways or verify code logic independently before returning a synthesized result to the user.
+Agent-to-Agent (A2A) communication is configured via `a2a_config.json`. Remote agents are ingested as `CallableResource` nodes in the KG. The system supports multi-agent **Byzantine Fault Tolerance (BFT)** consensus algorithms, allowing a swarm of agents to vote on optimal pathways or check code logic independently before returning a synthesized result to the user.
 
 ## Benefits Introduced
 
@@ -27,7 +27,7 @@ Agent-to-Agent (A2A) communication is configured via `a2a_config.json`. Remote a
 - **Emergent Capabilities**: The agent autonomously writes and integrates the tools it needs, enabling true unsupervised problem-solving.
 - **Robust Decentralization**: A2A config resolution and BFT consensus prevent single points of failure in complex, multi-stage agent swarms.
 
-## Key Concepts Leveraged
+## Key Concepts Use
 - **ECO-4.0**: Unified Tool Interface
 - **ECO-4.1**: Capability Registry Engine
 - **AU-ECO.toolkit.journey-map-narrative**: A2A Network & Consensus
@@ -134,7 +134,7 @@ graph TD
 ```
 
 - **Change Types**: `agents_md_edit`, `hook_install/uninstall`, `plugin_install/uninstall`, `permission_change`, `policy_update`, `constitution_amend`, `skill_install`, `tool_registration`
-- **Risk Scoring**: Constitution amendments (0.9), permission changes (0.8), policy updates (0.7), hook installs (0.5), plugin installs (0.4), AGENTS.md edits (0.3), tool registrations (0.2). Human-initiated changes receive a 0.7x modifier.
+- **Risk Scoring**: Constitution amendments (0.9), permission changes (0.8), policy updates (0.7), hook installs (0.5), plugin installs (0.4), AGENTS.md edits (0.3), tool registrations (0.2). Human-start changes receive a 0.7x modifier.
 - **Audit Cycle**: `run_audit_cycle()` coordinates staleness auditor + reflector proposals + combined markdown report generation.
 
 ### 🗺️ Codebase Map Generator (AU-KG.memory.team-startup-context)
@@ -162,7 +162,7 @@ plus the two MCP Apps launchers — at roughly **1,660 tokens** in `tools/list`.
 
 | Surface | Always-visible tools | Purpose |
 |---|---|---|
-| Intent | `ask`, `find`, `write`, `act`, `manage`, `why` | Resolve a governed natural-language intent (or an explicit `action` operation id) to the exact current capability; the non-read verbs (`write`/`act`/`manage`) preview first and execute only when resubmitted with the preview's `plan_ref`, and an approval-required operation additionally needs `manage(action="approve", params={"action": "<tool>.<op>"})` for the session. |
+| Intent | `ask`, `find`, `write`, `act`, `manage`, `why` | Resolve a governed natural-language intent (or an explicit `action` operation id) to the exact current capability; the non-read verbs (`write`/`act`/`manage`) preview first and run only when resubmitted with the preview's `plan_ref`, and an approval-required operation also needs `manage(action="approve", params={"action": "<tool>.<op>"})` for the session. |
 | MCP Apps | `graph_task_progress_app`, `graph_trace_waterfall_app` | Launch the two always-available interactive GraphOS views (kept listed only because the MCP Apps extension binds a UI to a listed tool's `_meta.ui.resourceUri`). |
 
 Each intent tool takes the same condensed schema: `action` (an operation id
@@ -171,7 +171,7 @@ object), an optional natural-language `intent` (routed when `action` is
 empty), and `execute` (bool). `find(action="describe",
 params={"action": "<operation id>"})` returns one operation's full argument
 schema on demand, so the catalog's ~60 action-routed `graph_*`/`engine_*`
-operations never need to be embedded in `tools/list`.
+operations never must be embedded in `tools/list`.
 
 Those ~60 operations stay fully registered — on a private backing FastMCP
 server (`agent_utilities/mcp/graphos_surface.py::backing_server`) that
@@ -194,7 +194,7 @@ The generated Capability Power Descriptor catalog currently contains **129
 public capabilities**. Their granular MCP and REST actions remain current and
 fully governed, reached through `find`/`act`/`manage`/`describe` rather than
 being individually listed. Dynamic fleet loading never weakens a tool's
-verified session, scope, approval, or mutation policy. The source contracts
+checked session, scope, approval, or mutation policy. The source contracts
 are `agent_utilities/mcp/intent_contract.py`,
 `agent_utilities/mcp/graphos_surface.py`,
 `agent_utilities/mcp/tools/intent_tools.py`, and
@@ -211,7 +211,7 @@ are `agent_utilities/mcp/intent_contract.py`,
 | `/a2a` | MOUNT | Agent-to-Agent JSON-RPC |
 | `/api/approve` | POST | Resolve pending tool approvals and MCP elicitation |
 | `/chats` | GET | List chat sessions |
-| `/chats/{id}` | GET/DELETE | Get or delete a chat session |
+| `/chats/{id}` | GET/Remove | Get or remove a chat session |
 | `/mcp/config` | GET | Current MCP server configuration |
 | `/mcp/tools` | GET | List all connected MCP tools |
 | `/mcp/reload` | POST | Hot-reload MCP servers and rebuild graph |

@@ -6,7 +6,7 @@
 
 ## The Problem: Batch vs. Real-Time
 
-The existing `ingest_external_batch` API supports batch ingestion — an actor explicitly triggers a data import. This works for periodic synchronization but fails for **operational state**: by the time you batch-import, the state is already stale.
+The existing `ingest_external_batch` API supports batch ingestion — an actor explicitly triggers a data import. This works for periodic synchronization but fails for **operational state**: by the time the operator batch-import, the state is already stale.
 
 Real-time event streaming means the Company Brain updates **as work happens** — a Slack message posts, a Jira ticket moves, a PR merges, a customer call ends, and the graph reflects it immediately.
 

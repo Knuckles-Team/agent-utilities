@@ -44,7 +44,7 @@ args, mcp, middlewares = create_mcp_server(
 )
 ```
 
-`create_mcp_server()` gives you:
+`create_mcp_server()` gives the operator:
 - **`args`**: Parsed CLI arguments (transport, host, port, auth config, etc.)
 - **`mcp`**: A configured `FastMCP` instance with auth provider attached
 - **`middlewares`**: Standard middleware stack (error handling, rate limiting, timing, logging)
@@ -107,7 +107,7 @@ if __name__ == "__main__":
 
 ## Context Helpers (`ctx_*`)
 
-The `agent_utilities.mcp.context_helpers` module provides standardized context helpers that make your MCP tools consistent across the ecosystem. Read-only helpers become no-ops when `ctx` is `None`; destructive confirmation denies the operation.
+The `agent_utilities.mcp.context_helpers` module provides standardized context helpers that make the operator's MCP tools consistent across the ecosystem. Read-only helpers become no-ops when `ctx` is `None`. Destructive confirmation denies the operation.
 
 ```python
 from agent_utilities.mcp.context_helpers import (
@@ -235,7 +235,7 @@ class MyServiceAPI:
 | `remote-oauth` | `--auth-type remote-oauth` | Remote OAuth with authorization servers |
 
 ### Eunomia Policy Enforcement
-Add authorization policies to your MCP server. The middleware is native to
+Add authorization policies to the operator's MCP server. The middleware is native to
 `agent-utilities`; it evaluates `eunomia-core` policy documents directly and
 does not require the legacy Eunomia SDK.
 
@@ -254,7 +254,7 @@ TLS verification is controlled only by the runtime profile; no call site
 hardcodes a CA path or disables verification.
 
 Authenticated listeners derive the policy principal from the already verified
-access token. Client-supplied identity headers are accepted only for local
+access token. Client-provided identity headers are accepted only for local
 stdio deployments without an authentication provider. Tool argument values
 are never sent to the policy service; only bounded argument names are exposed.
 
@@ -310,7 +310,7 @@ uv run my-agent --web --port 8080
 
 ## Dynamic Tool Selection & Visibility
 
-All MCP servers built with `create_mcp_server()` automatically support **Dynamic Tool Selection & Visibility**. This allows connected clients to dynamically restrict or query which tools are exposed by the server on a per-request or per-session basis to prevent context bloop and optimize token utilization.
+All MCP servers built with `create_mcp_server()` automatically support **Dynamic Tool Selection & Visibility**. This allows connected clients to dynamically restrict or query which tools are exposed by the server on a per-request or per-session basis to prevent context bloop and optimize token use.
 
 Key controls supported:
 - **CLI Options**: `--tools` / `--disabled-tools` to enable/disable specific tools on startup.

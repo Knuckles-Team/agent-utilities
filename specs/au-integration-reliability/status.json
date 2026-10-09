@@ -24,7 +24,7 @@
     "AU-INTEGRATION-R019",
     "AU-INTEGRATION-R020"
   ],
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
   "evidence": [],
   "requirements": [
@@ -37,7 +37,7 @@
     {
       "id": "AU-INTEGRATION-R002",
       "title": "Control graph auto-creation and messaging intake propagation",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "implementation",
@@ -45,6 +45,13 @@
           "commit": "46da005a6c4c8e760f63e8ad7ebd389410229e1a",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/46da005a6c4c8e760f63e8ad7ebd389410229e1a",
           "description": "Part of the requirement is implemented on the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "46da005a6c4c8e760f63e8ad7ebd389410229e1a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/46da005a6c4c8e760f63e8ad7ebd389410229e1a",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ],
       "remaining": "messaging_intake_enabled threading into InProcessBackend.apply is on main, but __control__ graph auto-creation is not: graph_compute.py's _ensure_local_graph_ready still returns early (does nothing) whenever the local graph is __commons__, so a fresh packaged engine's first WorkItem still has no __c"
@@ -52,8 +59,16 @@
     {
       "id": "AU-INTEGRATION-R003",
       "title": "Reconcile previously tracked fixes against current main",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "eabd68d558c060922bc28c01e763762d1b1abefd",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/eabd68d558c060922bc28c01e763762d1b1abefd",
+          "description": "AU-INTEGRATION-R003 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-INTEGRATION-R004",
@@ -100,8 +115,16 @@
     {
       "id": "AU-INTEGRATION-R007",
       "title": "Gold-set generation is synthetic, not manually labelled",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e48977329379c2773bb4e71d5eb1d5b153549134",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/e48977329379c2773bb4e71d5eb1d5b153549134",
+          "description": "AU-INTEGRATION-R007 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-INTEGRATION-R008",
@@ -180,7 +203,7 @@
     {
       "id": "AU-INTEGRATION-R015",
       "title": "Remove the unused legacy ontology publisher surface",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -188,6 +211,13 @@
           "commit": "f055b24c487acd5e7782b8458df0f4f6efe82e07",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f055b24c487acd5e7782b8458df0f4f6efe82e07",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "23920f0ed81787de1c3a2f5bbac29b93479d45eb",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/23920f0ed81787de1c3a2f5bbac29b93479d45eb",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
     },
@@ -228,15 +258,31 @@
     {
       "id": "AU-INTEGRATION-R019",
       "title": "Messaging direct turns use a configured budget and deliver over-budget replies as a follow-up",
-      "delivery_state": "BUILDING",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "003679966f78df3da0841bce4022d93180986644",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/003679966f78df3da0841bce4022d93180986644",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ],
       "remaining": "Regression tests in tests/unit/messaging/test_direct_reply_budget.py; merged-head evidence pending."
     },
     {
       "id": "AU-INTEGRATION-R020",
       "title": "Outbound chat text never carries the run envelope",
-      "delivery_state": "BUILDING",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b1fd0469c010058b3bfca2519e0fa02624d7fd5c",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/b1fd0469c010058b3bfca2519e0fa02624d7fd5c",
+          "description": "Implementation merged to the default branch; the commit names this requirement."
+        }
+      ],
       "remaining": "Regression test tests/unit/messaging/test_run_envelope_unwrap.py lands with this PR; PR #60 late-reply path reuses unwrap_run_envelope after both merge."
     }
   ]

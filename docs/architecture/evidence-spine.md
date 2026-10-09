@@ -61,7 +61,7 @@ The scoped-structural scheme buys most of both. What it costs:
 | **insert a same-kind sibling above** | **changes** | identical |
 
 The last two are real. A renamed section is arguably a different section, and the
-alternative — a content-independent synthetic id — needs durable state we would then have
+alternative — a content-independent synthetic id — needs durable state this repository will then have
 to keep correct across every re-ingest. The same-kind-sibling case is covered by
 `resolve_fragment` / `citation_status`, which match **address first, content second**:
 
@@ -70,8 +70,8 @@ to keep correct across every re-ingest. The same-kind-sibling case is covered by
   the citation is re-pointable. Checked **before** `stale`, because a displaced quote is
   not a rewritten quote.
 - `stale` — address resolved, content changed, cited content exists nowhere else.
-- `lost` — neither resolves, or the content is ambiguous across several fragments.
-  Reported, never guessed — a lucky match would re-point a citation at text it never
+- `lost` — neither resolves, or the content is ambiguous across multiple fragments.
+  Reported, never guessed — a lucky match will re-point a citation at text it never
   supported.
 
 ## How it flows
@@ -116,7 +116,7 @@ They are joined through `Document -HAS_ARTIFACT-> Artifact -HAS_FRAGMENT-> Fragm
 > that genuinely need an extractor. The chunk pipeline is unchanged.
 >
 > **Second defect.** `doc_id` is derived from the content hash, so keying the artifact to
-> it would fork a new artifact on every edit and orphan every citation. The artifact is
+> it will fork a new artifact on every edit and orphan every citation. The artifact is
 > keyed to the **source object** (path/URL); its `content_hash` carries the revision.
 
 ## Ontology + SHACL

@@ -12,8 +12,8 @@ is packaged with the installation and supervised by GraphOS as an
 **out-of-process child** over a private local transport. The reference-counted
 engine is shared by local clients and stops after the last client has been idle
 for the configured interval. There are **no mirror databases** (Postgres/pg-age, Neo4j,
-FalkorDB, Ladybug are optional write-only fan-out targets you do not configure
-here). The only thing you need is a model provider configured with a runtime
+FalkorDB, Ladybug are optional write-only fan-out targets the operator do not configure
+here). The only thing the operator need is a model provider configured with a runtime
 credential reference or an approved local inference endpoint.
 
 > **Topology:** genesis names this shape `engine_topology: unified-in-process` — the
@@ -56,7 +56,13 @@ unset. The resulting tiny packaged-local GraphOS stdio boundary creates and
 validates a neutral short-lived JWT with an in-memory key as a one-time proof,
 then destroys the key and token before returning a process-lifetime session. It
 persists no personal identity, host name, endpoint, filesystem path, credential,
-or proof material. Verify that boundary before launch:
+or proof material. That session — the identity every stdio tool call runs
+under — is minted least-privilege (`kg:read`/`kg:write`, never
+`kg:admin`), and no setting widens it. First-run provisioning of the local
+engine's own tenant graph uses a separate, one-shot proof carrying only the
+engine's `graph:admin` lifecycle scope. Administration beyond that needs a
+configured external identity. Verify that
+boundary before launch:
 
 ```bash
 agent-utilities-doctor --only graph_identity auth
@@ -105,13 +111,13 @@ setup-config codex
 The IDE launches exactly the stdio boundary certified above. Standalone library,
 daemon, REST, and network MCP processes are outside that exception and require
 external process authority. Run `agent-utilities-doctor` after launch; `--live`
-additionally performs bounded Langfuse and native optimizer probes when those
+also performs bounded Langfuse and native optimizer probes when those
 capabilities are configured.
 
 ## When to graduate
 
 The packaged engine is already durable across restarts of *its own process*. The
-moment you want the engine to run independently of any one agent process, or to
+moment the operator want the engine to run independently of any one agent process, or to
 share it across containers/hosts, move to
 [Single-node prod](single-node-prod.md) — there the same engine runs as its own
 container; [enterprise](enterprise.md) points everything at a shared/remote
