@@ -117,8 +117,16 @@
     {
       "id": "AU-HARNESS-R005",
       "title": "Defer generative model work pending evidence-backed need",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a754f1299033790e3d1a2cf2e892dc5e0ca7daab",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/a754f1299033790e3d1a2cf2e892dc5e0ca7daab",
+          "description": "AU-HARNESS-R005 merged to the default branch in this commit (PR #147, feat(harness): generative-model deferral gate (AU-HARNESS-R005.1))."
+        }
+      ]
     },
     {
       "id": "AU-HARNESS-R006",
