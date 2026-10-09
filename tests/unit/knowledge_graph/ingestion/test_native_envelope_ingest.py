@@ -326,6 +326,21 @@ def _envelope(**overrides) -> ChangeEnvelope:
     return ChangeEnvelope(**values)
 
 
+def _assert_fails_closed_without_write(compute: _Compute) -> None:
+    """Shared assertion for an ingest that must fail closed before any write.
+
+    Used by both the missing-native-capability and missing-native-SHACL
+    tests: each sets up its own unavailable capability on ``compute``, then
+    shares this exact fail-closed contract.
+    """
+    result = module.ingest_envelope(compute, _envelope())
+
+    assert result["status"] == "failed"
+    assert result["error"] == "NativeChangeEnvelopeUnavailable"
+    assert compute.client.changes.applied == []
+    assert compute.client.nodes.values == {}
+
+
 @pytest.mark.parametrize(
     "unsafe_role",
     ["operator" + "@example.invalid", "/" + "home/example/private"],
@@ -1263,12 +1278,7 @@ def test_source_sync_reconcile_scopes_same_connector_instances_and_fails_closed(
 def test_missing_native_capability_fails_closed_without_write() -> None:
     compute = _Compute("graph-old", supported=False)
 
-    result = module.ingest_envelope(compute, _envelope())
-
-    assert result["status"] == "failed"
-    assert result["error"] == "NativeChangeEnvelopeUnavailable"
-    assert compute.client.changes.applied == []
-    assert compute.client.nodes.values == {}
+    _assert_fails_closed_without_write(compute)
 
 
 def test_shacl_rejection_never_materializes_connector_rows() -> None:
@@ -1289,12 +1299,7 @@ def test_missing_native_shacl_capability_fails_closed_before_write() -> None:
     compute = _Compute("graph-no-shacl")
     compute.shacl_validate_committed = None
 
-    result = module.ingest_envelope(compute, _envelope())
-
-    assert result["status"] == "failed"
-    assert result["error"] == "NativeChangeEnvelopeUnavailable"
-    assert compute.client.changes.applied == []
-    assert compute.client.nodes.values == {}
+    _assert_fails_closed_without_write(compute)
 
 
 # ── W3.4 ambient epistemics: valid-time mapped from the source's own timestamp
