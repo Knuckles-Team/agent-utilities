@@ -32,9 +32,10 @@ are **NOT backed** — raising :class:`DurableCallNotBacked` rather than silentl
 degrading to the wrong backend or reporting a false-positive success. Both
 target backends (`eg-mutation-store`'s saga coordinator, `eg-statechart`'s
 keyed OCC state) are real and durable, but neither has a Python-reachable
-wire-protocol surface today: `protocols/epistemic_operations/_generated.py`
-carries an ``AnalyticsJob`` DTO but no live query/mutate method for it, and no
-DTO at all yet for a statechart instance or a saga (`Method::Statechart{...}`,
+wire-protocol surface today: the engine's own generated client,
+`epistemic_graph.generated.models`, carries an ``AnalyticsJob`` DTO but no live
+query/mutate method for it, and no DTO at all yet for a statechart instance or
+a saga (`Method::Statechart{...}`,
 `Method::Saga{...}` do not exist). Closing this is new engine wire-protocol
 work, out of scope for this lane — see `docs/durable-execution.md`'s parity
 sweep for the tracked gap. Failing loud here (never a bare no-op that hides
@@ -217,7 +218,7 @@ def durable_call(
         "(CallShape::Call -> WorkShape::CrossStoreAtomicStep -> "
         "DurableBackendKind::MutationStoreSaga, eg-durable route.rs), which "
         "has no Python-reachable wire-protocol surface today (no "
-        "Method::Saga{...} DTO in protocols/epistemic_operations). See "
+        "Method::Saga{...} DTO in epistemic_graph.generated.models). See "
         "docs/durable-execution.md's parity sweep."
     )
 

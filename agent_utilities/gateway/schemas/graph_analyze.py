@@ -35,7 +35,7 @@ across every handler in this module). The error envelope (raised exceptions) is 
 separate, already-typed ``OperationResult``-shaped payload produced by
 ``agent_utilities.security.error_surface.public_error_payload`` — out of scope here
 since it is common to the whole gateway, not specific to analyze/search, and already
-has its own schema (``agent_utilities/protocols/epistemic_operations/_generated.py``).
+has its own schema (``agent_utilities/protocols/epistemic_operations/__init__.py``).
 
 **Permissiveness.** Two request bodies are dispatched to a tool with a fixed signature
 and no ``**kwargs`` (``graph_analyze``, ``graph_search``) via a raw ``**body`` splat in

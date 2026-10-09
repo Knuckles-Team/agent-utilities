@@ -71,9 +71,9 @@ class EngineNativeDevelopmentLaneTransport:
     """Low-level sync/async-client-neutral native development-lane transport.
 
     The generated client is expected to perform the full request/result
-    schema validation (see ``agent_utilities.protocols.epistemic_operations``
-    for the strict ``DevelopmentLane*`` DTOs this transport's callers must
-    build requests from and parse results into). This wrapper adds only
+    schema validation (see ``epistemic_graph.generated.models`` for the strict
+    ``DevelopmentLane*`` DTOs this transport's callers must build requests
+    from and parse results into). This wrapper adds only
     capability negotiation and transport-shape checks; every lifecycle
     decision remains in the engine and Repository Manager's sole
     ``LaneAuthority`` adapter.

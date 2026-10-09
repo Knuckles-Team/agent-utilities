@@ -199,9 +199,8 @@ def _is_generated(path: Path | None) -> bool:
     literal anywhere in the file — a generator script that emits the phrase
     into its OUTPUT, e.g. ``tools/codebase_map_tools.py`` writing "Do not edit
     manually — regenerate with ..." into the markdown file it produces, is not
-    itself generated) carries the marker. Matches the confirmed convention
-    (``protocols/epistemic_operations/_generated.py``: "Generated ... Regenerate
-    with the protocol gate; do not edit.")."""
+    itself generated) carries the marker. Matches the confirmed convention: a
+    generated module's own docstring states "Generated ...; do not edit."."""
     if path is None or not path.exists():
         return False
     tree = _parse(path)
