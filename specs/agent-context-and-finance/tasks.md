@@ -22,6 +22,9 @@ aa02d74fa0); those SHAs are no longer reachable from any branch tip in this
 repository (the branch they lived on was rebased away) and must not be
 re-implemented. The orchestrator should re-audit `status.json` against
 `88c61dc9164c983a52fdc8b170c10fca2e208d8a` to promote R001..R004 to LANDED.
-- [ ] **AU-CONTEXT-R006.1:** agent-utilities keeps finance agent roles only; paper trading stays isolated (producer, this repo).
-- [ ] **AU-CONTEXT-R006.2:** Live orders use the agent-connector-sdk's governed write-back contract (cross-repo; depends on R006.1).
-- [ ] **AU-CONTEXT-R006.3:** A finance widget replaces the placeholder widget in graph-os (cross-repo; depends on R006.2).
+- [x] **AU-CONTEXT-R006.1:** agent-utilities keeps finance agent roles only; paper trading stays isolated (producer, this repo). IMPLEMENTED at merged head: `tests/unit/finance/test_quant_live_order_refusal.py` locks the registered `quant` tool's `execute` domain refusing every submit/cancel/status call in both paper and live mode.
+- [ ] **AU-CONTEXT-R006.2:** Live orders use the agent-connector-sdk's governed write-back contract (cross-repo; depends on R006.1). Not built in this repo — owner is `agent-connector-sdk`; tracked here only for the dependency edge.
+- [ ] **AU-CONTEXT-R006.3:** A finance widget replaces the placeholder widget in graph-os (cross-repo; depends on R006.2). Not built in this repo — owner is `graph-os`; tracked here only for the dependency edge.
+- [x] **AU-CONTEXT-R008.1:** Typed `AnalysisSnapshot`/`StrategyScorecard` model plus abstention/refusal tests (producer, this repo). IMPLEMENTED at merged head: `agent_utilities/domains/finance/analysis_snapshot.py` + `tests/unit/finance/test_analysis_snapshot_recommendation.py`.
+- [ ] **AU-CONTEXT-R008.2:** Wire `recommend()` to the real holdings/watchlist entry point, replacing placeholder recommendation output (this repo; depends on R008.1). Not built in this PR — size/slice recorded, not skipped.
+- [ ] **AU-CONTEXT-R008.3:** Persist per-strategy `StrategyScorecard`s across calls for comparison (this repo; depends on R008.1/.2). Not built in this PR — size/slice recorded, not skipped.
