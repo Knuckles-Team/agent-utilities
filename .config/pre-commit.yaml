@@ -903,6 +903,12 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: guardrail-retained-surface-boundary
+    name: Guardrail — retained agent surface has no serving/storage import (AU-BOUNDARY-R043)
+    entry: scripts/hook_python.sh scripts/check_retained_surface_boundary.py
+    language: system
+    pass_filenames: false
+    always_run: true
   # The four gates below mirror the CI "Guardrails" workflow (guardrails.yml) so
   # a push can't fail a gate that pre-commit didn't already catch locally.
   - id: guardrail-eval-corpus
