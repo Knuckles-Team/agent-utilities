@@ -134,8 +134,16 @@
     {
       "id": "AU-BOUNDARY-R005",
       "title": "Migrate connector packages A-E onto the SDK",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a754f1299033790e3d1a2cf2e892dc5e0ca7daab",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/a754f1299033790e3d1a2cf2e892dc5e0ca7daab",
+          "description": "Fleet census 2026-10-09 (specs/au-boundary-deconstruction/fleet-census-20261009.md, merged to default branch at this commit): connector packages A-E scanned at each repo's origin/main HEAD; 0 unsanctioned AU-BOUNDARY-R005..R009 banned-module imports in production files."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R006",
@@ -146,14 +154,30 @@
     {
       "id": "AU-BOUNDARY-R007",
       "title": "Migrate connector packages K-O onto the SDK",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a754f1299033790e3d1a2cf2e892dc5e0ca7daab",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/a754f1299033790e3d1a2cf2e892dc5e0ca7daab",
+          "description": "Fleet census 2026-10-09 (specs/au-boundary-deconstruction/fleet-census-20261009.md, merged to default branch at this commit): connector packages K-O scanned at each repo's origin/main HEAD; 0 unsanctioned AU-BOUNDARY-R005..R009 banned-module imports in production files."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R008",
       "title": "Migrate connector packages P-S onto the SDK",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "a754f1299033790e3d1a2cf2e892dc5e0ca7daab",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/a754f1299033790e3d1a2cf2e892dc5e0ca7daab",
+          "description": "Fleet census 2026-10-09 (specs/au-boundary-deconstruction/fleet-census-20261009.md, merged to default branch at this commit): connector packages P-S scanned at each repo's origin/main HEAD; 0 unsanctioned AU-BOUNDARY-R005..R009 banned-module imports in production files."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R009",
