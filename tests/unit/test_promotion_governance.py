@@ -102,16 +102,31 @@ class TestMergePolicyRule:
 
 
 class TestShaclRule:
-    def test_agent_without_name_violates_agent_shape(self):
-        pytest.importorskip("pyshacl")
-        v = PromotionGovernanceValidator(None, policy=_policy())
+    """EH-470/EH-473: ``_check_shacl`` validates through the engine's
+    committed ``shacl_validate_committed`` surface only — never local
+    ``pyshacl`` (see ``PromotionGovernanceValidator._validate_shacl_spec``).
+    These bind a fake report instead of ``importorskip("pyshacl")``, the
+    same shape ``tests/ontology/test_shacl_gate.py`` uses."""
+
+    def test_agent_without_name_violates_agent_shape(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         # :AgentShape requires a name — a nameless Agent proposal must fail.
+        eng = _Engine()
+        monkeypatch.setattr(
+            eng,
+            "shacl_validate_committed",
+            lambda _data: SimpleNamespace(
+                conforms=False,
+                results=[SimpleNamespace(message="name is required")],
+            ),
+        )
+        v = PromotionGovernanceValidator(eng, policy=_policy())
         check = v._check_shacl({"type": "Agent", "goal": "do things"})
         assert check.passed is False
 
-    def test_named_agent_conforms(self):
-        pytest.importorskip("pyshacl")
-        v = PromotionGovernanceValidator(None, policy=_policy())
+    def test_named_agent_conforms(self) -> None:
+        v = PromotionGovernanceValidator(_Engine(), policy=_policy())
         check = v._check_shacl({"type": "Agent", "name": "researcher", "goal": "g"})
         assert check.passed is True
 
