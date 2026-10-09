@@ -596,8 +596,9 @@
     {
       "id": "AU-CONTROL-R032",
       "title": "act calls a fleet tool by its server and tool id",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "BUILDING",
+      "evidence": [],
+      "remaining": "Merged-head and PR evidence pending review. Unit tests pass on branch fix/au-control-r032-fleet-act-dispatch (based on open PR #67 feat/intent-fleet-ranking-tie-default, not yet merged): tests/unit/test_intent_surface.py (preview+execute dispatch via fleet.call, unknown-server falls through to native \"Unknown operation\", known-server/unknown-tool fails actionably)."
     },
     {
       "id": "AU-CONTROL-R033",
