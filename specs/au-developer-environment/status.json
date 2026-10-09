@@ -7,7 +7,7 @@
     "AU-DEV-R002",
     "AU-DEV-R003"
   ],
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
   "evidence": [],
   "requirements": [
@@ -21,7 +21,7 @@
     {
       "id": "AU-DEV-R002",
       "title": "Deployment and genesis tooling move to graph-os",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -29,6 +29,13 @@
           "commit": "fb585908f23aef35d8fddfd7268daeb8a4dffc76",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/fb585908f23aef35d8fddfd7268daeb8a4dffc76",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "29d80148b46232fb176db1bf9b0bd1e19f50f445",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/29d80148b46232fb176db1bf9b0bd1e19f50f445",
+          "description": "AU-DEV-R002 merged to the default branch in this commit."
         }
       ]
     },
