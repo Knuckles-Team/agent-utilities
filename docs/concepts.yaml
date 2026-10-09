@@ -9913,14 +9913,6 @@ concepts:
   - agent_utilities/orchestration/graph_execution_evidence.py
   - agent_utilities/server/app.py
   doc: Track 3 of the pydantic-ai
-- id: AU-OS.observability.unified-health-kernels
-  name: AU-OS.observability.unified-health-kernels
-  pillar: AU-OS
-  status: live
-  code_paths:
-  - agent_utilities/observability/gateway_health.py
-  - agent_utilities/observability/health.py
-  doc: AU-OS.observability.unified-health-kernels
 - id: AU-OS.observability.usage-analytics-store
   name: Usage analytics store. These pydantic models are the single
   pillar: AU-OS
