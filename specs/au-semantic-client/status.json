@@ -12,6 +12,8 @@
     "AU-SEMANTIC-R007",
     "AU-SEMANTIC-R008",
     "AU-SEMANTIC-R009",
+    "AU-SEMANTIC-R009.1",
+    "AU-SEMANTIC-R009.2",
     "AU-SEMANTIC-R010",
     "AU-SEMANTIC-R010.1",
     "AU-SEMANTIC-R011",
@@ -19,6 +21,8 @@
     "AU-SEMANTIC-R013",
     "AU-SEMANTIC-R014",
     "AU-SEMANTIC-R015",
+    "AU-SEMANTIC-R015.1",
+    "AU-SEMANTIC-R015.2",
     "AU-SEMANTIC-R016",
     "AU-SEMANTIC-R016.1",
     "AU-SEMANTIC-R017",
@@ -198,6 +202,18 @@
       ]
     },
     {
+      "id": "AU-SEMANTIC-R009.1",
+      "title": "A typed runnable_skill_derivation client contract fails closed while EG's op is absent",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "AU-SEMANTIC-R009.2",
+      "title": "AU's engine-facade callers consume the shipped runnable_skill_derivation op",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
       "id": "AU-SEMANTIC-R010",
       "title": "Graph-compute and session facades route through the generated EG client",
       "delivery_state": "LANDED",
@@ -306,6 +322,18 @@
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
       ]
+    },
+    {
+      "id": "AU-SEMANTIC-R015.1",
+      "title": "A typed workflow_derivation client contract fails closed while EG's op is absent",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "AU-SEMANTIC-R015.2",
+      "title": "The SDK-hosted source-sync runner consumes the shipped workflow_derivation op",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     },
     {
       "id": "AU-SEMANTIC-R016",

@@ -13,6 +13,8 @@
     "AU-CONTEXT-R006.2",
     "AU-CONTEXT-R006.3",
     "AU-CONTEXT-R007",
+    "AU-CONTEXT-R007.1",
+    "AU-CONTEXT-R007.2",
     "AU-CONTEXT-R008"
   ],
   "delivery_state": "BUILDING",
@@ -182,6 +184,18 @@
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
       ]
+    },
+    {
+      "id": "AU-CONTEXT-R007.1",
+      "title": "A boundary test pins the finance-math module set, and a typed delegation seam prefers EG when available",
+      "delivery_state": "BUILT",
+      "evidence": []
+    },
+    {
+      "id": "AU-CONTEXT-R007.2",
+      "title": "The local finance-math modules and the fallback branch are deleted after cutover",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     },
     {
       "id": "AU-CONTEXT-R008",
