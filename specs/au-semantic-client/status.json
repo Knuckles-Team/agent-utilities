@@ -13,6 +13,7 @@
     "AU-SEMANTIC-R008",
     "AU-SEMANTIC-R009",
     "AU-SEMANTIC-R010",
+    "AU-SEMANTIC-R010.1",
     "AU-SEMANTIC-R011",
     "AU-SEMANTIC-R012",
     "AU-SEMANTIC-R013",
@@ -191,7 +192,18 @@
       "id": "AU-SEMANTIC-R010",
       "title": "Graph-compute and session facades route through the generated EG client",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "evidence": [],
+      "rollup": true,
+      "children": [
+        "AU-SEMANTIC-R010.1"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R010.1",
+      "title": "Typed EG-client composition and refusal behavior for graph-compute/session",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "depends_on": []
     },
     {
       "id": "AU-SEMANTIC-R011",

@@ -22,4 +22,6 @@
 - [ ] **AU-SEMANTIC-R021.3:** AU's hand-written RDF/OWL/SHACL emitters move behind EG pack compilation — ontology/value_types.py slice of `AU-SEMANTIC-R021`.
 - [ ] **AU-SEMANTIC-R021.4:** AU's hand-written RDF/OWL/SHACL emitters move behind EG pack compilation — scripts/scaffold_ontology_leg.py slice of `AU-SEMANTIC-R021`.
 
+- [x] **AU-SEMANTIC-R010.1:** typed EG-client composition (`GraphComputeClient`/`GeneratedGraphComputeSurface` in `agent_utilities/api/graph_compute_client.py`) and its refusal behavior — net-new `.1` slice of `AU-SEMANTIC-R010` (typed model + refusal test); the graph-compute/session/epistemic_row/ogm/company_brain/kg_adapter call-site migrations onto it are separate, unlanded `.2`+ children.
+
 The task owner records a separate verdict per ID even when multiple IDs share a PR.
