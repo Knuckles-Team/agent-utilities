@@ -199,9 +199,11 @@ class PromotionGovernanceValidator:
             return GovernanceCheck("shacl", False, f"validation error: {exc}")
 
     def _validate_shacl_spec(self, spec: Any) -> GovernanceCheck:
+        from ..core.committed_shacl import committed_shacl_authority
         from ..pipeline.phases.shacl_gate import build_data_graph
 
-        if self.engine is None or not hasattr(self.engine, "shacl_validate_committed"):
+        authority = committed_shacl_authority(self.engine)
+        if authority is None:
             return GovernanceCheck(
                 "shacl", False, "committed EG SHACL authority unavailable"
             )
@@ -214,7 +216,7 @@ class PromotionGovernanceValidator:
         node_id = f"proposal_{abs(hash(_spec_text(spec))) % 10**8}"
         graph = build_data_graph(_OneNodeGraph(node_id, data))
         document = graph.serialize(format="turtle")
-        report = self.engine.shacl_validate_committed(str(document))
+        report = authority.shacl_validate_committed(str(document))
         return self._shacl_report_to_check(report)
 
     @staticmethod
