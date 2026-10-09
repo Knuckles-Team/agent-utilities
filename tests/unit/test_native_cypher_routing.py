@@ -276,3 +276,35 @@ def test_native_refusal_omits_code_without_valid_contract(
     assert len(records) == 1
     assert records[0].levelname == "WARNING"
     assert cause in records[0].getMessage()
+
+
+def test_add_node_annotates_clustered_mutation_refusal() -> None:
+    """AU-INTEGRATION-R001: a clustered local-only refusal survives ``add_node``.
+
+    ``add_node`` (the typed ``BatchUpdate`` path AgentLibrary.save and every
+    other structured writer uses) previously let the native refusal through
+    unannotated: unlike ``execute_write``, it never validated the raw
+    ``code`` attribute into ``engine_error_code``, so the public error
+    boundary (``error_surface.public_error_payload``) could never report
+    which refusal fired. ``CLUSTER_MUTATION_UNAVAILABLE`` is the real wire
+    code behind epistemic-graph's ``LOCAL_ONLY_CLUSTER_REFUSAL``
+    (``src/server/mutation/plan.rs``) and is already declared in the
+    installed engine contract.
+    """
+    from agent_utilities.security.error_surface import public_error_payload
+
+    class ClusteredRefusal(RuntimeError):
+        def __init__(self, code: str) -> None:
+            self.code = code
+            super().__init__("mutation authority has no replicated ordering")
+
+    graph = MagicMock()
+    graph.batch_update.side_effect = ClusteredRefusal("CLUSTER_MUTATION_UNAVAILABLE")
+    backend = _backend(graph)
+
+    with pytest.raises(ClusteredRefusal) as caught:
+        backend.add_node("agent:x", "CallableResource", resource_type="AGENT_SKILL")
+
+    assert caught.value.engine_error_code == "CLUSTER_MUTATION_UNAVAILABLE"
+    payload = public_error_payload(caught.value)
+    assert payload.get("engine_error_code") == "CLUSTER_MUTATION_UNAVAILABLE"
