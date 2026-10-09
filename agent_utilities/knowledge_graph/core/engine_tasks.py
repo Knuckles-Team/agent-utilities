@@ -2963,6 +2963,21 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
                 enabled=bool(getattr(_cfg, "kg_research_feed", True)),
             )
         )
+        # Connector-sync sweep (AU-INTEGRATION-R022): every configured connector
+        # `sync_source` knows, not just the three hardcoded research-feed sources
+        # above. Default-ON; KG_CONNECTOR_SYNC=0 disables.
+        specs.append(
+            ScheduleSpec(
+                name="connector_sync_sweep",
+                payload={"kind": "connector_sync_sweep"},
+                trigger="interval",
+                interval_s=float(
+                    getattr(_cfg, "kg_connector_sync_interval", 1800.0)
+                ),
+                prio_bucket=2,
+                enabled=bool(getattr(_cfg, "kg_connector_sync", True)),
+            )
+        )
         _maint(
             "sai_factory",
             "sai_factory",

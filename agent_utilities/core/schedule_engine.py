@@ -65,7 +65,16 @@ _MAX_SCHEDULE_IDENTIFIER_BYTES = 128
 # scheduler tick indefinitely.
 _WORKFLOW_DISPATCH_TIMEOUT_S = 1800.0
 _SCHEDULE_KINDS = frozenset(
-    {"maint", "research_feed", "feed_sweep", "skill", "workflow", "agent", "script"}
+    {
+        "maint",
+        "research_feed",
+        "feed_sweep",
+        "connector_sync_sweep",
+        "skill",
+        "workflow",
+        "agent",
+        "script",
+    }
 )
 _MAINTENANCE_REF_ALLOWLIST = frozenset(
     {
@@ -1119,6 +1128,30 @@ def _dispatch_research_feed(engine: Any, payload: dict[str, Any]) -> dict[str, A
     return {"status": "ok", "feeds": results}
 
 
+def _dispatch_connector_sync_sweep(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    """Sweep every connector ``sync_source`` knows (AU-INTEGRATION-R022).
+
+    ``_dispatch_research_feed`` above only ever synced the three hardcoded
+    research sources (rss/freshrss/arxiv); the other ~70 registered connectors
+    never got a recurring sync. This sweep enumerates the REAL dispatch table
+    (:data:`agent_utilities.knowledge_graph.core.source_sync._DELTA_HANDLERS`)
+    instead of hardcoding a list, so a newly registered connector is picked up
+    automatically. Each source's own ``_*_configured()`` check (run inside its
+    handler via ``sync_source``) decides configured vs. skipped -- this sweep
+    never re-implements that check. One source raising is isolated and recorded
+    as an error entry; it never stops the rest of the sweep.
+    """
+    from agent_utilities.knowledge_graph.core import source_sync
+
+    results: dict[str, Any] = {}
+    for name in sorted(source_sync._DELTA_HANDLERS):
+        try:
+            results[name] = source_sync.sync_source(engine, name, mode="delta")
+        except Exception as exc:  # noqa: BLE001 — isolate one bad connector
+            results[name] = {"status": "error", "reason": str(exc)[:200]}
+    return {"status": "ok", "sources": results}
+
+
 def _dispatch_skill_writeback(engine: Any, ref: str, action: str) -> dict[str, Any]:
     from agent_utilities.knowledge_graph.enrichment.writeback import (
         push_inventory,
@@ -1196,6 +1229,8 @@ def _dispatch_scheduled_job(engine: Any, payload: dict[str, Any]) -> dict[str, A
         return _dispatch_maint(engine, payload)
     if kind in ("research_feed", "feed_sweep"):
         return _dispatch_research_feed(engine, payload)
+    if kind == "connector_sync_sweep":
+        return _dispatch_connector_sync_sweep(engine, payload)
     if kind == "skill":
         return _dispatch_skill(engine, payload)
     if kind == "script":
