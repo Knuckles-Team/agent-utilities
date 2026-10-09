@@ -288,17 +288,13 @@ async def test_graph_code_mutations_are_denied_by_ask_and_reachable_via_act(
 
 
 @pytest.mark.asyncio
-async def test_ask_falls_back_to_nl_planner_for_structured_only_tools(monkeypatch):
+async def test_ask_falls_back_to_nl_planner_for_structured_only_tools(
+    monkeypatch, fake_nl_query
+):
     """A winning candidate with no free-text param and no caller hints falls back
     to nl_query (the engine's own NL planner) rather than dispatching a call
     that's missing required arguments."""
-    seen: dict = {}
-
-    async def fake_nl_query(text: str = "", **_kw) -> str:
-        seen["text"] = text
-        return json.dumps({"planned": True})
-
-    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "nl_query", fake_nl_query)
+    seen = fake_nl_query
 
     # graph_code_nav has no _PRIMARY_TEXT_PARAM entry and needs action+symbol —
     # an intent that strongly names it (via its own tool-name tokens) should

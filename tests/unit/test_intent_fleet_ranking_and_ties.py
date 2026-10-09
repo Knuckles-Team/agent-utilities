@@ -7,7 +7,6 @@ AU-CONTROL-R034 (an unmatched read intent falls back to the NL planner).
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -117,14 +116,8 @@ def test_read_tie_without_a_read_default_still_refuses(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_unmatched_ask_falls_back_to_the_nl_planner(monkeypatch):
-    seen: dict = {}
-
-    async def fake_nl_query(text: str = "", **_kw) -> str:
-        seen["text"] = text
-        return json.dumps({"planned": True})
-
-    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "nl_query", fake_nl_query)
+async def test_unmatched_ask_falls_back_to_the_nl_planner(monkeypatch, fake_nl_query):
+    seen = fake_nl_query
     unmatched = intent_tools.CapabilityCandidate("usage_query", None, ("ask",), "")
     monkeypatch.setattr(
         intent_tools, "resolve_intent", lambda *_a, **_kw: [unmatched, unmatched]
