@@ -5582,6 +5582,41 @@ def _build_server(
 # ══════════════════════════════════════════════════════════════════
 
 
+def _attach_headless_fleet_loader(mcp: Any) -> None:
+    """Attach AU's own fleet loader (AU-CONTROL-R031) to a headless build.
+
+    :func:`ensure_tools_registered` previously left its throwaway ``mcp``
+    permanently without a fleet multiplexer: the full composed server (this
+    module's own ``serve()`` path) calls ``attach_fleet_loader`` right after
+    building ``mcp``, but the headless/gateway-only path never did, so every
+    ``find``/``act`` fleet call reached through ``REGISTERED_TOOLS`` in a
+    process whose *only* build path is this function raised "No fleet
+    multiplexer is attached" forever — even though AU already owns a
+    complete, working fleet-attach implementation
+    (:func:`~agent_utilities.mcp.multiplexer.attach_fleet_loader`), used with
+    these exact arguments a few hundred lines above.
+
+    When attach fails for any reason (no graph engine, no catalog source,
+    anything else), this attaches nothing — never a degraded or empty
+    multiplexer — and records the exact cause on ``mcp`` so
+    :func:`~agent_utilities.mcp.tools.intent_tools._fleet_mux` can raise it
+    verbatim instead of the generic "embedded/headless build" message.
+    """
+    from agent_utilities.mcp.multiplexer import attach_fleet_loader
+
+    try:
+        attach_fleet_loader(
+            mcp,
+            embed_fn=_fleet_embed_fn(),
+            authority_scope=verified_tool_session_scope,
+            catalog_writer=_write_refreshed_fleet_catalog,
+        )
+    except Exception as exc:  # noqa: BLE001 - cause recorded verbatim below, never swallowed
+        reason = f"fleet loader attach failed in this headless build ({type(exc).__name__}: {exc})"
+        mcp._fleet_mux_unavailable_reason = reason
+        logger.warning("ensure_tools_registered: %s", reason)
+
+
 def ensure_tools_registered() -> None:
     """Idempotently register all ``graph_*`` tools into ``REGISTERED_TOOLS``.
 
@@ -5591,10 +5626,15 @@ def ensure_tools_registered() -> None:
     effect; we discard the throwaway FastMCP instance and skip the engine
     bootstrap (``bootstrap=False``) because the gateway owns the engine/daemon
     lifecycle and the handlers resolve the engine lazily via ``_get_engine()``.
+
+    AU-CONTROL-R031: also attach AU's own fleet loader to that throwaway
+    ``mcp`` (:func:`_attach_headless_fleet_loader`), so a gateway-only
+    process's ``find``/``act`` fleet actions are not permanently unavailable.
     """
     if REGISTERED_TOOLS:
         return
-    _build_server(bootstrap=False)
+    _args, mcp, _middlewares = _build_server(bootstrap=False)
+    _attach_headless_fleet_loader(mcp)
 
 
 def _mount_rest_routes(app, prefix: str = "") -> None:

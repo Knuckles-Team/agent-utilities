@@ -52,7 +52,7 @@
     {
       "id": "AU-SEMANTIC-R003",
       "title": "AU's knowledge_graph shape files are published to the EG pack or removed",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -60,13 +60,20 @@
           "commit": "f453c1cf8c04115587ffd657f159511670a07da6",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f453c1cf8c04115587ffd657f159511670a07da6",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "83a157bf120ba1d69107532f90818c7448ba6d9f",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/83a157bf120ba1d69107532f90818c7448ba6d9f",
+          "description": "AU-SEMANTIC-R003 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-SEMANTIC-R004",
       "title": "AU's remaining SHACL shape files move into EG-owned schema packs",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -74,13 +81,20 @@
           "commit": "25ba62d03debfa7a7b73009a8205b5a882bf4053",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/25ba62d03debfa7a7b73009a8205b5a882bf4053",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "981194f50ab47ed1ac29bc6ffb7bbe3c2c0bcaa3",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/981194f50ab47ed1ac29bc6ffb7bbe3c2c0bcaa3",
+          "description": "AU-SEMANTIC-R004 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-SEMANTIC-R005",
       "title": "Ontology lifecycle, integrity and schema parsing become EG client calls",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -88,6 +102,13 @@
           "commit": "45dc47bdf351729859e7b8abce4499f905c57f56",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/45dc47bdf351729859e7b8abce4499f905c57f56",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "83a157bf120ba1d69107532f90818c7448ba6d9f",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/83a157bf120ba1d69107532f90818c7448ba6d9f",
+          "description": "AU-SEMANTIC-R005 merged to the default branch in this commit."
         }
       ]
     },
@@ -108,7 +129,7 @@
     {
       "id": "AU-SEMANTIC-R007",
       "title": "AU tests drop pyshacl and assert through EG shape validation",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -116,6 +137,13 @@
           "commit": "25ba62d03debfa7a7b73009a8205b5a882bf4053",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/25ba62d03debfa7a7b73009a8205b5a882bf4053",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "981194f50ab47ed1ac29bc6ffb7bbe3c2c0bcaa3",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/981194f50ab47ed1ac29bc6ffb7bbe3c2c0bcaa3",
+          "description": "AU-SEMANTIC-R007 merged to the default branch in this commit."
         }
       ]
     },
@@ -156,7 +184,7 @@
     {
       "id": "AU-SEMANTIC-R011",
       "title": "Durable jobs, queues and state move to EG",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -164,6 +192,13 @@
           "commit": "1165123f0697eb4160cb143ffdd39e96a73221f8",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/1165123f0697eb4160cb143ffdd39e96a73221f8",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b881d5bca43296cbabebcec1ef1102e65e524327",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/b881d5bca43296cbabebcec1ef1102e65e524327",
+          "description": "AU-SEMANTIC-R011 merged to the default branch in this commit."
         }
       ]
     },
