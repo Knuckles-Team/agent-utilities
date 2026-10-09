@@ -313,7 +313,6 @@ def test_default_registry_discovery_failure_does_not_raise(
     assert any("discovery" in record.message for record in caplog.records)
 
 
-@pytest.mark.spec("AU-SEMANTIC-R002")
 def test_reset_default_registry_forces_rediscovery(tmp_path, monkeypatch):
     from agent_utilities.core.config import config
 
@@ -330,7 +329,6 @@ def test_reset_default_registry_forces_rediscovery(tmp_path, monkeypatch):
     assert second.get("runbooks") is not None
 
 
-@pytest.mark.spec("AU-SEMANTIC-R002")
 def test_canonical_ontology_class_names_with_engine_queries_eg_served_classes():
     graph_compute = _FakeGraphCompute(served_classes=("Incident",))
     engine = _FakeEngine(graph_compute)
@@ -344,7 +342,6 @@ def test_canonical_ontology_class_names_with_engine_queries_eg_served_classes():
     assert graph_compute.calls == [{"cursor": None, "kind": "class", "limit": 1000}]
 
 
-@pytest.mark.spec("AU-SEMANTIC-R002")
 def test_mapping_referencing_eg_served_class_is_accepted_with_engine(tmp_path):
     manifest = _manifest_with_status_mapping("Incident")
     pack_dir = _fixtures.write_pack(tmp_path, manifest)

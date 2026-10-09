@@ -125,7 +125,6 @@ def test_arr_imports_real_sonarr_client():
     assert client.base_url
 
 
-@pytest.mark.spec("AU-INTEGRATION-R003", "AU-INTEGRATION-R004", "AU-INTEGRATION-R006")
 def test_vector_db_reaches_vector_mcp_over_mcp_not_a_package_import():
     """RF-ADR-009: agent-utilities (phase 4) must not import vector-mcp (phase
     7) -- confirmed by absence, not by a guarded-import skip like the other

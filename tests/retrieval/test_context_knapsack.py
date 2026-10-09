@@ -5,8 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-import pytest
-
 from agent_utilities.knowledge_graph.retrieval import context_knapsack as ck
 
 
@@ -25,13 +23,6 @@ def _items() -> list[ck.Slice]:
     ]
 
 
-@pytest.mark.spec(
-    "AU-CONTEXT-R001",
-    "AU-CONTEXT-R002",
-    "AU-CONTEXT-R003",
-    "AU-CONTEXT-R004",
-    "AU-CONTEXT-R005",
-)
 def test_the_model_is_one_resolution_per_unit_within_capacity() -> None:
     model = ck.knapsack_model(_items(), [6, 2, 3], 5, 0.0)
     bodies = [c["body"] for c in model["constraints"]]
@@ -44,13 +35,6 @@ def test_the_model_is_one_resolution_per_unit_within_capacity() -> None:
     )
 
 
-@pytest.mark.spec(
-    "AU-CONTEXT-R001",
-    "AU-CONTEXT-R002",
-    "AU-CONTEXT-R003",
-    "AU-CONTEXT-R004",
-    "AU-CONTEXT-R005",
-)
 def test_a_certified_solve_is_taken_as_is() -> None:
     requests: list[Mapping[str, Any]] = []
 
@@ -73,13 +57,6 @@ def test_a_certified_solve_is_taken_as_is() -> None:
     assert chosen.tokens == 5 and requests[0]["config"] is None
 
 
-@pytest.mark.spec(
-    "AU-CONTEXT-R001",
-    "AU-CONTEXT-R002",
-    "AU-CONTEXT-R003",
-    "AU-CONTEXT-R004",
-    "AU-CONTEXT-R005",
-)
 def test_an_uncertified_or_failed_solve_falls_back_to_the_greedy_fit() -> None:
     gap = {"certificate": {"status": {"feasible_with_gap": {"gap": "1"}}}}
     chosen = ck.select_slices(_items(), _Words(), 5, solve=lambda r: gap)

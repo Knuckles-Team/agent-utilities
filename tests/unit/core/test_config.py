@@ -779,7 +779,6 @@ def test_agent_config_langfuse_host_is_canonical(monkeypatch):
         "http://[::1]:3000",
     ],
 )
-@pytest.mark.spec("AU-INTEGRATION-R008")
 def test_agent_config_langfuse_host_allows_exact_loopback_http(host):
     assert AgentConfig(LANGFUSE_HOST=host).langfuse_host == host
 
@@ -797,13 +796,11 @@ def test_agent_config_langfuse_host_allows_exact_loopback_http(host):
         "https://langfuse.example.test/#fragment",
     ],
 )
-@pytest.mark.spec("AU-INTEGRATION-R008")
 def test_agent_config_langfuse_host_rejects_insecure_or_noncanonical_urls(host):
     with pytest.raises(ValueError):
         AgentConfig(LANGFUSE_HOST=host)
 
 
-@pytest.mark.spec("AU-INTEGRATION-R008")
 @pytest.mark.concept("CONCEPT:AU-OS.safety.doom-loop-detection")
 def test_agent_config_ignores_noncanonical_langfuse_host_inputs(monkeypatch):
     monkeypatch.delenv("LANGFUSE_HOST", raising=False)

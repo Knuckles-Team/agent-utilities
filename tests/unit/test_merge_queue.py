@@ -517,7 +517,6 @@ def test_prune_without_repository_manager_refuses_an_unknown_branch(
     assert "does not exist" in result["reason"]
 
 
-@pytest.mark.spec("AU-INTEGRATION-R011")
 def test_prune_without_repository_manager_deletes_a_genuinely_landed_branch(
     canonical: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -550,7 +549,6 @@ def test_prune_without_repository_manager_deletes_a_genuinely_landed_branch(
     assert anchor == landed["outcomes"][0]["to"] or anchor  # anchor resolved
 
 
-@pytest.mark.spec("AU-INTEGRATION-R011")
 def test_prune_without_repository_manager_refuses_unmerged_commits(
     canonical: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -569,7 +567,6 @@ def test_prune_without_repository_manager_refuses_unmerged_commits(
     assert lane.is_dir()
 
 
-@pytest.mark.spec("AU-INTEGRATION-R011")
 def test_prune_without_repository_manager_skips_a_worktree_still_dirty(
     canonical: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -33,35 +33,17 @@ def _row(**overrides: object) -> StructuredRetrievalBenchmarkResult:
     return StructuredRetrievalBenchmarkResult(**base)
 
 
-@pytest.mark.spec(
-    "AU-INTEGRATION-R014.1",
-    "AU-INTEGRATION-R018.1",
-    "AU-FREEZE-R003",
-    "AU-RETRIEVAL-R001",
-)
 def test_valid_row_round_trips() -> None:
     row = _row()
     assert row.method == "constrained_section_leaf"
     assert row.recall_at_1 <= row.recall_at_3
 
 
-@pytest.mark.spec(
-    "AU-INTEGRATION-R014.1",
-    "AU-INTEGRATION-R018.1",
-    "AU-FREEZE-R003",
-    "AU-RETRIEVAL-R001",
-)
 def test_recall_at_1_above_recall_at_3_is_rejected() -> None:
     with pytest.raises(ValidationError):
         _row(recall_at_1=0.9, recall_at_3=0.5)
 
 
-@pytest.mark.spec(
-    "AU-INTEGRATION-R014.1",
-    "AU-INTEGRATION-R018.1",
-    "AU-FREEZE-R003",
-    "AU-RETRIEVAL-R001",
-)
 def test_latency_p95_below_p50_is_rejected() -> None:
     with pytest.raises(ValidationError):
         _row(latency_p50_ms=40.0, latency_p95_ms=10.0)

@@ -184,7 +184,6 @@ def test_the_loop_stage_skips_without_the_typed_surface():
         gaps.gap_client(SimpleNamespace())
 
 
-@pytest.mark.spec("AU-HARNESS-R006")
 def test_open_gaps_is_a_listing_not_a_ranking(engine, market):
     with verified_fleet_session():
         for signature, severity in (("b-high", 0.95), ("a-low", 0.1)):
@@ -199,7 +198,6 @@ def test_open_gaps_is_a_listing_not_a_ranking(engine, market):
     assert listed == ["gap:audit:a-low", "gap:audit:b-high"], "EG key order, no AU sort"
 
 
-@pytest.mark.spec("AU-HARNESS-R006")
 def test_a_topology_plans_own_cost_changes_the_priced_offer(engine, market):
     """AU-HARNESS-R006: two same-source Gaps carrying differently priced
     topology plans are no longer offered at the flat per-source cost -- the
@@ -240,7 +238,6 @@ def test_a_topology_plans_own_cost_changes_the_priced_offer(engine, market):
     )
 
 
-@pytest.mark.spec("AU-HARNESS-R006")
 def test_claim_refused_and_reprised_on_committed_plan_cost_drift(engine, market):
     """AU-HARNESS-R006: a claim whose actually-committed plan cost drifted
     past tolerance from the Gap's priced offer is refused -- never claimed at

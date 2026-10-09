@@ -85,14 +85,12 @@ def _spec(graph_id: str) -> TemplateSpec:
     return next(spec for spec in REFERENCE_TEMPLATES if spec.graph_id == graph_id)
 
 
-@pytest.mark.spec("AU-CONTROL-R009", "AU-CONTROL-R010", "AU-CONTROL-R011")
 def test_the_vocabulary_is_referenced_by_its_core_source_id() -> None:
     assert SOURCE_ID == "core:swarm-topology@1"
     for spec in REFERENCE_TEMPLATES:
         assert spec.class_iri.startswith(SWARM_NS)
 
 
-@pytest.mark.spec("AU-CONTROL-R009", "AU-CONTROL-R010", "AU-CONTROL-R011")
 @pytest.mark.parametrize("spec", REFERENCE_TEMPLATES, ids=lambda s: s.graph_id)
 def test_every_reference_template_conforms(
     engine_graph: Any, spec: TemplateSpec
@@ -133,7 +131,6 @@ def _verifier_pass_without_verifier(spec: TemplateSpec) -> TemplateSpec:
     ],
     ids=lambda value: getattr(value, "__name__", str(value)),
 )
-@pytest.mark.spec("AU-CONTROL-R009", "AU-CONTROL-R010", "AU-CONTROL-R011")
 def test_each_planted_defect_is_flagged(
     engine_graph: Any, plant: Any, graph_id: str
 ) -> None:

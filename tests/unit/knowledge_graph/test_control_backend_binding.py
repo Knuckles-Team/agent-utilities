@@ -19,8 +19,6 @@ WorkItem authority plus content-graph leakage of control state.
 
 from __future__ import annotations
 
-import pytest
-
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.shard_topology import CONTROL_GRAPH_NAME
 
@@ -87,7 +85,6 @@ def test_build_control_backend_falls_back_to_self_backend_when_no_view_factory()
     assert inst._build_control_backend() is backend
 
 
-@pytest.mark.spec("AU-SEC-R002")
 def test_build_control_backend_raises_when_view_factory_fails():
     """AU-SEC requirement 002: a view-factory failure is surfaced as a typed error. Falling
     back to this instance's content scope would split WorkItem authority."""

@@ -380,7 +380,6 @@ def test_release_canary_is_installed_bounded_and_non_serving() -> None:
     assert 'Path(sys.executable).with_name("epistemic-graph-server")' in source
 
 
-@pytest.mark.spec("AU-INTEGRATION-R003", "AU-INTEGRATION-R004", "AU-INTEGRATION-R006")
 def test_promoter_verifier_and_schemas_are_installed() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     scripts = pyproject["project"]["scripts"]
@@ -772,7 +771,6 @@ def test_release_wheel_rejects_a_gutted_release_schema(tmp_path: Path) -> None:
     # And the unmodified wheel built the same way still passes, so the case
     # above is attributable to the gutted schema and nothing else.
     wheel_contract.check_wheel(_synthetic_release_wheel(tmp_path / "clean.whl"))
-
 
 def test_signed_release_inputs_carry_no_hardlink_alias() -> None:
     """D-CDX-79 hydration regression: catch a re-introduced hardlink early.

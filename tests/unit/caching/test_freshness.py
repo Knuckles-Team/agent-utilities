@@ -92,7 +92,6 @@ def _hub(clock: _Clock) -> FreshnessHub:
     return FreshnessHub("g", clock=clock, max_feed_lag_s=30.0)
 
 
-@pytest.mark.spec("AU-SEC-R003")
 def test_declared_ttl_needs_every_class_declared() -> None:
     policy = VolatilityPolicy.from_feed(_policy_rows(), 7)
     assert policy.declared_ttl({"Doc"}) == 600.0
@@ -102,7 +101,6 @@ def test_declared_ttl_needs_every_class_declared() -> None:
     assert policy.declared_ttl(set()) is None
 
 
-@pytest.mark.spec("AU-SEC-R003")
 def test_a_declared_bound_only_caps_the_callers_tolerance() -> None:
     assert combine_tolerance(None, None) is None
     assert combine_tolerance(-1, 600.0) is None
@@ -112,7 +110,6 @@ def test_a_declared_bound_only_caps_the_callers_tolerance() -> None:
     assert combine_tolerance(3_600, 0.0) is None, "a live class refuses outright"
 
 
-@pytest.mark.spec("AU-SEC-R003")
 def test_a_learned_rate_never_lengthens_a_declared_ttl() -> None:
     rates = ChangeRateEstimator(min_observations=2)
     for at in (0.0, 10.0, 20.0):

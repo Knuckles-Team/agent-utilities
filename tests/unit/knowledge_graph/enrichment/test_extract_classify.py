@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from agent_utilities.knowledge_graph.enrichment.classify import (
     TestThresholds,
     classify_test,
@@ -117,7 +115,6 @@ def _isym(node_id, name, file_path, sym_type="Function"):
     }
 
 
-@pytest.mark.spec("AU-RETIRE-R002")
 def test_entities_from_index_result_maps_symbols_and_resolved_edges():
     """One merged IndexResult → per-file entities + resolved CALLS/INHERITS edges
     bound to entity ids, carrying strategy/confidence (CONCEPT:EG-KG.compute.type-scope-resolved-call)."""
