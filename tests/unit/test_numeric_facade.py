@@ -322,3 +322,36 @@ def test_audited_consumers_have_no_numpy_import_or_array_fallback() -> None:
         source = path.read_text(encoding="utf-8")
         assert "import numpy" not in source
         assert "sys.modules" not in source
+
+
+def test_every_root_operation_is_pure_delegation_to_the_kernel() -> None:
+    """AU-BOUNDARY-R047: numeric/ must hold no second kernel implementation.
+
+    Builds a kernel stub whose every attribute resolves to a function that
+    returns a NAME-TAGGED marker, regardless of its arguments, then drives
+    every operation named in ``_ROOT_OPERATIONS`` through ``_XP`` with the
+    same generic call shape. ``_call_native`` only converts boundary values
+    (see its docstring: "only boundary conversion") -- it must never compute
+    a numeric result itself. If `_XP` ever substituted its own computation
+    for even one of these operations instead of forwarding to the kernel,
+    that operation's result would not be its kernel marker.
+
+    This complements `test_native_calls_only_convert_boundary_values` (which
+    checks a handful of operations against real arithmetic): that test shows
+    the few operations it covers are CORRECT; this one shows ALL operations
+    in the allowlist are DELEGATED, by construction, independent of any one
+    operation's semantics.
+    """
+
+    class _MarkerKernel:
+        def __getattr__(self, name: str) -> object:
+            def _marked(*args: object, **kwargs: object) -> list[object]:
+                return [f"{name}-marker", float(len(args) + len(kwargs))]
+
+            return _marked
+
+    xp = numeric._XP(_MarkerKernel())
+
+    for name in sorted(numeric._ROOT_OPERATIONS):
+        result = _lookup(xp, name)(1.0, 2.0)
+        assert result == [f"{name}-marker", 2.0], name
