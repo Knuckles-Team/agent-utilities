@@ -173,6 +173,7 @@ def test_load_snapshot_and_ancestor_chain_work_under_a_mismatched_session(
     assert chain == ["acme"]
 
 
+@pytest.mark.spec("AU-SEC-R010")
 def test_a_correctly_scoped_control_session_is_a_no_op_retarget(backend) -> None:
     """When the ambient session is ALREADY scoped to ``__control__`` (e.g. a
     control-plane-native caller), retargeting must be a no-op, not an
@@ -184,6 +185,7 @@ def test_a_correctly_scoped_control_session_is_a_no_op_retarget(backend) -> None
     assert result.parent_tenant_id == "acme"
 
 
+@pytest.mark.spec("AU-SEC-R010")
 def test_snapshot_reads_as_the_service_identity_not_the_caller(backend) -> None:
     """A user without a ``__control__`` grant must not decide the shared
     snapshot. The fake refuses every actor except the service identity, as

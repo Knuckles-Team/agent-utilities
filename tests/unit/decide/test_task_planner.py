@@ -80,10 +80,16 @@ def _clean() -> Iterator[None]:
         ("list the open incidents", False),
     ],
 )
+@pytest.mark.spec(
+    "AU-CONTROL-R027", "AU-CONTROL-R028", "AU-CONTROL-R029", "AU-CONTROL-R030"
+)
 def test_planning_questions_are_recognized(text: str, expected: bool) -> None:
     assert is_planning_question(text) is expected
 
 
+@pytest.mark.spec(
+    "AU-CONTROL-R027", "AU-CONTROL-R028", "AU-CONTROL-R029", "AU-CONTROL-R030"
+)
 def test_keyword_mapper_returns_native_tasks_in_plan_order() -> None:
     assert keyword_task_mapper(GOAL) == [
         "eg:task/research",
@@ -96,6 +102,9 @@ def _plan(planner: TaskPlanner, goal: str = GOAL) -> dict[str, Any]:
     return asyncio.run(planner.plan(goal)).to_dict()
 
 
+@pytest.mark.spec(
+    "AU-CONTROL-R027", "AU-CONTROL-R028", "AU-CONTROL-R029", "AU-CONTROL-R030"
+)
 def test_a_plan_without_eg_names_every_gap_and_guesses_nothing() -> None:
     plan = _plan(TaskPlanner())
     assert plan["tasks"] == ["eg:task/research", "eg:task/implement", "eg:task/operate"]

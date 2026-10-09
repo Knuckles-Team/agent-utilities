@@ -254,6 +254,7 @@ def test_native_refusal_retains_only_declared_code(
         ("wrong_shape", "not iterable"),
     ],
 )
+@pytest.mark.spec("AU-INTEGRATION-R001")
 def test_native_refusal_omits_code_without_valid_contract(
     native_error_contract, broken_contract, cause, caplog
 ) -> None:

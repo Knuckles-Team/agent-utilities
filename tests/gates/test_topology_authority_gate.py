@@ -22,6 +22,9 @@ SELECTOR = "agent_utilities/graph/team_composer.py"
 ELSEWHERE = "agent_utilities/graph/other.py"
 
 
+@pytest.mark.spec(
+    "AU-CONTROL-R013", "AU-CONTROL-R014", "AU-CONTROL-R015", "AU-CONTROL-R016"
+)
 def test_the_tree_holds_one_topology_authority() -> None:
     assert gate.check_tree(ROOT) == []
 
@@ -56,11 +59,17 @@ def test_the_tree_holds_one_topology_authority() -> None:
         ),
     ],
 )
+@pytest.mark.spec(
+    "AU-CONTROL-R013", "AU-CONTROL-R014", "AU-CONTROL-R015", "AU-CONTROL-R016"
+)
 def test_each_planted_second_authority_is_named(
     source: str, path: str, rule: str
 ) -> None:
     assert [v.rule for v in gate.check_source(source, path)] == [rule]
 
 
+@pytest.mark.spec(
+    "AU-CONTROL-R013", "AU-CONTROL-R014", "AU-CONTROL-R015", "AU-CONTROL-R016"
+)
 def test_success_rate_outside_selection_modules_is_not_this_gate_s_business() -> None:
     assert gate.check_source("def f(t):\n    return t.success_rate", ELSEWHERE) == []

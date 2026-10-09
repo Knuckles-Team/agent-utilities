@@ -6,6 +6,8 @@ import hashlib
 import json
 from typing import Any
 
+import pytest
+
 from agent_utilities.decide.topology import REFERENCE_TEMPLATES
 from agent_utilities.decide.topology.gold_set import gold_dataset, gold_items
 
@@ -15,6 +17,7 @@ def _digest(value: Any) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
+@pytest.mark.spec("AU-INTEGRATION-R007")
 def test_the_gold_set_lists_acceptable_topologies_by_construction() -> None:
     items = {item.item_id: item for item in gold_items()}
     survey = items["gold:independent-6"]

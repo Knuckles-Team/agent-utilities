@@ -78,6 +78,7 @@ def test_an_abstention_leaves_the_llm_composition(installed) -> None:
     assert graphs.requests and graphs.commits == []
 
 
+@pytest.mark.spec("AU-CONTROL-R024", "AU-CONTROL-R025", "AU-CONTROL-R026")
 def test_without_an_assembler_nothing_changes() -> None:
     calls: list[str] = []
 
@@ -105,6 +106,7 @@ async def _publish_context(graph: Any) -> dict[str, Any]:
     return {"principal": "graph-os", "graph_id": graph["graph_id"]}
 
 
+@pytest.mark.spec("AU-CONTROL-R024", "AU-CONTROL-R025", "AU-CONTROL-R026")
 def test_a_solved_committed_graph_is_published_and_saved_to_the_library(
     installed,
 ) -> None:
@@ -135,6 +137,7 @@ def test_a_solved_committed_graph_is_published_and_saved_to_the_library(
     assert reuse.graph["published"] == {"graph_id": "graph:billing"}
 
 
+@pytest.mark.spec("AU-CONTROL-R024", "AU-CONTROL-R025", "AU-CONTROL-R026")
 def test_an_uncommitted_graph_is_saved_but_never_published(installed) -> None:
     from agent_utilities.orchestration.agent_library import AgentLibrary
     from tests.unit.orchestration.agent_library_fakes import FakeLibraryEngine

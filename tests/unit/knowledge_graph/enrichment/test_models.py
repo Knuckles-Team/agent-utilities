@@ -8,6 +8,8 @@ fail, not just pass on something that should pass).
 
 from __future__ import annotations
 
+import pytest
+
 from agent_utilities.knowledge_graph.enrichment.models import (
     EdgeRung,
     EnrichmentEdge,
@@ -16,6 +18,7 @@ from agent_utilities.knowledge_graph.enrichment.models import (
 )
 
 
+@pytest.mark.spec("AU-RETIRE-R002")
 def test_edge_rung_is_ordered_cheapest_to_most_expensive():
     assert (
         EdgeRung.EXTRACTED
@@ -27,6 +30,7 @@ def test_edge_rung_is_ordered_cheapest_to_most_expensive():
     )
 
 
+@pytest.mark.spec("AU-RETIRE-R002")
 def test_unknown_sorts_above_every_real_rung():
     """UNKNOWN must fail CLOSED under a naive `<=` comparison, not open."""
     for rung in (

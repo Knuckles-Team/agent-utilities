@@ -89,6 +89,7 @@ def test_in_process_apply_requires_a_session():
         b.apply(plan, dry_run=False)
 
 
+@pytest.mark.spec("AU-INTEGRATION-R002")
 def test_in_process_apply_live_actually_starts_messaging(monkeypatch):
     """LIVE-PATH: InProcessBackend.apply(dry_run=False) really starts the
     composed co-services — through the SAME start_co_services the graph-os

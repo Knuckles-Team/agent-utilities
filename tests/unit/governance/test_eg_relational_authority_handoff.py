@@ -10,12 +10,14 @@ from agent_utilities.governance.eg_relational_authority_handoff import (
 )
 
 
+@pytest.mark.spec("AU-SEMANTIC-R017", "AU-SEMANTIC-R019")
 def test_claim_is_typed() -> None:
     claim = RelationalAuthorityDelegationClaim(domain="usage_store")
     assert claim.domain == "usage_store"
     assert claim.delegated_to == "epistemic-graph"
 
 
+@pytest.mark.spec("AU-SEMANTIC-R017", "AU-SEMANTIC-R019")
 def test_undelegated_claim_refuses() -> None:
     claim = RelationalAuthorityDelegationClaim(
         domain="usage_store", delegated_to="agent-utilities"
@@ -24,5 +26,6 @@ def test_undelegated_claim_refuses() -> None:
         claim.require_delegated()
 
 
+@pytest.mark.spec("AU-SEMANTIC-R017", "AU-SEMANTIC-R019")
 def test_delegated_claim_passes() -> None:
     RelationalAuthorityDelegationClaim(domain="usage_store").require_delegated()

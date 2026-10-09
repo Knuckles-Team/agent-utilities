@@ -154,6 +154,7 @@ def _versions(graph: _Graph) -> list[tuple[str, dict[str, Any]]]:
     ]
 
 
+@pytest.mark.spec("AU-HARNESS-R007")
 def test_proposes_candidate_with_trace_provenance(prompt_path: Path) -> None:
     graph = _Graph(_traces(10, failures=3))
     optimizer = _FakeOptimizer()
@@ -185,6 +186,7 @@ def test_proposes_candidate_with_trace_provenance(prompt_path: Path) -> None:
     assert all(row["trace_ref"].startswith("trace:") for row in rows)
 
 
+@pytest.mark.spec("AU-HARNESS-R007")
 def test_pending_candidate_blocks_a_second_proposal(prompt_path: Path) -> None:
     graph = _Graph(_traces(10, failures=3))
     roe.propose_prompt_from_run_outcomes(
@@ -202,6 +204,7 @@ def test_pending_candidate_blocks_a_second_proposal(prompt_path: Path) -> None:
     assert len(_versions(graph)) == 1
 
 
+@pytest.mark.spec("AU-HARNESS-R007")
 def test_cursor_limits_the_next_pass_to_new_outcomes(prompt_path: Path) -> None:
     graph = _Graph(_traces(10, failures=3))
     roe.propose_prompt_from_run_outcomes(

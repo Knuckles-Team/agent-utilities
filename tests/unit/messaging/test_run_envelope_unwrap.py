@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from agent_utilities.messaging.router import _unwrap_agent_envelope
 from agent_utilities.orchestration.agent_runner import _render_agent_result
 from agent_utilities.orchestration.run_envelope import unwrap_run_envelope
@@ -24,18 +26,21 @@ _LEAKED = {
 }
 
 
+@pytest.mark.spec("AU-INTEGRATION-R020")
 def test_exact_leaked_envelope_string_sends_only_output() -> None:
     text, summary = _unwrap_agent_envelope(json.dumps(_LEAKED))
     assert text == "Based on the provided evidence, the answer is 42."
     assert summary is not None and summary["trace_ref"] == "trace:pref_run_ce25"
 
 
+@pytest.mark.spec("AU-INTEGRATION-R020")
 def test_envelope_dict_sends_only_output() -> None:
     text, summary = unwrap_run_envelope(_LEAKED)
     assert text == _LEAKED["output"]
     assert summary == _LEAKED["run_summary"]
 
 
+@pytest.mark.spec("AU-INTEGRATION-R020")
 def test_every_renderer_key_unwraps() -> None:
     rendered = _render_agent_result(
         "hello",

@@ -17,6 +17,7 @@ from agent_utilities.harness.generative_model_policy import (
     "kind",
     list(GenerativeModelWorkKind),
 )
+@pytest.mark.spec("AU-HARNESS-R005")
 def test_no_evidence_is_refused(kind: GenerativeModelWorkKind) -> None:
     decision = evaluate_generative_model_request(kind, None)
     assert decision.permitted is False

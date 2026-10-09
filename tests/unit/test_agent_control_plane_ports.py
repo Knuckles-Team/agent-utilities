@@ -131,6 +131,7 @@ class _AgentExecutor:
         return AgentExecutionResult(run_id="run:1", output=request.task)
 
 
+@pytest.mark.spec("AU-CONTROL-R021")
 @pytest.mark.asyncio
 async def test_task_admission_screens_redacts_searches_and_signed_dispatches():
     session = _session()
@@ -174,6 +175,7 @@ async def test_task_admission_screens_redacts_searches_and_signed_dispatches():
     assert client.claims
 
 
+@pytest.mark.spec("AU-CONTROL-R021")
 @pytest.mark.asyncio
 async def test_submission_fails_before_side_effects_for_authority_metadata_or_injection():
     session = _session()
@@ -212,6 +214,7 @@ async def test_submission_fails_before_side_effects_for_authority_metadata_or_in
     assert dispatch.calls == []
 
 
+@pytest.mark.spec("AU-CONTROL-R021")
 @pytest.mark.asyncio
 async def test_direct_work_item_operations_are_session_bound_and_typed():
     session = _session()

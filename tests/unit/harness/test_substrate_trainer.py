@@ -1,6 +1,8 @@
 #!/usr/bin/python
 from __future__ import annotations
 
+import pytest
+
 """Tests for the substrate trainer (CONCEPT:AU-ORCH.execution.substrate-training-job-emission).
 
 Deterministic stubs only — no GPU, no DSM, no network. Exercises the GRPO corpus
@@ -119,6 +121,7 @@ def test_as_trainer_fn_usable_as_controller_trainer():
     assert jobs[0].status == "recorded"
 
 
+@pytest.mark.spec("AU-HARNESS-R002")
 def test_idempotent_job_id():
     trainer = SubstrateTrainer()
     a = trainer.train("taskA", _traces([1.0, 2.0, 3.0]))
@@ -143,6 +146,7 @@ def _policy_inputs(**overrides):
     return PolicyJobInputs(**fields)
 
 
+@pytest.mark.spec("AU-HARNESS-R002")
 def test_policy_job_is_digest_bound_and_idempotent():
     trainer = SubstrateTrainer()
     first = trainer.policy_job(_policy_inputs())

@@ -108,6 +108,7 @@ def test_authoring_a_valid_capability_holds_it_and_opens_a_reviewable_gap(tmp_pa
     assert record.status == "disabled"
 
 
+@pytest.mark.spec("AU-HARNESS-R003")
 def test_invalid_capability_source_never_opens_a_gap(tmp_path):
     eng = LifecycleEngine()
     result = submit_authored_capability_for_review(
