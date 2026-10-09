@@ -1164,6 +1164,22 @@ def _local_bearer_claims(**overrides):
     return claims
 
 
+def _signed_token_cfg(**claim_overrides):
+    """A real RS256 token, its matching JWKS, and the config wired to verify it."""
+    claims = _local_bearer_claims(**claim_overrides)
+    token, jwks = _make_token_and_jwks(**claims)
+    cfg = _make_config(
+        auth_jwt_jwks_uri="https://issuer.example.test/jwks",
+        auth_jwt_issuer=claims["iss"],
+        auth_jwt_audience=claims["aud"],
+    )
+
+    async def fake_jwks(_uri):
+        return jwks
+
+    return claims, token, cfg, fake_jwks
+
+
 class TestVerifiedLocalBearer:
     def test_rejects_non_dict_claims(self):
         with pytest.raises(PermissionError):
@@ -1231,16 +1247,7 @@ class TestVerifiedLocalBearer:
 class TestVerifyLocalBearerToken:
     @pytest.mark.asyncio
     async def test_verifies_a_real_signed_token(self):
-        claims = _local_bearer_claims()
-        token, jwks = _make_token_and_jwks(**claims)
-        cfg = _make_config(
-            auth_jwt_jwks_uri="https://issuer.example.test/jwks",
-            auth_jwt_issuer=claims["iss"],
-            auth_jwt_audience=claims["aud"],
-        )
-
-        async def fake_jwks(_uri):
-            return jwks
+        claims, token, cfg, fake_jwks = _signed_token_cfg()
 
         with (
             mock.patch("agent_utilities.core.config.config", cfg),
@@ -1272,16 +1279,7 @@ class TestVerifyLocalBearerToken:
 
     @pytest.mark.asyncio
     async def test_invalid_token_is_a_permission_error_not_an_http_exception(self):
-        claims = _local_bearer_claims()
-        _, jwks = _make_token_and_jwks(**claims)
-        cfg = _make_config(
-            auth_jwt_jwks_uri="https://issuer.example.test/jwks",
-            auth_jwt_issuer=claims["iss"],
-            auth_jwt_audience=claims["aud"],
-        )
-
-        async def fake_jwks(_uri):
-            return jwks
+        _, _, cfg, fake_jwks = _signed_token_cfg()
 
         with (
             mock.patch("agent_utilities.core.config.config", cfg),
@@ -1298,16 +1296,7 @@ class TestVerifyLocalBearerToken:
         never collapse into the generic ``PermissionError`` denial."""
         from fastapi import HTTPException
 
-        claims = _local_bearer_claims()
-        token, jwks = _make_token_and_jwks(**claims)
-        cfg = _make_config(
-            auth_jwt_jwks_uri="https://issuer.example.test/jwks",
-            auth_jwt_issuer=claims["iss"],
-            auth_jwt_audience=claims["aud"],
-        )
-
-        async def fake_jwks(_uri):
-            return jwks
+        _, token, cfg, fake_jwks = _signed_token_cfg()
 
         def broken_decode(*_args, **_kwargs):
             raise HTTPException(status_code=500, detail="joserfc missing")
