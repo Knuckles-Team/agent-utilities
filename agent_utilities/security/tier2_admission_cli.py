@@ -54,7 +54,6 @@ from .engine_rbac_admission import (
     FixtureEngineAdmissionClient,
     ServiceAdmissionEntry,
     provision_tier2_admission,
-    resolve_engine_admission_client,
 )
 
 logger = logging.getLogger(__name__)
@@ -155,7 +154,12 @@ def run_tier2_admission(
     from .admission_authority import resolve_admission_authority
 
     authority = resolve_admission_authority()
-    live_client = client if client is not None else resolve_engine_admission_client()
+    if client is None:
+        raise Tier2AdmissionError(
+            "Tier-2 admission apply requires an explicitly injected engine "
+            "admission client; this module performs no implicit engine discovery"
+        )
+    live_client = client
     try:
         return provision_tier2_admission(
             live_client,
