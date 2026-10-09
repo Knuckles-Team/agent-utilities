@@ -408,6 +408,19 @@ class TestReapDeletedFiles:
         IngestionEngine._reap_deleted_files(backend, ["a.py", "pkg/b.py"])
         assert backend.execute.call_count == 2
 
+    def test_a_backend_failure_is_logged_with_its_cause(self, caplog):
+        backend = MagicMock()
+        backend.execute.side_effect = RuntimeError("boom")
+        with caplog.at_level("WARNING"):
+            IngestionEngine._reap_deleted_files(backend, ["a.py"])
+        assert len(caplog.records) == 1
+        message = caplog.records[0].getMessage()
+        assert "a.py" in message
+        assert "boom" in message
+        # The traceback is rendered too (not just str(exc)) -- the cause is
+        # never silent, dropped, or swallowed into a bare "failed" log line.
+        assert "RuntimeError" in caplog.text
+
 
 # ── #5: deep_analysis gating during bulk ingest ─────────────────────────────
 class TestBulkIngestGate:

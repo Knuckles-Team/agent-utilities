@@ -2589,10 +2589,11 @@ class IngestionEngine:
                     "MATCH (n) WHERE n.file_path = $fp DETACH DELETE n",
                     {"fp": fp},
                 )
-            except Exception:  # noqa: BLE001 — best-effort reap; a failure here never blocks the ingest of files that still exist
+            except Exception as exc:  # noqa: BLE001 — best-effort reap; a failure here never blocks the ingest of files that still exist, but it is never silent: the cause is logged below
                 logger.warning(
-                    "[AU-RETIRE-R006] failed to reap nodes for deleted file %s",
+                    "[AU-RETIRE-R006] failed to reap nodes for deleted file %s: %s",
                     fp,
+                    exc,
                     exc_info=True,
                 )
 
