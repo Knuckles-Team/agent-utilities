@@ -142,6 +142,7 @@ def test_the_topology_question_is_one_assembly_request() -> None:
     assert topology["capacity"] == {"cells": ["cell-llm"], "priority": "orchestration"}
 
 
+@pytest.mark.spec("AU-CONTROL-R007")
 def test_eg_s_plan_decides_the_family_and_the_reasoning_names_the_record(asker) -> None:
     graphs = _install(asker, SOLVED)
     decision = _select()
@@ -152,6 +153,7 @@ def test_eg_s_plan_decides_the_family_and_the_reasoning_names_the_record(asker) 
     assert asked["subtasks"] == 4
 
 
+@pytest.mark.spec("AU-CONTROL-R007")
 def test_an_abstention_keeps_the_tree_s_family(asker) -> None:
     graphs = _install(asker, ABSTAINED)
     decision = _select()
