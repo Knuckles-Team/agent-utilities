@@ -363,10 +363,15 @@ def test_evidence_schema_behavior_has_no_unequal_distribution_count_state() -> N
 
 
 def test_release_canary_is_installed_bounded_and_non_serving() -> None:
+    # graph-os-release-canary is graph-os-owned (GRAPHOS-DEPLOY-R007.5):
+    # graph_os.deployment.release_canary:main. agent_utilities no longer
+    # declares the same console-script name (that was an install-time
+    # collision); the module itself remains, still imported directly by
+    # scripts/release/promote_local_release.py, so this asserts it is absent
+    # from this package's OWN script registrations rather than installed
+    # under this name.
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    assert pyproject["project"]["scripts"]["graph-os-release-canary"] == (
-        "agent_utilities.deployment.release_canary:main"
-    )
+    assert "graph-os-release-canary" not in pyproject["project"]["scripts"]
     source = CANARY.read_text(encoding="utf-8")
     ast.parse(source)
     assert "mcp_server()" not in source
