@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from agent_utilities.knowledge_graph.core.session import GraphSession
+from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
 from agent_utilities.security.actor_identity import ActorType
-from agent_utilities.security.brain_context import ActorContext
+from agent_utilities.security.brain_context import ActorContext, use_actor
 
 
 def registry_reader(actor_id: str, tenant_id: str):
@@ -25,3 +25,16 @@ def registry_reader(actor_id: str, tenant_id: str):
         audience="test",
     )
     return actor, session
+
+
+class BindAuthority:
+    """ASGI wrapper that binds one actor and graph session around each request."""
+
+    def __init__(self, app, actor: ActorContext, session: GraphSession):
+        self.app = app
+        self.actor = actor
+        self.session = session
+
+    async def __call__(self, scope, receive, send):
+        with use_actor(self.actor), use_session(self.session):
+            await self.app(scope, receive, send)

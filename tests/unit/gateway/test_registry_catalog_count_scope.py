@@ -28,9 +28,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from agent_utilities.gateway import registry_api
-from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
-from agent_utilities.security.brain_context import ActorContext, use_actor
-from tests.unit.gateway._registry_support import registry_reader
+from tests.unit.gateway._registry_support import BindAuthority, registry_reader
 
 _TENANT_TERM = re.compile(r"tenant_id = '([^']*)'")
 _TABLE = re.compile(r"\bFROM\s+([A-Za-z_][A-Za-z0-9_]*)")
@@ -105,23 +103,12 @@ class _Engine:
         self.graph_compute = _AggregateBlindGraphCompute(rows)
 
 
-class _BindAuthority:
-    def __init__(self, app, actor: ActorContext, session: GraphSession):
-        self.app = app
-        self.actor = actor
-        self.session = session
-
-    async def __call__(self, scope, receive, send):
-        with use_actor(self.actor), use_session(self.session):
-            await self.app(scope, receive, send)
-
-
 def _client(monkeypatch, engine: _Engine, *, tenant: str = "tenant-a") -> TestClient:
     actor, session = registry_reader("actor-a", tenant)
     monkeypatch.setattr(registry_api, "_get_catalog_engine", lambda: engine)
     app = FastAPI()
     registry_api.register_registry_routes(app, prefix="/api")
-    return TestClient(_BindAuthority(app, actor, session))
+    return TestClient(BindAuthority(app, actor, session))
 
 
 def test_count_never_reports_another_tenants_rows(monkeypatch):

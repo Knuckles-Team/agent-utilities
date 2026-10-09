@@ -15,12 +15,12 @@ from starlette.requests import Request
 from agent_utilities.gateway import registry_api
 from agent_utilities.knowledge_graph.core.discovery_authority import OAuthGrantBinding
 from agent_utilities.knowledge_graph.core.session import (
-    GraphSession,
     current_session,
     suspend_session,
     use_session,
 )
-from agent_utilities.security.brain_context import ActorContext, use_actor
+from agent_utilities.security.brain_context import use_actor
+from tests.unit.gateway._registry_support import BindAuthority
 from tests.unit.gateway._registry_support import registry_reader as _registry_reader
 
 # --- A small, faithful SQL WHERE-clause interpreter for the fake engine ---
@@ -282,17 +282,6 @@ class _FakeEngine:
         ]
 
 
-class _AuthorityMiddleware:
-    def __init__(self, app, actor: ActorContext, session: GraphSession):
-        self.app = app
-        self.actor = actor
-        self.session = session
-
-    async def __call__(self, scope, receive, send):
-        with use_actor(self.actor), use_session(self.session):
-            await self.app(scope, receive, send)
-
-
 def _pin_local_process_identity(monkeypatch) -> None:
     """Pin the deterministic zero-infrastructure catalog-service identity path.
 
@@ -339,7 +328,7 @@ def _authority_app(
     _pin_local_process_identity(monkeypatch)
     app = FastAPI()
     registry_api.register_registry_routes(app, prefix="/api")
-    return TestClient(_AuthorityMiddleware(app, actor, session))
+    return TestClient(BindAuthority(app, actor, session))
 
 
 def _grant_digest(actor_id: str, tenant_id: str = "tenant-a") -> str:
