@@ -235,3 +235,40 @@ def test_bulk_check_limit_cannot_exceed_server_contract():
 
     with pytest.raises(ValueError, match="between"):
         _ChunkingBulkCheckBridge(_FakeBridge(), max_batch=101)
+
+
+async def test_listing_hides_only_invalid_component_identity(tmp_path, monkeypatch):
+    from fastmcp.exceptions import ToolError
+
+    from agent_utilities.mcp.eunomia_principal import create_eunomia_middleware
+
+    middleware = create_eunomia_middleware(_policy(tmp_path))
+    monkeypatch.setattr(
+        middleware,
+        "_extract_principal",
+        lambda: schemas.PrincipalCheck(uri="agent:allowed-agent", attributes={}),
+    )
+    context = MiddlewareContext(message=SimpleNamespace(), method="resources/list")
+    valid = SimpleNamespace(name="searxng_search", enabled=True)
+    invalid = SimpleNamespace(name="SearXNG Search", enabled=True)
+    listed = await middleware._authorize_listing(context, [valid, invalid])
+    assert listed == [valid]
+    with pytest.raises(ToolError, match="component identity is invalid"):
+        await middleware._authorize_execution(context, invalid)
+
+
+async def test_listing_still_applies_policy_to_valid_names(tmp_path, monkeypatch):
+    from agent_utilities.mcp.eunomia_principal import create_eunomia_middleware
+
+    middleware = create_eunomia_middleware(_policy(tmp_path))
+    monkeypatch.setattr(
+        middleware,
+        "_extract_principal",
+        lambda: schemas.PrincipalCheck(uri="agent:not-allowed", attributes={}),
+    )
+    context = MiddlewareContext(message=SimpleNamespace(), method="resources/list")
+    components = [
+        SimpleNamespace(name="searxng_search", enabled=True),
+        SimpleNamespace(name="SearXNG Search", enabled=True),
+    ]
+    assert await middleware._authorize_listing(context, components) == []
