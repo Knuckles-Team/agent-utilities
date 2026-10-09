@@ -1435,7 +1435,7 @@ class _ExactWorkItemAdapter:
         return bool(self.client.nodes.compare_and_set(node_id, conditions, updates))
 
     def claim_work_item(self, request: Any) -> dict[str, Any]:
-        from agent_utilities.protocols.epistemic_operations import (
+        from epistemic_graph.generated.models import (
             ClaimWorkItemRequest,
         )
 

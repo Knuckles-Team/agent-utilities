@@ -113,7 +113,7 @@ def test_checked_in_manifest_is_complete_and_current() -> None:
 
     assert tuple(item.identifier for item in manifest.gates) == gate.EXPECTED_GATES
     assert manifest.digest == gate.CANONICAL_MANIFEST_SHA256
-    assert len(manifest.commands) == 49
+    assert len(manifest.commands) == 48
     assert all(item.evidence_classes for item in manifest.gates)
     assert any("exact-artifact" in item.evidence_classes for item in manifest.gates)
     assert any(

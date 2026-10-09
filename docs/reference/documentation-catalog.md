@@ -188,7 +188,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Enterprise Parity, Supervisory Plane & Durable Execution](../architecture/enterprise_supervisory_and_parity.md) — catalog
 - [Entrypoint Unification — one orchestrator, thin entrypoints](../architecture/entrypoint-unification.md) — catalog
 - [Epistemic-columns currency (Seam 1) — consuming epistemic-graph's KnowledgeBatch](../architecture/epistemic-columns-currency.md) — catalog
-- [Epistemic Operations Protocol](../architecture/epistemic-operations-protocol.md) — catalog
+- [Epistemic Operations Protocol (retired)](../architecture/epistemic-operations-protocol.md) — catalog
 - [Epistemic OS Hardening (Phase 0–2 + Exceed X-series, AU 1.21.0)](../architecture/epistemic-os-hardening.md) — catalog
 - [Event Backbone Architecture](../architecture/event_backbone_architecture.md) — catalog
 - [Event Sourcing and Query Routing Architecture](../architecture/event_sourcing_and_routing.md) — catalog
