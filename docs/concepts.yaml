@@ -5800,6 +5800,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/nl_planner.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/mcp/tools/query_tools.py
   doc: an aggregation under the implicit content-graph
@@ -9607,15 +9608,6 @@ concepts:
   - agent_utilities/mcp/multiplexer.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
   doc: authenticate jwt-protected children with the
-- id: AU-OS.identity.stack-wide-auth-conformance
-  name: see this package
-  pillar: AU-OS
-  status: live
-  code_paths:
-  - agent_utilities/security/conformance/__init__.py
-  - agent_utilities/security/conformance/surface_inventory.py
-  - agent_utilities/security/conformance/surface_manifest.py
-  doc: see this package
 - id: AU-OS.identity.system-principal-admission
   name: closes the gap
   pillar: AU-OS
