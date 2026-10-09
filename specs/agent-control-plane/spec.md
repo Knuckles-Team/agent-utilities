@@ -1,7 +1,7 @@
 # Agent control plane
 
 **Owner:** agent-utilities (AU) · **Stable ID:** `AU-CONTROL-001`
-**Delivery:** PARTIAL · **Acceptance:** NOT VERIFIED · **Scope IDs:** AU-CONTROL-R001, AU-CONTROL-R002–AU-CONTROL-R006, AU-CONTROL-R007, AU-CONTROL-R008, AU-CONTROL-R009–AU-CONTROL-R020 (AU portions), AU-CONTROL-R024–AU-CONTROL-R026, AU-CONTROL-R027–AU-CONTROL-R030. See [requirements.md](requirements.md) for the definition of every requirement ID and [status.json](status.json) for its delivery state and evidence.
+**Delivery:** PARTIAL · **Acceptance:** NOT VERIFIED · **Scope IDs:** AU-CONTROL-R001, AU-CONTROL-R002–AU-CONTROL-R006, AU-CONTROL-R007, AU-CONTROL-R008, AU-CONTROL-R009–AU-CONTROL-R020 (AU portions), AU-CONTROL-R024–AU-CONTROL-R026, AU-CONTROL-R027–AU-CONTROL-R030, AU-CONTROL-R031–AU-CONTROL-R034, AU-CONTROL-R035. See [requirements.md](requirements.md) for the definition of every requirement ID and [status.json](status.json) for its delivery state and evidence.
 
 ## Outcome and actors
 
@@ -38,6 +38,7 @@ AU owns task mapping proposals, L3 agent-graph orchestration, L4 `HarnessPort`/`
 | AC-13 | Select sources for a cross-source question by ontology. Join live rows over approved virtual mappings. Copy no entity row. | AU-CONTROL-R029, AU-CONTROL-R030 | `tests/unit/knowledge_graph/test_virtual_graph.py` |
 | AC-14 | Rank fleet tools with native capabilities in `find`. Call a fleet tool through `act` by its server and tool id. | AU-CONTROL-R031, AU-CONTROL-R032 | `tests/unit/test_intent_fleet_ranking_and_ties.py` |
 | AC-15 | Run the declared default on a read-only action tie. Send an unmatched `ask` to the NL planner. | AU-CONTROL-R033, AU-CONTROL-R034 | `tests/unit/test_intent_fleet_ranking_and_ties.py` |
+| AC-16 | Carry an enforced allowed-tool-subset field in the signed `AgentTurnEnvelope` so a caller-filtered assembly's exposure is cryptographically bound, not advisory. | AU-CONTROL-R035 | `tests/unit/orchestration/test_agent_dispatch.py` |
 
 ## Completion measure
 
