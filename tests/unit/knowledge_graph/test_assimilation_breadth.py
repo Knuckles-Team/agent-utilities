@@ -209,6 +209,7 @@ def test_workspace_project_roots_returns_existing_local_paths(tmp_path):
 
 
 # --- pilot harness ----------------------------------------------------------
+@pytest.mark.spec("AU-BOUNDARY-R043", "AU-HARNESS-R002")
 def test_pilot_passes_when_built_features_not_reproposed():
     engine = market_engine(
         {

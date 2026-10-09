@@ -25,6 +25,7 @@ from agent_utilities.knowledge_graph.ingestion.embedding_admission import (
 _PROSE_TEXT = "A hand-written paragraph describing what this record actually means."
 
 
+@pytest.mark.spec("AU-RETIRE-R007")
 def test_admission_verdict_admit_must_match_never_embed_classes() -> None:
     """The dataclass invariant is enforced, not just documented."""
     AdmissionVerdict(admit=True, content_class=ContentClass.PROSE, reason="ok")
@@ -43,6 +44,7 @@ def test_admission_verdict_admit_must_match_never_embed_classes() -> None:
         ("assets/logo.png", ContentClass.BINARY),
     ],
 )
+@pytest.mark.spec("AU-RETIRE-R007")
 def test_classify_by_path_rejects_known_bad_paths(
     path: str, expected: ContentClass
 ) -> None:
@@ -51,6 +53,7 @@ def test_classify_by_path_rejects_known_bad_paths(
     assert verdict.admit is False
 
 
+@pytest.mark.spec("AU-RETIRE-R007")
 def test_classify_by_path_admits_ordinary_source_file() -> None:
     verdict = classify_unit(
         connector="fixture", row={"path": "src/handlers/order.py"}, text=_PROSE_TEXT

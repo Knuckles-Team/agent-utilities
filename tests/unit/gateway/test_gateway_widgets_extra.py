@@ -140,6 +140,7 @@ def test_widget_connector_import_resolves(widget_name: str) -> None:
     )
 
 
+@pytest.mark.spec("AU-INTEGRATION-R003", "AU-INTEGRATION-R004", "AU-INTEGRATION-R006")
 def test_widget_connector_inventory_is_exhaustive() -> None:
     """Every widget file with a real connector import is accounted for.
 

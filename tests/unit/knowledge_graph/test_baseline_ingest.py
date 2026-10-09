@@ -73,6 +73,13 @@ def _workspace(tmp_path: Path) -> dict[str, Any]:
     }
 
 
+@pytest.mark.spec(
+    "AU-BASELINE-R001",
+    "AU-BASELINE-R002",
+    "AU-BASELINE-R003",
+    "AU-BASELINE-R004",
+    "AU-BASELINE-R005",
+)
 def test_plan_orders_fast_before_medium_and_covers_every_leg(tmp_path: Path) -> None:
     data = _workspace(tmp_path)
     with (
@@ -104,11 +111,25 @@ def test_plan_orders_fast_before_medium_and_covers_every_leg(tmp_path: Path) -> 
         ("none", []),
     ],
 )
+@pytest.mark.spec(
+    "AU-BASELINE-R001",
+    "AU-BASELINE-R002",
+    "AU-BASELINE-R003",
+    "AU-BASELINE-R004",
+    "AU-BASELINE-R005",
+)
 def test_workspace_scope(tmp_path: Path, scope: str, expected: list[str]) -> None:
     names = [name for name, _ in ws.workspace_repositories(_workspace(tmp_path), scope)]
     assert sorted(names) == sorted(expected)
 
 
+@pytest.mark.spec(
+    "AU-BASELINE-R001",
+    "AU-BASELINE-R002",
+    "AU-BASELINE-R003",
+    "AU-BASELINE-R004",
+    "AU-BASELINE-R005",
+)
 def test_codebase_cap_bounds_the_plan(tmp_path: Path) -> None:
     data = _workspace(tmp_path)
     with (

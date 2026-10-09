@@ -1,6 +1,8 @@
 #!/usr/bin/python
 from __future__ import annotations
 
+import pytest
+
 """Tests for the MemoryData bake-off CLI (CONCEPT:AU-AHE.harness.hardening-transparency-surface).
 
 Exercises ``agent_utilities.harness.memorydata.bakeoff:main`` (also runnable as
@@ -12,6 +14,7 @@ importable.
 from agent_utilities.harness.memorydata.bakeoff import main
 
 
+@pytest.mark.spec("AU-QUAL-R001", "AU-INTEGRATION-R005", "AU-INTEGRATION-R009")
 def test_main_runs_offline_bakeoff_and_prints_scoreboard(capsys) -> None:
     rc = main([])
     assert rc == 0
@@ -22,6 +25,7 @@ def test_main_runs_offline_bakeoff_and_prints_scoreboard(capsys) -> None:
     assert "Router vs best single config" in out
 
 
+@pytest.mark.spec("AU-QUAL-R001", "AU-INTEGRATION-R005", "AU-INTEGRATION-R009")
 def test_main_no_include_router_skips_router_section(capsys) -> None:
     rc = main(["--no-include-router"])
     assert rc == 0

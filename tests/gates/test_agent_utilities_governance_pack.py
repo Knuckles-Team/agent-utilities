@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+import pytest
 from rdflib import BNode, Graph, URIRef
 from rdflib.compare import to_isomorphic
 
@@ -39,6 +40,7 @@ PACK_RESOURCE_URI = "shapes://agent-utilities/governance.shapes.ttl"
 PACK_MEDIA_TYPE = "text/turtle"
 
 
+@pytest.mark.spec("AU-INTEGRATION-R016", "AU-INTEGRATION-R017", "AU-SEMANTIC-R001")
 def test_agent_utilities_pack_is_frozen_semantic_authority() -> None:
     pack_bytes = PACK.read_bytes()
     pack = Graph().parse(data=pack_bytes.decode("utf-8"), format="turtle")
@@ -61,6 +63,7 @@ def test_agent_utilities_pack_is_frozen_semantic_authority() -> None:
     assert actual_roots == OWNED_SHAPES
 
 
+@pytest.mark.spec("AU-INTEGRATION-R016", "AU-INTEGRATION-R017", "AU-SEMANTIC-R001")
 def test_agent_utilities_pack_has_no_local_runtime_loader() -> None:
     forbidden = (
         "agent_utilities/ontology/shapes/governance.shapes.ttl",

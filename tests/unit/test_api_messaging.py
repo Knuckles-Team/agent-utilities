@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
+
 from agent_utilities import api
 from agent_utilities.api import messaging
 from agent_utilities.orchestration import action_policy as core_action_policy
 
 
+@pytest.mark.spec("AU-BOUNDARY-R013", "AU-BOUNDARY-R017")
 def test_public_messaging_exports_are_the_canonical_implementation() -> None:
     assert api.ActionPolicy is core_action_policy.ActionPolicy
     assert api.ActionRequest is core_action_policy.ActionRequest
@@ -19,6 +22,7 @@ def test_public_messaging_exports_are_the_canonical_implementation() -> None:
     assert messaging.ActionPolicy is core_action_policy.ActionPolicy
 
 
+@pytest.mark.spec("AU-BOUNDARY-R013", "AU-BOUNDARY-R017")
 def test_public_action_policy_decides_through_the_real_authority() -> None:
     policy = api.ActionPolicy()
     request = api.ActionRequest(

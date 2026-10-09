@@ -29,6 +29,8 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 _GIT_ENV = {
     "GIT_AUTHOR_NAME": "test",
     "GIT_AUTHOR_EMAIL": "test@example.invalid",
@@ -83,6 +85,7 @@ def _credential_uri_leak() -> str:
     return "postgres://" + "admin:pw@db" + "/x"
 
 
+@pytest.mark.spec("AU-QUAL-R004", "AU-QUAL-R006")
 def test_leaky_not_yet_public_commit_message_is_flagged(tmp_path: Path) -> None:
     gate = _gate_module()
     repo = tmp_path / "repo"
@@ -96,6 +99,7 @@ def test_leaky_not_yet_public_commit_message_is_flagged(tmp_path: Path) -> None:
     assert any("credential-bearing URI" in v.category for v in violations)
 
 
+@pytest.mark.spec("AU-QUAL-R004", "AU-QUAL-R006")
 def test_clean_commit_history_has_no_violations(tmp_path: Path) -> None:
     gate = _gate_module()
     repo = tmp_path / "repo"
@@ -106,6 +110,7 @@ def test_clean_commit_history_has_no_violations(tmp_path: Path) -> None:
     assert gate._commit_message_violations(repo, {}, frozenset()) == []
 
 
+@pytest.mark.spec("AU-QUAL-R004", "AU-QUAL-R006")
 def test_already_public_commit_is_not_reflagged(tmp_path: Path) -> None:
     """A commit reachable from ``origin/main`` was already disclosed; scanning
     must stop re-flagging it the moment the public remote catches up, or the

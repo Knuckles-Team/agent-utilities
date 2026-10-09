@@ -69,6 +69,7 @@ def test_single_shot_sira(mock_engine):
     assert {"id": "cluster1:c"} not in aligned
 
 
+@pytest.mark.spec("AU-BOUNDARY-R028.4")
 def test_voi_budget_controller():
     controller = VOIBudgetController(
         engine=MagicMock(spec=IntelligenceGraphEngine), base_budget=100

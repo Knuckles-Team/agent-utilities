@@ -27,12 +27,14 @@ from agent_utilities.api.task_classification import (
 )
 
 
+@pytest.mark.spec("AU-CONTROL-R008")
 def test_abstains_on_empty_or_nonsense_text():
     assert classify_task_text("") is None
     assert classify_task_text("   ") is None
     assert classify_task_text("qxzzy plonk florb wibble") is None
 
 
+@pytest.mark.spec("AU-CONTROL-R008")
 def test_confident_classification_is_a_labelled_claim_not_a_proof():
     result = classify_task_text(
         "operate the deployment and verify the graph query results"
@@ -60,6 +62,7 @@ def test_confident_classification_is_a_labelled_claim_not_a_proof():
         ("send a message summarizing the incident to the team", "eg:task/communicate"),
     ],
 )
+@pytest.mark.spec("AU-CONTROL-R008")
 def test_classifies_each_reachable_task_iri(text, expected_iri):
     result = classify_task_text(text)
     assert result is not None

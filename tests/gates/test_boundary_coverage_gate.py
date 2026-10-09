@@ -4,11 +4,23 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from scripts.boundary_inventory import COVERAGE_PATH
 from scripts.check_boundary_coverage import check
 from tests.gates._boundary_fixtures import HEADER, row, write_coverage
 
 
+@pytest.mark.spec(
+    "AU-BOUNDARY-R003",
+    "AU-BOUNDARY-R004",
+    "AU-BOUNDARY-R010",
+    "AU-BOUNDARY-R011",
+    "AU-BOUNDARY-R015",
+    "AU-BOUNDARY-R042",
+    "AU-BOUNDARY-R048",
+    "AU-DEV-R002",
+)
 def test_real_tree_reports_zero_undecided_rows() -> None:
     """The 17 directories coverage.md once left undecided (see its own
     "Directories with no covering requirement" section) were resolved by an
@@ -28,6 +40,15 @@ def _make_package(root: Path, directories: tuple[str, ...]) -> None:
         (package_dir / "__init__.py").write_text("", encoding="utf-8")
 
 
+@pytest.mark.spec(
+    "AU-BOUNDARY-R003",
+    "AU-BOUNDARY-R004",
+    "AU-BOUNDARY-R010",
+    "AU-BOUNDARY-R011",
+    "AU-BOUNDARY-R015",
+    "AU-BOUNDARY-R042",
+    "AU-DEV-R002",
+)
 def test_passing_case_clean_fixture_tree(tmp_path: Path) -> None:
     _make_package(tmp_path, ("agent_utilities", "agent_utilities/widgets"))
     rows = row("agent_utilities", "keep in AU") + row(
@@ -37,6 +58,14 @@ def test_passing_case_clean_fixture_tree(tmp_path: Path) -> None:
     assert check(tmp_path) == []
 
 
+@pytest.mark.spec(
+    "AU-BOUNDARY-R003",
+    "AU-BOUNDARY-R004",
+    "AU-BOUNDARY-R010",
+    "AU-BOUNDARY-R011",
+    "AU-BOUNDARY-R015",
+    "AU-BOUNDARY-R042",
+)
 def test_unlisted_directory_is_a_finding(tmp_path: Path) -> None:
     _make_package(tmp_path, ("agent_utilities", "agent_utilities/widgets"))
     write_coverage(tmp_path, row("agent_utilities", "keep in AU"))
@@ -44,6 +73,7 @@ def test_unlisted_directory_is_a_finding(tmp_path: Path) -> None:
     assert any("unlisted directory: 'agent_utilities/widgets'" in f for f in findings)
 
 
+@pytest.mark.spec("AU-BOUNDARY-R038", "AU-DEV-R002")
 def test_stale_row_is_a_finding(tmp_path: Path) -> None:
     _make_package(tmp_path, ("agent_utilities",))
     rows = row("agent_utilities", "keep in AU") + row(
@@ -62,6 +92,7 @@ def test_duplicate_row_is_a_finding(tmp_path: Path) -> None:
     assert any("duplicate row: 'agent_utilities'" in f for f in findings)
 
 
+@pytest.mark.spec("AU-BOUNDARY-R038")
 def test_undecided_row_is_a_finding(tmp_path: Path) -> None:
     _make_package(tmp_path, ("agent_utilities", "agent_utilities/widgets"))
     rows = row("agent_utilities", "keep in AU") + row(
@@ -72,6 +103,7 @@ def test_undecided_row_is_a_finding(tmp_path: Path) -> None:
     assert any("undecided row: 'agent_utilities/widgets'" in f for f in findings)
 
 
+@pytest.mark.spec("AU-BOUNDARY-R038")
 def test_unparseable_row_is_a_failure_not_a_skip(tmp_path: Path) -> None:
     _make_package(tmp_path, ("agent_utilities",))
     path = tmp_path / COVERAGE_PATH

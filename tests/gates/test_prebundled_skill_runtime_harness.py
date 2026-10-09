@@ -181,6 +181,7 @@ def test_contract_instruction_binds_exact_skill_identity() -> None:
     )
 
 
+@pytest.mark.spec("AU-BOUNDARY-R048")
 def test_direct_execution_prompt_places_closed_contract_after_original_task() -> None:
     case = _matrix_case("development-direct")
     contract = _contract_instruction(case)
@@ -194,6 +195,7 @@ def test_direct_execution_prompt_places_closed_contract_after_original_task() ->
     assert "only one JSON object" in prompt.rsplit("\n\n", maxsplit=1)[-1]
 
 
+@pytest.mark.spec("AU-BOUNDARY-R048")
 def test_direct_semantic_contract_uses_prompted_json_not_tool_output() -> None:
     from pydantic_ai import PromptedOutput
 

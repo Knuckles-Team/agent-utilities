@@ -1572,6 +1572,7 @@ def test_jira_reconcile_propagates_instance_to_shared_marker(monkeypatch):
     ]
 
 
+@pytest.mark.spec("AU-BOUNDARY-R035")
 def test_jira_reconcile_partial_drain_never_tombstones(monkeypatch):
     """A partial Jira drain must be marked failed before snapshot reconcile."""
     import agent_utilities.knowledge_graph.core.source_sync as ss
@@ -1714,6 +1715,7 @@ def test_ard_reconcile_propagates_registry_to_shared_marker(monkeypatch):
     ]
 
 
+@pytest.mark.spec("AU-BOUNDARY-R035")
 def test_ard_reconcile_partial_drain_never_tombstones(monkeypatch):
     """A partial ARD drain must be marked failed before snapshot reconcile."""
     import agent_utilities.knowledge_graph.core.source_sync as ss
@@ -2084,6 +2086,7 @@ def test_systems_manager_sync_runs_via_generic_ops_handler(monkeypatch):
     assert out["details"]["ingested"] == 1
 
 
+@pytest.mark.spec("AU-SEC-R004", "AU-SEC-R005", "AU-BOUNDARY-R035")
 def test_ops_connector_response_schema_drift_applies_no_records(monkeypatch):
     from fastmcp import FastMCP
 
@@ -2134,6 +2137,7 @@ class _ContractEngine(FakeEngine):
         self.nodes[node_id] = merged
 
 
+@pytest.mark.spec("AU-SEC-R004", "AU-SEC-R005")
 def test_ops_connector_schema_drift_is_quarantined_without_checkpoint_advance(
     monkeypatch,
 ):

@@ -65,12 +65,14 @@ def released() -> Iterator[list[str]]:
         ({"rule": "novel"}, RoundProgress(1), "unknown_rule:novel"),
     ],
 )
+@pytest.mark.spec("AU-CONTROL-R019")
 def test_the_committed_stop_rule_is_executed_over_observations(
     rule: dict[str, Any], progress: RoundProgress, reason: str | None
 ) -> None:
     assert stop_reason(rule, progress) == reason
 
 
+@pytest.mark.spec("AU-CONTROL-R019")
 def test_the_options_only_narrow() -> None:
     assert [o.option_id for o in continuation_options(3)] == [
         "continue",
@@ -82,12 +84,14 @@ def test_the_options_only_narrow() -> None:
     assert max(widths) == 3.0, "no option widens past the running width"
 
 
+@pytest.mark.spec("AU-CONTROL-R019")
 def test_the_point_is_evaluate_only_and_sampled() -> None:
     point = POINTS["au.swarm.continue"]
     assert point.log_mode is LogMode.SAMPLED and point.row == "swarm-continue"
     assert POINTS["au.swarm.topology"].log_mode is LogMode.NEVER
 
 
+@pytest.mark.spec("AU-INTEGRATION-R007")
 def test_a_met_rule_stops_and_releases_without_asking(
     eg: FakeTransport, released: list[str]
 ) -> None:
@@ -101,6 +105,7 @@ def test_a_met_rule_stops_and_releases_without_asking(
     assert eg.requests == [], "execution, not decision"
 
 
+@pytest.mark.spec("AU-INTEGRATION-R007")
 def test_eg_may_narrow_and_the_question_cites_the_parent_plan(
     eg: FakeTransport, released: list[str]
 ) -> None:

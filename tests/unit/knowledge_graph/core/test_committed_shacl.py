@@ -19,12 +19,14 @@ from tests.committed_shacl_fakes import (
 )
 
 
+@pytest.mark.spec("AU-QUAL-R003")
 @pytest.mark.parametrize("attr", ["graph_compute", "graph", "compute"])
 def test_resolves_the_wrapped_graph_compute(attr: str) -> None:
     inner = SimpleNamespace(shacl_validate_committed=CommittedShaclValidator())
     assert committed_shacl_authority(SimpleNamespace(**{attr: inner})) is inner
 
 
+@pytest.mark.spec("AU-QUAL-R003")
 def test_prefers_the_handle_itself_and_returns_none_without_a_validator() -> None:
     own = SimpleNamespace(shacl_validate_committed=CommittedShaclValidator())
     assert committed_shacl_authority(own) is own
@@ -36,6 +38,7 @@ def test_prefers_the_handle_itself_and_returns_none_without_a_validator() -> Non
     )
 
 
+@pytest.mark.spec("AU-QUAL-R003")
 def test_an_intelligence_engine_shaped_wrapper_reaches_the_validator() -> None:
     """The production handle: the engine wraps GraphComputeEngine as graph_compute.
 

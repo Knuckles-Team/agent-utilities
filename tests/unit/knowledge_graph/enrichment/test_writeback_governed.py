@@ -88,6 +88,7 @@ def _only_change_set_dir(root: Path) -> Path:
     return dirs[0]
 
 
+@pytest.mark.spec("AU-BOUNDARY-R049")
 def test_change_set_is_canonical_and_drops_private_ops():
     ops = {"creations": [{"type": "CI", "name": "a"}], "_approved": True}
     ops["client"] = object()
@@ -101,6 +102,7 @@ def test_change_set_is_canonical_and_drops_private_ops():
     assert change_set.base_source_version == "unversioned"
 
 
+@pytest.mark.spec("AU-BOUNDARY-R049")
 def test_dry_run_routes_through_sdk_without_a_durable_ledger(register, ledger):
     sink = register(_FakeSink(), enabled=False)
     out = core.run_writeback(_DOMAIN, dry_run=True, creations=[{"name": "a"}])
@@ -114,6 +116,7 @@ def test_dry_run_routes_through_sdk_without_a_durable_ledger(register, ledger):
     assert not ledger.exists()
 
 
+@pytest.mark.spec("AU-BOUNDARY-R049")
 def test_live_write_records_change_set_audit_and_applied_receipt(register, ledger):
     sink = register(_FakeSink(), enabled=True)
     out = core.run_writeback(_DOMAIN, dry_run=False, creations=[{"name": "a"}])

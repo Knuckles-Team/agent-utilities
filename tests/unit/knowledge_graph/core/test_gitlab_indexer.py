@@ -124,6 +124,7 @@ def _source(pid="42"):
     return FakeSource([_proj(pid, last_activity_at="2026-06-01")], files, contents)
 
 
+@pytest.mark.spec("AU-RETIRE-R005")
 def test_index_instance_filters_code_and_maps_resolved_graph():
     sent_to_index: list = []
 
@@ -169,6 +170,7 @@ def test_index_instance_filters_code_and_maps_resolved_graph():
 
 
 # ── OS-5.72: the GitLab code-ingest path is attributable end to end ─────────
+@pytest.mark.spec("AU-RETIRE-R005")
 def test_index_instance_records_ingest_profile_stages():
     """EH-272: an hour-long whole-instance sync must be attributable per
     stage. Proves index_instance actually records "enumerate"/"parse_resolve"/
@@ -192,9 +194,7 @@ def test_index_instance_records_ingest_profile_stages():
     assert all(v >= 0.0 for v in prof.stages.values())
 
     # No active profile → stays the pre-existing zero-cost no-op.
-    index_instance(
-        instance="test", source=_source(), index_fn=index_fn, ingest=ingest
-    )
+    index_instance(instance="test", source=_source(), index_fn=index_fn, ingest=ingest)
 
 
 def test_no_dangling_edge_endpoints_and_namespacing():
@@ -301,6 +301,7 @@ def test_project_ids_unauthorized_or_missing_id_fails_closed_without_enumeration
     assert summary.projects_skipped == 1
 
 
+@pytest.mark.spec("AU-RETIRE-R005")
 def test_delta_watermark_skips_untouched_projects():
     summary = index_instance(
         instance="test",

@@ -86,6 +86,7 @@ def test_import_remains_fail_closed_for_missing_required_surface(tmp_path):
     assert exc_info.value.code == 2
 
 
+@pytest.mark.spec("AU-QUAL-R007")
 def test_present_but_invalid_private_helper_remains_fail_closed(tmp_path):
     gate = _load_gate()
     analyzer = gate._import_analyzer(_write_analyzer(tmp_path, with_helper=True))
@@ -108,7 +109,7 @@ def test_present_but_invalid_private_helper_remains_fail_closed(tmp_path):
 
 
 def _write_real_placeholder_analyzer(tmp_path: Path) -> Path:
-    source = '''
+    source = """
 import re
 
 def _facade_branches(node):
@@ -146,7 +147,7 @@ _PLACEHOLDER_RE = re.compile(
     r"would (?:be|go) here|replace this|simulate[d]?)\\b",
     re.IGNORECASE,
 )
-'''
+"""
     path = tmp_path / "analyze_liveness.py"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
@@ -160,6 +161,7 @@ def real_placeholder_analyzer(tmp_path):
     return gate, analyzer
 
 
+@pytest.mark.spec("AU-QUAL-R007")
 def test_docstring_prose_is_not_a_placeholder_finding(real_placeholder_analyzer):
     gate, an = real_placeholder_analyzer
     src = (
@@ -170,6 +172,7 @@ def test_docstring_prose_is_not_a_placeholder_finding(real_placeholder_analyzer)
     assert list(gate._placeholder_ids(an, src)) == []
 
 
+@pytest.mark.spec("AU-QUAL-R007")
 def test_prose_comment_mid_sentence_is_not_a_placeholder_finding(
     real_placeholder_analyzer,
 ):

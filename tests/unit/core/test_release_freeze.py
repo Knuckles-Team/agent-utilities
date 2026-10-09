@@ -43,6 +43,7 @@ def _manifest(**overrides: object) -> FreezeManifest:
     return FreezeManifest(**fields)
 
 
+@pytest.mark.spec("AU-FREEZE-R001", "AU-FREEZE-R002")
 def test_manifest_round_trips_as_frozen_typed_model() -> None:
     manifest = _manifest()
     assert manifest.commit_sha == "a" * 40
@@ -50,11 +51,13 @@ def test_manifest_round_trips_as_frozen_typed_model() -> None:
         manifest.commit_sha = "changed"  # type: ignore[misc]
 
 
+@pytest.mark.spec("AU-FREEZE-R001", "AU-FREEZE-R002")
 def test_refuses_generation_on_dirty_tree() -> None:
     with pytest.raises(FreezeRefusedError, match="dirty"):
         refuse_if_not_generatable(dirty_tree=True, unresolved_quarantine=[])
 
 
+@pytest.mark.spec("AU-FREEZE-R001", "AU-FREEZE-R002")
 def test_refuses_generation_while_finding_is_quarantined_unresolved() -> None:
     finding = QuarantinedFinding(
         scanner="jscpd", finding_id="JSCPD-1", detail="duplicate block"

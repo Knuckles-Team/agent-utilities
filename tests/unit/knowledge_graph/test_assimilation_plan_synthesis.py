@@ -47,6 +47,7 @@ def test_default_template_is_grounded():
     assert "AU-KG.retrieval.memory-first-retrieval" in plan["body"]
 
 
+@pytest.mark.spec("AU-BOUNDARY-R043")
 def test_synthesize_folds_into_canonical_gap_and_spec():
     # Wave-6 D1/WP#5: the research/OSS track now folds into the ONE canonical :Gap +
     # develop-able :SpecProposal lifecycle, not the old dead-end sdd_plan node.
@@ -90,6 +91,7 @@ def test_synthesize_plans_top_n_and_idempotent():
     assert second == []
 
 
+@pytest.mark.spec("AU-BOUNDARY-R043")
 def test_synthesize_plans_respects_top_n():
     engine = _Engine(_nodes())
     out = synthesize_plans(engine, top_n=1)

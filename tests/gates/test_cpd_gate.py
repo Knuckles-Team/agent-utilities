@@ -58,6 +58,7 @@ def _run_check_cpd() -> subprocess.CompletedProcess:
     )
 
 
+@pytest.mark.spec("AU-SEMANTIC-R024")
 @_needs_server_stack
 def test_check_cpd_passes_on_the_checked_in_set():
     """The committed docs/capabilities-power.{md,json} must be in sync right now."""
@@ -145,6 +146,7 @@ def _isolated_md(tmp_path, monkeypatch, capsys):
     return _run
 
 
+@pytest.mark.spec("AU-SEMANTIC-R024")
 @_needs_server_stack
 def test_check_cpd_trips_when_the_checked_in_doc_is_stale(_isolated_md):
     """Appending content the live generator would never produce must fail the gate."""
@@ -170,6 +172,7 @@ def _isolated_json(tmp_path, monkeypatch, capsys):
     return _run
 
 
+@pytest.mark.spec("AU-SEMANTIC-R024")
 @_needs_server_stack
 def test_check_cpd_trips_when_a_cpd_is_deleted_from_the_json(_isolated_json):
     """Removing one capability from the checked-in JSON must fail coverage/drift."""
