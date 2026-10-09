@@ -62,6 +62,24 @@ class _FakeEngine:
         self.graph_compute = graph_compute
 
 
+def _manifest_with_status_mapping(node_type: str):
+    """A manifest whose only mapping crosswalks frontmatter ``status`` onto
+    ``node_type`` -- shared by the unknown-class-refusal and
+    engine-served-class tests below, which differ only in that class name
+    and in whether an engine is threaded through."""
+    return _fixtures.build_manifest(
+        mappings=[
+            FrontmatterMapping(
+                key="status",
+                node_type=node_type,
+                produce="property",
+                property="status",
+            )
+        ],
+        evaluation_cases=[],
+    )
+
+
 def test_valid_pack_loads_and_compiles_its_ontology_extension(tmp_path):
     manifest = _fixtures.build_manifest()
     pack_dir = _fixtures.write_pack(tmp_path, manifest)
@@ -110,17 +128,7 @@ def test_hand_edited_pack_after_hashing_is_refused(tmp_path):
 
 
 def test_mapping_referencing_unknown_ontology_class_is_refused(tmp_path):
-    manifest = _fixtures.build_manifest(
-        mappings=[
-            FrontmatterMapping(
-                key="status",
-                node_type="TotallyMadeUpClassNoOneDeclared",
-                produce="property",
-                property="status",
-            )
-        ],
-        evaluation_cases=[],
-    )
+    manifest = _manifest_with_status_mapping("TotallyMadeUpClassNoOneDeclared")
     pack_dir = _fixtures.write_pack(tmp_path, manifest)
 
     with pytest.raises(DomainPackError, match="unknown ontology class"):
@@ -335,17 +343,7 @@ def test_canonical_ontology_class_names_with_engine_queries_eg_served_classes():
 
 
 def test_mapping_referencing_eg_served_class_is_accepted_with_engine(tmp_path):
-    manifest = _fixtures.build_manifest(
-        mappings=[
-            FrontmatterMapping(
-                key="status",
-                node_type="Incident",
-                produce="property",
-                property="status",
-            )
-        ],
-        evaluation_cases=[],
-    )
+    manifest = _manifest_with_status_mapping("Incident")
     pack_dir = _fixtures.write_pack(tmp_path, manifest)
     engine = _FakeEngine(_FakeGraphCompute(served_classes=("Incident",)))
 
@@ -355,17 +353,7 @@ def test_mapping_referencing_eg_served_class_is_accepted_with_engine(tmp_path):
 
 
 def test_mapping_referencing_class_eg_does_not_serve_is_still_refused(tmp_path):
-    manifest = _fixtures.build_manifest(
-        mappings=[
-            FrontmatterMapping(
-                key="status",
-                node_type="TotallyMadeUpClassNoOneDeclared",
-                produce="property",
-                property="status",
-            )
-        ],
-        evaluation_cases=[],
-    )
+    manifest = _manifest_with_status_mapping("TotallyMadeUpClassNoOneDeclared")
     pack_dir = _fixtures.write_pack(tmp_path, manifest)
     engine = _FakeEngine(_FakeGraphCompute(served_classes=("Incident",)))
 
@@ -387,17 +375,7 @@ def test_eg_served_class_lookup_failure_is_refused_not_silently_local(tmp_path):
 
 
 def test_registry_install_threads_engine_into_load_pack(tmp_path):
-    manifest = _fixtures.build_manifest(
-        mappings=[
-            FrontmatterMapping(
-                key="status",
-                node_type="Incident",
-                produce="property",
-                property="status",
-            )
-        ],
-        evaluation_cases=[],
-    )
+    manifest = _manifest_with_status_mapping("Incident")
     pack_dir = _fixtures.write_pack(tmp_path, manifest)
     engine = _FakeEngine(_FakeGraphCompute(served_classes=("Incident",)))
     registry = DomainPackRegistry(tmp_path, engine=engine)
