@@ -24,6 +24,7 @@ from agent_utilities.domains.finance.analysis_snapshot import (
 )
 
 
+@pytest.mark.spec("AU-CONTEXT-R008.1")
 def test_recommendation_cites_strategy_version_and_evidence() -> None:
     snapshot = recommend(
         holding_id="AAPL",
@@ -43,6 +44,7 @@ def test_recommendation_cites_strategy_version_and_evidence() -> None:
     assert snapshot.informational_only is True
 
 
+@pytest.mark.spec("AU-CONTEXT-R008.1")
 def test_abstains_below_calibration_threshold() -> None:
     snapshot = recommend(
         holding_id="TSLA",
@@ -59,6 +61,7 @@ def test_abstains_below_calibration_threshold() -> None:
     assert snapshot.informational_only is True
 
 
+@pytest.mark.spec("AU-CONTEXT-R008.1")
 def test_abstains_when_no_evidence_cited() -> None:
     snapshot = recommend(
         holding_id="MSFT",
