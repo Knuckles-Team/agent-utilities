@@ -24,6 +24,10 @@
     "AU-SEMANTIC-R019",
     "AU-SEMANTIC-R020",
     "AU-SEMANTIC-R021",
+    "AU-SEMANTIC-R021.1",
+    "AU-SEMANTIC-R021.2",
+    "AU-SEMANTIC-R021.3",
+    "AU-SEMANTIC-R021.4",
     "AU-SEMANTIC-R022",
     "AU-SEMANTIC-R023",
     "AU-SEMANTIC-R024",
@@ -316,7 +320,42 @@
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f055b24c487acd5e7782b8458df0f4f6efe82e07",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
         }
+      ],
+      "rollup": true,
+      "children": [
+        "AU-SEMANTIC-R021.1",
+        "AU-SEMANTIC-R021.2",
+        "AU-SEMANTIC-R021.3",
+        "AU-SEMANTIC-R021.4"
       ]
+    },
+    {
+      "id": "AU-SEMANTIC-R021.1",
+      "title": "core/ontology_publisher.py is removed",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "depends_on": []
+    },
+    {
+      "id": "AU-SEMANTIC-R021.2",
+      "title": "extraction/schema_discovery.py moves behind EG pack compilation",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "depends_on": []
+    },
+    {
+      "id": "AU-SEMANTIC-R021.3",
+      "title": "The ontology/ hand-written emitters move behind EG pack compilation",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "depends_on": []
+    },
+    {
+      "id": "AU-SEMANTIC-R021.4",
+      "title": "scripts/scaffold_ontology_leg.py and its connector-certification step are removed",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "depends_on": []
     },
     {
       "id": "AU-SEMANTIC-R022",
