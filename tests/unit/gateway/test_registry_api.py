@@ -20,8 +20,8 @@ from agent_utilities.knowledge_graph.core.session import (
     suspend_session,
     use_session,
 )
-from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
+from tests.unit.gateway._registry_support import registry_reader as _registry_reader
 
 # --- A small, faithful SQL WHERE-clause interpreter for the fake engine ---
 #
@@ -291,26 +291,6 @@ class _AuthorityMiddleware:
     async def __call__(self, scope, receive, send):
         with use_actor(self.actor), use_session(self.session):
             await self.app(scope, receive, send)
-
-
-def _registry_reader(actor_id: str, tenant_id: str):
-    """One authenticated registry:read service actor and its tenant session."""
-    actor = ActorContext(
-        actor_id=actor_id,
-        actor_type=ActorType.AUTOMATED_SERVICE,
-        roles=("registry:read",),
-        tenant_id=tenant_id,
-        authenticated=True,
-    )
-    session = GraphSession(
-        actor=actor,
-        tenant=tenant_id,
-        scopes=frozenset({"kg:read"}),
-        graph=tenant_id,
-        policy_version="test",
-        audience="test",
-    )
-    return actor, session
 
 
 def _pin_local_process_identity(monkeypatch) -> None:
@@ -1263,7 +1243,9 @@ def _slow_catalog_authority(monkeypatch, engine, *, delay: float):
     return actor, session
 
 
-def _direct_authority(monkeypatch, actor_id: str = "actor-a", tenant_id: str = "tenant-a"):
+def _direct_authority(
+    monkeypatch, actor_id: str = "actor-a", tenant_id: str = "tenant-a"
+):
     """Build a bare actor/session pair for a direct (non-TestClient) coroutine
     call, mirroring `_authority_app`'s middleware setup without the ASGI
     plumbing -- needed so a test can `await` `_list_kind` concurrently with

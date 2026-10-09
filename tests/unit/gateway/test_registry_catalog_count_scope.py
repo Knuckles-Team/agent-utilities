@@ -29,8 +29,8 @@ from fastapi.testclient import TestClient
 
 from agent_utilities.gateway import registry_api
 from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
-from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
+from tests.unit.gateway._registry_support import registry_reader
 
 _TENANT_TERM = re.compile(r"tenant_id = '([^']*)'")
 _TABLE = re.compile(r"\bFROM\s+([A-Za-z_][A-Za-z0-9_]*)")
@@ -117,21 +117,7 @@ class _BindAuthority:
 
 
 def _client(monkeypatch, engine: _Engine, *, tenant: str = "tenant-a") -> TestClient:
-    actor = ActorContext(
-        actor_id="actor-a",
-        actor_type=ActorType.AUTOMATED_SERVICE,
-        roles=("registry:read",),
-        tenant_id=tenant,
-        authenticated=True,
-    )
-    session = GraphSession(
-        actor=actor,
-        tenant=tenant,
-        scopes=frozenset({"kg:read"}),
-        graph=tenant,
-        policy_version="test",
-        audience="test",
-    )
+    actor, session = registry_reader("actor-a", tenant)
     monkeypatch.setattr(registry_api, "_get_catalog_engine", lambda: engine)
     app = FastAPI()
     registry_api.register_registry_routes(app, prefix="/api")
