@@ -25,7 +25,7 @@ import dataclasses
 import enum
 
 
-class Disposition(str, enum.Enum):
+class Disposition(enum.StrEnum):
     """The single owner disposition assigned to a duplicate-candidate module."""
 
     RETAINED = "retained"
