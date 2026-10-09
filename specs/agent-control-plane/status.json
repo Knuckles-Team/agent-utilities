@@ -36,7 +36,8 @@
     "AU-CONTROL-R031",
     "AU-CONTROL-R032",
     "AU-CONTROL-R033",
-    "AU-CONTROL-R034"
+    "AU-CONTROL-R034",
+    "AU-CONTROL-R035"
   ],
   "delivery_state": "LANDED",
   "acceptance_state": "NOT_AUDITED",
@@ -666,6 +667,13 @@
           "description": "AU-CONTROL-R034 merged to the default branch in this commit."
         }
       ]
+    },
+    {
+      "id": "AU-CONTROL-R035",
+      "title": "The signed agent-dispatch envelope carries an enforced allowed-tool-subset field",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "AgentTurnEnvelope has no allowed-tool-subset field today; GraphOS's A2A dispatch authority (GRAPHOS-A2A-002) fails closed on this gap."
     }
   ]
 }
