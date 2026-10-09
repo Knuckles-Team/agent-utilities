@@ -20,7 +20,9 @@ from typing import Any
 
 _ENTRY_POINTS = {
     "graph-os": "agent_utilities.mcp.kg_server:mcp_server",
-    "agent-utilities-doctor": "agent_utilities.deployment.doctor:main",
+    # agent-utilities-doctor is graph-os-owned (GRAPHOS-DEPLOY-R007.1); this
+    # canary no longer asserts a console-script entry point this package does
+    # not register (pyproject.toml's duplicate registration was removed).
 }
 
 

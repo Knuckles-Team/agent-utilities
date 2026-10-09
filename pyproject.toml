@@ -800,9 +800,15 @@ agent-utilities-acp = "agent_utilities.protocols.acp_adapter:main"
 # Generate/validate/document the FULL deployment config (all AgentConfig options);
 # also `python -m agent_utilities.deployment.cli`.
 setup-config = "agent_utilities.deployment.cli:main"
-# Holistic deployment health sweep (brew/flutter-doctor style); also
-# `python -m agent_utilities.deployment.doctor`.
-agent-utilities-doctor = "agent_utilities.deployment.doctor:main"
+# agent-utilities-doctor is graph-os-owned (GRAPHOS-DEPLOY requirement R.007.1):
+# graph_os.deployment.doctor:main. Declaring it here too was an install-time
+# console-script name collision (both packages registered the SAME entry
+# point name; pip resolves the winner nondeterministically by install
+# order). agent_utilities.deployment.doctor remains -- its checks are still
+# imported directly by agent_utilities.mcp.tools.compliance_tools,
+# agent_utilities.mcp.tools.state_tools, and
+# agent_utilities.knowledge_graph.research.evolution_state -- only the
+# duplicate console-script registration is removed here.
 # The ONLY sanctioned way to sync/upgrade the shared uv-workspace venv; also
 # `python -m agent_utilities.deployment.venv_sync` (stdlib-only, so it still
 # works when the venv it manages is broken).
