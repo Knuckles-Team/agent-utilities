@@ -311,6 +311,12 @@ RETIRED_PATHS: tuple[str, ...] = (
     "agent_utilities/mcp/kg_" + "coordinator.py",
     "scripts/apply_concept_" + "migration.py",
     "scripts/autocurate_" + "repo.py",
+    # AU-SEMANTIC-R021.4: the hand-written-ontology-emitter scaffolder is
+    # deleted outright (no live caller; connector-manifest-to-ontology
+    # compilation now runs as EG pack compilation, not a locally-scaffolded
+    # OWL/RDF stub). A plain tripwire against it reappearing, same as every
+    # other RETIRED_PATHS entry.
+    "scripts/scaffold_ontology_" + "leg.py",
     # WD10-P-AUPUSH: scripts/check_no_legacy_markers.py was WRONGLY listed
     # here. It is not retired surface -- it is a live gate the
     # `.pre-commit-config.yaml` of all 61 `agents/*` packages plus

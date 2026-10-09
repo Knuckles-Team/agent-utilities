@@ -157,7 +157,7 @@
     {
       "id": "AU-BOUNDARY-R012",
       "title": "Delete the second EG projection and leftover shims",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -165,6 +165,13 @@
           "commit": "da250d60932b6ca2c74b3c1a37ebdf6d33ce51e4",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/da250d60932b6ca2c74b3c1a37ebdf6d33ce51e4",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch. protocols/epistemic_operations/** (6,277 lines, 20 files) and control_plane/ (74 lines, 3 files) are deleted; every caller with a direct equivalent in epistemic_graph.generated.models is re-pointed there. remaining: protocols/epistemic_operations/__init__.py keeps five hand-written types with no engine-client equivalent (ProtocolModel, OperationResult, OperationError, OperationRedirect, PlacementRoute, DevelopmentLaneCleanupIntent) because each adds AU-side behavior the generated client does not provide, or (PlacementRoute) deliberately narrows the wire shape; full deletion needs either a design decision to adopt the engine client's richer shape (PlacementRouteWire) or a new destination for the others. deploy/release/source-freeze-gates.json's compatibility matrix still declares an `epistemic-operations-protocol` release component version/digest pin for release governance; retiring that declaration is separate release-owner work, not touched here."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "34a849a78973b2a43200ae4430255797feefc7da",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/34a849a78973b2a43200ae4430255797feefc7da",
+          "description": "AU-BOUNDARY-R012 merged to the default branch in this commit."
         }
       ]
     },

@@ -22,3 +22,6 @@ aa02d74fa0); those SHAs are no longer reachable from any branch tip in this
 repository (the branch they lived on was rebased away) and must not be
 re-implemented. The orchestrator should re-audit `status.json` against
 `88c61dc9164c983a52fdc8b170c10fca2e208d8a` to promote R001..R004 to LANDED.
+- [ ] **AU-CONTEXT-R006.1:** agent-utilities keeps finance agent roles only; paper trading stays isolated (producer, this repo).
+- [ ] **AU-CONTEXT-R006.2:** Live orders use the agent-connector-sdk's governed write-back contract (cross-repo; depends on R006.1).
+- [ ] **AU-CONTEXT-R006.3:** A finance widget replaces the placeholder widget in graph-os (cross-repo; depends on R006.2).
