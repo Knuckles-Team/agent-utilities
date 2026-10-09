@@ -5,6 +5,8 @@
 - [ ] AC-04: Implement immutable RunSpec, ports, five adapters and common conformance fixtures.
 - [ ] AC-04: Prove tools **and** skills available at startup, strict budget refusal and environment-mode honesty.
 - [ ] AC-05: Carry topology and subagent caps to execution; delete local EMA selection and generic topology writes.
+- [x] AC-05: Add the typed sub-agent allowance to `HarnessRequest` (`max_subagents`); the native adapter fails closed above zero (no native sub-agent tool to grant it through yet), the `claude-code` adapter denies its own `Task` tool below the allowance. Closes AU-CONTROL-R018.
+- [ ] AC-05 follow-up: Bind `AgentSpec`/`request_for_spec` to the committed topology plan node's allowance so `max_subagents` carries a real decided value instead of the port's conservative default.
 - [ ] AC-05: Implement stop, narrow, fence-loss and capacity-release behavior.
 - [ ] AC-06: Stream normalized events, terminal receipts and incomplete/uncertain states; reconcile before retry.
 - [ ] AC-07: Gate learned routing on independent outcome, calibration, promotion and exploration policy.

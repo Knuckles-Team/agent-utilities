@@ -33,6 +33,9 @@ from agent_utilities.layers.harness_process import (
 )
 
 CLAUDE_CODE_HARNESS = "claude-code"
+#: Claude Code's own native sub-agent tool (AU-CONTROL-R018); disabled unless
+#: the request's committed plan allowance grants at least one.
+SUBAGENT_TOOL = "Task"
 #: Flags every run carries, in this order.
 CLAUDE_PINNED_FLAGS: tuple[str, ...] = (
     "-p",
@@ -175,6 +178,10 @@ class ClaudeCodeHarness:
             argv += ["--max-budget-usd", f"{self._max_budget_usd:g}"]
         if request.allowed_tools:
             argv += ["--allowedTools", ",".join(request.allowed_tools)]
+        if request.max_subagents <= 0:
+            # Claude Code cannot bound a spawned sub-agent's count or depth
+            # from outside; with no allowance, deny its own tool outright.
+            argv += ["--disallowedTools", SUBAGENT_TOOL]
         return [*argv, "--mcp-config", str(self._mcp_config)]
 
     def _refusal(self, request: HarnessRequest) -> str | None:
@@ -209,6 +216,7 @@ __all__ = [
     "CLAUDE_CODE_HARNESS",
     "CLAUDE_PINNED_FLAGS",
     "GRAPHOS_SERVER",
+    "SUBAGENT_TOOL",
     "ClaudeCodeHarness",
     "claude_outcome",
     "graphos_mcp_config",
