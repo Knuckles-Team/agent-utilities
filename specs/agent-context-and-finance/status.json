@@ -208,7 +208,7 @@
     {
       "id": "AU-CONTEXT-R007",
       "title": "Finance math and feeds move out of agent-utilities",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "branch",

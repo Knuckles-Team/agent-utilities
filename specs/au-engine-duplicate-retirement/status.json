@@ -10,7 +10,9 @@
     "AU-RETIRE-R005",
     "AU-RETIRE-R006",
     "AU-RETIRE-R007",
-    "AU-RETIRE-R008"
+    "AU-RETIRE-R008",
+    "AU-RETIRE-R003.1",
+    "AU-RETIRE-R003.2"
   ],
   "delivery_state": "LANDED",
   "acceptance_state": "NOT_AUDITED",
@@ -55,7 +57,7 @@
     {
       "id": "AU-RETIRE-R003",
       "title": "OBO ontology terms ingest as typed ReferenceTerm individuals",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -136,6 +138,26 @@
           "description": "AU-RETIRE-R008 merged to the default branch in this commit."
         }
       ]
+    },
+    {
+      "id": "AU-RETIRE-R003.1",
+      "title": "Remaining scope of AU-RETIRE-R003 (slice .1): OBO ontology terms ingest as typed ReferenceTerm individuals",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "f25a287bac6c96b8f6ea51f11d528502a7ca6924",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f25a287bac6c96b8f6ea51f11d528502a7ca6924",
+          "description": "AU-RETIRE-R003.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "AU-RETIRE-R003.2",
+      "title": "Remaining scope of AU-RETIRE-R003 (slice .2): OBO ontology terms ingest as typed ReferenceTerm individuals",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     }
   ]
 }

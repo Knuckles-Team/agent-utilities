@@ -538,8 +538,16 @@
     {
       "id": "AU-BOUNDARY-R028.2",
       "title": "Retire kg/infra/{placement_optimizer,inventory_collector}.py",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "32bdd70f5ea41d3149375aca9797d5b7d539aa36",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/32bdd70f5ea41d3149375aca9797d5b7d539aa36",
+          "description": "AU-BOUNDARY-R028.2.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R028.2.1",
@@ -600,8 +608,16 @@
     {
       "id": "AU-BOUNDARY-R028.6",
       "title": "Retire observability/{trace_ontology,self_ingest,audit_logger}.py",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "26b087dd3b2fd0055701c3161b508bfed8a11042",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/26b087dd3b2fd0055701c3161b508bfed8a11042",
+          "description": "AU-BOUNDARY-R028.6.1 merged to the default branch in this commit (PR #138, test(boundary): pin R028.x production-importer censuses)."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R028.6.1",
@@ -620,8 +636,16 @@
     {
       "id": "AU-BOUNDARY-R028.7",
       "title": "Retire governance/relational_authority.py and .json",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "26b087dd3b2fd0055701c3161b508bfed8a11042",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/26b087dd3b2fd0055701c3161b508bfed8a11042",
+          "description": "AU-BOUNDARY-R028.7.1 merged to the default branch in this commit (PR #138, test(boundary): pin R028.x production-importer censuses)."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R028.7.1",
@@ -640,8 +664,16 @@
     {
       "id": "AU-BOUNDARY-R028.8",
       "title": "Retire kg/research/placement_mining.py",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "26b087dd3b2fd0055701c3161b508bfed8a11042",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/26b087dd3b2fd0055701c3161b508bfed8a11042",
+          "description": "AU-BOUNDARY-R028.8.1 merged to the default branch in this commit (PR #138, test(boundary): pin R028.x production-importer censuses)."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R028.8.1",
@@ -786,8 +818,16 @@
     {
       "id": "AU-BOUNDARY-R036",
       "title": "Move the usage fact store to EG",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "795afc53f54d2539a42d9d2baba310341ee74fea",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/795afc53f54d2539a42d9d2baba310341ee74fea",
+          "description": "AU-BOUNDARY-R036.1 merged to the default branch in this commit (PR #145, test(boundary): pin relocation census for AU-BOUNDARY-R036/37/39/40/44/45/47)."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R036.1",
@@ -806,7 +846,7 @@
     {
       "id": "AU-BOUNDARY-R037",
       "title": "Move development-governance tooling to repository-manager",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -814,6 +854,13 @@
           "commit": "e0f4b90707786b54cabef74ee3c802ae23e12cde",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/e0f4b90707786b54cabef74ee3c802ae23e12cde",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "795afc53f54d2539a42d9d2baba310341ee74fea",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/795afc53f54d2539a42d9d2baba310341ee74fea",
+          "description": "AU-BOUNDARY-R037.1 merged to the default branch in this commit (PR #145, test(boundary): pin relocation census for AU-BOUNDARY-R036/37/39/40/44/45/47)."
         }
       ]
     },
@@ -856,8 +903,16 @@
     {
       "id": "AU-BOUNDARY-R039",
       "title": "Move front ends off AU internals",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "795afc53f54d2539a42d9d2baba310341ee74fea",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/795afc53f54d2539a42d9d2baba310341ee74fea",
+          "description": "AU-BOUNDARY-R039.1 merged to the default branch in this commit (PR #145, test(boundary): pin relocation census for AU-BOUNDARY-R036/37/39/40/44/45/47)."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R039.1",
@@ -876,8 +931,16 @@
     {
       "id": "AU-BOUNDARY-R040",
       "title": "Move agent memory and the learning engine to EG",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "795afc53f54d2539a42d9d2baba310341ee74fea",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/795afc53f54d2539a42d9d2baba310341ee74fea",
+          "description": "AU-BOUNDARY-R040.1 merged to the default branch in this commit (PR #145, test(boundary): pin relocation census for AU-BOUNDARY-R036/37/39/40/44/45/47)."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R040.1",
@@ -953,8 +1016,16 @@
     {
       "id": "AU-BOUNDARY-R044",
       "title": "Fleet, scaling and deployment modules leave orchestration",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "795afc53f54d2539a42d9d2baba310341ee74fea",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/795afc53f54d2539a42d9d2baba310341ee74fea",
+          "description": "AU-BOUNDARY-R044.1 merged to the default branch in this commit (PR #145, test(boundary): pin relocation census for AU-BOUNDARY-R036/37/39/40/44/45/47)."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R044.1",
@@ -973,8 +1044,16 @@
     {
       "id": "AU-BOUNDARY-R045",
       "title": "Unplaced knowledge-graph packages receive file-level owners",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "795afc53f54d2539a42d9d2baba310341ee74fea",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/795afc53f54d2539a42d9d2baba310341ee74fea",
+          "description": "AU-BOUNDARY-R045.1 merged to the default branch in this commit (PR #145, test(boundary): pin relocation census for AU-BOUNDARY-R036/37/39/40/44/45/47)."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R045.1",
@@ -1007,8 +1086,16 @@
     {
       "id": "AU-BOUNDARY-R047",
       "title": "Engine-facing adapters and caches are thin clients or removed",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "795afc53f54d2539a42d9d2baba310341ee74fea",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/795afc53f54d2539a42d9d2baba310341ee74fea",
+          "description": "AU-BOUNDARY-R047.1 merged to the default branch in this commit (PR #145, test(boundary): pin relocation census for AU-BOUNDARY-R036/37/39/40/44/45/47)."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R047.1",

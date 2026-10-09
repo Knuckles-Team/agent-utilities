@@ -29,3 +29,7 @@ re-implemented. The orchestrator should re-audit `status.json` against
 - [x] **AU-CONTEXT-R008.1:** Typed `AnalysisSnapshot`/`StrategyScorecard` model plus abstention/refusal tests (producer, this repo). IMPLEMENTED at merged head: `agent_utilities/domains/finance/analysis_snapshot.py` + `tests/unit/finance/test_analysis_snapshot_recommendation.py`.
 - [ ] **AU-CONTEXT-R008.2:** Wire `recommend()` to the real holdings/watchlist entry point, replacing placeholder recommendation output (this repo; depends on R008.1). Not built in this PR — size/slice recorded, not skipped.
 - [ ] **AU-CONTEXT-R008.3:** Persist per-strategy `StrategyScorecard`s across calls for comparison (this repo; depends on R008.1/.2). Not built in this PR — size/slice recorded, not skipped.
+
+## Decomposition children (tracked)
+
+- [ ] **AU-CONTEXT-R007.2:** The local finance-math modules and the fallback branch are deleted after cutover

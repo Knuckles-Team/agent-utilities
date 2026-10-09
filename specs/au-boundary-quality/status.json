@@ -10,7 +10,9 @@
     "AU-QUAL-R005",
     "AU-QUAL-R006",
     "AU-QUAL-R007",
-    "AU-QUAL-R008"
+    "AU-QUAL-R008",
+    "AU-QUAL-R005.1",
+    "AU-QUAL-R005.2"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -96,7 +98,7 @@
     {
       "id": "AU-QUAL-R005",
       "title": "Test files are included in mypy with real fixes",
-      "delivery_state": "LANDED",
+      "delivery_state": "BUILDING",
       "evidence": [
         {
           "kind": "merged_head",
@@ -148,6 +150,26 @@
           "description": "Implementation merged to the default branch; the commit names this requirement."
         }
       ]
+    },
+    {
+      "id": "AU-QUAL-R005.1",
+      "title": "Remaining scope of AU-QUAL-R005 (slice .1): Test files are included in mypy with real fixes",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "f25a287bac6c96b8f6ea51f11d528502a7ca6924",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f25a287bac6c96b8f6ea51f11d528502a7ca6924",
+          "description": "AU-QUAL-R005.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "AU-QUAL-R005.2",
+      "title": "Remaining scope of AU-QUAL-R005 (slice .2): Test files are included in mypy with real fixes",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
     }
   ]
 }

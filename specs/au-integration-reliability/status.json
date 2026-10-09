@@ -23,7 +23,9 @@
     "AU-INTEGRATION-R018",
     "AU-INTEGRATION-R019",
     "AU-INTEGRATION-R020",
-    "AU-INTEGRATION-R021"
+    "AU-INTEGRATION-R021",
+    "AU-INTEGRATION-R014.1",
+    "AU-INTEGRATION-R018.1"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -244,6 +246,13 @@
           "commit": "35fde39bdb9dcbe9f32b76e4176393c9ead2845c",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/35fde39bdb9dcbe9f32b76e4176393c9ead2845c",
           "description": "AU-INTEGRATION-R014 merged to the default branch in this commit."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "64d317c9e38596557fe6b38538cbcf36fd50f8fc",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/64d317c9e38596557fe6b38538cbcf36fd50f8fc",
+          "description": "AU-INTEGRATION-R014.1 merged to the default branch in this commit."
         }
       ]
     },
@@ -307,6 +316,13 @@
           "commit": "bf0a31f534e1d49a2a9567992d75d31f78b60999",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/bf0a31f534e1d49a2a9567992d75d31f78b60999",
           "description": "AU-INTEGRATION-R018 merged to the default branch in this commit (PR #152, feat(retrieval,orchestration,core): AU-RETRIEVAL-R001 fresh .1, AU-INTEGRATION-R014.1/R018.1 slices)."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "64d317c9e38596557fe6b38538cbcf36fd50f8fc",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/64d317c9e38596557fe6b38538cbcf36fd50f8fc",
+          "description": "AU-INTEGRATION-R018.1 merged to the default branch in this commit."
         }
       ]
     },
@@ -354,6 +370,34 @@
         }
       ],
       "remaining": "Merged-head and PR evidence pending review. Unit tests pass on branch fix/g32-nlquery-aggregate-answer: tests/unit/knowledge_graph/core/test_nl_planner.py (self-correction to cypher, exhausted-retry error surfacing) and tests/unit/test_evidence_bundle.py (aggregate rows into answer_candidate). nl_query.nl_to_query (graph_ask) still has no bounded self-correction loop; the sql/sparql/uql surfaces still have no query-text tenant/owner-scope pushdown for a non-aggregate id-less projection."
+    },
+    {
+      "id": "AU-INTEGRATION-R014.1",
+      "title": "Remaining scope of AU-INTEGRATION-R014 (slice .1): Benchmark query-serving improvements against the existing path",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "64d317c9e38596557fe6b38538cbcf36fd50f8fc",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/64d317c9e38596557fe6b38538cbcf36fd50f8fc",
+          "description": "AU-INTEGRATION-R014.1 merged to the default branch in this commit."
+        }
+      ]
+    },
+    {
+      "id": "AU-INTEGRATION-R018.1",
+      "title": "Remaining scope of AU-INTEGRATION-R018 (slice .1): Public docs site passes the full documentation gate suite",
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "64d317c9e38596557fe6b38538cbcf36fd50f8fc",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/64d317c9e38596557fe6b38538cbcf36fd50f8fc",
+          "description": "AU-INTEGRATION-R018.1 merged to the default branch in this commit."
+        }
+      ]
     }
   ]
 }
