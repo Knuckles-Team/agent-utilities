@@ -16,7 +16,8 @@
       "title": "The daemon role starts baseline ingestion in the background after boot",
       "delivery_state": "LANDED",
       "landed_in": [
-        "06a3810b9373"
+        "06a3810b9373",
+        "f9b25e33b179"
       ],
       "verified_by": []
     },

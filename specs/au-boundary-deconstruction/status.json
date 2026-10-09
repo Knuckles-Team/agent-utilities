@@ -77,36 +77,46 @@
     {
       "id": "AU-BOUNDARY-R001",
       "title": "Retire AU's duplicated gateway module",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "aa5eba73e0f7"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R002",
       "title": "Retire AU's deployment and skill-certification tooling",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "fca0c5ee42b3"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R003",
       "title": "Retire AU's legacy MCP host and action manifest",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "2456745c1e4d"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R004",
       "title": "Retire AU's multiplexer family duplicated in graph-os",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "2456745c1e4d"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R005",
       "title": "Migrate connector packages A-E onto the SDK",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "a754f1299033"
+      ],
       "verified_by": []
     },
     {
@@ -119,15 +129,19 @@
     {
       "id": "AU-BOUNDARY-R007",
       "title": "Migrate connector packages K-O onto the SDK",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "a754f1299033"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R008",
       "title": "Migrate connector packages P-S onto the SDK",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "a754f1299033"
+      ],
       "verified_by": []
     },
     {
@@ -140,15 +154,19 @@
     {
       "id": "AU-BOUNDARY-R010",
       "title": "Delete AU's SDK-duplicated connector toolkit",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "2456745c1e4d"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R011",
       "title": "Delete AU's source lifecycle and certification code",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "2456745c1e4d"
+      ],
       "verified_by": []
     },
     {
@@ -156,6 +174,7 @@
       "title": "Delete the second EG projection and leftover shims",
       "delivery_state": "LANDED",
       "landed_in": [
+        "34a849a78973",
         "7b653dd102b9"
       ],
       "verified_by": []
@@ -174,19 +193,21 @@
       "title": "Move graph-os boundary modules out of AU",
       "delivery_state": "LANDED",
       "landed_in": [
+        "3254358d61d6",
         "63731a44a881",
         "6ffbecc433c4",
         "8b3510fcb2eb",
-        "d09cad07e875",
-        "d6d5697ae63d"
+        "d09cad07e875"
       ],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R015",
       "title": "Move the agent HTTP and A2A/ACP host out of AU",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "2456745c1e4d"
+      ],
       "verified_by": []
     },
     {
@@ -283,6 +304,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "00234474001c",
+        "0e44186eac39",
         "743e98cda405"
       ],
       "verified_by": []
@@ -381,7 +403,9 @@
       "id": "AU-BOUNDARY-R028.6",
       "title": "Retire `observability/{trace_ontology,self_ingest,audit_logger}.py`",
       "delivery_state": "LANDED",
-      "landed_in": [],
+      "landed_in": [
+        "26b087dd3b2f"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-BOUNDARY-R028.6.1"
@@ -392,6 +416,7 @@
       "title": "Pin the `observability/{trace_ontology,self_ingest,audit_logger}` production-importer set",
       "delivery_state": "LANDED",
       "landed_in": [
+        "26b087dd3b2f",
         "32bdd70f5ea4"
       ],
       "verified_by": []
@@ -400,7 +425,9 @@
       "id": "AU-BOUNDARY-R028.7",
       "title": "Retire `governance/relational_authority.py` and `.json`",
       "delivery_state": "LANDED",
-      "landed_in": [],
+      "landed_in": [
+        "26b087dd3b2f"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-BOUNDARY-R028.7.1"
@@ -411,6 +438,7 @@
       "title": "Pin the `governance/relational_authority` importer set",
       "delivery_state": "LANDED",
       "landed_in": [
+        "26b087dd3b2f",
         "32bdd70f5ea4"
       ],
       "verified_by": []
@@ -420,6 +448,7 @@
       "title": "Retire `kg/research/placement_mining.py`",
       "delivery_state": "LANDED",
       "landed_in": [
+        "26b087dd3b2f",
         "32bdd70f5ea4"
       ],
       "verified_by": [],
@@ -432,6 +461,7 @@
       "title": "Pin the `kg/research/placement_mining` production-importer set",
       "delivery_state": "LANDED",
       "landed_in": [
+        "26b087dd3b2f",
         "32bdd70f5ea4"
       ],
       "verified_by": []
@@ -451,6 +481,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "1446fc4c3db5",
+        "5e15da9f9e40",
         "743e98cda405",
         "bcdde1ec1a57",
         "c7fc09d3d2f6"
@@ -471,7 +502,8 @@
       "title": "Delete AU's legacy SPARQL backend and setup path",
       "delivery_state": "LANDED",
       "landed_in": [
-        "743e98cda405"
+        "743e98cda405",
+        "a05257fb6541"
       ],
       "verified_by": []
     },
@@ -498,6 +530,7 @@
       "title": "Re-home the schema-drift package before it lands",
       "delivery_state": "LANDED",
       "landed_in": [
+        "5e15da9f9e40",
         "bcfbc23cd1e6",
         "c7fc09d3d2f6"
       ],
@@ -506,8 +539,9 @@
     {
       "id": "AU-BOUNDARY-R036",
       "title": "Move the usage fact store to EG",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
+        "795afc53f54d",
         "8ea6bd529b0f"
       ],
       "verified_by": [],
@@ -518,15 +552,19 @@
     {
       "id": "AU-BOUNDARY-R036.1",
       "title": "Pin the usage-store relocation inventory",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "795afc53f54d"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R037",
       "title": "Move development-governance tooling to repository-manager",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "795afc53f54d"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-BOUNDARY-R037.1"
@@ -535,8 +573,10 @@
     {
       "id": "AU-BOUNDARY-R037.1",
       "title": "Pin the governance-tooling relocation inventory",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "795afc53f54d"
+      ],
       "verified_by": []
     },
     {
@@ -544,15 +584,18 @@
       "title": "Add a cross-owner component registry and path guard",
       "delivery_state": "LANDED",
       "landed_in": [
-        "8821aee3c37f"
+        "8821aee3c37f",
+        "aa5eba73e0f7"
       ],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R039",
       "title": "Move front ends off AU internals",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "795afc53f54d"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-BOUNDARY-R039.1"
@@ -561,15 +604,19 @@
     {
       "id": "AU-BOUNDARY-R039.1",
       "title": "Pin AU's public front-end import surface",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "795afc53f54d"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R040",
       "title": "Move agent memory and the learning engine to EG",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "795afc53f54d"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-BOUNDARY-R040.1"
@@ -578,15 +625,19 @@
     {
       "id": "AU-BOUNDARY-R040.1",
       "title": "Pin the agent-memory relocation inventory",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "795afc53f54d"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R041",
       "title": "Finance modules that produced fabricated data are removed",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "dbe24ea1b0d3"
+      ],
       "verified_by": []
     },
     {
@@ -596,7 +647,8 @@
       "landed_in": [
         "2456745c1e4d",
         "29d80148b462",
-        "8821aee3c37f"
+        "8821aee3c37f",
+        "a4079bc8d2ed"
       ],
       "verified_by": []
     },
@@ -613,8 +665,10 @@
     {
       "id": "AU-BOUNDARY-R044",
       "title": "Fleet, scaling and deployment modules leave orchestration",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "795afc53f54d"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-BOUNDARY-R044.1"
@@ -623,15 +677,19 @@
     {
       "id": "AU-BOUNDARY-R044.1",
       "title": "Pin the orchestration relocation inventory",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "795afc53f54d"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R045",
       "title": "Unplaced knowledge-graph packages receive file-level owners",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "795afc53f54d"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-BOUNDARY-R045.1"
@@ -640,22 +698,27 @@
     {
       "id": "AU-BOUNDARY-R045.1",
       "title": "Pin the unplaced knowledge_graph package relocation inventory",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "795afc53f54d"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R046",
       "title": "Partly covered packages list every file with its owner",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "795afc53f54d"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R047",
       "title": "Engine-facing adapters and caches are thin clients or removed",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
+        "795afc53f54d",
         "fed30c0982ae"
       ],
       "verified_by": [],
@@ -666,8 +729,10 @@
     {
       "id": "AU-BOUNDARY-R047.1",
       "title": "Pin the engine-facing-adapter relocation inventory",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "795afc53f54d"
+      ],
       "verified_by": []
     },
     {
@@ -675,7 +740,8 @@
       "title": "Domain models, shapes, assets and skill content are placed",
       "delivery_state": "LANDED",
       "landed_in": [
-        "49b087cb97e4"
+        "49b087cb97e4",
+        "fca0c5ee42b3"
       ],
       "verified_by": []
     },
@@ -684,7 +750,8 @@
       "title": "Every AU write-back sink runs through the SDK governed write-back contract",
       "delivery_state": "LANDED",
       "landed_in": [
-        "00234474001c"
+        "00234474001c",
+        "0e44186eac39"
       ],
       "verified_by": []
     }

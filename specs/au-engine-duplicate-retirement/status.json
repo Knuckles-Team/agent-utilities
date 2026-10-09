@@ -28,8 +28,10 @@
     {
       "id": "AU-RETIRE-R002",
       "title": "Enrichment edges carry a provenance rung and confidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "d165697978b7"
+      ],
       "verified_by": []
     },
     {
@@ -64,15 +66,19 @@
     {
       "id": "AU-RETIRE-R004",
       "title": "Fix doubled node_type text in embedding composition",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "bc7bba33932d"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-RETIRE-R005",
       "title": "Per-stage timing instrumentation across the full ingest path",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "dd925ea09bf7"
+      ],
       "verified_by": []
     },
     {
@@ -80,15 +86,18 @@
       "title": "Delta ingest reaps nodes for deleted files",
       "delivery_state": "LANDED",
       "landed_in": [
-        "5822ee9bef09"
+        "5822ee9bef09",
+        "bc7bba33932d"
       ],
       "verified_by": []
     },
     {
       "id": "AU-RETIRE-R007",
       "title": "Deterministic embedding admission classifier at the ingest chokepoint",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "82eff59f049d"
+      ],
       "verified_by": []
     },
     {

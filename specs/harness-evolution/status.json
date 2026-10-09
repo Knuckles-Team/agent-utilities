@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-HARNESS-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "AU-HARNESS-R001",
     "AU-HARNESS-R002",
@@ -53,7 +53,9 @@
       "id": "AU-HARNESS-R004",
       "title": "AU proposes corrections through the graph, never writes Git directly",
       "delivery_state": "LANDED",
-      "landed_in": [],
+      "landed_in": [
+        "26bfecfbde1a"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-HARNESS-R004.1"
@@ -71,8 +73,10 @@
     {
       "id": "AU-HARNESS-R005",
       "title": "Defer generative model work pending evidence-backed need",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "a754f1299033"
+      ],
       "verified_by": []
     },
     {
@@ -80,7 +84,8 @@
       "title": "Statistical scoring head ranks work-market offers",
       "delivery_state": "LANDED",
       "landed_in": [
-        "75dc28c16382"
+        "75dc28c16382",
+        "c0e12b7034f3"
       ],
       "verified_by": []
     },
@@ -90,6 +95,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "05d0acdf70b2",
+        "3df03825a497",
         "579815031bcd",
         "b15fd573cb5b"
       ],
@@ -130,6 +136,7 @@
       "title": "Run outcomes feed propose-only prompt evolution",
       "delivery_state": "LANDED",
       "landed_in": [
+        "755db4bb36b8",
         "b15fd573cb5b",
         "e9a23c4a2f57"
       ],

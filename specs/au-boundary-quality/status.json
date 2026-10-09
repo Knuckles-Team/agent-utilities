@@ -19,15 +19,19 @@
     {
       "id": "AU-QUAL-R001",
       "title": "Liveness deferrals fail visibly when they expire",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "c15d278239d3"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-QUAL-R002",
       "title": "Tiny-profile RBAC and bootstrap-isolation tests cover real code",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "ce632099b6b9"
+      ],
       "verified_by": []
     },
     {
@@ -35,7 +39,8 @@
       "title": "Connector validation uses EG's composed GraphSchema",
       "delivery_state": "LANDED",
       "landed_in": [
-        "50f312aeb06c"
+        "50f312aeb06c",
+        "c62dfed3c869"
       ],
       "verified_by": []
     },
@@ -45,7 +50,8 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "0fa2df86ace4",
-        "4771f8a9ee09"
+        "4771f8a9ee09",
+        "576cf41ee890"
       ],
       "verified_by": []
     },
@@ -53,7 +59,9 @@
       "id": "AU-QUAL-R005",
       "title": "Test files are included in mypy with real fixes",
       "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "landed_in": [
+        "ed6485573f1e"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-QUAL-R005.1",
@@ -81,15 +89,18 @@
       "title": "A privacy check covers the final tree and commit history",
       "delivery_state": "LANDED",
       "landed_in": [
-        "0fa2df86ace4"
+        "0fa2df86ace4",
+        "576cf41ee890"
       ],
       "verified_by": []
     },
     {
       "id": "AU-QUAL-R007",
       "title": "Liveness placeholder detector ignores documentation prose",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "f93efd64d001"
+      ],
       "verified_by": []
     },
     {
@@ -97,6 +108,7 @@
       "title": "Liveness reconciler rescues exact service-registry targets",
       "delivery_state": "LANDED",
       "landed_in": [
+        "cf1cdce6a6e4",
         "eb077e60c21b"
       ],
       "verified_by": []

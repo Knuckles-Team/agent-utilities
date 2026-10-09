@@ -17,7 +17,9 @@
       "id": "AU-DEV-R001",
       "title": "A development skill documents AU's contribution workflow",
       "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "landed_in": [
+        "ed6485573f1e"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-DEV-R001.1",
@@ -43,15 +45,19 @@
     {
       "id": "AU-DEV-R002",
       "title": "Deployment and genesis tooling move to graph-os",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "29d80148b462"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-DEV-R003",
       "title": "Skill inventory refresh stays deterministic after moves",
       "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "landed_in": [
+        "ed6485573f1e"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-DEV-R003.1",

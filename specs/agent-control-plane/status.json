@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-CONTROL-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "AU-CONTROL-R001",
     "AU-CONTROL-R002",
@@ -44,8 +44,10 @@
     {
       "id": "AU-CONTROL-R001",
       "title": "Layered agent execution stack from task mapping to harness run",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "c049e325e91d"
+      ],
       "verified_by": []
     },
     {
@@ -53,22 +55,27 @@
       "title": "Component routing through one committed graph-engine decision",
       "delivery_state": "LANDED",
       "landed_in": [
-        "4351f26b3d3b"
+        "4351f26b3d3b",
+        "c049e325e91d"
       ],
       "verified_by": []
     },
     {
       "id": "AU-CONTROL-R003",
       "title": "Agent graph composition via epistemic-graph assembly, not an LLM",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "c049e325e91d"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-CONTROL-R004",
       "title": "Abstention escalations re-enter as labelled claims, not proofs",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "c049e325e91d"
+      ],
       "verified_by": []
     },
     {
@@ -76,7 +83,8 @@
       "title": "Advisory pre-tool risk scoring",
       "delivery_state": "LANDED",
       "landed_in": [
-        "47a52e7442bd"
+        "47a52e7442bd",
+        "c049e325e91d"
       ],
       "verified_by": []
     },
@@ -85,15 +93,18 @@
       "title": "Cost-aware routing informed by usage accounting",
       "delivery_state": "LANDED",
       "landed_in": [
-        "4351f26b3d3b"
+        "4351f26b3d3b",
+        "c049e325e91d"
       ],
       "verified_by": []
     },
     {
       "id": "AU-CONTROL-R007",
       "title": "Swarm topology selection routed through Decide",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "c049e325e91d"
+      ],
       "verified_by": []
     },
     {
@@ -101,6 +112,7 @@
       "title": "Free-text task mapping accepted only as a labelled claim",
       "delivery_state": "LANDED",
       "landed_in": [
+        "c049e325e91d",
         "fdd333b5545a"
       ],
       "verified_by": []
@@ -110,6 +122,7 @@
       "title": "Swarm topology ontology and schema publication",
       "delivery_state": "LANDED",
       "landed_in": [
+        "c049e325e91d",
         "da99e968d6c7"
       ],
       "verified_by": []
@@ -119,6 +132,7 @@
       "title": "Reference swarm topology templates",
       "delivery_state": "LANDED",
       "landed_in": [
+        "c049e325e91d",
         "da99e968d6c7"
       ],
       "verified_by": []
@@ -128,6 +142,7 @@
       "title": "Consume the generated topology contract via a pinned dependency",
       "delivery_state": "LANDED",
       "landed_in": [
+        "c049e325e91d",
         "da99e968d6c7"
       ],
       "verified_by": []
@@ -135,8 +150,10 @@
     {
       "id": "AU-CONTROL-R012",
       "title": "Agent-graph templates validated against topology shape at publish",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "c049e325e91d"
+      ],
       "verified_by": []
     },
     {
@@ -144,7 +161,8 @@
       "title": "Topology options filtered by admissibility derivation",
       "delivery_state": "LANDED",
       "landed_in": [
-        "148ef73124d2"
+        "148ef73124d2",
+        "c049e325e91d"
       ],
       "verified_by": []
     },
@@ -153,7 +171,8 @@
       "title": "No local topology solver, defer to the validated graph-engine model",
       "delivery_state": "LANDED",
       "landed_in": [
-        "148ef73124d2"
+        "148ef73124d2",
+        "c049e325e91d"
       ],
       "verified_by": []
     },
@@ -162,7 +181,8 @@
       "title": "Topology consumer asks the graph engine, not a local success store",
       "delivery_state": "LANDED",
       "landed_in": [
-        "148ef73124d2"
+        "148ef73124d2",
+        "c049e325e91d"
       ],
       "verified_by": []
     },
@@ -171,7 +191,8 @@
       "title": "Topology decisions respect capacity headroom at request priority",
       "delivery_state": "LANDED",
       "landed_in": [
-        "148ef73124d2"
+        "148ef73124d2",
+        "c049e325e91d"
       ],
       "verified_by": []
     },
@@ -180,7 +201,8 @@
       "title": "Single re-decision on capacity denial for topology admission",
       "delivery_state": "LANDED",
       "landed_in": [
-        "6d8865040871"
+        "6d8865040871",
+        "e78a5cf3de4e"
       ],
       "verified_by": []
     },
@@ -189,6 +211,7 @@
       "title": "Subagent allowance negotiated into the run specification",
       "delivery_state": "LANDED",
       "landed_in": [
+        "bd37ae7764a6",
         "d008da7e66d1"
       ],
       "verified_by": []
@@ -198,7 +221,8 @@
       "title": "Swarm continuation restricted to narrow-only decisions",
       "delivery_state": "LANDED",
       "landed_in": [
-        "21ccce45c2d7"
+        "21ccce45c2d7",
+        "c049e325e91d"
       ],
       "verified_by": []
     },
@@ -209,15 +233,18 @@
       "landed_in": [
         "21ccce45c2d7",
         "33dc0f5e9908",
-        "75dc28c16382"
+        "75dc28c16382",
+        "c049e325e91d"
       ],
       "verified_by": []
     },
     {
       "id": "AU-CONTROL-R021",
       "title": "Harness and sandbox access via direct typed ports, not a registrar",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "d8e0d2e999e1"
+      ],
       "verified_by": []
     },
     {
@@ -225,15 +252,18 @@
       "title": "Model selection routed through the committed decision, not ad hoc",
       "delivery_state": "LANDED",
       "landed_in": [
-        "4351f26b3d3b"
+        "4351f26b3d3b",
+        "c049e325e91d"
       ],
       "verified_by": []
     },
     {
       "id": "AU-CONTROL-R023",
       "title": "Catalog entries attributed to their originating server",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "0d62109b2c36"
+      ],
       "verified_by": []
     },
     {
@@ -241,6 +271,7 @@
       "title": "Durable Agent Library with list, get and save",
       "delivery_state": "LANDED",
       "landed_in": [
+        "8d94e1c97b28",
         "d10020c23444"
       ],
       "verified_by": []
@@ -250,6 +281,7 @@
       "title": "Pre-built role agents from packaged fleet prompts",
       "delivery_state": "LANDED",
       "landed_in": [
+        "8d94e1c97b28",
         "d10020c23444"
       ],
       "verified_by": []
@@ -259,6 +291,7 @@
       "title": "Assembled agent graphs are committed, published and saved for reuse",
       "delivery_state": "LANDED",
       "landed_in": [
+        "8d94e1c97b28",
         "d10020c23444"
       ],
       "verified_by": []
@@ -269,6 +302,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "5301b427a6a5",
+        "543b8157705e",
         "c44206e0d856"
       ],
       "verified_by": []
@@ -279,6 +313,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "5301b427a6a5",
+        "543b8157705e",
         "c44206e0d856"
       ],
       "verified_by": []
@@ -289,6 +324,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "5301b427a6a5",
+        "543b8157705e",
         "c44206e0d856"
       ],
       "verified_by": []
@@ -299,6 +335,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "5301b427a6a5",
+        "543b8157705e",
         "c44206e0d856"
       ],
       "verified_by": []
@@ -310,6 +347,7 @@
       "landed_in": [
         "1ff1099e5d57",
         "4c334b7fc9ad",
+        "b4c99c73265c",
         "df00e9a0b560",
         "e822fa6bb112"
       ],
@@ -321,6 +359,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "1ff1099e5d57",
+        "28eb7b647b57",
         "e822fa6bb112"
       ],
       "verified_by": []
@@ -330,7 +369,8 @@
       "title": "A read-only action tie runs the declared default action",
       "delivery_state": "LANDED",
       "landed_in": [
-        "1ff1099e5d57"
+        "1ff1099e5d57",
+        "78a53983ae0b"
       ],
       "verified_by": []
     },
@@ -339,15 +379,18 @@
       "title": "An unmatched read intent falls back to the NL planner",
       "delivery_state": "LANDED",
       "landed_in": [
-        "1ff1099e5d57"
+        "1ff1099e5d57",
+        "78a53983ae0b"
       ],
       "verified_by": []
     },
     {
       "id": "AU-CONTROL-R035",
       "title": "The signed agent-dispatch envelope carries an enforced allowed-tool-subset field",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "bca0cd3c44d9"
+      ],
       "verified_by": []
     }
   ]

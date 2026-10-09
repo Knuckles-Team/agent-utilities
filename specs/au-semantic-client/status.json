@@ -52,7 +52,8 @@
       "title": "OntologyLifecycle.set_active() fails closed, not a silent local fallback",
       "delivery_state": "LANDED",
       "landed_in": [
-        "2648d0b28ad0"
+        "2648d0b28ad0",
+        "43197d7c65a3"
       ],
       "verified_by": []
     },
@@ -68,8 +69,10 @@
     {
       "id": "AU-SEMANTIC-R003",
       "title": "AU's knowledge_graph shape files are published to the EG pack or removed",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "83a157bf120b"
+      ],
       "verified_by": []
     },
     {
@@ -77,6 +80,7 @@
       "title": "AU's remaining SHACL shape files move into EG-owned schema packs",
       "delivery_state": "LANDED",
       "landed_in": [
+        "981194f50ab4",
         "afe05ab38e0f"
       ],
       "verified_by": []
@@ -84,8 +88,10 @@
     {
       "id": "AU-SEMANTIC-R005",
       "title": "Ontology lifecycle, integrity and schema parsing become EG client calls",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "83a157bf120b"
+      ],
       "verified_by": []
     },
     {
@@ -100,6 +106,7 @@
       "title": "AU tests drop pyshacl and assert through EG shape validation",
       "delivery_state": "LANDED",
       "landed_in": [
+        "981194f50ab4",
         "afe05ab38e0f"
       ],
       "verified_by": []
@@ -127,8 +134,10 @@
     {
       "id": "AU-SEMANTIC-R009.1",
       "title": "A typed `runnable_skill_derivation` client contract fails closed while EG's op is absent",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "4eac8c6dc419"
+      ],
       "verified_by": []
     },
     {
@@ -162,15 +171,19 @@
     {
       "id": "AU-SEMANTIC-R011",
       "title": "Durable jobs, queues and state move to EG",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "b881d5bca432"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R012",
       "title": "Tenancy, topology and admission authority move to EG",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "8b325ddf1818"
+      ],
       "verified_by": []
     },
     {
@@ -183,8 +196,10 @@
     {
       "id": "AU-SEMANTIC-R014",
       "title": "Ingestion commit and derivation logic moves to EG's SourceIngest",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "743e98cda405"
+      ],
       "verified_by": []
     },
     {
@@ -203,8 +218,10 @@
     {
       "id": "AU-SEMANTIC-R015.1",
       "title": "A typed `workflow_derivation` client contract fails closed while EG's op is absent",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "4eac8c6dc419"
+      ],
       "verified_by": []
     },
     {
@@ -231,6 +248,7 @@
       "title": "The AU-SEMANTIC-R016 migration scope is a typed, validated manifest",
       "delivery_state": "LANDED",
       "landed_in": [
+        "117359dabc9a",
         "76d440ff79dc"
       ],
       "verified_by": []
@@ -270,9 +288,10 @@
     {
       "id": "AU-SEMANTIC-R021",
       "title": "AU's hand-written RDF/OWL/SHACL emitters move behind EG pack compilation",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "2e5c8d7f2d8b"
+        "2e5c8d7f2d8b",
+        "9f04ed59f946"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -303,8 +322,10 @@
     {
       "id": "AU-SEMANTIC-R021.3",
       "title": "The `ontology/` hand-written emitters move behind EG pack compilation",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "472e6ab23472"
+      ],
       "verified_by": []
     },
     {
@@ -321,7 +342,9 @@
       "id": "AU-SEMANTIC-R022",
       "title": "Graph-schema DTOs become EG-generated types",
       "delivery_state": "LANDED",
-      "landed_in": [],
+      "landed_in": [
+        "c23e42b6ed43"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-SEMANTIC-R022.1"
@@ -339,22 +362,28 @@
     {
       "id": "AU-SEMANTIC-R023",
       "title": "Legacy SPARQL backend and setup modules are deleted",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "a05257fb6541"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R024",
       "title": "External graph and database backends move into EG as federation sources",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "274d4c375294"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R025",
       "title": "Retrieval and neural-search engines move to EG",
       "delivery_state": "LANDED",
-      "landed_in": [],
+      "landed_in": [
+        "c23e42b6ed43"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-SEMANTIC-R025.1"
@@ -365,6 +394,7 @@
       "title": "Typed composition of the generated EG retrieval surface",
       "delivery_state": "LANDED",
       "landed_in": [
+        "c23e42b6ed43",
         "da51647a7383"
       ],
       "verified_by": []
@@ -372,15 +402,19 @@
     {
       "id": "AU-SEMANTIC-R026",
       "title": "The schema-drift package is re-homed before it lands",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "5e15da9f9e40"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R027",
       "title": "Capability-gap checks must search the target system's own vocabulary",
       "delivery_state": "LANDED",
-      "landed_in": [],
+      "landed_in": [
+        "c23e42b6ed43"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-SEMANTIC-R027.1"
@@ -391,6 +425,7 @@
       "title": "Typed capability-gap record refuses an unverified \"missing\" verdict",
       "delivery_state": "LANDED",
       "landed_in": [
+        "c23e42b6ed43",
         "da51647a7383"
       ],
       "verified_by": []
@@ -398,8 +433,10 @@
     {
       "id": "AU-SEMANTIC-R028",
       "title": "Configured embedding dimension must match the deployed model's output size",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "12e4a7fe9749"
+      ],
       "verified_by": []
     }
   ]
