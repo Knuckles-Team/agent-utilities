@@ -112,6 +112,7 @@ async def _assert_conforms(port: Any, request: HarnessRequest) -> RunOutcome:
 # -- protocol conformance ---------------------------------------------------
 
 
+@pytest.mark.spec("AU-CONTROL-R001")
 async def test_native_adapter_conforms() -> None:
     runner = _Runner(_envelope("hello"))
     request = HarnessRequest(agent_name="a", task="t", run_id="run:abc")
@@ -119,6 +120,7 @@ async def test_native_adapter_conforms() -> None:
     assert outcome.status == "completed"
 
 
+@pytest.mark.spec("AU-CONTROL-R001")
 async def test_claude_adapter_conforms(
     tmp_path: Path, workspace: Path, mcp_config: Path
 ) -> None:
@@ -493,6 +495,7 @@ async def test_native_outcome_is_not_written_twice(l5_calls) -> None:
     assert l5_calls == {"trace": [], "usage": []}
 
 
+@pytest.mark.spec("AU-CONTROL-R001")
 async def test_node_runs_through_selected_harness_and_records(l5_calls) -> None:
     registry = HarnessRegistry(native=_FakePort(NATIVE_HARNESS))
     port = _FakePort("claude-code")

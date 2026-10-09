@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from agent_utilities import decide
 from agent_utilities.decide.consumers.routing import route_by_cost, route_model
 from agent_utilities.orchestration.outcome_router import OutcomeRouter
@@ -42,6 +44,7 @@ def _model(model_id: str, tier: str) -> SimpleNamespace:
     )
 
 
+@pytest.mark.spec("AU-CONTROL-R002")
 def test_model_routing_decides_among_eligible_models(eg: FakeTransport) -> None:
     light, heavy = _model("m-light", "light"), _model("m-heavy", "heavy")
     eg.answer = acted("m-light")
