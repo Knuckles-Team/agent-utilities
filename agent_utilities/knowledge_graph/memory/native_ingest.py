@@ -76,6 +76,14 @@ class _InjectedChangeEnvelopeAuthority:
             raise PermissionError("injected native ingest authority cannot retarget")
         return self
 
+    def shacl_validate_committed(self, data_graph: str) -> Any:
+        """Connector admission validates through the injected client (EH-385)."""
+        from agent_utilities.knowledge_graph.core.committed_shacl import (
+            validate_committed,
+        )
+
+        return validate_committed(self.client, data_graph)
+
 
 def _change_envelope_authority(client: Any | None, graph: str | None) -> Any:
     """Resolve production authority or validate one injected test dependency.
@@ -89,6 +97,9 @@ def _change_envelope_authority(client: Any | None, graph: str | None) -> Any:
     if client is None:
         return native_authority()
 
+    from agent_utilities.knowledge_graph.core.committed_shacl import (
+        committed_shacl_authority,
+    )
     from agent_utilities.knowledge_graph.core.session import resolve_session
 
     session = resolve_session(required_scope="kg:write")
@@ -97,7 +108,7 @@ def _change_envelope_authority(client: Any | None, graph: str | None) -> Any:
     required = (
         getattr(client, "changes", None),
         getattr(client, "nodes", None),
-        getattr(client, "rdf", None),
+        committed_shacl_authority(client),
         getattr(client, "supports", None),
     )
     if any(value is None for value in required) or not callable(required[-1]):

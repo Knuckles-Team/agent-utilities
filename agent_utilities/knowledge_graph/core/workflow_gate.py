@@ -224,10 +224,9 @@ def _validate_workflow_shape(
 
 
 def _committed_shacl_report(engine: Any, turtle: str) -> Any:
-    graph_compute = getattr(engine, "graph_compute", None)
-    if graph_compute is None:
-        graph_compute = engine.graph
-    return graph_compute.shacl_validate_committed(turtle)
+    from .committed_shacl import validate_committed
+
+    return validate_committed(engine, turtle)
 
 
 # ---------------------------------------------------------------------------
