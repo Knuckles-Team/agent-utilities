@@ -153,20 +153,20 @@ sync:
     doc_type: database_table
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-09-21T17:23:56Z'
+  generated_at: '2026-10-09T08:32:26Z'
   source_artifacts:
   - sql_mcp/connectors/mcp_source_presets.json
   - sql_mcp/connectors/tool_schema_fingerprints.json
   - sql_mcp/ontology/database.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: 1a27842b0a88bb5583eb7016d40e5d2e90a5ef0ac7083c92aff8e6ee24cfcaa0
+    hash: 796b8e4fa3c8958767badc5a5f8ead1db23b38eb62c4360cc04b3c74076eec63
     triple_count: 70
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: c3b7cb2aadc0bb8947093227ac20b2ba6c6a699b
+  source_commit: d2dd6565cab65f10caac1fc5a918eeda17c181ca
 policy:
   pii_fields: {}
   tenant_boundary: null

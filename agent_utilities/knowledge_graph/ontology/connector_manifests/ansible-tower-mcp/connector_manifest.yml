@@ -84,9 +84,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events:
 - name: ansible-job-templates.updated
   resource: ansible_job_template
@@ -302,20 +316,20 @@ sync:
     doc_type: ansible_job
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-10-09T08:31:18Z'
   source_artifacts:
   - ansible_tower_mcp/connectors/mcp_source_presets.json
   - ansible_tower_mcp/connectors/tool_schema_fingerprints.json
   - ansible_tower_mcp/ontology/ansible.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: 993ad9429e6ba971145ddeb6a3e6cd4189196179f21ebd2824a8fe4fee4a0369
+    hash: f657f6f93b7b6264bdb65cdf6b4c062d813c54bb7aa459f46f9db5a1b6767a02
     triple_count: 100
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 933d0b148b4fde4e74d16ae7dd2eac262bce3124
+  source_commit: 889660fc92db3d88633f75f71c1cc443bef87f6e
 policy:
   pii_fields: {}
   tenant_boundary: null

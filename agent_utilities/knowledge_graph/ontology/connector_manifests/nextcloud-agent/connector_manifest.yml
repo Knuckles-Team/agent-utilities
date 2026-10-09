@@ -40,9 +40,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events:
 - name: nextcloud-files.updated
   resource: file
@@ -114,20 +128,20 @@ sync:
     doc_type: file
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-10-09T08:32:05Z'
   source_artifacts:
   - nextcloud_agent/connectors/mcp_source_presets.json
   - nextcloud_agent/connectors/tool_schema_fingerprints.json
   - nextcloud_agent/ontology/nextcloud.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: 30081b8f0455a3b2034e8242f40f194740a754ee0158da009da9dbc3a42fcc3a
+    hash: 10b63cd466cdce459b4737c2f5a3794cd27879984f6713eeb2eb3a9c2db1673a
     triple_count: 46
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 91bb6b7ffeb4d2923fe4201393ebfd1ae9a1832b
+  source_commit: 92e52bb83d86069a5719f0b9b43abaadb563e027
 policy:
   pii_fields: {}
   tenant_boundary: null

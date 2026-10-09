@@ -80,9 +80,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events: []
 identity:
   id_field:
@@ -429,20 +443,20 @@ sync:
     doc_type: sensor-telemetry
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-10-09T08:31:40Z'
   source_artifacts:
   - fan_manager/connectors/mcp_source_presets.json
   - fan_manager/connectors/tool_schema_fingerprints.json
   - fan_manager/ontology/fan.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: 7c0bb24ceb08d96ec34912b310ab213e03be01ec554d38d90343b8ae2c1d4863
+    hash: 3c887b668f2590ec881359e62c226ce386f70b5b519ecb306a5eda1ea7179925
     triple_count: 143
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 3f17c6d2fad99797a41367751f840089c715136e
+  source_commit: b726413efddfe1d9604836037f99ea8820b03a09
 policy:
   pii_fields: {}
   tenant_boundary: null

@@ -551,20 +551,20 @@ sync:
     params_style: args
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-09-28T00:00:00Z'
+  generated_at: '2026-10-09T08:32:37Z'
   source_artifacts:
   - world_reference_mcp/connectors/mcp_source_presets.json
   - world_reference_mcp/connectors/tool_schema_fingerprints.json
   - world_reference_mcp/ontology/world_reference.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: d659f7c03cd4177e28c37f661cdb2051d57f72c320ce686d90b0f131248526aa
+    hash: 3eeba0b873c5675da11b7fde6a32eb7191520495cf7ef49cabbbe35f19f029e3
     triple_count: 11
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: fbf2e60349b62495a35d39743670449dc303f22e
+  source_commit: bbfb245e8e1a4f02af49a62478825ee410182962
 policy:
   pii_fields: {}
   tenant_boundary: null

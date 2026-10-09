@@ -48,9 +48,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events: []
 identity:
   id_field:
@@ -141,20 +155,20 @@ sync:
     doc_type: pdf_tool
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-10-09T08:32:27Z'
   source_artifacts:
   - stirlingpdf_agent/connectors/mcp_source_presets.json
   - stirlingpdf_agent/connectors/tool_schema_fingerprints.json
   - stirlingpdf_agent/ontology/stirlingpdf.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: c1d760ce65f0b63f92c9f0ac12c78be258154c6e4bca9eda7daee806db9ca564
+    hash: fb3dd52edcd1c8dd5790ad501dc0a52e5c24ded1c58816f24e5a221c1a90a39b
     triple_count: 71
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: f45ed179829ff2f72fc0b583107bf34d43c4fba5
+  source_commit: 3304bfc1fea240e8fc97072412e2c349d633ef43
 policy:
   pii_fields: {}
   tenant_boundary: null
