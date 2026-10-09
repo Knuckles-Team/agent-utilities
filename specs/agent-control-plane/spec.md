@@ -36,6 +36,8 @@ AU owns task mapping proposals, L3 agent-graph orchestration, L4 `HarnessPort`/`
 | AC-11 | Compose one structured task plan from EG assembly, the EG topology decision, capability search, guardrails and workflow lookup. Cite provenance per element. Name every missing port as a gap. | AU-CONTROL-R027 | `tests/unit/decide/test_task_planner.py` |
 | AC-12 | Route a bare planning `ask` to the task planner. Keep a hinted `ask` on its declared route. | AU-CONTROL-R028 | `tests/unit/knowledge_graph/test_virtual_graph.py` routing cases |
 | AC-13 | Select sources for a cross-source question by ontology. Join live rows over approved virtual mappings. Copy no entity row. | AU-CONTROL-R029, AU-CONTROL-R030 | `tests/unit/knowledge_graph/test_virtual_graph.py` |
+| AC-14 | Rank fleet tools with native capabilities in `find`. Call a fleet tool through `act` by its server and tool id. | AU-CONTROL-R031, AU-CONTROL-R032 | `tests/unit/test_intent_fleet_ranking_and_ties.py` |
+| AC-15 | Run the declared default on a read-only action tie. Send an unmatched `ask` to the NL planner. | AU-CONTROL-R033, AU-CONTROL-R034 | `tests/unit/test_intent_fleet_ranking_and_ties.py` |
 
 ## Completion measure
 
