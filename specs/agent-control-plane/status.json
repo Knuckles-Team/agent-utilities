@@ -34,14 +34,14 @@
     "AU-CONTROL-R029",
     "AU-CONTROL-R030"
   ],
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
   "evidence": [],
   "requirements": [
     {
       "id": "AU-CONTROL-R001",
       "title": "Layered agent execution stack from task mapping to harness run",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -49,13 +49,20 @@
           "commit": "074b6443592e7b27ebfaefa679b270df4d6647bc",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/074b6443592e7b27ebfaefa679b270df4d6647bc",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R001 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTROL-R002",
       "title": "Component routing through one committed graph-engine decision",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -63,13 +70,20 @@
           "commit": "ff388c1a3b8347b72c10dac79e2223de47c07445",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ff388c1a3b8347b72c10dac79e2223de47c07445",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R002 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTROL-R003",
       "title": "Agent graph composition via epistemic-graph assembly, not an LLM",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -77,13 +91,20 @@
           "commit": "2bcab8213e82de2b2b023c0f3d0e3d2d7ffecb79",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2bcab8213e82de2b2b023c0f3d0e3d2d7ffecb79",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R003 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTROL-R004",
       "title": "Abstention escalations re-enter as labelled claims, not proofs",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -91,13 +112,20 @@
           "commit": "2bcab8213e82de2b2b023c0f3d0e3d2d7ffecb79",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2bcab8213e82de2b2b023c0f3d0e3d2d7ffecb79",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R004 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTROL-R005",
       "title": "Advisory pre-tool risk scoring",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -105,13 +133,20 @@
           "commit": "904e3a6b3a1d5e208dd4b115430368b6e9ded613",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/904e3a6b3a1d5e208dd4b115430368b6e9ded613",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R005 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTROL-R006",
       "title": "Cost-aware routing informed by usage accounting",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -119,13 +154,20 @@
           "commit": "ff388c1a3b8347b72c10dac79e2223de47c07445",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ff388c1a3b8347b72c10dac79e2223de47c07445",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R006 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTROL-R007",
       "title": "Swarm topology selection routed through Decide",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -133,13 +175,20 @@
           "commit": "33b229be7445c52018c7ca120912f5b88a930958",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/33b229be7445c52018c7ca120912f5b88a930958",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R007 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTROL-R008",
       "title": "Free-text task mapping accepted only as a labelled claim",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -147,13 +196,20 @@
           "commit": "53b3439b9e11105333034bce1009f8e48561b67d",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/53b3439b9e11105333034bce1009f8e48561b67d",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R008 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTROL-R009",
       "title": "Swarm topology ontology and schema publication",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -161,13 +217,20 @@
           "commit": "8c811791bfe11fd0479bf065bcea5aa0b439615f",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/8c811791bfe11fd0479bf065bcea5aa0b439615f",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R009 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTROL-R010",
       "title": "Reference swarm topology templates",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -175,13 +238,20 @@
           "commit": "8c811791bfe11fd0479bf065bcea5aa0b439615f",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/8c811791bfe11fd0479bf065bcea5aa0b439615f",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R010 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTROL-R011",
       "title": "Consume the generated topology contract via a pinned dependency",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -189,13 +259,20 @@
           "commit": "0e59e646e657ca31cba0623e685ee6461987b0cf",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/0e59e646e657ca31cba0623e685ee6461987b0cf",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R011 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTROL-R012",
       "title": "Agent-graph templates validated against topology shape at publish",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -203,13 +280,20 @@
           "commit": "bc14591ce6ab50de31750760148c7f3ee90aef29",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/bc14591ce6ab50de31750760148c7f3ee90aef29",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R012 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTROL-R013",
       "title": "Topology options filtered by admissibility derivation",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -217,13 +301,20 @@
           "commit": "22f19483c1ae4ad4cdb19520f300074bfade1633",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/22f19483c1ae4ad4cdb19520f300074bfade1633",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R013 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTROL-R014",
       "title": "No local topology solver, defer to the validated graph-engine model",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -231,13 +322,20 @@
           "commit": "22f19483c1ae4ad4cdb19520f300074bfade1633",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/22f19483c1ae4ad4cdb19520f300074bfade1633",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R014 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTROL-R015",
       "title": "Topology consumer asks the graph engine, not a local success store",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -245,13 +343,20 @@
           "commit": "22f19483c1ae4ad4cdb19520f300074bfade1633",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/22f19483c1ae4ad4cdb19520f300074bfade1633",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R015 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTROL-R016",
       "title": "Topology decisions respect capacity headroom at request priority",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -259,6 +364,13 @@
           "commit": "22f19483c1ae4ad4cdb19520f300074bfade1633",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/22f19483c1ae4ad4cdb19520f300074bfade1633",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R016 merged to the default branch in this commit."
         }
       ]
     },
@@ -285,7 +397,7 @@
     {
       "id": "AU-CONTROL-R019",
       "title": "Swarm continuation restricted to narrow-only decisions",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -293,13 +405,20 @@
           "commit": "34ab30db2e7f7f3ee6205971a24d45643b7cc8b8",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/34ab30db2e7f7f3ee6205971a24d45643b7cc8b8",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R019 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTROL-R020",
       "title": "Learned topology routing term with a benchmark gold set",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -307,6 +426,13 @@
           "commit": "bf471cebd77a5c946acd6de99ae4e7f305cbb3c4",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/bf471cebd77a5c946acd6de99ae4e7f305cbb3c4",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R020 merged to the default branch in this commit."
         }
       ]
     },
@@ -327,7 +453,7 @@
     {
       "id": "AU-CONTROL-R022",
       "title": "Model selection routed through the committed decision, not ad hoc",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -335,6 +461,13 @@
           "commit": "ff388c1a3b8347b72c10dac79e2223de47c07445",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ff388c1a3b8347b72c10dac79e2223de47c07445",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+          "description": "AU-CONTROL-R022 merged to the default branch in this commit."
         }
       ]
     },
