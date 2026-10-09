@@ -7,6 +7,7 @@
     "AU-HARNESS-R002",
     "AU-HARNESS-R003",
     "AU-HARNESS-R004",
+    "AU-HARNESS-R004.1",
     "AU-HARNESS-R005",
     "AU-HARNESS-R006",
     "AU-HARNESS-R007",
@@ -86,6 +87,13 @@
       "id": "AU-HARNESS-R004",
       "title": "AU proposes corrections through the graph, never writes Git directly",
       "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "split_into": ["AU-HARNESS-R004.1"]
+    },
+    {
+      "id": "AU-HARNESS-R004.1",
+      "title": "Typed correction-proposal model",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
