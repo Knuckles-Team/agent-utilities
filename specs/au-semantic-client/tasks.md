@@ -17,5 +17,9 @@
 - [ ] Re-home the unlanded schema-drift package so its drift gate runs inside the SDK connector-sync runner between drain and apply, with SHACL rendering, the contract store and activation moving to EG. Closes AU-SEMANTIC-R026.
 - [ ] Require every capability-gap determination to search EG's own public surface (method catalog, generated contract, documentation) under EG's own naming before concluding a capability is missing, and make the configured embedding dimension validate against the deployed model's actual output size across the PostgreSQL/AGE/Neo4j backends and schema/ontology modules that size vector columns from it. Closes AU-SEMANTIC-R027, AU-SEMANTIC-R028.
 - [ ] Run the generated-client conformance suite, positive/negative served tests, the old-caller closure census, and CCCC, jscpd, Dupehound, KISS, Ruff/mypy and full quality gates; record exact merged-head evidence in `evidence.md` before any requirement is marked accepted.
+- [ ] **AU-SEMANTIC-R021.1:** AU's hand-written RDF/OWL/SHACL emitters move behind EG pack compilation — core/ontology_publisher.py slice of `AU-SEMANTIC-R021`.
+- [ ] **AU-SEMANTIC-R021.2:** AU's hand-written RDF/OWL/SHACL emitters move behind EG pack compilation — extraction/schema_discovery.py slice of `AU-SEMANTIC-R021`.
+- [ ] **AU-SEMANTIC-R021.3:** AU's hand-written RDF/OWL/SHACL emitters move behind EG pack compilation — ontology/value_types.py slice of `AU-SEMANTIC-R021`.
+- [ ] **AU-SEMANTIC-R021.4:** AU's hand-written RDF/OWL/SHACL emitters move behind EG pack compilation — scripts/scaffold_ontology_leg.py slice of `AU-SEMANTIC-R021`.
 
 The task owner records a separate verdict per ID even when multiple IDs share a PR.
