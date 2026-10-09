@@ -97,7 +97,7 @@
     {
       "id": "AU-HARNESS-R006",
       "title": "Statistical scoring head ranks work-market offers",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -105,6 +105,13 @@
           "commit": "bf471cebd77a5c946acd6de99ae4e7f305cbb3c4",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/bf471cebd77a5c946acd6de99ae4e7f305cbb3c4",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c0e12b7034f34c90cb067327a8e9778f03aa8d45",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c0e12b7034f34c90cb067327a8e9778f03aa8d45",
+          "description": "AU-HARNESS-R006 merged to the default branch in this commit."
         }
       ]
     },
