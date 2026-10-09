@@ -33,12 +33,16 @@
     "AU-BOUNDARY-R028",
     "AU-BOUNDARY-R028.1",
     "AU-BOUNDARY-R028.2",
+    "AU-BOUNDARY-R028.2.1",
     "AU-BOUNDARY-R028.3",
     "AU-BOUNDARY-R028.4",
     "AU-BOUNDARY-R028.5",
     "AU-BOUNDARY-R028.6",
+    "AU-BOUNDARY-R028.6.1",
     "AU-BOUNDARY-R028.7",
+    "AU-BOUNDARY-R028.7.1",
     "AU-BOUNDARY-R028.8",
+    "AU-BOUNDARY-R028.8.1",
     "AU-BOUNDARY-R029",
     "AU-BOUNDARY-R030",
     "AU-BOUNDARY-R031",
@@ -403,6 +407,12 @@
       "evidence": []
     },
     {
+      "id": "AU-BOUNDARY-R028.2.1",
+      "title": "Pin the kg/infra production-importer set.",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
       "id": "AU-BOUNDARY-R028.3",
       "title": "Retire kg/quantum/{budget,__init__}.py and observability/quantum_trace.py",
       "delivery_state": "LANDED",
@@ -451,14 +461,32 @@
       "evidence": []
     },
     {
+      "id": "AU-BOUNDARY-R028.6.1",
+      "title": "Pin the observability/{trace_ontology,self_ingest,audit_logger} production-importer set.",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
       "id": "AU-BOUNDARY-R028.7",
       "title": "Retire governance/relational_authority.py and .json",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },
     {
+      "id": "AU-BOUNDARY-R028.7.1",
+      "title": "Pin the governance/relational_authority importer set.",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
       "id": "AU-BOUNDARY-R028.8",
       "title": "Retire kg/research/placement_mining.py",
+      "delivery_state": "SPECIFIED",
+      "evidence": []
+    },
+    {
+      "id": "AU-BOUNDARY-R028.8.1",
+      "title": "Pin the kg/research/placement_mining production-importer set.",
       "delivery_state": "SPECIFIED",
       "evidence": []
     },
