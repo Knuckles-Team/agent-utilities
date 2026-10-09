@@ -601,7 +601,6 @@ def test_native_apply_commits_all_authority_rows_in_one_request() -> None:
     native = compute.client.changes.applied[0]
     mutation = native["mutation"]
     assert native["schema_version"] == 1
-    assert mutation["schema_version"] == 2
     assert mutation["expected_graph_version"] == 0
     assert mutation["placement_epoch"] == 3
     assert mutation["fencing_token"] == 8
@@ -611,6 +610,60 @@ def test_native_apply_commits_all_authority_rows_in_one_request() -> None:
     assert native["policies"] and native["lineage"] and native["cursor"]
     assert native["privacy"]["sanitized_payload_digest"]
     assert compute.client.nodes.values["object-1"]["tenant_id"] == "fixture-tenant"
+
+
+@pytest.mark.spec("AU-INTEGRATION-R023")
+def test_native_mutation_carries_only_engine_allowed_fields() -> None:
+    """The ``changes.apply`` mutation draft is a subset of the engine's closed
+    mutation contract: tenant, context and timing are minted by the engine
+    from the verified session, never drafted into the mutation by AU.
+
+    The required/optional field names below mirror
+    ``epistemic_graph.client._CHANGE_MUTATION_REQUIRED`` /
+    ``_CHANGE_MUTATION_OPTIONAL`` as of EG commit e77de58d5, which dropped
+    ``schema_version``/``context``/``tenant``/``created_at_ms`` from the
+    mutation contract (the engine now mints them from the verified session).
+    They are hardcoded, not imported, because this repo's locked
+    epistemic-graph dependency in the test environment still resolves to a
+    pre-e77de58d5 release whose constants still include those four fields —
+    importing them here would silently re-validate against the stale
+    contract this test exists to catch AU drifting from. Keep this literal in
+    sync with EG's current ``epistemic_graph/client.py``, not with whatever
+    epistemic-graph happens to be installed locally.
+    """
+    from epistemic_graph.client import _closed_mapping
+
+    required = frozenset({"batch_id", "graph", "idempotency_key", "operations", "outbox"})
+    optional = frozenset({"placement_epoch", "expected_graph_version", "fencing_token"})
+
+    compute = _Compute("graph-native-contract")
+    envelope = _envelope(
+        typed_payload={
+            "id": "object-contract",
+            "type": "FixtureRecord",
+            "name": "Contract record",
+        }
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    native = compute.client.changes.applied[0]
+    mutation = native["mutation"]
+
+    assert set(mutation) <= (required | optional)
+    assert set(mutation) >= required
+    for leaked in ("schema_version", "context", "tenant", "created_at_ms"):
+        assert leaked not in mutation
+
+    # Run epistemic-graph's own generic closed-mapping validator offline —
+    # the same helper ``_canonical`` calls as ``_closed_mapping("mutation",
+    # ...)`` in the real client — against the current (not the installed,
+    # possibly stale) required/optional sets, so this raises the production
+    # "mutation contains unsupported fields" ValueError the moment an extra
+    # key reappears in AU's draft.
+    validated = _closed_mapping("mutation", mutation, required, optional)
+    assert validated == mutation
 
 
 def test_native_material_preserves_exact_blob_and_structured_evidence() -> None:
