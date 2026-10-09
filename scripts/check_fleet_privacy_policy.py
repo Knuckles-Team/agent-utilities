@@ -66,10 +66,6 @@ _RULE_DEFINITION_PATHS: dict[str, frozenset[str]] = {
     # canonical path; endpoint, key, path, and deployment-specific identifier
     # checks still apply to the scanner source itself.
     "credential_token_material": frozenset({"scripts/security_sanitizer.py"}),
-    # This protocol checker defines the local-path rejection expression used by
-    # its own static gate. Exempt only that definition from the matching rule;
-    # every other privacy rule still scans the file.
-    "local_user_path": frozenset({"scripts/check_epistemic_operations_protocol.py"}),
 }
 _INTERNAL_ENDPOINT_PATTERN = re.compile(
     r"https?://(?!host\.docker\.internal(?:[/:]|$))[^\s\"'<>]*"

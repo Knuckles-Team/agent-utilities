@@ -1,84 +1,37 @@
-# Epistemic Operations Protocol
+# Epistemic Operations Protocol (retired)
 
-The Epistemic Operations Protocol is the current, language-neutral contract
-between agent-utilities and epistemic-graph. It replaces parallel ad hoc
-envelopes with twelve strict JSON Schemas and generated Python/Rust projections.
+The Epistemic Operations Protocol was a second, Python-side projection of
+durable graph state: twelve strict JSON Schemas plus generated Python/Rust
+DTOs, shipped from `agent_utilities.protocols.epistemic_operations` alongside
+the engine's own generated client.
 
-The authoritative catalog ships inside `agent_utilities.protocols.epistemic_operations`.
-It is available in installed wheels as package data; deployments do not need a
-schema service, a source-specific profile, or an additional protocol package.
-Consumers use `load_catalog()` for discovery and `load_schema(name)` for a
-catalog-bounded schema lookup; an undeclared name fails closed.
+Retiring the second projection deleted the catalog, the generator
+(`scripts/check_epistemic_operations_protocol.py`), and every generated DTO
+that had a direct equivalent in the engine's own generated client
+(`epistemic_graph.generated.models`): `RequestContext`, `MutationBatch`,
+`ChangeEnvelope`, `WorkItem`, `Artifact`, `KnowledgeBatch`, `AnalyticsJob`,
+`TraceOutcome`, `ClaimWorkItem`, `EvidenceBundle`, the
+`ResourceReservation*`/`ResourceHostUpdate*` families, and the
+`DevelopmentLane*` operation request/result types. Every caller that used one
+of these now imports `epistemic_graph.generated.models` directly, so the
+engine client is the sole Python-side graph projection.
 
-## Contract
+## What remains
 
-| Schema | Purpose |
-| --- | --- |
-| `RequestContext` | Checked subject, tenant, scopes, policy, graph, placement epoch, and trace authority. |
-| `MutationBatch` | Ordered, idempotent mutations committed under one checked context. |
-| `ChangeEnvelope` | Governed source change with ACL, temporal, checkpoint, lineage, and replay identity. |
-| `WorkItem` | Durable dependency, lease, retry, and artifact state for delegated work. |
-| `Artifact` | Content-addressed multimodal material and modality-neutral loci. |
-| `KnowledgeBatch` | Bounded, cursor-aware result currency for every query modality. |
-| `AnalyticsJob` | Durable asynchronous analytics state, algorithm lineage, checkpoint, and results. |
-| `TraceOutcome` | Content-free observability and evolution feedback. |
-| `PlacementRoute` | Authoritative, fenced placement request/result without deployment endpoints. |
-| `ClaimWorkItem` | Atomic lease request/result for the sole eight-state WorkItem lifecycle. |
-| `EvidenceBundle` | Content-free claims, bitemporal evidence references, contradictions, proofs, and policy labels. |
-| `OperationResult` | Shared success, failure, and placement-redirect envelope with stable error codes. |
+`agent_utilities.protocols.epistemic_operations` still exports a handful of
+hand-written types that are not a second graph projection — each adds
+behavior the engine client does not provide, or deliberately narrows a wire
+shape the engine client exposes more broadly, and each still has a caller in
+retained Agent Utilities code:
 
-All twelve schemas use JSON Schema draft 2020-12, require every declared field,
-and reject unknown fields. Catalog version `1` carries the already-cut-over
-`RequestContext` schema version `2` and version `1` of the other eleven schemas,
-matching the exact release matrix. Its compatibility policy is `current-only`.
-A contract change updates every consumer atomically; it does not add a second
-model, deprecated alias, fallback reader, or dual-version branch.
+| Type | Why it stays | Caller |
+| --- | --- | --- |
+| `ProtocolModel` | A reusable fail-closed Pydantic base (`extra="forbid", frozen=True, strict=True`); the engine client inlines its own `model_config` per class instead of exporting a shared base. | `data_prep/**`, `orchestration/resource_pool_authority.py`, `orchestration/service_scale_units.py` |
+| `OperationResult` / `OperationError` / `OperationRedirect` | AU's own generic success/failure/placement-redirect envelope for public REST/MCP/streaming surfaces; the engine client returns a typed result per method instead of one generic envelope. | `security/error_surface.py` |
+| `PlacementRoute` | A narrower, `extra="forbid"` view that deliberately rejects the engine client's additive `endpoints` field (see `knowledge_graph/core/placement_catalog.py`'s `_validate_answer` docstring). | `knowledge_graph/core/placement_catalog.py` |
+| `DevelopmentLaneCleanupIntent` | A small internal intent value with no matching request/result shape in the engine client. | `orchestration/repository_work_item.py` |
 
-## Source and projection flow
-
-```mermaid
-flowchart LR
-    Catalog[Packaged v1 JSON Schema catalog] --> Gate[Deterministic parity gate]
-    Gate --> Py[Generated strict Pydantic DTOs]
-    Gate --> Manifest[Digest + ordered-field manifest]
-    Gate --> Rust[Generated strict serde DTOs in eg-types]
-    Gate --> CI[AU self-check + workspace cross-repo check]
-    Rust --> EGCI[Engine standalone manifest check]
-```
-
-`scripts/check_epistemic_operations_protocol.py` canonicalizes each schema,
-computes its SHA-256 digest, derives the catalog digest, extracts every bound
-object, and compares ordered fields against both implementations. It also
-rejects duplicate JSON keys, references outside the catalog, unmarked dynamic
-maps, forbidden environment/credential/personal fields, and local-path
-markers. The engine keeps a generated manifest so its own source-only CI can
-detect serde drift without importing agent-utilities or compiling a binary.
-
-The generator writes the importable Pydantic DTOs and the serde enums/structs;
-the checked-in language projections are outputs, not parallel handwritten
-authorities. Placement, WorkItem claiming, provenance evidence, and structured
-redirect/error paths consume these projections directly.
-
-Run the full workspace proof from agent-utilities:
-
-```bash
-python3 scripts/check_epistemic_operations_protocol.py \
-  --epistemic-graph-root ../epistemic-graph
-```
-
-An isolated agent-utilities CI checkout uses `--self-only`. After an intentional
-schema change, regenerate projections with `--write`, review both repository
-diffs, and run the full cross-repository check before merging.
-
-## Privacy and deployment neutrality
-
-The protocol control plane stores opaque identifiers and governed or
-content-addressed references. It deliberately has no credential, token,
-password, endpoint, CA-bundle path, personal name, email, or local filesystem
-path field. Artifact bodies and diagnostic details remain behind governed
-references; `TraceOutcome` contains metrics, status, codes, and artifact refs,
-not prompts or responses.
-
-Connection URLs, trust material, authentication secrets, and connector schema
-discovery remain external configuration resolved by `AgentConfig`. None are
-compiled into this catalog or either language projection.
+None of these carry a network call, a schema catalog, or a generator; they are
+plain, hand-maintained types. A follow-up requirement can retire each
+individually once its caller moves or the engine client grows a direct
+equivalent.

@@ -949,6 +949,37 @@ def _changed_source_files(repo_path: str, since_sha: str) -> list[Path] | None:
     return out
 
 
+def _deleted_source_files(repo_path: str, since_sha: str) -> list[str] | None:
+    """Logical identities of source files deleted since ``since_sha``, or
+    ``None`` if git can't answer (caller falls back to a full walk, which
+    naturally reaps every stale node by never re-writing it).
+
+    ``detect_stale_files``' ``file_path`` for a git-diff entry is already the
+    repository-relative POSIX path (AU-RETIRE-R006) -- the same identity
+    :func:`~agent_utilities.knowledge_graph.enrichment.pipeline.logical_file_identity`
+    stamps as every ``Code``/``Test`` node's ``file_path`` property, so it is
+    used to match and reap those nodes directly, with no path recomputation.
+    """
+    from ..core.fingerprint import detect_stale_files
+    from ..enrichment.pipeline import SOURCE_EXTENSIONS
+
+    try:
+        changes = detect_stale_files(repo_path, since_commit=since_sha)
+    except Exception:  # noqa: BLE001 — any git failure → full walk, no reap here
+        return None
+    out: list[str] = []
+    for ch in changes:
+        if ch.get("status") != "deleted":
+            continue
+        fp = str(ch.get("file_path") or "")
+        if not fp or Path(fp).suffix.lower() not in SOURCE_EXTENSIONS:
+            continue
+        if any(part in _SKIP_DIRS for part in Path(fp).parts):
+            continue
+        out.append(fp)
+    return out
+
+
 def _deepcopy_safe_metadata(value: Any) -> Any:
     """Recursively reduce ``value`` to something ``copy.deepcopy`` can handle.
 
@@ -2373,9 +2404,11 @@ class IngestionEngine:
             )
             head_sha = _git_head_sha(source_path)
             with _pstage("enumerate"):
-                changed_files, prior_sha = self._structural_delta_files(
+                changed_files, deleted_files, prior_sha = self._structural_delta_files(
                     source_path, write_graph, head_sha, explicit
                 )
+            with _pstage("reap_deleted"):
+                self._reap_deleted_files(backend, deleted_files)
             summary = self._run_enrichment_pipeline(
                 pipe, source_path, changed_files, prior_sha, community
             )
@@ -2504,8 +2537,9 @@ class IngestionEngine:
         write_graph: str,
         head_sha: str | None,
         explicit: Any,
-    ) -> tuple[list[Path] | None, str | None]:
-        """``(files to enrich or None for a full walk, prior HEAD sha)``.
+    ) -> tuple[list[Path] | None, list[str], str | None]:
+        """``(files to enrich or None for a full walk, deleted files' logical
+        identities, prior HEAD sha)``.
 
         Git-aware delta (CONCEPT:AU-KG.ingest.capability-writeback): when the
         source is a git work-tree we already ingested at a prior HEAD, ask ``git
@@ -2514,22 +2548,54 @@ class IngestionEngine:
         turns thousands of stat/read/hash ops into a single ``git diff`` plus a
         handful of parses. First ingest (no prior sha), a non-git path, or any
         git failure falls back to the full walk (``None``); the per-file
-        content_hash skip still guards correctness either way.
+        content_hash skip still guards correctness either way. The full-walk
+        path never names deleted files explicitly (``[]``) because it never
+        re-writes the stale ones' nodes either, so there is nothing to reap.
         """
         prior_sha = (
             self._prior_ingest_sha(write_graph, source_path) if head_sha else None
         )
         subset = _explicit_file_subset(explicit)
         if subset:
-            return subset, prior_sha
+            return subset, [], prior_sha
         if (
             head_sha
             and prior_sha
             and prior_sha != head_sha
             and _git_worktree_clean(source_path)
         ):
-            return _changed_source_files(source_path, prior_sha), prior_sha
-        return None, prior_sha
+            deleted = _deleted_source_files(source_path, prior_sha) or []
+            return _changed_source_files(source_path, prior_sha), deleted, prior_sha
+        return None, [], prior_sha
+
+    @staticmethod
+    def _reap_deleted_files(backend: Any, deleted_files: list[str]) -> None:
+        """Retract every node of a file the delta diff names as deleted.
+
+        AU-RETIRE-R006: a deleted file must leave no stale ``Code``/``Test``
+        node behind. Matches by the exact same ``file_path`` property
+        :func:`~agent_utilities.knowledge_graph.enrichment.pipeline.logical_file_identity`
+        stamps on every node written for that file, and retracts through the
+        same ``DETACH DELETE`` query
+        :meth:`~agent_utilities.knowledge_graph.core.engine.KnowledgeGraph.delete_node`
+        uses — applied directly to this ingest's already-routed write
+        ``backend``, exactly like the sibling ``add_node``/``add_edge`` calls
+        in this same structural-ingest path. Best-effort per file: one
+        backend failure never blocks reaping the rest.
+        """
+        for fp in deleted_files:
+            try:
+                backend.execute(
+                    "MATCH (n) WHERE n.file_path = $fp DETACH DELETE n",
+                    {"fp": fp},
+                )
+            except Exception as exc:  # noqa: BLE001 — best-effort reap; a failure here never blocks the ingest of files that still exist, but it is never silent: the cause is logged below
+                logger.warning(
+                    "[AU-RETIRE-R006] failed to reap nodes for deleted file %s: %s",
+                    fp,
+                    exc,
+                    exc_info=True,
+                )
 
     def _prior_ingest_sha(self, write_graph: str, source_path: str) -> str | None:
         """The HEAD sha this repo was last structurally ingested at, if any.

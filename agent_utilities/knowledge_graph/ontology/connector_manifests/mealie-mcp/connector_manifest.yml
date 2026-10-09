@@ -92,9 +92,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events:
 - name: mealie-recipes.updated
   resource: recipe
@@ -259,20 +273,20 @@ sync:
     doc_type: recipe
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-10-09T08:32:02Z'
   source_artifacts:
   - mealie_mcp/connectors/mcp_source_presets.json
   - mealie_mcp/connectors/tool_schema_fingerprints.json
   - mealie_mcp/ontology/mealie.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: 9695afa4dfd82c893af66b106002052e5214914f524532b605d822bf7bfec505
+    hash: b91991d4ba95e0c5e5c24b79f1c4404960dfd40efe0aefd9e602171839a4415c
     triple_count: 102
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: de54e2700eb45ebc0031a565d2d741b8685c12a3
+  source_commit: ea824626c7f78d8e5fd9196436d16bc708265b5d
 policy:
   pii_fields: {}
   tenant_boundary: null

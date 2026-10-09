@@ -4,7 +4,7 @@
 |---|---|---|
 | Q1 | 01/07 | Locked setup and fresh clone workflow install all tools and test dependencies without private network. |
 | Q2 | 02 | `tiny` gateway/identity status and bootstrap test patch targets are corrected; served deny/success tests pass. |
-| Q3 | 03 | AU validation consumes engine `GraphSchema`; old shapes authority removed; drift contracts pass. |
+| Q3 | 03 | [x] AU validation consumes engine `GraphSchema`; old shapes authority removed; drift contracts pass. |
 | Q4 | 04 | Every named failure group has a causal fix and deterministic passing test. One group fixed: registry catalog count-scope xdist identity bug (test_registry_catalog_count_scope.py), reproduced with `GRAPH_SERVICE_ENDPOINTS=tcp://127.0.0.1:1` and confirmed clean. Remaining named groups (placement mining, trace miner, claim flywheel, ingestion, observability, widget, assimilation benchmark) still open. |
 | Q5 | 05 | All test directories pass mypy; exclusion removed; no compensating blanket suppressions. |
 | Q6 | 06/07 | Liveness checks execute on PR and daily schedule; docs deploy blocker removed; Pages publication independently observable. |

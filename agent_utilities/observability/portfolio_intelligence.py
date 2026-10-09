@@ -833,11 +833,11 @@ def validate_verdict_shape(
 
 
 def _validate_verdict_graph(engine: Any, graph: Any) -> dict[str, Any]:
-    graph_compute = getattr(engine, "graph_compute", engine)
-    if not hasattr(graph_compute, "shacl_validate_committed"):
-        raise RuntimeError("committed EG SHACL authority is unavailable")
-    data = graph.serialize(format="turtle")
-    report = graph_compute.shacl_validate_committed(str(data))
+    from agent_utilities.knowledge_graph.core.committed_shacl import (
+        validate_committed,
+    )
+
+    report = validate_committed(engine, str(graph.serialize(format="turtle")))
     return {
         "conforms": bool(report.conforms),
         "violations": [item.model_dump(mode="json") for item in report.results],

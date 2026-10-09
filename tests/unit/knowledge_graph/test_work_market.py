@@ -46,6 +46,40 @@ def _view(market: FakeWorkMarket, tenant: str = "fleet-autonomy") -> dict:
     return market.gaps.get(tenant=tenant, gap_id="gap:failure:timeout")
 
 
+#: Two swarm-topology plans the statistical scorer must price differently
+#: (AU-HARNESS-R006): one slot, few tokens versus a wider, costlier slate.
+_CHEAP_PLAN = {"slots": [{"tokens": 100, "width": 1, "rounds": 1}], "lease": {}}
+_EXPENSIVE_PLAN = {
+    "slots": [{"tokens": 10_000, "width": 4, "rounds": 2}],
+    "lease": {},
+}
+
+
+def _attach_topology_plan(
+    market: FakeWorkMarket, tenant: str, gap_id: str, plan: dict
+) -> None:
+    """Test-only: ride a topology plan in as one evidence item.
+
+    There is no production entry point yet for attaching a plan to a Gap's
+    evidence (that is a future Decide-side requirement); this mirrors exactly
+    what ``FakeWorkMarket._record`` already does for every other evidence
+    kind, plus the ``plan`` payload ``work_market._topology_plan`` reads.
+    """
+    gap = market.gap_rows[(tenant, gap_id)]
+    gap["evidence"].append(
+        {
+            "digest": f"sha256:topology-plan:{gap_id}:{len(gap['evidence'])}",
+            "kind": "topology_plan",
+            "reference": "topology-plan",
+            "plan": plan,
+            "generation": gap["generation"],
+            "recorded_at_ms": market.now_ms,
+        }
+    )
+    gap["evidence_count"] += 1
+    market._store(tenant, gap)
+
+
 def test_a_signal_becomes_one_gap_with_its_claimable_work_item(engine, market):
     with verified_fleet_session():
         gap = _signal(engine, "trace:1")
@@ -162,3 +196,84 @@ def test_open_gaps_is_a_listing_not_a_ranking(engine, market):
             )
         listed = [g["id"] for g in gaps.open_gaps(engine)]
     assert listed == ["gap:audit:a-low", "gap:audit:b-high"], "EG key order, no AU sort"
+
+
+def test_a_topology_plans_own_cost_changes_the_priced_offer(engine, market):
+    """AU-HARNESS-R006: two same-source Gaps carrying differently priced
+    topology plans are no longer offered at the flat per-source cost -- the
+    statistical scorer's own declared plan cost drives the price, so the
+    cheaper plan's offer ranks ahead on EG's downstream utility rate."""
+    with verified_fleet_session():
+        cheap = gaps.submit_gap(
+            engine,
+            source=gaps.SOURCE_RUNTIME,
+            signature="cheap-plan",
+            statement="a narrow topology closes this",
+            severity=0.9,
+            evidence_refs=["trace:cheap"],
+        )
+        pricey = gaps.submit_gap(
+            engine,
+            source=gaps.SOURCE_RUNTIME,
+            signature="pricey-plan",
+            statement="a wide topology closes this",
+            severity=0.9,
+            evidence_refs=["trace:pricey"],
+        )
+        _attach_topology_plan(market, "fleet-autonomy", cheap["id"], _CHEAP_PLAN)
+        _attach_topology_plan(market, "fleet-autonomy", pricey["id"], _EXPENSIVE_PLAN)
+        work_market.price_gap(
+            engine, market.get(tenant="fleet-autonomy", gap_id=cheap["id"])
+        )
+        work_market.price_gap(
+            engine, market.get(tenant="fleet-autonomy", gap_id=pricey["id"])
+        )
+
+    cheap_offer = market.get(tenant="fleet-autonomy", gap_id=cheap["id"])["offer"]
+    pricey_offer = market.get(tenant="fleet-autonomy", gap_id=pricey["id"])["offer"]
+    assert cheap_offer["offer"]["expected_cost_microunits"] == 100_000
+    assert pricey_offer["offer"]["expected_cost_microunits"] == 10_000_000
+    assert cheap_offer["utility_rate"] > pricey_offer["utility_rate"], (
+        "the cheaper plan must rank ahead on EG's utility rate"
+    )
+
+
+def test_claim_refused_and_reprised_on_committed_plan_cost_drift(engine, market):
+    """AU-HARNESS-R006: a claim whose actually-committed plan cost drifted
+    past tolerance from the Gap's priced offer is refused -- never claimed at
+    a cost the offer never accounted for -- and the offer is re-priced."""
+    with verified_fleet_session():
+        gap = gaps.submit_gap(
+            engine,
+            source=gaps.SOURCE_RUNTIME,
+            signature="drift-plan",
+            statement="a topology plan later drifts",
+            severity=0.9,
+            evidence_refs=["trace:drift"],
+        )
+        _attach_topology_plan(market, "fleet-autonomy", gap["id"], _CHEAP_PLAN)
+        assert (
+            work_market.price_gap(
+                engine, market.get(tenant="fleet-autonomy", gap_id=gap["id"])
+            )
+            == "applied"
+        )
+        view = market.get(tenant="fleet-autonomy", gap_id=gap["id"])
+        offer_version_before = view["offer_version"]
+
+        claimed = work_market.claim_gap_work(
+            engine,
+            view,
+            worker="w-1",
+            now_ms=2_000,
+            committed_plan=_EXPENSIVE_PLAN,
+        )
+
+    assert claimed is None, "a drifted commit must be refused, not claimed"
+    assert market.items[view["work_item_id"]]["status"] == "ready", (
+        "the WorkItem lease must never be taken on refusal"
+    )
+    after = market.get(tenant="fleet-autonomy", gap_id=gap["id"])
+    assert after["offer_version"] > offer_version_before, (
+        "a refused drift must re-price the offer"
+    )

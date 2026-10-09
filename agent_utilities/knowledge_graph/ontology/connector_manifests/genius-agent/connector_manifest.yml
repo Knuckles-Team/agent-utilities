@@ -44,9 +44,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events:
 - name: genius-search-results.updated
   resource: SearchResult
@@ -146,20 +160,20 @@ sync:
     domain: genius
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-10-09T08:31:44Z'
   source_artifacts:
   - genius_agent/connectors/mcp_source_presets.json
   - genius_agent/connectors/tool_schema_fingerprints.json
   - genius_agent/ontology/genius.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: b1f9430d15488478142d9bfe5b40fdac5ad368e1d1aa3ec9b240ed479c26154a
+    hash: 47664ad7acdd2bb5a8983256d1635d4e3341b12d3caaeb34e39a1c63ba0204b7
     triple_count: 55
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: fe53af0b8bb8c25c27c98f6ebaed32ab083667ae
+  source_commit: d3a6aef45fbe4b43c481ad933fc1b13a8bff9a9e
 policy:
   pii_fields: {}
   tenant_boundary: null

@@ -72,9 +72,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events: []
 identity:
   id_field:
@@ -235,7 +249,7 @@ sync:
     doc_type: dashboard
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-10-09T08:31:58Z'
   source_artifacts:
   - lgtm_mcp/connectors/mcp_source_presets.json
   - lgtm_mcp/connectors/tool_schema_fingerprints.json
@@ -243,13 +257,13 @@ provenance:
   - lgtm_mcp/ontology/observability.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: 665de7f07f2c74ef87ac27e3d6f6bc285b3f82e1c50bfd2eb0fe0bee4b407787
+    hash: d9428eabe7b50ebb186919862256bef438f894530cff8e7e133468befe055d0b
     triple_count: 86
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: a88cc87f95d1b37685357b7c207b9bf1c89ba76e
+  source_commit: a96ba86612e020c91b9cb43704dc499f31598647
 policy:
   pii_fields: {}
   tenant_boundary: null

@@ -276,3 +276,50 @@ def test_native_refusal_omits_code_without_valid_contract(
     assert len(records) == 1
     assert records[0].levelname == "WARNING"
     assert cause in records[0].getMessage()
+
+
+@pytest.mark.parametrize(
+    "run_op",
+    [
+        lambda backend: backend.add_node(
+            "agent:x", "CallableResource", resource_type="AGENT_SKILL"
+        ),
+        lambda backend: backend.add_edge("agent:x", "agent:y", "RELATED"),
+        lambda backend: backend.apply_typed_batch(
+            [{"op": "upsert_node", "id": "agent:x", "properties": {}}]
+        ),
+    ],
+    ids=["add_node", "add_edge", "apply_typed_batch"],
+)
+def test_typed_batch_writes_annotate_clustered_mutation_refusal(run_op) -> None:
+    """AU-INTEGRATION-R001: a clustered local-only refusal survives every typed write.
+
+    ``add_node``, ``add_edge`` and ``apply_typed_batch`` (every typed
+    ``BatchUpdate`` path — AgentLibrary.save and every other structured
+    writer uses one of them) previously let the native refusal through
+    unannotated: unlike ``execute_write``, none of them validated the raw
+    ``code`` attribute into ``engine_error_code``, so the public error
+    boundary (``error_surface.public_error_payload``) could never report
+    which refusal fired. ``CLUSTER_MUTATION_UNAVAILABLE`` is the real wire
+    code behind epistemic-graph's ``LOCAL_ONLY_CLUSTER_REFUSAL``
+    (``src/server/mutation/plan.rs``) and is already declared in the
+    installed engine contract. All three now share one ``_run_batch_update``
+    helper that does this annotation once.
+    """
+    from agent_utilities.security.error_surface import public_error_payload
+
+    class ClusteredRefusal(RuntimeError):
+        def __init__(self, code: str) -> None:
+            self.code = code
+            super().__init__("mutation authority has no replicated ordering")
+
+    graph = MagicMock()
+    graph.batch_update.side_effect = ClusteredRefusal("CLUSTER_MUTATION_UNAVAILABLE")
+    backend = _backend(graph)
+
+    with pytest.raises(ClusteredRefusal) as caught:
+        run_op(backend)
+
+    assert caught.value.engine_error_code == "CLUSTER_MUTATION_UNAVAILABLE"
+    payload = public_error_payload(caught.value)
+    assert payload.get("engine_error_code") == "CLUSTER_MUTATION_UNAVAILABLE"

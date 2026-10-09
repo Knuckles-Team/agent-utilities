@@ -16,8 +16,15 @@ DOES with it, through the typed EG clients only (``engine.client.gaps`` /
   settle live Gaps whose WorkItem finished, cancel the never-run WorkItem of a
   closed Gap, price unpriced live Gaps. A sweep, not a heartbeat that invents work.
 
+A Gap whose evidence carries a swarm-topology plan (``kind="topology_plan"``,
+AU-HARNESS-R006) is priced from that plan's own declared cost through
+``decide.consumers.topology_learning.plan_expected_cost`` instead of the flat
+per-source prior, and :func:`claim_gap_work` refuses (and re-prices) a claim
+whose actually-committed plan drifted past tolerance from what was priced.
+
 Nothing here ranks, sorts or selects offers: ranking legal work is the ``Decide``
-layer's (design §3.1). Every clock is an argument, so a test replays exactly.
+layer's (design §3.1); this only prices one offer more accurately than a flat
+per-source number would. Every clock is an argument, so a test replays exactly.
 """
 
 from __future__ import annotations
@@ -52,6 +59,15 @@ _PRICING: dict[str, tuple[int, int, str]] = {
 }
 _DEFAULT_PRICING = (350_000, 60_000, "repository")
 
+#: Flat per-token/lease-unit rate for a topology-sourced Gap's declared cost
+#: (AU-HARNESS-R006) -- priced by the same one-rule-per-source convention as
+#: ``_PRICING`` above, not a live model-pricing lookup.
+_TOPOLOGY_MICROS_PER_TOKEN = 1_000
+_TOPOLOGY_MICROS_PER_LEASE_UNIT = 0
+#: Allowed drift between a topology Gap's priced offer and its actually
+#: committed plan's cost before a claim is refused and the offer re-priced.
+_TOPOLOGY_COST_TOLERANCE_PPM = 200_000
+
 
 def _namespace(engine: Any, name: str) -> Any:
     namespace = getattr(getattr(engine, "client", None), name, None)
@@ -60,14 +76,48 @@ def _namespace(engine: Any, name: str) -> Any:
     return namespace
 
 
+def _topology_plan(gap: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """The swarm-topology plan a Gap's evidence carries, if any.
+
+    A Gap stays a generic typed EG object; a topology plan rides as one
+    evidence item the same way a ``work_item_outcome`` already does above,
+    rather than a new Gap field.
+    """
+    for item in gap.get("evidence") or []:
+        if isinstance(item, Mapping) and item.get("kind") == "topology_plan":
+            plan = item.get("plan")
+            if isinstance(plan, Mapping):
+                return plan
+    return None
+
+
+def _topology_cost_microunits(plan: Mapping[str, Any]) -> int | None:
+    from agent_utilities.decide.consumers.topology_learning import plan_expected_cost
+
+    return plan_expected_cost(
+        plan,
+        micros_per_token=_TOPOLOGY_MICROS_PER_TOKEN,
+        micros_per_lease_unit=_TOPOLOGY_MICROS_PER_LEASE_UNIT,
+    )
+
+
 def offer_inputs(gap: Mapping[str, Any]) -> dict[str, Any]:
     """The deterministic ``WorkOffer`` inputs for a Gap view, from its own evidence.
 
-    Utility scales with severity; closure probability, cost and blast radius come
-    from the source prior; a Gap reopened after a failed attempt cools down from
-    the time EG recorded that outcome.
+    Utility scales with severity; closure probability and blast radius come
+    from the source prior. Expected cost comes from the same prior UNLESS the
+    Gap carries a topology plan, in which case the statistical scorer's own
+    declared plan cost (AU-HARNESS-R006) replaces the flat default -- so two
+    Gaps of the same source with differently priced plans are no longer
+    offered at the same cost. A Gap reopened after a failed attempt cools down
+    from the time EG recorded that outcome.
     """
     closure_ppm, cost, blast = _PRICING.get(str(gap.get("source")), _DEFAULT_PRICING)
+    plan = _topology_plan(gap)
+    if plan is not None:
+        priced = _topology_cost_microunits(plan)
+        if priced is not None:
+            cost = priced
     evidence = [e for e in gap.get("evidence") or [] if isinstance(e, Mapping)]
     outcomes = [
         int(e.get("recorded_at_ms") or 0)
@@ -108,6 +158,20 @@ def price_gap(engine: Any, gap: Mapping[str, Any]) -> str:
     return str(answer["outcome"])
 
 
+def _drifted_past_tolerance(
+    offer: Mapping[str, Any], committed_plan: Mapping[str, Any]
+) -> bool:
+    from agent_utilities.decide.consumers.topology_learning import claim_cost_drift
+
+    offered = (offer or {}).get("expected_cost_microunits")
+    if offered is None:
+        return False
+    committed = _topology_cost_microunits(committed_plan)
+    if committed is None:
+        return False
+    return claim_cost_drift(int(offered), committed, _TOPOLOGY_COST_TOLERANCE_PPM)
+
+
 def claim_gap_work(
     engine: Any,
     gap: Mapping[str, Any],
@@ -115,13 +179,25 @@ def claim_gap_work(
     worker: str,
     now_ms: int,
     lease_ms: int = 15 * 60 * 1000,
+    committed_plan: Mapping[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Claim ONE named Gap WorkItem through the native fenced claim, or ``None``.
 
     The item is named by the caller -- in production the committed ``Decide``
     decision that selected it; this module never picks one. A concurrent claimant
     of the same item gets ``None``: the engine admits exactly one lease.
+
+    ``committed_plan`` is the swarm-topology plan actually about to run, when
+    the caller has one (AU-HARNESS-R006). A commit whose declared cost drifted
+    past tolerance from the Gap's priced offer is refused here -- the offer is
+    re-priced from the Gap's current evidence and the claim never reaches the
+    engine at a cost the offer never accounted for.
     """
+    if committed_plan is not None:
+        offer = (gap.get("offer") or {}).get("offer") or {}
+        if _drifted_past_tolerance(offer, committed_plan):
+            price_gap(engine, gap)
+            return None
     answer = _namespace(engine, "work_items").claim(
         {
             "schema_version": "1",

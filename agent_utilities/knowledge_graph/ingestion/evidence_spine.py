@@ -8,11 +8,11 @@ CONCEPT:AU-KG.ingest.stable-fragment-address — the citable unit inside it.
 connector contract (source identity, revision, ACL/classification/retention,
 payload, bitemporal change events, provenance) and
 :func:`~..ingestion.envelope_ingest.ingest_graph_slice` already commits a
-multi-node slice atomically.  The engine's wire protocol even declares an
-``Artifact`` projection
-(:class:`agent_utilities.protocols.epistemic_operations.Artifact`: ``digest``,
-``content_ref``, ``segment_ids``, ``loci``) — but **nothing in Python ever
-constructed one**, and ``segment_ids`` had no Python type behind it at all.  And
+multi-node slice atomically.  AU once carried a second, Python-side ``Artifact``
+projection (``digest``, ``content_ref``, ``segment_ids``, ``loci``) alongside
+the engine's own generated client — but **nothing in Python ever constructed
+one**, so AU-BOUNDARY-R012 deleted it rather than re-pointing it; this module
+still has no artifact writer of its own.  And
 ``ontology/document_processing.py`` already chunks a document into ``Chunk``
 nodes, with ids of the form ``{doc}::chunk::{index}:{sha(text)[:12]}`` — an id
 that is *both* positional *and* content-hashed, so it breaks on an insert above
@@ -379,9 +379,10 @@ class Fragment:
     def to_locus(self) -> dict[str, Any]:
         """Render an engine ``ArtifactLocus``-shaped selector for this fragment.
 
-        Matches ``agent_utilities.protocols.epistemic_operations.ArtifactLocus``
-        (``kind`` / ``start`` / ``end`` / ``selector``) so a candidate claim can
-        cite this fragment as engine-native evidence without a second mapping.
+        Matches the ``kind`` / ``start`` / ``end`` / ``selector`` shape AU's
+        now-deleted ``ArtifactLocus`` projection used (AU-BOUNDARY-R012) so a
+        candidate claim can cite this fragment as engine-native evidence
+        without a second mapping.
         """
         return {
             "kind": self.locus_kind,

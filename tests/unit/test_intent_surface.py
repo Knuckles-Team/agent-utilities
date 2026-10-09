@@ -288,17 +288,13 @@ async def test_graph_code_mutations_are_denied_by_ask_and_reachable_via_act(
 
 
 @pytest.mark.asyncio
-async def test_ask_falls_back_to_nl_planner_for_structured_only_tools(monkeypatch):
+async def test_ask_falls_back_to_nl_planner_for_structured_only_tools(
+    monkeypatch, fake_nl_query
+):
     """A winning candidate with no free-text param and no caller hints falls back
     to nl_query (the engine's own NL planner) rather than dispatching a call
     that's missing required arguments."""
-    seen: dict = {}
-
-    async def fake_nl_query(text: str = "", **_kw) -> str:
-        seen["text"] = text
-        return json.dumps({"planned": True})
-
-    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "nl_query", fake_nl_query)
+    seen = fake_nl_query
 
     # graph_code_nav has no _PRIMARY_TEXT_PARAM entry and needs action+symbol —
     # an intent that strongly names it (via its own tool-name tokens) should
@@ -544,23 +540,64 @@ async def test_explicit_action_must_belong_to_selected_tool(monkeypatch):
 
 
 class _FakeMux:
-    """The multiplexer surface ``manage(action="fleet.load"/"fleet.unload")`` uses."""
+    """The multiplexer surface ``manage(action="fleet.load"/"fleet.unload")``
+    and ``act(action="fleet.call"/"<server>.<tool>")`` use."""
 
     _authority_scope = None
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        tool_to_server: dict[str, tuple[str, str]] | None = None,
+        known_prefixes: dict[str, str] | None = None,
+    ) -> None:
         self.calls: list[tuple[str, object]] = []
+        # prefixed_name -> (server_name, original_name) — mirrors the real
+        # MCPMultiplexer attribute _server_for_prefixed reads first.
+        self.tool_to_server = dict(tool_to_server or {})
+        # prefix -> server_name — mirrors the real _prefix_reverse fallback,
+        # which resolves a KNOWN SERVER even for a tool not yet mounted (an
+        # unknown TOOL under a known server still resolves to that server;
+        # the "tool is not registered" failure then surfaces later, from
+        # inside the real fleet.call path, exactly as it does today).
+        self.known_prefixes = dict(known_prefixes or {})
+        if not self.known_prefixes:
+            self.known_prefixes = {
+                server: server for server, _ in self.tool_to_server.values()
+            }
 
     def require_capability(self, kind: str) -> None:
         self.calls.append(("require", kind))
 
     async def resolve_and_mount(self, tools=None, servers=None):
         self.calls.append(("mount", (tools, servers)))
-        return ["github"], list(tools or []), {}
+        failed = {
+            name: "tool is not present in the fleet catalog"
+            for name in (tools or [])
+            if name not in self.tool_to_server
+        }
+        return ["github"], list(tools or []), failed
 
     def forget_tool(self, name: str):
         self.calls.append(("forget", name))
         return "github"
+
+    def _server_for_prefixed(self, prefixed_name: str) -> str | None:
+        mapping = self.tool_to_server.get(prefixed_name)
+        if mapping:
+            return mapping[0]
+        prefix = prefixed_name.split("__", 1)[0]
+        return self.known_prefixes.get(prefix)
+
+    async def call_proxied_tool(self, prefixed_name: str, arguments: dict):
+        self.calls.append(("call", (prefixed_name, arguments)))
+        if prefixed_name not in self.tool_to_server:
+            raise ValueError("Tool is not registered in multiplexer")
+
+        class _Result:
+            def model_dump(self, **_kw):
+                return {"content": [{"type": "text", "text": "ok"}]}
+
+        return _Result()
 
 
 @pytest.mark.asyncio
@@ -637,6 +674,92 @@ async def test_fleet_call_previews_before_calling_a_fleet_tool():
     )
     assert refused["executed"] is False
     assert mux.calls == []
+
+
+# ---------------------------------------------------------------------------
+# AU-CONTROL-R032 — act(action='<server>.<tool>') dispatches a fleet tool
+# directly through the SAME fleet.call path, with no 'fleet.call' / nested
+# 'arguments' wrapping required.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_act_dotted_action_dispatches_through_fleet_call():
+    """A dotted action id that matches a known fleet catalog prefix previews
+    then executes exactly like the indirect fleet.call form, forwarding
+    `params` straight through as the fleet tool's arguments.
+    """
+    mux = _FakeMux(tool_to_server={"github__list_pulls": ("github", "list_pulls")})
+    # `_graphos_backing` must be present (any opaque object) so the "act"
+    # verb's host_operations() lookup degrades to {} rather than raising —
+    # it is checked before the new AU-CONTROL-R032 fleet fallback.
+    mcp = type("Mcp", (), {"_fleet_mux": mux, "_graphos_backing": object()})()
+    params = {"repo": "x"}
+
+    preview = await intent_tools._dispatch_verb(
+        mcp, "act", "github.list_pulls", dict(params), "", False
+    )
+    assert preview["executed"] is False
+    assert preview["plan"]["action"] == intent_tools.FLEET_CALL_ACTION
+    assert mux.calls == []  # preview never touches the mux
+
+    executed = await intent_tools._dispatch_verb(
+        mcp,
+        "act",
+        "github.list_pulls",
+        {**params, "plan_ref": preview["plan"]["plan_ref"]},
+        "",
+        True,
+    )
+    assert executed["executed"] is True
+    assert ("mount", (["github__list_pulls"], None)) in mux.calls
+    assert ("call", ("github__list_pulls", {"repo": "x"})) in mux.calls
+
+
+@pytest.mark.asyncio
+async def test_act_dotted_action_with_no_matching_fleet_server_is_unknown_operation():
+    """A dotted action naming no known fleet server (or a plain typo of a
+    native operation) falls through to the native manifest's own error,
+    never a confusing fleet-specific failure for something that was never a
+    fleet dispatch attempt.
+    """
+    mux = _FakeMux()  # empty catalog — no server matches any prefix
+    mcp = type("Mcp", (), {"_fleet_mux": mux, "_graphos_backing": object()})()
+
+    result = await intent_tools._dispatch_verb(
+        mcp, "act", "nope.nothing", {}, "", False
+    )
+    assert result["executed"] is False
+    assert "Unknown operation" in result["error"]
+    assert mux.calls == []
+
+
+@pytest.mark.asyncio
+async def test_act_dotted_action_with_known_server_but_unknown_tool_fails_actionably():
+    """A known fleet server with a tool name it never registered still
+    resolves to a fleet dispatch attempt (the prefix IS known) — it fails
+    from inside the real fleet.call execution path, not as a routing
+    rejection, and that failure is a structured error, never a crash.
+    """
+    mux = _FakeMux(known_prefixes={"github": "github"})
+    mcp = type("Mcp", (), {"_fleet_mux": mux, "_graphos_backing": object()})()
+
+    preview = await intent_tools._dispatch_verb(
+        mcp, "act", "github.no_such_tool", {}, "", False
+    )
+    assert preview["executed"] is False
+    assert preview["plan"]["action"] == intent_tools.FLEET_CALL_ACTION
+
+    executed = await intent_tools._dispatch_verb(
+        mcp,
+        "act",
+        "github.no_such_tool",
+        {"plan_ref": preview["plan"]["plan_ref"]},
+        "",
+        True,
+    )
+    assert executed["executed"] is False
+    assert "error" in executed
 
 
 @pytest.mark.asyncio

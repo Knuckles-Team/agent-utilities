@@ -28,9 +28,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events: []
 identity:
   id_field:
@@ -114,7 +128,7 @@ sync:
   updated_field: null
   pagination: null
   doc_type: repository
-  tool_schema_sha256: 32a9d56b6b468dd37af05dee6884c7ba1616dc14a8ec6c6feb4d7e7ca82418e8
+  tool_schema_sha256: fde09a290e9e0d803d6b1e71de6eeb711da12b6b176f41f0b542ca8ab8f0b0f4
   raw:
     server: repository-manager-mcp
     tool: rm_worktree
@@ -127,20 +141,20 @@ sync:
     doc_type: repository
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T20:29:54Z'
+  generated_at: '2026-10-09T08:32:18Z'
   source_artifacts:
   - repository_manager/connectors/mcp_source_presets.json
   - repository_manager/connectors/tool_schema_fingerprints.json
   - repository_manager/ontology/repository.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: b133677226f0bc9b6587f591f74ca86f03143f51c716b557f988f51a10e58fa1
+    hash: 27276321a337cc1f6dbaab0c45a63ad20145de2d270f1e9c45107051a654f15f
     triple_count: 71
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 06de3378a492615de009c564cb6e88532a4bebcc
+  source_commit: 77c33e17c5db48e37188e15277d8d50fbfaafd61
 policy:
   pii_fields: {}
   tenant_boundary: null

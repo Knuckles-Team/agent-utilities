@@ -21,14 +21,6 @@
 # entry past its review-by date ALSO fails the gate, forcing an active
 # renew-or-resolve decision instead of silent rot.
 
-# Generated protocol-completeness surface (DEAD-CODE-INTENT-RECOVERY.md
-# Section 3.7): the file's own header states "Regenerate with the protocol
-# gate; do not edit" — reconciler mechanism `excluded_generated`, not a
-# disposition to act on. Individual DevelopmentLane*Request/Result symbols go
-# live as AU adopts each operation; deleting them is undone by the next
-# regenerate.
-excluded_generated	agent_utilities/protocols/epistemic_operations/_generated.py	# owner=@genius PERMANENT reason=generated-from-authoritative-json-schema-do-not-edit-see-DEAD-CODE-INTENT-RECOVERY-3.7
-
 # Mathematical/reasoning primitive toolkit built ahead of consumers
 # (DEAD-CODE-INTENT-RECOVERY.md Section 3.5): the MODULE is live (5 real call
 # sites + referenced by module-path string in

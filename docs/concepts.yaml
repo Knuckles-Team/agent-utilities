@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1193
+total_concepts: 1189
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2237,13 +2237,6 @@ concepts:
   code_paths:
   - agent_utilities/graph/parallel_engine.py
   doc: gap-fill the workflow
-- id: AU-ECO.ui.agent-manager-dashboard
-  name: Agent Manager Dashboard
-  pillar: AU-ECO
-  status: live
-  code_paths:
-  - agent_utilities/ecosystem/agent_manager_dashboard.py
-  doc: Agent Manager Dashboard
 - id: AU-ECO.ui.company-infrastructure-orchestration
   name: Company Infrastructure Orchestration
   pillar: AU-ECO
@@ -2769,13 +2762,6 @@ concepts:
   - agent_utilities/mcp/tools/engine_surface_tools.py
   - agent_utilities/mcp/tools/engine_tools.py
   doc: Every method under one of
-- id: AU-KG.compute.epistemic-operations-protocol
-  name: one current-only operations
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/protocols/epistemic_operations/__init__.py
-  doc: one current-only operations
 - id: AU-KG.compute.firefly-iii-accounts-transactions
   name: Firefly III accounts/transactions/budgets →
   pillar: AU-KG
@@ -4935,16 +4921,17 @@ concepts:
   - agent_utilities/knowledge_graph/memory/rlm_memory.py
   doc: RLM Memory Extraction Signature
 - id: AU-KG.memory.semantic-response-cache
-  name: See module docstring for the full safety
+  name: the freshness half of the cache contract
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/caching/freshness.py
   - agent_utilities/caching/semantic_cache.py
   - agent_utilities/harness/trace_backend.py
   - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/observability/gateway_metrics.py
-  doc: See module docstring for the full safety
+  doc: the freshness half of the cache contract
 - id: AU-KG.memory.targeted-add-update-delete
   name: targeted ADD/UPDATE/DELETE learner
   pillar: AU-KG
@@ -5813,6 +5800,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/nl_planner.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/mcp/tools/query_tools.py
   doc: an aggregation under the implicit content-graph
@@ -7433,6 +7421,7 @@ concepts:
   - agent_utilities/orchestration/engine.py
   - agent_utilities/orchestration/failure_translation.py
   - agent_utilities/orchestration/manager.py
+  - agent_utilities/orchestration/run_envelope.py
   doc: every terminal outcome of
 - id: AU-ORCH.execution.nl-compilation-pipeline
   name: Semantic Workflow Retrieval
@@ -8625,7 +8614,6 @@ concepts:
   - agent_utilities/graph/state.py
   - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/messaging/agent_channel.py
-  - agent_utilities/messaging/router.py
   - agent_utilities/models/agent.py
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/engine.py
@@ -9620,15 +9608,6 @@ concepts:
   - agent_utilities/mcp/multiplexer.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
   doc: authenticate jwt-protected children with the
-- id: AU-OS.identity.stack-wide-auth-conformance
-  name: see this package
-  pillar: AU-OS
-  status: live
-  code_paths:
-  - agent_utilities/security/conformance/__init__.py
-  - agent_utilities/security/conformance/surface_inventory.py
-  - agent_utilities/security/conformance/surface_manifest.py
-  doc: see this package
 - id: AU-OS.identity.system-principal-admission
   name: closes the gap
   pillar: AU-OS
@@ -9913,13 +9892,6 @@ concepts:
   - agent_utilities/orchestration/graph_execution_evidence.py
   - agent_utilities/server/app.py
   doc: Track 3 of the pydantic-ai
-- id: AU-OS.observability.unified-health-kernels
-  name: AU-OS.observability.unified-health-kernels
-  pillar: AU-OS
-  status: live
-  code_paths:
-  - agent_utilities/observability/health.py
-  doc: AU-OS.observability.unified-health-kernels
 - id: AU-OS.observability.usage-analytics-store
   name: Usage analytics store. These pydantic models are the single
   pillar: AU-OS

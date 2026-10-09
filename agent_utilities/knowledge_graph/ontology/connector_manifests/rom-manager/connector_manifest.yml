@@ -52,9 +52,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events:
 - name: rom-games.updated
   resource: game
@@ -196,20 +210,20 @@ sync:
     doc_type: game-system
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-10-09T08:32:19Z'
   source_artifacts:
   - rom_manager/connectors/mcp_source_presets.json
   - rom_manager/connectors/tool_schema_fingerprints.json
   - rom_manager/ontology/rom.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: 24d739aa36412aff38c84bb1f525487ff77a25ffb854f7b7809746ecf32aa3df
+    hash: f2e3ad67a5d05901d053b6fe5f39ce1e32c9216757b88fc2abd9d6f04d56170e
     triple_count: 67
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 242bf1afd5ddf039956d837c7f1c7c6d4c18493c
+  source_commit: 05eff127ad1d69900742d0be859cc3d2bceed4c5
 policy:
   pii_fields: {}
   tenant_boundary: null
