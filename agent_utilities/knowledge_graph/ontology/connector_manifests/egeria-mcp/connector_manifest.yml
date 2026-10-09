@@ -28,9 +28,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events:
 - name: egeria-glossary-terms.updated
   resource: glossary_term
@@ -133,20 +147,20 @@ sync:
     doc_type: governance_rule
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-27T03:15:14Z'
+  generated_at: '2026-10-09T08:31:35Z'
   source_artifacts:
   - egeria_mcp/connectors/mcp_source_presets.json
   - egeria_mcp/connectors/tool_schema_fingerprints.json
   - egeria_mcp/ontology/egeria.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: 5d931c77b58f7ab65cc66234306e84bcb79b46a72c0d1a933577c462ca00fe61
+    hash: 4625cceb392217efcb3c04d9ac244925252e11a6f8a971e7b7b2a84d068f88b9
     triple_count: 33
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 1a2187864d8c33492fbc8dd53c2cb6e2871144fe
+  source_commit: 792c130f82e8dd652e34b8370c5317415be28744
 policy:
   pii_fields: {}
   tenant_boundary: null

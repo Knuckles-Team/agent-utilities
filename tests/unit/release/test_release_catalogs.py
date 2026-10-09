@@ -285,14 +285,18 @@ def test_prebundled_skill_catalog_rejects_extra_membership(tmp_path: Path) -> No
 
 
 def test_prebundled_skill_catalog_rejects_symlinks(tmp_path: Path) -> None:
-    _fixture_skills(tmp_path)
+    # A dedicated skills root: the scan must see only the fixture skills, never a
+    # directory another test or plugin leaves under the shared tmp_path.
+    skills_root = tmp_path / "skills"
+    skills_root.mkdir()
+    _fixture_skills(skills_root)
     target = tmp_path / "target.txt"
     target.write_text("synthetic\n", encoding="utf-8")
-    link = tmp_path / BUNDLED_SKILLS[0] / "linked.txt"
+    link = skills_root / BUNDLED_SKILLS[0] / "linked.txt"
     link.symlink_to(target)
 
     with pytest.raises(ReleaseCatalogError, match="prebundled_skill_symlink_rejected"):
-        prebundled_skill_catalog(tmp_path)
+        prebundled_skill_catalog(skills_root)
 
 
 def test_connector_catalog_is_order_stable_after_bundle_validation(

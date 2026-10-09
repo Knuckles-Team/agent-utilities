@@ -13,6 +13,7 @@ path (``embed_model is None``). Tests that need a functioning embedder still
 """
 
 import importlib
+import json
 
 import pytest
 
@@ -219,3 +220,24 @@ def _isolate_content_graph_routing():
         yield
     finally:
         ingest_routing._reset_for_tests()
+
+
+@pytest.fixture
+def fake_nl_query(monkeypatch) -> dict:
+    """Patch ``nl_query`` with a fake NL planner that records the text it saw.
+
+    Shared by tests that exercise the intent surface's NL-planner fallback
+    path (``dispatch_intent`` falling back to ``nl_query`` when no capability
+    candidate matches a free-text intent): each sets up its own routing
+    scenario, dispatches, then asserts against the returned ``seen["text"]``.
+    """
+    from agent_utilities.mcp import kg_server
+
+    seen: dict = {}
+
+    async def _fake_nl_query(text: str = "", **_kw) -> str:
+        seen["text"] = text
+        return json.dumps({"planned": True})
+
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "nl_query", _fake_nl_query)
+    return seen

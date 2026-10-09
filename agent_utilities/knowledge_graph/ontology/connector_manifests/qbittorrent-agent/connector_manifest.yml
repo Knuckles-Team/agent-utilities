@@ -32,9 +32,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events:
 - name: qbittorrent-torrents.updated
   resource: torrent
@@ -111,20 +125,20 @@ sync:
     doc_type: torrent
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-10-09T08:32:17Z'
   source_artifacts:
   - qbittorrent_agent/connectors/mcp_source_presets.json
   - qbittorrent_agent/connectors/tool_schema_fingerprints.json
   - qbittorrent_agent/ontology/qbittorrent.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: 276e0e582a3d0e8f5c5d8551a0954984ccb8cef1eece2ae33aa188596a466fb9
+    hash: 4b19016d595bb823d9b53e3eb38084843fa9d43ce11cbc42d92220128705cc35
     triple_count: 49
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 1fa165c1f544235729f4e0dca76277ba74d3200b
+  source_commit: f692d14570ff536d126aba06b8e592631f8ae473
 policy:
   pii_fields: {}
   tenant_boundary: null

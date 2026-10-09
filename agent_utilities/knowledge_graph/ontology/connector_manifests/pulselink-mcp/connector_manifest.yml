@@ -20,9 +20,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events:
 - name: pulselink-hackernews.updated
   resource: discussion
@@ -156,20 +170,20 @@ sync:
     doc_type: social
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-10-09T08:32:16Z'
   source_artifacts:
   - pulselink_mcp/connectors/mcp_source_presets.json
   - pulselink_mcp/connectors/tool_schema_fingerprints.json
   - pulselink_mcp/ontology/pulselink.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: fd2f3c38c4a0340e5e208029d253b399fb77d895d6acabe0ae06de65e30604a5
+    hash: 33022fe8476f154b28b95b77b640934f13df0c1fde50444f2e8c841f02eb61ab
     triple_count: 26
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: fe014e931abe8d3dc82bd79c2d9976f43bae55be
+  source_commit: 2b8355f15710e1837a8440521bbf23ea7e784426
 policy:
   pii_fields: {}
   tenant_boundary: null

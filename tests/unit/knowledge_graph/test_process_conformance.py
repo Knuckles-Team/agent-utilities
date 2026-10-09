@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -17,6 +16,9 @@ from agent_utilities.knowledge_graph.ingestion.process_conformance import (
 )
 from agent_utilities.knowledge_graph.ingestion.semantic_event_model import (
     ProcessPerspective,
+)
+from tests.unit.knowledge_graph._shacl_conformance_helpers import (
+    assert_graph_slice_conforms_to_process_intelligence_shapes,
 )
 
 
@@ -285,15 +287,10 @@ def test_conformance_run_graph_slice_conforms_to_process_intelligence_shapes(
 ) -> None:
     """Prove the emitted LPG vocabulary matches the SHACL contract — mirrors
     ``test_emitted_lpg_vocabulary_conforms_to_process_intelligence_shapes`` in
-    ``test_semantic_event_model.py`` for the OCEL slice.
-
-    EH-431: checked through the engine's real ``shacl_validate_ad_hoc``
-    surface, not a local ``pyshacl`` call (AU never validates shapes itself).
-    Requires a real engine; skips cleanly when none is available.
+    ``test_semantic_event_model.py`` for the OCEL slice. See
+    ``assert_graph_slice_conforms_to_process_intelligence_shapes`` for the
+    EH-431 validation contract both share.
     """
-    rdflib = pytest.importorskip("rdflib")
-    from rdflib.namespace import RDF, XSD
-
     run = _run()
     allowed_edges = {("create", "approve")}
     _, deviations = run_conformance_check(
@@ -302,30 +299,6 @@ def test_conformance_run_graph_slice_conforms_to_process_intelligence_shapes(
     entities, links = conformance_run_graph_slice(
         run, deviations, source_ref="src:test"
     )
-
-    graph = rdflib.Graph()
-    kg = rdflib.Namespace("http://knuckles.team/kg#")
-
-    def literal(value: object) -> object | None:
-        if isinstance(value, bool):
-            return None
-        if isinstance(value, str) and value:
-            return rdflib.Literal(value)
-        if isinstance(value, int):
-            return rdflib.Literal(value, datatype=XSD.integer)
-        if isinstance(value, float):
-            return rdflib.Literal(value, datatype=XSD.double)
-        return None
-
-    for entity in entities:
-        subject = kg[f"node/{entity['id']}"]
-        graph.add((subject, RDF.type, kg[entity["node_type"]]))
-        for key, value in entity.items():
-            if key in {"id", "node_type"}:
-                continue
-            object_value = literal(value)
-            if object_value is not None:
-                graph.add((subject, kg[key], object_value))
     # The referenced ProcessPerspective node is out of this slice's scope (an
     # OCEL commit would have created it) — declare its type directly so the
     # shape's ``sh:class :ProcessPerspective`` constraint on
@@ -335,29 +308,10 @@ def test_conformance_run_graph_slice_conforms_to_process_intelligence_shapes(
         for link in links
         if link["relationship"] == "CHECKED_UNDER_PERSPECTIVE"
     )
-    graph.add((kg[f"node/{perspective_target}"], RDF.type, kg["ProcessPerspective"]))
-    node_iris = {entity["id"]: kg[f"node/{entity['id']}"] for entity in entities}
-    node_iris[perspective_target] = kg[f"node/{perspective_target}"]
-    for link in links:
-        graph.add(
-            (
-                node_iris[link["source"]],
-                kg[link["relationship"]],
-                node_iris[link["target"]],
-            )
-        )
 
-    shapes_path = (
-        Path(__file__).parents[3]
-        / "agent_utilities"
-        / "knowledge_graph"
-        / "shapes"
-        / "process_intelligence.shapes.ttl"
+    assert_graph_slice_conforms_to_process_intelligence_shapes(
+        engine_graph,
+        entities,
+        links,
+        extra_type_declarations={perspective_target: "ProcessPerspective"},
     )
-    data_ttl = graph.serialize(format="turtle")
-    if isinstance(data_ttl, bytes):
-        data_ttl = data_ttl.decode()
-    report = engine_graph.shacl_validate_ad_hoc(
-        data_ttl, shapes_path.read_text(encoding="utf-8")
-    )
-    assert report.conforms, report.results

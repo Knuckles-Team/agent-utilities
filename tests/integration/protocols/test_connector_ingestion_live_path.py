@@ -29,8 +29,8 @@ from agent_utilities.protocols.source_connectors import (
 )
 
 # The 4 tests below all reach real native-engine capability -- confirmed by
-# direct repro: ``_shacl_validate_rows`` requires ``client.rdf.validate_shacl``
-# (native canonical SHACL validation over the governed ``ChangeEnvelope``),
+# direct repro: ``_shacl_validate_rows`` requires EG's committed-GraphSchema
+# validator (``shacl_validate_committed`` over the governed ``ChangeEnvelope``),
 # which raises ``NativeChangeEnvelopeUnavailable`` when no real engine client
 # is reachable ("[session-engine] real engine unavailable: no
 # feature-complete epistemic-graph[full] wheel binary is installed"), caught

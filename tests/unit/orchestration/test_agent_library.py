@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 
+from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+    EpistemicGraphBackend,
+)
 from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
     runnable_skill_digest,
 )
@@ -169,3 +174,60 @@ def test_an_a2a_agent_is_listed_with_its_endpoint(engine) -> None:
     assert listed.view()["endpoint"] == "https://agent.example.com"
     got = library.get("agent:outside")
     assert got is not None and got.agent_card == {"name": "outside"}
+
+
+class _TypedWriteEngine:
+    """Minimal bridge mirroring ``IntelligenceGraphEngine.add_node``'s own
+    typed-native translation (``node_id, label, props-dict`` ->
+    ``backend.add_node(node_id, **props)``, ``core/engine.py``'s
+    ``typed_add(node_id, **{**prepared, ...})`` call), without this test's ACL
+    stamping concerns. ``AgentLibrary`` reaches the real engine through
+    exactly this shape in production.
+    """
+
+    def __init__(self, backend: EpistemicGraphBackend) -> None:
+        self.backend = backend
+
+    def query_cypher(self, query: str, params: dict | None = None) -> list:
+        return []
+
+    def add_node(self, node_id: str, label: str, data: dict) -> None:
+        self.backend.add_node(
+            node_id,
+            **{**data, "id": node_id, "node_type": data.get("node_type", label)},
+        )
+
+    def link_nodes(self, source: str, target: str, rel: str) -> None:
+        self.backend.add_edge(source, target, rel)
+
+
+def test_save_surfaces_clustered_mutation_refusal_through_the_real_write_path() -> None:
+    """AU-INTEGRATION-R001's AU obligation: AgentLibrary's real write entry.
+
+    ``AgentLibrary.save`` is AU's one write path for agent records
+    (the agent-webui routes, the graph-os ``agent_library`` MCP tool, and L3
+    assembly all go through it). Clustered mode's deliberate refusal
+    (epistemic-graph ``LOCAL_ONLY_CLUSTER_REFUSAL``, wire code
+    ``CLUSTER_MUTATION_UNAVAILABLE``) must reach the caller through this
+    path rather than being silently swallowed or falling back to a local
+    write. Only the lowest-level native RPC (``batch_update``) is faked;
+    ``AgentLibrary.save`` and ``EpistemicGraphBackend.add_node`` are real.
+    """
+
+    class ClusteredRefusal(RuntimeError):
+        def __init__(self, code: str) -> None:
+            self.code = code
+            super().__init__("mutation authority has no replicated ordering")
+
+    graph = MagicMock()
+    graph.batch_update.side_effect = ClusteredRefusal("CLUSTER_MUTATION_UNAVAILABLE")
+    backend = EpistemicGraphBackend.__new__(EpistemicGraphBackend)
+    backend._graph = graph
+    backend.graph_name = "test-graph"
+
+    library = AgentLibrary(_TypedWriteEngine(backend))
+
+    with pytest.raises(ClusteredRefusal) as caught:
+        library.save(ANALYST)
+
+    assert caught.value.engine_error_code == "CLUSTER_MUTATION_UNAVAILABLE"

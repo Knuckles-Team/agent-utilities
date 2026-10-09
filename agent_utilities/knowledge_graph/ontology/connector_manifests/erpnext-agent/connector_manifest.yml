@@ -64,9 +64,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events:
 - name: erpnext-sales-orders.updated
   resource: erpnext_sales_order
@@ -217,20 +231,21 @@ sync:
     doc_type: erpnext_sales_order
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-10-09T08:31:39Z'
   source_artifacts:
   - erpnext_agent/connectors/mcp_source_presets.json
   - erpnext_agent/connectors/tool_schema_fingerprints.json
+  - erpnext_agent/ontology/access_contracts.ttl
   - erpnext_agent/ontology/erpnext.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: e1db5bd3e80f09ed556b5ed40ec468baa01c855cd9f0f9e211c90298751a7929
+    hash: 7666f54fdccf0e1974073906e8c0b76f4042d13507192af451a301b519b0039d
     triple_count: 66
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 1afa1bca14482a4a7a9f38950f115a55bcedaf47
+  source_commit: 0c8ddfce2aa8b1f8b0989b8cd092ac787142c3ce
 policy:
   pii_fields: {}
   tenant_boundary: null

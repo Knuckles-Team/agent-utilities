@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -20,6 +19,9 @@ from agent_utilities.knowledge_graph.ingestion.semantic_event_model import (
     ProcessPerspective,
     QualifiedObjectRelationship,
     SemanticEntityRef,
+)
+from tests.unit.knowledge_graph._shacl_conformance_helpers import (
+    assert_graph_slice_conforms_to_process_intelligence_shapes,
 )
 
 
@@ -301,63 +303,16 @@ def test_emitted_lpg_vocabulary_conforms_to_process_intelligence_shapes(
     engine_graph,
 ) -> None:
     """Prove the executable ChangeEnvelope names match the semantic contract.
-
-    EH-431: checked through the engine's real ``shacl_validate_ad_hoc``
-    surface, not a local ``pyshacl`` call (AU never validates shapes itself).
-    Requires a real engine; skips cleanly when none is available.
+    See ``assert_graph_slice_conforms_to_process_intelligence_shapes`` for the
+    EH-431 validation contract this and the OCEL-slice proof in
+    ``test_process_conformance.py`` share.
     """
-    rdflib = pytest.importorskip("rdflib")
-    from rdflib.namespace import RDF, XSD
-
     model = ObjectCentricGraphSlice.model_validate(_slice_payload())
     entities, links = model.to_graph_slice()
-    graph = rdflib.Graph()
-    kg = rdflib.Namespace("http://knuckles.team/kg#")
 
-    def literal(value: object) -> object | None:
-        if isinstance(value, bool):
-            return None
-        if isinstance(value, str) and value:
-            return rdflib.Literal(value)
-        if isinstance(value, int):
-            return rdflib.Literal(value, datatype=XSD.integer)
-        if isinstance(value, float):
-            return rdflib.Literal(value, datatype=XSD.double)
-        return None
-
-    for entity in entities:
-        subject = kg[f"node/{entity['id']}"]
-        graph.add((subject, RDF.type, kg[entity["node_type"]]))
-        for key, value in entity.items():
-            if key in {"id", "node_type"}:
-                continue
-            object_value = literal(value)
-            if object_value is not None:
-                graph.add((subject, kg[key], object_value))
-    node_iris = {entity["id"]: kg[f"node/{entity['id']}"] for entity in entities}
-    for link in links:
-        graph.add(
-            (
-                node_iris[link["source"]],
-                kg[link["relationship"]],
-                node_iris[link["target"]],
-            )
-        )
-
-    shapes_path = (
-        Path(__file__).parents[3]
-        / "agent_utilities"
-        / "knowledge_graph"
-        / "shapes"
-        / "process_intelligence.shapes.ttl"
+    assert_graph_slice_conforms_to_process_intelligence_shapes(
+        engine_graph, entities, links
     )
-    data_ttl = graph.serialize(format="turtle")
-    if isinstance(data_ttl, bytes):
-        data_ttl = data_ttl.decode()
-    report = engine_graph.shacl_validate_ad_hoc(
-        data_ttl, shapes_path.read_text(encoding="utf-8")
-    )
-    assert report.conforms, report.results
 
 
 # ── graph round-trip (CONCEPT:AU-KG.mining.ocel-lossless-roundtrip) ───────────

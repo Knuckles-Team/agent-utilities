@@ -22,6 +22,7 @@ from agent_utilities.mcp.multiplexer import (
 )
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
+from tests.committed_shacl_fakes import CommittedShaclValidator
 
 
 def _session(*scopes: str) -> GraphSession:
@@ -118,17 +119,10 @@ class _EnvelopeChanges:
         }
 
 
-class _EnvelopeRdf:
-    @staticmethod
-    def validate_shacl(_shapes: str, _data_graph: str) -> dict[str, object]:
-        return {"conforms": True, "results": []}
-
-
 class _EnvelopeClient:
     def __init__(self) -> None:
         self.nodes = _EnvelopeNodes()
         self.changes = _EnvelopeChanges()
-        self.rdf = _EnvelopeRdf()
 
     @staticmethod
     def supports(operation: str) -> bool:
@@ -209,7 +203,9 @@ def test_parent_ingestion_live_writer_uses_change_envelope(
         )
         for version in range(1, 7)
     )
-    authority = SimpleNamespace(client=client)
+    authority = SimpleNamespace(
+        client=client, shacl_validate_committed=CommittedShaclValidator()
+    )
     monkeypatch.setattr(native_ingest, "native_authority", lambda: authority)
     monkeypatch.setattr(envelope_ingest, "_native_occ_backoff", lambda _attempt: None)
     trace_result = SimpleNamespace(

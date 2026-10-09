@@ -340,14 +340,13 @@ class GovernedPromotionValidator:
             return GovernanceCheck(
                 "shacl", True, "no proposed entity payload to validate"
             )
-        client = getattr(self.engine, "client", None) or self.engine
         row = dict(envelope.typed_payload)
         row.setdefault("node_type", envelope.payload_type or "Artifact")
         node_id = envelope.source_object_id or claim.claim_id
         try:
             from .envelope_ingest import validate_rows_against_shacl
 
-            validate_rows_against_shacl(client, [(node_id, row)])
+            validate_rows_against_shacl(self.engine, [(node_id, row)])
         except Exception as exc:  # noqa: BLE001 — cannot prove conformance ⇒ FAIL, never pass
             return GovernanceCheck("shacl", False, str(exc))
         return GovernanceCheck("shacl", True, "conforms")
