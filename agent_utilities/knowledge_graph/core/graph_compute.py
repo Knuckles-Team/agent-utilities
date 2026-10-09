@@ -5028,6 +5028,48 @@ class GraphComputeEngine:
 
         return _asyncio.run_coroutine_threadsafe(_drive(), loop).result()
 
+    def graph_schema_classes(
+        self,
+        *,
+        cursor: str | None = None,
+        kind: Any = None,
+        limit: int = 1000,
+    ) -> Any:
+        """Return one page of EG's served graph-schema vocabulary (terms).
+
+        Callers that must enumerate the whole vocabulary (for example a
+        domain-pack class-reference check) page through ``next_cursor`` on
+        the returned view themselves; this method issues exactly one
+        ``GraphSchemaClasses`` call per invocation.
+
+        Resolved through ``importlib.import_module`` rather than a static
+        ``from ... import ...``: AU's pinned ``epistemic-graph`` floor ships
+        ``GraphSchemaClasses`` (EH-389), but a locally installed copy older
+        than that floor raises a clear ``AttributeError`` here instead of
+        mypy checking every other, long-shipped ``send_graph_schema_*`` call
+        through this same module against one method's newer dependency.
+        """
+        import asyncio as _asyncio
+        import importlib
+
+        reasoning = importlib.import_module("epistemic_graph.generated.reasoning")
+        request_cls = reasoning.GraphSchemaClassesRequest
+        send_graph_schema_classes = reasoning.send_graph_schema_classes
+
+        request = request_cls(cursor=cursor, kind=kind, limit=limit)
+        loop = self._engine_loop()
+        if loop is None:
+            raise RuntimeError("no engine loop available for GraphSchema classes")
+
+        async def _drive() -> Any:
+            return await send_graph_schema_classes(
+                self._engine_async_client(),
+                request.model_dump(mode="json"),
+                self.graph_name,
+            )
+
+        return _asyncio.run_coroutine_threadsafe(_drive(), loop).result()
+
     @staticmethod
     def _require_committed_shacl_receipt(report: Any) -> Any:
         """Reject validation that was not bound to committed GraphSchema.
