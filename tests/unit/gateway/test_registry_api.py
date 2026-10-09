@@ -293,13 +293,8 @@ class _AuthorityMiddleware:
             await self.app(scope, receive, send)
 
 
-def _authority_app(
-    monkeypatch,
-    *,
-    engine: _FakeEngine,
-    actor_id: str = "actor-a",
-    tenant_id: str = "tenant-a",
-):
+def _registry_reader(actor_id: str, tenant_id: str):
+    """One authenticated registry:read service actor and its tenant session."""
     actor = ActorContext(
         actor_id=actor_id,
         actor_type=ActorType.AUTOMATED_SERVICE,
@@ -315,6 +310,31 @@ def _authority_app(
         policy_version="test",
         audience="test",
     )
+    return actor, session
+
+
+def _pin_local_process_identity(monkeypatch) -> None:
+    """Pin the deterministic zero-infrastructure catalog-service identity path.
+
+    See `_authority_app` for why this must never depend on ambient
+    `GRAPH_SERVICE_ENDPOINTS` or xdist worker co-location.
+    """
+    import agent_utilities.security.request_identity as request_identity
+
+    monkeypatch.setattr(
+        request_identity, "local_process_authority_enabled", lambda _config: True
+    )
+    monkeypatch.setattr(request_identity, "_system_write_session", None)
+
+
+def _authority_app(
+    monkeypatch,
+    *,
+    engine: _FakeEngine,
+    actor_id: str = "actor-a",
+    tenant_id: str = "tenant-a",
+):
+    actor, session = _registry_reader(actor_id, tenant_id)
     monkeypatch.setattr(registry_api, "_get_catalog_engine", lambda: engine)
     monkeypatch.setattr(
         registry_api,
@@ -336,12 +356,7 @@ def _authority_app(
     # depends on worker co-location (reproduced locally by co-locating this
     # file with tests/unit/knowledge_graph/test_ephemeral_engine.py under
     # `-n2 --dist loadfile`).
-    import agent_utilities.security.request_identity as request_identity
-
-    monkeypatch.setattr(
-        request_identity, "local_process_authority_enabled", lambda _config: True
-    )
-    monkeypatch.setattr(request_identity, "_system_write_session", None)
+    _pin_local_process_identity(monkeypatch)
     app = FastAPI()
     registry_api.register_registry_routes(app, prefix="/api")
     return TestClient(_AuthorityMiddleware(app, actor, session))
@@ -1227,6 +1242,27 @@ def test_missing_graph_session_is_denied(monkeypatch):
 # directly against a fake engine whose `sql_exec` blocks synchronously.
 
 
+def _slow_catalog_authority(monkeypatch, engine, *, delay: float):
+    """Slow every catalog SQL call by ``delay`` seconds, then wire a direct
+    actor/session and the catalog engine and grants exactly as the
+    event-loop-responsiveness tests need."""
+    real_sql_exec = engine.graph_compute.sql_exec
+
+    def slow_sql_exec(statement: str):
+        time.sleep(delay)
+        return real_sql_exec(statement)
+
+    engine.graph_compute.sql_exec = slow_sql_exec
+    actor, session = _direct_authority(monkeypatch)
+    monkeypatch.setattr(registry_api, "_get_catalog_engine", lambda: engine)
+    monkeypatch.setattr(
+        registry_api,
+        "_resolve_current_discovery_grants",
+        lambda actor: (_grant_digest(actor.actor_id, actor.tenant_id),),
+    )
+    return actor, session
+
+
 def _direct_authority(monkeypatch, actor_id: str = "actor-a", tenant_id: str = "tenant-a"):
     """Build a bare actor/session pair for a direct (non-TestClient) coroutine
     call, mirroring `_authority_app`'s middleware setup without the ASGI
@@ -1239,28 +1275,9 @@ def _direct_authority(monkeypatch, actor_id: str = "actor-a", tenant_id: str = "
     never depend on ambient `GRAPH_SERVICE_ENDPOINTS`/xdist worker
     co-location.
     """
-    import agent_utilities.security.request_identity as request_identity
+    _pin_local_process_identity(monkeypatch)
 
-    monkeypatch.setattr(
-        request_identity, "local_process_authority_enabled", lambda _config: True
-    )
-    monkeypatch.setattr(request_identity, "_system_write_session", None)
-
-    actor = ActorContext(
-        actor_id=actor_id,
-        actor_type=ActorType.AUTOMATED_SERVICE,
-        roles=("registry:read",),
-        tenant_id=tenant_id,
-        authenticated=True,
-    )
-    session = GraphSession(
-        actor=actor,
-        tenant=tenant_id,
-        scopes=frozenset({"kg:read"}),
-        graph=tenant_id,
-        policy_version="test",
-        audience="test",
-    )
+    actor, session = _registry_reader(actor_id, tenant_id)
     return actor, session
 
 
@@ -1279,21 +1296,7 @@ async def test_list_kind_offloads_the_blocking_engine_call_off_the_event_loop(
     """
 
     engine = _FakeEngine(_rows())
-    real_sql_exec = engine.graph_compute.sql_exec
-
-    def slow_sql_exec(statement: str):
-        time.sleep(0.3)
-        return real_sql_exec(statement)
-
-    engine.graph_compute.sql_exec = slow_sql_exec
-
-    actor, session = _direct_authority(monkeypatch)
-    monkeypatch.setattr(registry_api, "_get_catalog_engine", lambda: engine)
-    monkeypatch.setattr(
-        registry_api,
-        "_resolve_current_discovery_grants",
-        lambda actor: (_grant_digest(actor.actor_id, actor.tenant_id),),
-    )
+    actor, session = _slow_catalog_authority(monkeypatch, engine, delay=0.3)
 
     request = Request({"type": "http", "query_string": b"", "headers": []})
     ticks: list[float] = []
@@ -1638,21 +1641,7 @@ async def test_multi_kind_does_not_block_the_event_loop(monkeypatch):
     loop free to keep servicing the heartbeat coroutine throughout."""
 
     engine = _FakeEngine(_rows_with_skills())
-    real_sql_exec = engine.graph_compute.sql_exec
-
-    def slow_sql_exec(statement: str):
-        time.sleep(0.2)
-        return real_sql_exec(statement)
-
-    engine.graph_compute.sql_exec = slow_sql_exec
-
-    actor, session = _direct_authority(monkeypatch)
-    monkeypatch.setattr(registry_api, "_get_catalog_engine", lambda: engine)
-    monkeypatch.setattr(
-        registry_api,
-        "_resolve_current_discovery_grants",
-        lambda actor: (_grant_digest(actor.actor_id, actor.tenant_id),),
-    )
+    actor, session = _slow_catalog_authority(monkeypatch, engine, delay=0.2)
 
     request = Request(
         {
