@@ -28,6 +28,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from agent_utilities.gateway import registry_api
+from agent_utilities.knowledge_graph.core.session import GraphSession
+from agent_utilities.security.actor_identity import ActorType
+from agent_utilities.security.brain_context import ActorContext
 from tests.unit.gateway._registry_support import BindAuthority, registry_reader
 
 _TENANT_TERM = re.compile(r"tenant_id = '([^']*)'")
@@ -106,6 +109,26 @@ class _Engine:
 def _client(monkeypatch, engine: _Engine, *, tenant: str = "tenant-a") -> TestClient:
     actor, session = registry_reader("actor-a", tenant)
     monkeypatch.setattr(registry_api, "_get_catalog_engine", lambda: engine)
+    # The catalog RPC runs under the process's own service identity
+    # (test_registry_api covers which one). Pin it here, because
+    # system_write_session() only mints the tiny local identity when no
+    # GRAPH_SERVICE_ENDPOINTS is exported, and the suite's live-engine session
+    # fixture exports one for the rest of its xdist worker.
+    service = GraphSession(
+        actor=ActorContext(
+            actor_id="service:registry-catalog",
+            actor_type=ActorType.AUTOMATED_SERVICE,
+            roles=("registry:read",),
+            tenant_id=tenant,
+            authenticated=True,
+        ),
+        tenant=tenant,
+        scopes=frozenset({"kg:read"}),
+        graph=tenant,
+        policy_version="test",
+        audience="test",
+    )
+    monkeypatch.setattr(registry_api, "_catalog_service_session", lambda: service)
     app = FastAPI()
     registry_api.register_registry_routes(app, prefix="/api")
     return TestClient(BindAuthority(app, actor, session))
