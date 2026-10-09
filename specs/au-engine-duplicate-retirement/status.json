@@ -45,8 +45,16 @@
     {
       "id": "AU-RETIRE-R004",
       "title": "Fix doubled node_type text in embedding composition",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "bc7bba33932d89a3f9cd9e84d8fb494f066e3651",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/bc7bba33932d89a3f9cd9e84d8fb494f066e3651",
+          "description": "AU-RETIRE-R004 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "The _ENTITY_TEXT_SKIP_KEYS fix (commit 82eff59f0, already on main) stops the doubling, but its dedicated regression test (tests/unit/knowledge_graph/enrichment/test_entity_text_bare_node_type.py) exists only on branch fd8afdff2, not on main."
     },
     {
@@ -66,8 +74,16 @@
     {
       "id": "AU-RETIRE-R006",
       "title": "Delta ingest reaps nodes for deleted files",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "bc7bba33932d89a3f9cd9e84d8fb494f066e3651",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/bc7bba33932d89a3f9cd9e84d8fb494f066e3651",
+          "description": "AU-RETIRE-R006 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-RETIRE-R007",

@@ -32,8 +32,16 @@
     {
       "id": "AU-INTEGRATION-R001",
       "title": "Clustered mode deliberately refuses local-only agent writes",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "34481f825411a40a121f4c09ccc9198470905246",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/34481f825411a40a121f4c09ccc9198470905246",
+          "description": "AU-INTEGRATION-R001 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-INTEGRATION-R002",

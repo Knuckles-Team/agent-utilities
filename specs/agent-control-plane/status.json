@@ -613,27 +613,59 @@
     {
       "id": "AU-CONTROL-R031",
       "title": "find ranks fleet tools with native capabilities",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "b4c99c73265ca7106da587aadb0d9422fe74a00d",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/b4c99c73265ca7106da587aadb0d9422fe74a00d",
+          "description": "AU-CONTROL-R031 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-CONTROL-R032",
       "title": "act calls a fleet tool by its server and tool id",
-      "delivery_state": "BUILDING",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "28eb7b647b57d7ba3ddc6192b38cd85ceb5d1e2b",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/28eb7b647b57d7ba3ddc6192b38cd85ceb5d1e2b",
+          "description": "AU-CONTROL-R032 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Merged-head and PR evidence pending review. Unit tests pass on branch fix/au-control-r032-fleet-act-dispatch (based on open PR #67 feat/intent-fleet-ranking-tie-default, not yet merged): tests/unit/test_intent_surface.py (preview+execute dispatch via fleet.call, unknown-server falls through to native \"Unknown operation\", known-server/unknown-tool fails actionably)."
     },
     {
       "id": "AU-CONTROL-R033",
       "title": "A read-only action tie runs the declared default action",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "78a53983ae0b2f0b5c3ed03675b5e363f88767bd",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/78a53983ae0b2f0b5c3ed03675b5e363f88767bd",
+          "description": "AU-CONTROL-R033 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-CONTROL-R034",
       "title": "An unmatched read intent falls back to the NL planner",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "78a53983ae0b2f0b5c3ed03675b5e363f88767bd",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/78a53983ae0b2f0b5c3ed03675b5e363f88767bd",
+          "description": "AU-CONTROL-R034 merged to the default branch in this commit."
+        }
+      ]
     }
   ]
 }
