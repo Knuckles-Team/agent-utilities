@@ -800,7 +800,7 @@ agent-utilities-acp = "agent_utilities.protocols.acp_adapter:main"
 # Generate/validate/document the FULL deployment config (all AgentConfig options);
 # also `python -m agent_utilities.deployment.cli`.
 setup-config = "agent_utilities.deployment.cli:main"
-# agent-utilities-doctor is graph-os-owned (GRAPHOS-DEPLOY-R007.1):
+# agent-utilities-doctor is graph-os-owned (GRAPHOS-DEPLOY requirement R.007.1):
 # graph_os.deployment.doctor:main. Declaring it here too was an install-time
 # console-script name collision (both packages registered the SAME entry
 # point name; pip resolves the winner nondeterministically by install
