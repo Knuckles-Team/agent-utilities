@@ -243,6 +243,58 @@ class VerifiedRequestAuthority:
             raise PermissionError("Verified authority expiry drifted")
 
 
+_LOCAL_BEARER_PRINCIPAL_KINDS: frozenset[str] = frozenset({"human", "service"})
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedLocalBearer:
+    """Verified claims from one locally-issued bearer JWT -- never an authority.
+
+    Returned by :func:`verify_local_bearer_token` (GRAPHOS-IDENTITY-R003's
+    agent-utilities consumer side). This is deliberately NOT a session or a
+    :class:`VerifiedRequestAuthority`: it carries exactly the JWT claims that
+    were cryptographically verified, plus the issuer/audience they were
+    checked against. It has no policy revision, delegation chain, or engine
+    session, and must never be projected into a
+    :class:`~agent_utilities.knowledge_graph.core.session.GraphSession`
+    directly. A qualified owner holding current policy/delegation/engine
+    authority must combine this with that authority before producing one.
+    """
+
+    claims: dict[str, Any]
+    issuer: str
+    audience: str
+
+    def __post_init__(self) -> None:
+        _bounded_authority_text(self.issuer, field_name="issuer")
+        _bounded_authority_text(self.audience, field_name="audience")
+        if not isinstance(self.claims, dict):
+            raise PermissionError("Verified local bearer requires its claims")
+        if (
+            self.claims.get("iss") != self.issuer
+            or self.claims.get("aud") != self.audience
+        ):
+            raise PermissionError("Verified local bearer issuer or audience drifted")
+        _bounded_authority_text(self.claims.get("sub"), field_name="subject")
+        _bounded_authority_text(self.claims.get("tenant_id"), field_name="tenant")
+        _bounded_authority_text(self.claims.get("scope"), field_name="scope")
+        _bounded_authority_text(self.claims.get("jti"), field_name="token identifier")
+        if self.claims.get("principal_kind") not in _LOCAL_BEARER_PRINCIPAL_KINDS:
+            raise PermissionError(
+                "Verified local bearer requires a human or service principal kind"
+            )
+        for claim_name in ("iat", "nbf", "exp"):
+            value = self.claims.get(claim_name)
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise PermissionError(
+                    f"Verified local bearer requires an integer {claim_name!r} claim"
+                )
+
+    @property
+    def principal(self) -> str:
+        return self.claims["sub"]
+
+
 def build_verified_request_authority(
     actor: ActorContext,
     *,
@@ -923,6 +975,56 @@ async def actor_from_bearer_token(token: str) -> ActorContext:
     return actor_from_claims(claims)
 
 
+async def verify_local_bearer_token(token: str) -> VerifiedLocalBearer:
+    """Verify one locally-issued bearer JWT; return its claims, never authority.
+
+    Reuses the exact JWKS validation :func:`actor_from_bearer_token` already
+    applies to served external bearer identity -- the same configured
+    ``AUTH_JWT_JWKS_URI``/``AUTH_JWT_ISSUER``/``AUTH_JWT_AUDIENCE``. A local
+    token issuer (for example GraphOS's own persistent local issuer,
+    GRAPHOS-IDENTITY-R003) publishes its JWKS at that same configured
+    endpoint in a deployment that uses one, so no second, independently
+    configured JWKS source is introduced here. This never mints a session:
+    the caller must combine the returned claims with its own qualified,
+    current policy/delegation/engine authority before producing one -- see
+    :class:`VerifiedLocalBearer`.
+
+    Raises:
+        PermissionError: no local bearer issuer is configured, or the token
+            is missing, malformed, unsigned, expired, or fails issuer or
+            audience verification.
+        RuntimeError: the verification path itself failed for a reason other
+            than a rejected credential (for example a missing dependency).
+    """
+    from fastapi import HTTPException
+    from fastapi import status as http_status
+
+    from agent_utilities.core.config import config
+
+    from .auth import _decode_jwt, _fetch_jwks
+
+    if not isinstance(token, str) or not token or len(token.encode("utf-8")) > 16_384:
+        raise PermissionError("Verified local bearer token is invalid")
+    issuer = str(config.auth_jwt_issuer or "").strip()
+    audience = str(config.auth_jwt_audience or "").strip()
+    if not config.auth_jwt_jwks_uri or not issuer or not audience:
+        raise PermissionError("Verified local bearer issuer is not configured")
+    try:
+        jwks = await _fetch_jwks(config.auth_jwt_jwks_uri)
+        claims = _decode_jwt(token, jwks, issuer=issuer, audience=audience)
+    except HTTPException as exc:
+        if exc.status_code == http_status.HTTP_401_UNAUTHORIZED:
+            raise PermissionError("Verified local bearer token was rejected") from None
+        # A verification-path fault that is NOT a credential rejection (for
+        # example the joserfc dependency being missing) must surface loudly,
+        # never collapse into a denial -- see `_resolve_bearer_actor` above
+        # for the same distinction on the external bearer path.
+        raise RuntimeError(
+            f"Local bearer verification path failed: {exc.detail}"
+        ) from exc
+    return VerifiedLocalBearer(claims=claims, issuer=issuer, audience=audience)
+
+
 def _resolve_process_identity_source(config: Any) -> tuple[str, Any]:
     """``(token_ref, oauth2)`` — fail-closed unless EXACTLY one is configured."""
     token_ref = str(getattr(config, "kg_auth_token_ref", None) or "").strip()
@@ -1294,6 +1396,7 @@ __all__ = [
     "OPTIONAL_CARRIER_CLAIM_FIELDS",
     "SERVED_TRANSPORTS",
     "UNAUTHENTICATED_PATHS",
+    "VerifiedLocalBearer",
     "VerifiedRequestAuthority",
     "acquire_process_identity_token",
     "actor_from_bearer_token",
@@ -1307,4 +1410,5 @@ __all__ = [
     "mint_actor_from_token_sync",
     "system_write_session",
     "validate_carrier_claims",
+    "verify_local_bearer_token",
 ]

@@ -26,8 +26,10 @@ from agent_utilities.security.brain_context import (
 )
 from agent_utilities.security.request_identity import (
     ActorIdentityMiddleware,
+    VerifiedLocalBearer,
     actor_from_claims,
     mint_graph_session,
+    verify_local_bearer_token,
 )
 
 # ---------------------------------------------------------------------------
@@ -1134,3 +1136,175 @@ class TestStdioProcessIdentity:
 
         with pytest.raises(RuntimeError, match="exactly one"):
             acquire_process_identity_token(cfg)
+
+
+# ---------------------------------------------------------------------------
+# VerifiedLocalBearer / verify_local_bearer_token (GRAPHOS-IDENTITY-R003's
+# agent-utilities consumer side: graph-os's local token issuer mints a
+# bearer JWT; this is the one chokepoint that verifies it and returns its
+# claims, never an authority).
+# ---------------------------------------------------------------------------
+
+
+def _local_bearer_claims(**overrides):
+    now = int(time.time())
+    claims = {
+        "iss": "https://issuer.example.test",
+        "aud": "agent-services",
+        "sub": "principal:verified",
+        "tenant_id": "tenant-a",
+        "principal_kind": "service",
+        "scope": "kg:read",
+        "iat": now,
+        "nbf": now,
+        "exp": now + 300,
+        "jti": "fixture-jti",
+    }
+    claims.update(overrides)
+    return claims
+
+
+def _signed_token_cfg(**claim_overrides):
+    """A real RS256 token, its matching JWKS, and the config wired to verify it."""
+    claims = _local_bearer_claims(**claim_overrides)
+    token, jwks = _make_token_and_jwks(**claims)
+    cfg = _make_config(
+        auth_jwt_jwks_uri="https://issuer.example.test/jwks",
+        auth_jwt_issuer=claims["iss"],
+        auth_jwt_audience=claims["aud"],
+    )
+
+    async def fake_jwks(_uri):
+        return jwks
+
+    return claims, token, cfg, fake_jwks
+
+
+class TestVerifiedLocalBearer:
+    def test_rejects_non_dict_claims(self):
+        with pytest.raises(PermissionError):
+            VerifiedLocalBearer(
+                claims="nope",  # type: ignore[arg-type]
+                issuer="https://issuer.example.test",
+                audience="agent-services",
+            )
+
+    def test_rejects_issuer_or_audience_drift(self):
+        claims = _local_bearer_claims()
+        with pytest.raises(PermissionError, match="drifted"):
+            VerifiedLocalBearer(
+                claims=claims, issuer="https://other.invalid", audience=claims["aud"]
+            )
+        with pytest.raises(PermissionError, match="drifted"):
+            VerifiedLocalBearer(
+                claims=claims, issuer=claims["iss"], audience="other-audience"
+            )
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("sub", ""),
+            ("tenant_id", ""),
+            ("scope", ""),
+            ("jti", ""),
+            ("principal_kind", "admin"),
+            ("principal_kind", None),
+            ("iat", "now"),
+            ("nbf", True),
+            ("exp", 1.5),
+        ],
+    )
+    def test_rejects_malformed_claims(self, field, value):
+        claims = _local_bearer_claims(**{field: value})
+        with pytest.raises(PermissionError):
+            VerifiedLocalBearer(
+                claims=claims, issuer=claims["iss"], audience=claims["aud"]
+            )
+
+    def test_principal_reads_the_subject_claim(self):
+        claims = _local_bearer_claims()
+        bearer = VerifiedLocalBearer(
+            claims=claims, issuer=claims["iss"], audience=claims["aud"]
+        )
+        assert bearer.principal == "principal:verified"
+
+    def test_accepts_optional_fields_it_does_not_require(self):
+        """A fuller claim set (roles/policy_version/agent_id/delegation, as
+        graph-os's local issuer actually mints) must not be rejected just
+        because this DTO does not itself require those optional fields."""
+        claims = _local_bearer_claims(
+            roles=["human"],
+            policy_version="policy-v1",
+            agent_id="principal:verified",
+            delegation=[],
+        )
+        bearer = VerifiedLocalBearer(
+            claims=claims, issuer=claims["iss"], audience=claims["aud"]
+        )
+        assert bearer.principal == "principal:verified"
+
+
+class TestVerifyLocalBearerToken:
+    @pytest.mark.asyncio
+    async def test_verifies_a_real_signed_token(self):
+        claims, token, cfg, fake_jwks = _signed_token_cfg()
+
+        with (
+            mock.patch("agent_utilities.core.config.config", cfg),
+            mock.patch("agent_utilities.security.auth._fetch_jwks", fake_jwks),
+        ):
+            result = await verify_local_bearer_token(token)
+        assert isinstance(result, VerifiedLocalBearer)
+        assert result.principal == "principal:verified"
+        assert result.issuer == claims["iss"]
+        assert result.audience == claims["aud"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "cfg",
+        [
+            _make_config(),
+            _make_config(auth_jwt_jwks_uri="https://issuer.example.test/jwks"),
+            _make_config(
+                auth_jwt_jwks_uri="https://issuer.example.test/jwks",
+                auth_jwt_issuer="https://issuer.example.test",
+                auth_jwt_audience=None,
+            ),
+        ],
+    )
+    async def test_unconfigured_issuer_is_a_permission_error(self, cfg):
+        with mock.patch("agent_utilities.core.config.config", cfg):
+            with pytest.raises(PermissionError):
+                await verify_local_bearer_token("whatever")
+
+    @pytest.mark.asyncio
+    async def test_invalid_token_is_a_permission_error_not_an_http_exception(self):
+        _, _, cfg, fake_jwks = _signed_token_cfg()
+
+        with (
+            mock.patch("agent_utilities.core.config.config", cfg),
+            mock.patch("agent_utilities.security.auth._fetch_jwks", fake_jwks),
+        ):
+            with pytest.raises(PermissionError):
+                await verify_local_bearer_token("not-a-jwt")
+
+    @pytest.mark.asyncio
+    async def test_dependency_fault_is_distinct_from_a_rejected_credential(self):
+        """Mirrors ``test_jwt_dependency_fault_is_distinct_from_invalid_credential``
+        above for this local-bearer path: a verification-path fault that is
+        NOT a credential rejection must surface loudly as a ``RuntimeError``,
+        never collapse into the generic ``PermissionError`` denial."""
+        from fastapi import HTTPException
+
+        _, token, cfg, fake_jwks = _signed_token_cfg()
+
+        def broken_decode(*_args, **_kwargs):
+            raise HTTPException(status_code=500, detail="joserfc missing")
+
+        with (
+            mock.patch("agent_utilities.core.config.config", cfg),
+            mock.patch("agent_utilities.security.auth._fetch_jwks", fake_jwks),
+            mock.patch("agent_utilities.security.auth._decode_jwt", broken_decode),
+        ):
+            with pytest.raises(RuntimeError, match="verification path failed"):
+                await verify_local_bearer_token(token)
