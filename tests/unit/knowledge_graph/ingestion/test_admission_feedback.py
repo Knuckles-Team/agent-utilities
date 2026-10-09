@@ -6,6 +6,8 @@ import asyncio
 from collections.abc import Sequence
 from typing import Any
 
+import pytest
+
 from agent_utilities.decide.learning.session import LearningSession
 from agent_utilities.knowledge_graph.ingestion import embedding_admission
 from agent_utilities.knowledge_graph.ingestion.admission_feedback import (
@@ -20,6 +22,7 @@ def _usage(rows: list[dict[str, Any]], outcomes: int) -> dict[str, Any]:
     return {"result": "usage", "min_support": 10, "outcomes": outcomes, "rows": rows}
 
 
+@pytest.mark.spec("AU-CONTEXT-R003")
 def test_absence_over_enough_traffic_proposes_a_demotion() -> None:
     usage = _usage([], outcomes=500)
     proposals = propose_admission_changes(usage, admitted=["prose", "sql_enum"])
@@ -61,6 +64,7 @@ class _Transport:
         return asyncio.run(call)
 
 
+@pytest.mark.spec("AU-CONTEXT-R003")
 def test_review_reads_eg_usage_and_leaves_the_table_alone() -> None:
     before = set(embedding_admission.NEVER_EMBED_CLASSES)
     seen: list[Sequence[AdmissionProposal]] = []
