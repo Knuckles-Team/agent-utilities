@@ -18,7 +18,7 @@
 - [ ] AC-11 follow-up: Bind the planner capability-search and guardrail ports to EG-DECISION-ENGINE-R126 and EG-DECISION-ENGINE-R127 in graph-os.
 - [ ] AC-13 follow-up: Consume EG-FEDERATED-QUERY-R072 source selection and retire the local path search; bind SQL sources through EG OBDA.
 - [ ] AC-14: Rank fleet discovery hits with native capabilities in `find`, with a `fleet.call` `how_to_call` and a reported probe failure. Closes AU-CONTROL-R031.
-- [ ] AC-14 follow-up: Accept `act(action='<server>.<tool>')`, map it to the prefixed fleet name, mount lazily and call through the governed `fleet.call` path. Closes AU-CONTROL-R032.
+- [x] AC-14 follow-up: Accept `act(action='<server>.<tool>')`, map it to the prefixed fleet name, mount lazily and call through the governed `fleet.call` path. Closes AU-CONTROL-R032.
 - [ ] AC-14 follow-up: Add server descriptions to the fleet catalog in graph-os so `find` ranks a server before its first probe.
 - [ ] AC-15: Run the declared default on a read-only action tie and send an unmatched `ask` to the NL planner. Closes AU-CONTROL-R033, AU-CONTROL-R034.
 - [ ] Run the quality and served tests in `test-spec.md`; record merged-head results in `evidence.md`.
