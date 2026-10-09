@@ -321,7 +321,7 @@
     {
       "id": "AU-BOUNDARY-R018",
       "title": "Replace the AU graph engine facade with the EG client",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -329,19 +329,34 @@
           "commit": "2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "8b325ddf1818acfd7a4024549d72094bc0478eec",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/8b325ddf1818acfd7a4024549d72094bc0478eec",
+          "description": "AU-BOUNDARY-R018 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-BOUNDARY-R019",
       "title": "Replace AU's graph-compute and state facades with the EG client",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "8b325ddf1818acfd7a4024549d72094bc0478eec",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/8b325ddf1818acfd7a4024549d72094bc0478eec",
+          "description": "AU-BOUNDARY-R019 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R020",
       "title": "Move durable work, queues, and state to EG",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -349,13 +364,20 @@
           "commit": "1165123f0697eb4160cb143ffdd39e96a73221f8",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/1165123f0697eb4160cb143ffdd39e96a73221f8",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "8b325ddf1818acfd7a4024549d72094bc0478eec",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/8b325ddf1818acfd7a4024549d72094bc0478eec",
+          "description": "AU-BOUNDARY-R020 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-BOUNDARY-R021",
       "title": "Move graph tenancy, topology, and admission to EG",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -363,13 +385,20 @@
           "commit": "6cfdf6bad653c05fe59cbe3e6b3e987be6d76af1",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/6cfdf6bad653c05fe59cbe3e6b3e987be6d76af1",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "8b325ddf1818acfd7a4024549d72094bc0478eec",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/8b325ddf1818acfd7a4024549d72094bc0478eec",
+          "description": "AU-BOUNDARY-R021 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-BOUNDARY-R022",
       "title": "Retire AU's reasoning and graph-analytics duplicates",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -377,13 +406,20 @@
           "commit": "34606a6d3302aa4567fc6b2fd49e7e7099816741",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/34606a6d3302aa4567fc6b2fd49e7e7099816741",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "8b325ddf1818acfd7a4024549d72094bc0478eec",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/8b325ddf1818acfd7a4024549d72094bc0478eec",
+          "description": "AU-BOUNDARY-R022 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-BOUNDARY-R023",
       "title": "Split ingestion commit and derivation into EG",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -391,13 +427,20 @@
           "commit": "e3abde51266542ddfc61868a633b24d634ed68c4",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/e3abde51266542ddfc61868a633b24d634ed68c4",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "description": "AU-BOUNDARY-R023 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-BOUNDARY-R024",
       "title": "Move enterprise source synchronization to the SDK",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -405,14 +448,29 @@
           "commit": "2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "description": "AU-BOUNDARY-R024 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-BOUNDARY-R025",
       "title": "Move document, conversation, and feed sources to the SDK",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "description": "AU-BOUNDARY-R025 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R026",
@@ -431,7 +489,7 @@
     {
       "id": "AU-BOUNDARY-R027",
       "title": "Move deterministic enrichment and derivation to EG",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -439,6 +497,13 @@
           "commit": "2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "description": "AU-BOUNDARY-R027 merged to the default branch in this commit."
         }
       ]
     },
@@ -479,8 +544,16 @@
     {
       "id": "AU-BOUNDARY-R028.2.1",
       "title": "Pin the kg/infra production-importer set.",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "32bdd70f5ea41d3149375aca9797d5b7d539aa36",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/32bdd70f5ea41d3149375aca9797d5b7d539aa36",
+          "description": "AU-BOUNDARY-R028.2.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R028.3",
@@ -563,7 +636,7 @@
     {
       "id": "AU-BOUNDARY-R029",
       "title": "Move the ontology object model to EG",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -571,6 +644,13 @@
           "commit": "2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2cc05c2b8b76680da368ab5a93118dd3fd3611b8",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "description": "AU-BOUNDARY-R029 merged to the default branch in this commit."
         }
       ]
     },
@@ -598,8 +678,16 @@
     {
       "id": "AU-BOUNDARY-R031",
       "title": "Replace AU's graph-schema DTOs with EG-generated types",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "description": "AU-BOUNDARY-R031 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R032",
@@ -625,14 +713,30 @@
     {
       "id": "AU-BOUNDARY-R033",
       "title": "Move external graph and database federation to EG",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "description": "AU-BOUNDARY-R033 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R034",
       "title": "Move retrieval engines to EG",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/743e98cda405287ba64f1ffb985c4b295e9ce46a",
+          "description": "AU-BOUNDARY-R034 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R035",
@@ -817,8 +921,16 @@
     {
       "id": "AU-BOUNDARY-R046",
       "title": "Partly covered packages list every file with its owner",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "795afc53f54d2539a42d9d2baba310341ee74fea",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/795afc53f54d2539a42d9d2baba310341ee74fea",
+          "description": "AU-BOUNDARY-R046 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R047",
