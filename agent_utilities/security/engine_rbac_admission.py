@@ -324,20 +324,19 @@ class LiveEngineAdmissionClient:
     pass explicitly — never implicitly, never as a default, and NEVER against a
     live cluster from this pass (see the GOC-62 record's hard rules)."""
 
-    def __init__(self, *, config: Any = None) -> None:
-        self._config = config
-
-    def _client(self) -> Any:
-        from ..knowledge_graph.core.graph_compute import GraphComputeEngine
-
-        return GraphComputeEngine.get_or_create().client
+    def __init__(self, *, client: Any) -> None:
+        if client is None:
+            raise EngineAdmissionError(
+                "live engine admission requires an injected engine client"
+            )
+        self._engine_client = client
 
     def bootstrap_system_identity(
         self, *, agent_id: str, signer_id: str, signer_key: str
     ) -> str:
         try:
             return str(
-                self._client().consensus.bootstrap_system_identity(
+                self._engine_client.consensus.bootstrap_system_identity(
                     agent_id=agent_id, signer_id=signer_id, signer_key=signer_key
                 )
             )
@@ -356,7 +355,7 @@ class LiveEngineAdmissionClient:
     ) -> str:
         try:
             return str(
-                self._client().consensus.register_identity(
+                self._engine_client.consensus.register_identity(
                     agent_id,
                     role,
                     [],
@@ -372,7 +371,7 @@ class LiveEngineAdmissionClient:
 
     def add_role(self, role: str) -> str:
         try:
-            return str(self._client().rbac.add_role(role))
+            return str(self._engine_client.rbac.add_role(role))
         except Exception as exc:
             raise EngineAdmissionError(f"engine add_role({role!r}) failed") from exc
 
@@ -380,20 +379,19 @@ class LiveEngineAdmissionClient:
         self, role: str, resource: dict[str, str] | str, action: str, effect: str
     ) -> str:
         try:
-            return str(self._client().rbac.add_grant(role, resource, action, effect))
+            return str(
+                self._engine_client.rbac.add_grant(role, resource, action, effect)
+            )
         except Exception as exc:
             raise EngineAdmissionError(
                 f"engine add_grant({role!r}, {resource!r}, {action!r}, {effect!r}) failed"
             ) from exc
 
 
-def resolve_engine_admission_client(config: Any = None) -> EngineAdmissionClient:
-    """Return a :class:`LiveEngineAdmissionClient` bound to ``config``. Construction
-    never connects by itself — mirrors
-    :func:`~agent_utilities.knowledge_graph.maintenance.graph_ownership_apply.resolve_rbac_admin_client`.
-    """
+def resolve_engine_admission_client(*, client: Any) -> EngineAdmissionClient:
+    """Wrap one explicitly injected engine client for Tier-2 admission."""
 
-    return LiveEngineAdmissionClient(config=config)
+    return LiveEngineAdmissionClient(client=client)
 
 
 def provision_tier2_admission(
