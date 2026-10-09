@@ -37,7 +37,7 @@ import contextvars
 import logging
 import re
 import time
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -395,22 +395,18 @@ class PrincipalIdentity:
     ceiling: tuple[str, ...] = field(default_factory=tuple)
 
 
-def resolve_principal_identity() -> PrincipalIdentity:
-    """Resolve the ambient caller principal + :func:`base_capabilities` ceiling (best-effort).
+def resolve_principal_identity(
+    claims: Mapping[str, object] | None = None,
+) -> PrincipalIdentity:
+    """Resolve an injected verified principal or the bound actor, fail-closed.
 
-    Prefers a validated OIDC token's claims (normalized across Okta/Keycloak/… then reduced to
-    the base capability set); falls back to the bound :class:`ActorContext` whose ``roles`` are
-    already the effective capability set. Returns an empty identity when nothing is bound (a
-    tiny/local process) — the caller then treats the ceiling as unresolved (no narrowing).
+    ``claims`` may only come from the composition/ingress verifier. This module
+    never reaches into MCP middleware for a token or claims fallback. When no
+    claims are injected, the already-verified bound :class:`ActorContext` is
+    used. Missing or malformed authority returns an empty identity, which
+    callers treat as unresolved and therefore cannot use to widen a ceiling.
     """
-    # 1) Validated delegated OIDC claims (the richest ceiling source).
-    try:
-        from agent_utilities.mcp.delegated_auth import get_user_claims
-
-        claims = get_user_claims()
-    except Exception:  # noqa: BLE001 — delegation middleware may be absent
-        claims = None
-    if claims:
+    if claims is not None:
         try:
             from agent_utilities.security.identity import (
                 base_capabilities,
@@ -423,10 +419,11 @@ def resolve_principal_identity() -> PrincipalIdentity:
                 tenant=ident.tenant,
                 ceiling=tuple(base_capabilities(ident)),
             )
-        except Exception as exc:  # noqa: BLE001 — malformed claims fall through to the actor
-            logger.debug("delegation: claim-derived ceiling skipped: %s", exc)
+        except (TypeError, ValueError) as exc:
+            logger.warning("delegation: injected claims rejected: %s", exc)
+            return PrincipalIdentity()
 
-    # 2) The bound ActorContext (roles are already the effective capability set).
+    # The bound ActorContext roles are already the effective capability set.
     try:
         from agent_utilities.security.brain_context import current_actor
 
