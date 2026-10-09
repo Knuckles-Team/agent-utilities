@@ -287,6 +287,15 @@ RETIRED_IDENTIFIERS: tuple[str, ...] = (
     "satisfies" + "Compliance",
     "conformsTo" + "Standard",
     ".local.example" + ".com",
+    # AU-SEMANTIC-R021.2: extraction/schema_discovery.py and the 'discover_extensions'/
+    # 'generate' ontology_derive actions it backed are deleted outright.
+    # Connector-manifest-to-ontology compilation (and this LLM proposal path)
+    # runs as EG pack compilation instead, same convention as the sibling
+    # AU-SEMANTIC-R021.4 (scaffold_ontology_leg.py) removal.
+    "ontology_derive_discover_" + "extensions",
+    "ontology_derive_" + "generate",
+    "discover_schema_" + "extensions",
+    "generate_standalone_" + "ontology",
 )
 RETIRED_PATHS: tuple[str, ...] = (
     "agent_utilities/core/agent_" + "launcher.py",
@@ -317,6 +326,13 @@ RETIRED_PATHS: tuple[str, ...] = (
     # OWL/RDF stub). A plain tripwire against it reappearing, same as every
     # other RETIRED_PATHS entry.
     "scripts/scaffold_ontology_" + "leg.py",
+    # AU-SEMANTIC-R021.2: the hand-written LLM schema-discovery emitter is
+    # deleted outright (no live caller after the 'discover_extensions'/
+    # 'generate' ontology_derive actions it backed were removed too;
+    # connector-manifest-to-ontology compilation runs as EG pack compilation
+    # instead). A plain tripwire against it reappearing, same as every other
+    # RETIRED_PATHS entry.
+    "agent_utilities/knowledge_graph/extraction/schema_" + "discovery.py",
     # WD10-P-AUPUSH: scripts/check_no_legacy_markers.py was WRONGLY listed
     # here. It is not retired surface -- it is a live gate the
     # `.pre-commit-config.yaml` of all 61 `agents/*` packages plus
