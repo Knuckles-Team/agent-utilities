@@ -4719,7 +4719,6 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py
   - agent_utilities/knowledge_graph/retrieval/semantic_retrieval_engine.py
-  - agent_utilities/knowledge_graph/security/cognitive_trap_defense.py
   - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/messaging/kg_ingest.py
   - agent_utilities/models/knowledge_graph.py
