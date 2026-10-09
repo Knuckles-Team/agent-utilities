@@ -92,6 +92,38 @@ covers only *new* tests is not evidence. Do this before the full run and before
    If none would have, you have not written the test yet — and if the selector
    returned nothing, that is a finding about test coverage, not a green light.
 
+## Rapid delivery: the 5-minute contract
+
+Specs are already designed. The work is implementation, delivered in very small, continuously landed slices.
+
+**Time and size**
+- One agent delivers one PR in 5 minutes or less. No agent or sub-agent runs longer than 5 minutes; an orchestrator dispatches the next slice to a fresh agent.
+- CI turns around in 5 minutes or less. PR CI runs the fast subset: lint, type check, the spec check, and only the tests and crates the diff touches. Pushes to main run the full suite.
+- Never spawn sub-agents from a delivery agent.
+
+**Investigation budget**
+- At most 2 minutes and about 10 tool calls of reading before the first edit, and at most about 25 tool calls per PR.
+- If the change is not clear by then, ship the `.1` slice (typed model plus refusal test) or skip the row with a one-line note. Do not write deferral essays.
+- Trust the orchestrator's evidence and ID list; do not re-verify it.
+
+**Sizing (deterministic)**
+- Split a requirement when its size score is above 6, it names more than 2 code roots, or it is cross-repo. Children are `<ID>.<n>`, producer first.
+- Net-new work is sliced, never skipped: `.1` typed model plus validation and refusal tests, `.2` the one entry point that uses it, `.3`+ each further behavior.
+- Cross-repo moves split into one child per repo: the destination copies the behavior first, then the source switches importers and deletes.
+
+**Before every push**
+- Work in a real `git worktree add` from `origin/main`. Never edit a shared checkout, never `git stash`, never `git add -A`, never force-push.
+- Run the repo's own pre-commit on the changed files: `uvx --from pre-commit==4.6.0 pre-commit run --files $(git diff --name-only origin/main...HEAD)`. Fix every failure. No `noqa`, `type: ignore`, skip, xfail or whitelist entries to pass a gate.
+- Run the targeted tests only, never a full suite.
+
+**Landing**
+- Every PR lands within minutes of going green; no PR sits idle. Mechanical conflicts (generated files, Markdown, `status.json`) are resolved automatically by the orchestrator's merge-train tool. Real conflicts are additive in most cases and are resolved, not deferred.
+- Many open PRs land together as a merge train (one integration branch, one CI run), built with the orchestrator's merge-train tool.
+- Full CI on main catches what the fast subset missed; regressions are fixed forward immediately.
+- Landing in this repo: merge `origin/main` into the branch, run the fast gate (ruff, mypy on touched files, the spec check, `scripts/check_duplication.py enforce`, the changed tests), then `gh pr merge --merge`. Never `--auto` (the repo has no required checks).
+
+**Report**: at most 8 lines: PR URL, requirement IDs, test result, and any `ID:<main sha>` proof for rows already on main.
+
 ## Orient first — the component inventory (READ BEFORE ADDING ANYTHING)
 
 Most sprawl here is not written deliberately; it is written by an author who did
@@ -450,50 +482,8 @@ uncovered/orphan rule are in
 a second list. Each entry names its replacement, because a prohibition without one
 does not hold. Run `repository-manager --lane doctor --lane-path .` and it will
 tell you which of them you are currently violating, with the exact remedy command.
-
-- **Never edit the canonical checkout.** Work in the lane worktree.
-- **Never use the harness's worktree-isolation tool** (`Agent(isolation:"worktree")`
-  / `EnterWorktree`) on this repo. It writes `core.bare = true` into the **shared**
-  `$GIT_COMMON_DIR/config` and never restores it, so every one of the 26+ linked
-  worktrees then fails `git status`/`git commit` with *"this operation must be run
-  in a work tree"* — invisibly. Upstream defect, closed as not-planned. Use
-  `repository-manager --lane start` (or a real `git worktree add`).
-- **Never `update-ref` to advance a branch.** It moves the ref without the
-  worktree, and the NEXT commit there silently reverts everything in between while
-  `git status` reads clean and `--is-ancestor` says yes. Use `git merge --ff-only`,
-  then verify by TREE: `git cat-file -e HEAD:<path>` (see *Validate* → measure the
-  merged tree).
-- **Never `git stash`.** `refs/stash` is ONE ref shared by every worktree here.
-  To read a pristine file while yours is dirty: `git show HEAD:<path>`. To park
-  work: a `wip:` commit on your branch, or `agent-utilities lane park`.
-- **Never export a shared `CARGO_TARGET_DIR`** — it corrupts concurrent worktree
-  builds, it does not merely serialize them. Use `--target-dir ./target-isolated`
-  and prune it; `agent-utilities lane bind-cargo` makes the partition structural.
-- **Never run with the shared `PRE_COMMIT_HOME`.** pre-commit writes your
-  unstaged work to a patch file there and restores it in a `finally:`; a crash
-  inside that window loses it. `--lane env` sets a private one.
-- **Never `git branch -D`.** Only `-d` — its refusal is the safety mechanism
-  telling you the work is not contained in the base.
-- **Never hand-edit a generated view** (`docs/concept_reservations.yaml`,
-  `reports/PROGRAM.md`, a provider's `WORKFLOW.md`/`catalog.md`). Write your
-  fragment or edit the source and regenerate; `lane-guard` refuses a hand-edited
-  ledger view.
-- **Register writes use `--detail-file`/`--evidence-file`, never `--detail "…"`.**
-  Register prose contains backticked identifiers, and inside double quotes bash
-  performs command substitution on backticks — silently executing them. This has
-  already truncated live entries and triggered an accidental `uv sync` against
-  the shared workspace `.venv` (D-ORC-22).
-- **Never `git add -A` / `git add .`.** A shared worktree routinely holds handoff
-  notes, baseline markers, logs, caches, and another concern's edits. Read `git
-  status --short`, then stage an explicit reviewed allowlist (`git add -- path…`,
-  `git add -u -- exact/path` for deletions), then re-read `git diff --cached
-  --name-status` and `git diff --cached` before committing. `*-NOTES.md`,
-  scratchpads, logs, caches, test output, and branch-divergence markers are never
-  product artifacts.
-- **Regenerate `uv.lock` exactly once, after every `pyproject.toml` in the change
-  has frozen.** Regenerating per-edit produces a lock that churns against every
-  other lane and an `uv-lock --locked` failure nobody can attribute. Verify the
-  lock is untouched by your test runs before you commit.
-- Do not bypass failing gates or silently accept warnings.
-- Do not create a second implementation for another entry point.
-- Do not commit secrets, credential files, local inventories, or scratch output.
+The full catalogue — canonical checkout, worktree isolation, `update-ref`,
+`git stash`, `CARGO_TARGET_DIR`, `PRE_COMMIT_HOME`, `git branch -D`, generated
+views, register writes, `git add -A`, `uv.lock`, and the remaining prohibitions —
+is in
+[`references/g11-replacement-catalogue-reference.md`](references/g11-replacement-catalogue-reference.md).
