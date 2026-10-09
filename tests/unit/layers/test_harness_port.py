@@ -14,6 +14,7 @@ import pytest
 from agent_utilities.layers import harness_record
 from agent_utilities.layers.harness_cli import (
     CLAUDE_PINNED_FLAGS,
+    SUBAGENT_TOOL,
     ClaudeCodeHarness,
     graphos_mcp_config,
     write_graphos_mcp_config,
@@ -185,6 +186,29 @@ async def test_native_timeout_is_typed() -> None:
     assert outcome.error
 
 
+def test_max_subagents_rejects_negative() -> None:
+    with pytest.raises(ValueError):
+        HarnessRequest(agent_name="a", task="t", max_subagents=-1)
+
+
+async def test_native_refuses_nonzero_subagent_allowance() -> None:
+    # AU-CONTROL-R018: native has no sub-agent tool to grant the allowance
+    # through, so it fails closed instead of silently running with fewer.
+    runner = _Runner(_envelope("unused"))
+    request = HarnessRequest(agent_name="a", task="t", max_subagents=2)
+    outcome = await NativeHarness(runner=runner).run(request)
+    assert outcome.status == "refused"
+    assert "max_subagents" in (outcome.error or "")
+    assert runner.kwargs == {}
+
+
+async def test_native_default_allowance_runs_normally() -> None:
+    runner = _Runner(_envelope("ok"))
+    request = HarnessRequest(agent_name="a", task="t")
+    outcome = await NativeHarness(runner=runner).run(request)
+    assert outcome.status == "completed"
+
+
 # -- claude-code CLI adapter (fake executable; no real CLI calls) ------------
 
 
@@ -211,6 +235,26 @@ async def test_claude_pinned_argv_cwd_and_stdin(
     assert "add a test" not in argv  # the prompt goes on stdin only
     assert seen["prompt"] == "add a test"
     assert Path(seen["cwd"]).resolve() == workspace.resolve()
+
+
+def test_claude_argv_disables_subagent_tool_with_no_allowance(
+    tmp_path: Path, mcp_config: Path
+) -> None:
+    # AU-CONTROL-R018: the default allowance (0) denies Claude Code's own
+    # native sub-agent tool, since the CLI cannot bound its count or depth.
+    harness, _ = _claude(tmp_path, mcp_config)
+    request = HarnessRequest(agent_name="a", task="t")
+    argv = harness.argv("claude", request)
+    assert argv[argv.index("--disallowedTools") + 1] == SUBAGENT_TOOL
+
+
+def test_claude_argv_grants_subagent_tool_with_allowance(
+    tmp_path: Path, mcp_config: Path
+) -> None:
+    harness, _ = _claude(tmp_path, mcp_config)
+    request = HarnessRequest(agent_name="a", task="t", max_subagents=3)
+    argv = harness.argv("claude", request)
+    assert "--disallowedTools" not in argv
 
 
 async def test_claude_typed_outcome(

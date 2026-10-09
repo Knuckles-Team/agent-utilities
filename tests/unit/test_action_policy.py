@@ -19,10 +19,12 @@ import yaml
 
 from agent_utilities.orchestration import action_policy as ap
 from agent_utilities.orchestration.action_policy import (
+    ACTION_APPROVAL_KIND,
     DEFAULT_POLICY,
     ActionPolicy,
     ActionRequest,
     PolicyDisposition,
+    approval_lease_to_props,
     in_maintenance_window,
 )
 
@@ -482,6 +484,53 @@ def test_promote_mined_claim_default_never_auto():
     assert decision.tier == ap.TIER_APPROVAL
     assert decision.decision == "queue_approval"
     assert not decision.allowed
+
+
+# ---------------------------------------------------------------------------
+# GRAPHOS-IDENTITY-R019 prerequisite: graph-os's ``approvals.*`` operations
+# (graph-os commit 9f238618e6) list/get/decide control leases of exactly
+# ``ACTION_APPROVAL_KIND`` and render each one through
+# ``approval_lease_to_props``. These two symbols are a pure contract with no
+# engine side effects; the behavioral queueing path stays ``queue_approval``.
+# ---------------------------------------------------------------------------
+
+
+def test_action_approval_kind_is_the_shared_lease_kind():
+    """graph-os filters/validates control leases by this exact literal."""
+    assert ACTION_APPROVAL_KIND == "action.approval"
+
+
+def test_approval_lease_to_props_merges_payload_and_lifecycle_fields():
+    lease = {
+        "lease_id": "action_approval:deadbeef",
+        "kind": ACTION_APPROVAL_KIND,
+        "status": "active",
+        "revision": 3,
+        "requested_at_ms": 1_000,
+        "hard_expires_at_ms": 2_000,
+        "props": {"action_kind": "restart_service", "target": "caddy-mcp"},
+    }
+    props = approval_lease_to_props(lease)
+    assert props == {
+        "action_kind": "restart_service",
+        "target": "caddy-mcp",
+        "lease_id": "action_approval:deadbeef",
+        "kind": ACTION_APPROVAL_KIND,
+        "status": "active",
+        "revision": 3,
+        "requested_at_ms": 1_000,
+        "hard_expires_at_ms": 2_000,
+    }
+    # The input mapping is never mutated.
+    assert lease["props"] == {"action_kind": "restart_service", "target": "caddy-mcp"}
+
+
+def test_approval_lease_to_props_tolerates_a_missing_payload():
+    lease = {"lease_id": "action_approval:bare", "kind": ACTION_APPROVAL_KIND}
+    assert approval_lease_to_props(lease) == {
+        "lease_id": "action_approval:bare",
+        "kind": ACTION_APPROVAL_KIND,
+    }
 
 
 # ---------------------------------------------------------------------------

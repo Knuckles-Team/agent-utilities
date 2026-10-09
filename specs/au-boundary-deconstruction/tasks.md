@@ -22,3 +22,8 @@
 | Quality gates and evidence | all of the above | TODO | CCCC, KISS, Dupehound, jscpd, language linters and the full test suite pass at the merged head and the result is recorded in [evidence.md](evidence.md) |
 
 Each row expands into a PR checklist with changed paths, owner operation, positive and negative test IDs, scanner delta, review, merged commit and acceptance artifact. Do not move a row to VERIFIED solely because another row in its range passed. Every ID is defined in [requirements.md](requirements.md); the directories each requirement removes or relocates are listed in the [deletion and relocation inventory](coverage.md#deletion-and-relocation-inventory).
+
+## Progress notes
+
+- `AU-BOUNDARY-R030`: the SDK half landed as `agent_connector_sdk.manifest.ontology_pack.compile_manifest_ontology` (Knuckles-Team/agent-connector-sdk#36). AU's compile-before-sync gate (`connector_manifest_gate._compiled_manifest_graph`) now calls it instead of rendering Turtle locally. `agent_utilities/knowledge_graph/ontology/manifest_compiler.py` is not yet deleted: `scripts/generate_connector_manifests.py`, `scripts/update_ontology_lock.py`, `scripts/generate_native_connector_manifest.py`, and `agent_utilities/knowledge_graph/domain_packs/pack_loader.py` still import it directly and need their own migration before the local copy is removed.
+- `AU-BOUNDARY-R035`: the SHACL-removal half (candidate.py sends EG a typed `RecordContract`, never Turtle) landed at main commit `9cc9e08c1a0e0c273223b5cc84ebe9e2fcb2f946` under `AU-SEC-R005`, ahead of this spec recording it. The remaining half, moving `contract_store` and `activation` into the epistemic graph and the SDK connector-sync runner's gate/shape/classify/report steps, is open.

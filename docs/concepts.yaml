@@ -9918,7 +9918,6 @@ concepts:
   pillar: AU-OS
   status: live
   code_paths:
-  - agent_utilities/observability/gateway_health.py
   - agent_utilities/observability/health.py
   doc: AU-OS.observability.unified-health-kernels
 - id: AU-OS.observability.usage-analytics-store

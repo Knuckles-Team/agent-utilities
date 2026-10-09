@@ -14,9 +14,17 @@
     "AU-SEC-R009",
     "AU-SEC-R010"
   ],
-  "delivery_state": "BUILDING",
+  "delivery_state": "LANDED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": [],
+  "evidence": [
+    {
+      "kind": "merged_head",
+      "result": "passed",
+      "commit": "c7483960ebb03ec81f59396f561b41a5865d3b8c",
+      "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c7483960ebb03ec81f59396f561b41a5865d3b8c",
+      "description": "Every requirement in this spec is merged to the default branch."
+    }
+  ],
   "requirements": [
     {
       "id": "AU-SEC-R001",
@@ -189,8 +197,16 @@
     {
       "id": "AU-SEC-R009",
       "title": "Learned scores never grant security authority",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "8a7a9e0e3fbebf6c11adff629eda273cf3b9bbfc",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/8a7a9e0e3fbebf6c11adff629eda273cf3b9bbfc",
+          "description": "AU-SEC-R009 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-SEC-R010",

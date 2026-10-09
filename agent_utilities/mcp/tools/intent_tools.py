@@ -2295,12 +2295,22 @@ def _operation_hints(
 
 
 def _fleet_mux(mcp: Any) -> Any:
+    """The attached fleet multiplexer, or a precise refusal (AU-CONTROL-R031).
+
+    ``kg_server.ensure_tools_registered``'s headless build records the exact
+    attach failure on ``mcp._fleet_mux_unavailable_reason`` when it could not
+    attach a real multiplexer; surface that verbatim instead of the generic
+    embedded/headless message so an operator sees why, not just that.
+    """
     mux = getattr(mcp, "_fleet_mux", None)
-    if mux is None:
-        raise ValueError(
-            "No fleet multiplexer is attached to this server (embedded/headless build)."
-        )
-    return mux
+    if mux is not None:
+        return mux
+    reason = getattr(mcp, "_fleet_mux_unavailable_reason", None)
+    if reason:
+        raise ValueError(f"No fleet multiplexer is attached to this server: {reason}.")
+    raise ValueError(
+        "No fleet multiplexer is attached to this server (embedded/headless build)."
+    )
 
 
 def _host_plan_ref(verb: str, op_id: str, arguments: dict[str, Any]) -> str:

@@ -26,9 +26,12 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
+
+from scripts._git_subprocess_env import sanitized_git_env
 
 
 def _gate_module() -> ModuleType:
@@ -297,6 +300,61 @@ def test_svc_cluster_local_bare_and_schemed_both_fail() -> None:
     host = _non_reserved_host("coordinator", "cell", suffix=svc_suffix)
     assert _flags_internal_endpoint(gate, f'HOST = "{host}"') is True
     assert _flags_internal_endpoint(gate, f'ENDPOINT = "http://{host}:8080"') is True
+
+
+# --------------------------------------------------------------------------- #
+# EH-467: a checkout configured with the canonical Claude/Codex commit
+# identity (operator ruling, plans/refactor/DECISIONS.md 2026-09-24) must not
+# turn every ordinary "Claude"/"Codex" mention in tracked prose into a
+# manufactured local-identifier leak.
+# --------------------------------------------------------------------------- #
+
+
+def _init_repo(root: Path, *, name: str, email: str) -> None:
+    for args in (
+        ["git", "init", "-q"],
+        ["git", "config", "user.name", name],
+        ["git", "config", "user.email", email],
+        ["git", "config", "commit.gpgsign", "false"],
+    ):
+        subprocess.run(args, cwd=root, check=True, capture_output=True, env=sanitized_git_env())
+
+
+def test_derive_local_identifiers_excludes_the_canonical_agent_identities(
+    tmp_path: Path,
+) -> None:
+    gate = _gate_module()
+    _init_repo(tmp_path, name="Claude", email="noreply@anthropic.com")
+
+    identifiers = gate.derive_local_identifiers(tmp_path)
+
+    assert "claude" not in identifiers
+    assert "noreply@anthropic.com" not in identifiers
+
+
+def test_privacy_gate_does_not_flag_an_ambient_canonical_identity_mention(
+    tmp_path: Path,
+) -> None:
+    """Committing as ``user.name=Claude`` must not flood every "Claude" mention."""
+    gate = _gate_module()
+    _init_repo(tmp_path, name="Claude", email="noreply@anthropic.com")
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "notes.md").write_text(
+        "Claude reviewed and approved this change.\n", encoding="utf-8"
+    )
+    subprocess.run(
+        ["git", "add", "docs/notes.md"],
+        cwd=tmp_path, check=True, capture_output=True, env=sanitized_git_env(),
+    )
+    subprocess.run(
+        ["git", "commit", "-q", "-m", "add notes"],
+        cwd=tmp_path, check=True, capture_output=True, env=sanitized_git_env(),
+    )
+
+    violations = gate.scan(tmp_path)
+
+    assert violations == [], [v.render() for v in violations]
 
 
 def test_full_corpus_scan_is_clean() -> None:
