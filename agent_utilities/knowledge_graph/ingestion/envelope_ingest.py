@@ -1821,26 +1821,23 @@ def _native_mutation(
     content_digest: str,
     *,
     expected_graph_version: int,
-    created_at_ms: int,
     placement: tuple[int, Any],
 ) -> dict[str, Any]:
-    """The engine's durable mutation DTO for this envelope."""
+    """The engine's durable mutation DTO for this envelope.
+
+    This is ``client.changes.apply()``'s mutation draft, which epistemic-graph
+    validates as a CLOSED mapping (``_CHANGE_MUTATION_REQUIRED`` /
+    ``_CHANGE_MUTATION_OPTIONAL`` in epistemic_graph/client.py): only
+    ``{batch_id, graph, idempotency_key, operations, outbox}`` plus the
+    optional ``{placement_epoch, expected_graph_version, fencing_token}`` are
+    accepted. ``schema_version``, ``context`` and ``tenant`` are NOT part of
+    that contract — the engine mints tenant, context and timing itself from
+    the already-verified session, so they must not be drafted here. Do not
+    add fields to this dict without first checking those two frozensets.
+    """
     placement_epoch, placement_group = placement
-    policy_version = str(session.policy_version or "unversioned")
     mutation: dict[str, Any] = {
-        # Epistemic Graph's current-only durable mutation contract is v2.
-        # The enclosing ChangeEnvelope remains v1; these are distinct wire
-        # schemas and neither side accepts the retired mutation v1 shape.
-        "schema_version": 2,
         "batch_id": f"batch:{envelope.idempotency_key}",
-        "context": {
-            "request_id": 0,
-            "principal": "",
-            "purpose": "external_change_ingestion",
-            "policy_fingerprint": policy_version,
-            "trace_id": str(session.trace_context or envelope.trace_context or ""),
-        },
-        "tenant": str(session.tenant),
         "graph": str(session.graph),
         "placement_epoch": placement_epoch,
         "idempotency_key": envelope.idempotency_key,
@@ -1860,7 +1857,6 @@ def _native_mutation(
                 "headers": {"schema": "agent-utilities.change-committed.v1"},
             }
         ],
-        "created_at_ms": created_at_ms,
     }
     if placement_group is not None:
         mutation["fencing_token"] = int(placement_group)
@@ -1958,13 +1954,18 @@ def _native_material(
     native: dict[str, Any] = {
         "schema_version": 1,
         "envelope_id": _native_envelope_id(envelope),
+        # Envelope-level metadata, not part of the engine's closed mutation
+        # contract (epistemic_graph.client._CHANGE_MUTATION_REQUIRED /
+        # _CHANGE_MUTATION_OPTIONAL) — the engine mints its own durable
+        # commit timing from the verified session. Retained here only for
+        # AU-side observability of the observed-time this envelope carried.
+        "created_at_ms": created_at_ms,
         "mutation": _native_mutation(
             session,
             envelope,
             operations,
             content_digest,
             expected_graph_version=expected_graph_version,
-            created_at_ms=created_at_ms,
             placement=_native_placement(authority, session),
         ),
         "content_version": {
