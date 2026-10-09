@@ -157,7 +157,6 @@ def test_an_unsolved_result_makes_no_graph_record() -> None:
     assert assembled_graph_record({}) is None
 
 
-@pytest.mark.spec("AU-INTEGRATION-R001")
 def test_an_a2a_agent_is_listed_with_its_endpoint(engine) -> None:
     engine.add_node(
         "agent:outside",
@@ -202,7 +201,6 @@ class _TypedWriteEngine:
         self.backend.add_edge(source, target, rel)
 
 
-@pytest.mark.spec("AU-INTEGRATION-R001")
 def test_save_surfaces_clustered_mutation_refusal_through_the_real_write_path() -> None:
     """AU-INTEGRATION-R001's AU obligation: AgentLibrary's real write entry.
 

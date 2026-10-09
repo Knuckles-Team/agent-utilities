@@ -39,7 +39,6 @@ _DOCKER_HIT = {
 }
 
 
-@pytest.mark.spec("AU-CONTROL-R032", "AU-CONTROL-R033", "AU-CONTROL-R034")
 @pytest.mark.asyncio
 async def test_find_ranks_a_fleet_tool_above_unrelated_native_capabilities():
     mcp = _FakeMCP(_FakeFleetMux({"results": [_DOCKER_HIT], "unavailable": {}}))
@@ -58,7 +57,6 @@ async def test_find_ranks_a_fleet_tool_above_unrelated_native_capabilities():
     assert {row["source"] for row in payload["results"]} == {"fleet", "graphos"}
 
 
-@pytest.mark.spec("AU-CONTROL-R032", "AU-CONTROL-R033", "AU-CONTROL-R034")
 @pytest.mark.asyncio
 async def test_find_reports_a_failed_fleet_probe_instead_of_hiding_it():
     class _Broken:
@@ -73,7 +71,6 @@ async def test_find_reports_a_failed_fleet_probe_instead_of_hiding_it():
     assert all(row["source"] == "graphos" for row in payload["results"])
 
 
-@pytest.mark.spec("AU-CONTROL-R032", "AU-CONTROL-R033", "AU-CONTROL-R034")
 def test_fleet_rows_without_a_tool_name_point_at_catalog_or_skill():
     tokens = intent_tools._tokenize("docker containers")
     skill = intent_tools._fleet_find_row(

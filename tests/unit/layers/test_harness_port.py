@@ -112,7 +112,6 @@ async def _assert_conforms(port: Any, request: HarnessRequest) -> RunOutcome:
 # -- protocol conformance ---------------------------------------------------
 
 
-@pytest.mark.spec("AU-HARNESS-R008", "AU-HARNESS-R009", "AU-HARNESS-R010")
 async def test_native_adapter_conforms() -> None:
     runner = _Runner(_envelope("hello"))
     request = HarnessRequest(agent_name="a", task="t", run_id="run:abc")
@@ -120,7 +119,6 @@ async def test_native_adapter_conforms() -> None:
     assert outcome.status == "completed"
 
 
-@pytest.mark.spec("AU-HARNESS-R008", "AU-HARNESS-R009", "AU-HARNESS-R010")
 async def test_claude_adapter_conforms(
     tmp_path: Path, workspace: Path, mcp_config: Path
 ) -> None:
@@ -130,7 +128,6 @@ async def test_claude_adapter_conforms(
     assert outcome.status == "completed"
 
 
-@pytest.mark.spec("AU-HARNESS-R008", "AU-HARNESS-R009", "AU-HARNESS-R010")
 def test_outcome_is_immutable_and_strict() -> None:
     outcome = RunOutcome(run_id="r", harness="h", agent_name="a", status="completed")
     with pytest.raises(ValueError):
@@ -189,13 +186,11 @@ async def test_native_timeout_is_typed() -> None:
     assert outcome.error
 
 
-@pytest.mark.spec("AU-CONTROL-R018")
 def test_max_subagents_rejects_negative() -> None:
     with pytest.raises(ValueError):
         HarnessRequest(agent_name="a", task="t", max_subagents=-1)
 
 
-@pytest.mark.spec("AU-CONTROL-R018")
 async def test_native_refuses_nonzero_subagent_allowance() -> None:
     # AU-CONTROL-R018: native has no sub-agent tool to grant the allowance
     # through, so it fails closed instead of silently running with fewer.
@@ -207,7 +202,6 @@ async def test_native_refuses_nonzero_subagent_allowance() -> None:
     assert runner.kwargs == {}
 
 
-@pytest.mark.spec("AU-CONTROL-R018")
 async def test_native_default_allowance_runs_normally() -> None:
     runner = _Runner(_envelope("ok"))
     request = HarnessRequest(agent_name="a", task="t")

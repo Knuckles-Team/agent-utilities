@@ -112,7 +112,6 @@ class _Draft:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.spec("AU-HARNESS-R003")
 def test_submit_gap_persists_canonical_gap_and_lease():
     eng = LifecycleEngine()
     gap = submit_gap(
@@ -251,7 +250,6 @@ def test_audit_detector_files_canonical_gap_per_finding():
     assert get_gap(eng, gap["id"])["status"] == gaps.STATUS_OPEN
 
 
-@pytest.mark.spec("AU-HARNESS-R003")
 def test_audit_scan_is_opt_in_and_off_by_default(monkeypatch):
     from agent_utilities.core.config import config
     from agent_utilities.harness.audit_gap_detector import run_audit_gap_scan

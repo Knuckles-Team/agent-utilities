@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 # The module set as of AU-CONTEXT-R007.1. AU-CONTEXT-R007.2 removes entries
 # from this set as each calculation's parity-tested EG replacement lands; no
 # entry is ever added back.
@@ -82,7 +80,6 @@ def _finance_domain_dir() -> Path:
     return repo_root / "agent_utilities" / "domains" / "finance"
 
 
-@pytest.mark.spec("AU-CONTEXT-R007.1")
 def test_finance_module_set_has_not_grown_past_the_pinned_baseline() -> None:
     finance_dir = _finance_domain_dir()
     current = {p.name for p in finance_dir.glob("*.py")}
@@ -95,7 +92,6 @@ def test_finance_module_set_has_not_grown_past_the_pinned_baseline() -> None:
     )
 
 
-@pytest.mark.spec("AU-CONTEXT-R007.1")
 def test_engine_finance_mixin_still_present_until_r007_2_cutover() -> None:
     repo_root = Path(__file__).resolve().parents[3]
     engine_finance = (

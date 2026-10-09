@@ -136,14 +136,6 @@ def _existing_entries() -> list[tuple[str, str]]:
     ]
 
 
-@pytest.mark.spec(
-    "AU-BOUNDARY-R018",
-    "AU-BOUNDARY-R019",
-    "AU-BOUNDARY-R020",
-    "AU-BOUNDARY-R021",
-    "AU-BOUNDARY-R022",
-    "AU-SEMANTIC-R012",
-)
 @pytest.mark.parametrize("requirement_id,module_path", _existing_entries())
 def test_inventoried_duplicate_still_present(
     requirement_id: str, module_path: str
@@ -162,14 +154,6 @@ def test_inventoried_duplicate_still_present(
     )
 
 
-@pytest.mark.spec(
-    "AU-BOUNDARY-R018",
-    "AU-BOUNDARY-R019",
-    "AU-BOUNDARY-R020",
-    "AU-BOUNDARY-R021",
-    "AU-BOUNDARY-R022",
-    "AU-SEMANTIC-R012",
-)
 def test_destination_is_epistemic_graph_for_every_row() -> None:
     """Every row in this slice names epistemic-graph as the destination:
     these are 'delete as duplicate of engine' rows, not relocations, so the
@@ -180,14 +164,6 @@ def test_destination_is_epistemic_graph_for_every_row() -> None:
         assert destination == "epistemic-graph", requirement_id
 
 
-@pytest.mark.spec(
-    "AU-BOUNDARY-R018",
-    "AU-BOUNDARY-R019",
-    "AU-BOUNDARY-R020",
-    "AU-BOUNDARY-R021",
-    "AU-BOUNDARY-R022",
-    "AU-SEMANTIC-R012",
-)
 def test_inventory_covers_exactly_the_assigned_rows() -> None:
     """Pin the row set this slice covers so a future edit that adds or drops
     a row notices the change instead of silently expanding scope.

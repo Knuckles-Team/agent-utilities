@@ -266,7 +266,6 @@ def test_nonliteral_import_target_fails_open(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.spec("AU-QUAL-R008")
 def test_generated_docstring_excludes_but_mention_in_body_does_not(tmp_path):
     lr = _reconciler_for(
         tmp_path,
@@ -295,7 +294,6 @@ def test_generated_docstring_excludes_but_mention_in_body_does_not(tmp_path):
     assert "gen.generator_tool" in recon["orphan_modules"]["still"]
 
 
-@pytest.mark.spec("AU-QUAL-R008")
 def test_effective_service_registry_targets_are_exact(tmp_path):
     lr = _reconciler_for(
         tmp_path,
@@ -332,7 +330,6 @@ def test_effective_service_registry_targets_are_exact(tmp_path):
     assert result["still"] == ["pkg.old:Old", "pkg.other:Live", "pkg.unused:Unused"]
 
 
-@pytest.mark.spec("AU-QUAL-R008")
 def test_nonliteral_service_registry_does_not_guess_targets(tmp_path):
     lr = _reconciler_for(
         tmp_path,

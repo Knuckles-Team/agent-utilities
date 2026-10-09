@@ -61,7 +61,6 @@ def _assert_scope_denied(call: Any, scope: str) -> None:
     assert scope in str(denied.value)
 
 
-@pytest.mark.spec("AU-SEC-R001")
 def test_ambient_tiny_session_cannot_perform_admin_engine_operations(
     tiny_engine,
 ) -> None:
@@ -76,7 +75,6 @@ def test_ambient_tiny_session_cannot_perform_admin_engine_operations(
         client.tenants.list()
 
 
-@pytest.mark.spec("AU-SEC-R001")
 def test_provisioning_authority_creates_a_graph_and_nothing_wider(
     tiny_engine,
 ) -> None:

@@ -148,7 +148,6 @@ def test_object_history_round_trips(client):
     assert ("object_edits", {"action": "history", "object_id": "obj-1"}) in captured
 
 
-@pytest.mark.spec("AU-SEMANTIC-R021.2", "AU-SEMANTIC-R021.4")
 def test_get_function_by_name_filters(client):
     tc, _ = client
     assert (

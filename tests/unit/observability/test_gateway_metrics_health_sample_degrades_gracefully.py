@@ -27,14 +27,12 @@ import pytest
 from agent_utilities.observability import gateway_metrics as gm
 
 
-@pytest.mark.spec("AU-BOUNDARY-R014")
 def test_gateway_health_module_is_gone() -> None:
     """Pin the precondition this test depends on."""
     with pytest.raises(ModuleNotFoundError):
         import agent_utilities.observability.gateway_health  # noqa: F401
 
 
-@pytest.mark.spec("AU-BOUNDARY-R014")
 @pytest.mark.asyncio
 async def test_middleware_serves_the_response_without_gateway_health(
     caplog: pytest.LogCaptureFixture,

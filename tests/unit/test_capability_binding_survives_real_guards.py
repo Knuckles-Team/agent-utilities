@@ -40,7 +40,6 @@ def _tool_capability() -> Capability:
     )
 
 
-@pytest.mark.spec("AU-CONTROL-R023")
 def test_tool_binding_carries_the_skill_name_both_guards_require():
     binding = _tool_capability().to_binding()
     assert binding["tool_server"] == "github-mcp"
@@ -51,7 +50,6 @@ def test_tool_binding_carries_the_skill_name_both_guards_require():
     )
 
 
-@pytest.mark.spec("AU-CONTROL-R023")
 def test_tool_binding_passes_execute_capability_s_real_precondition():
     """Reproduces `execute_capability`'s own guard verbatim against the binding."""
     binding = _tool_capability().to_binding()
@@ -67,7 +65,6 @@ def test_tool_binding_passes_execute_capability_s_real_precondition():
     )
 
 
-@pytest.mark.spec("AU-CONTROL-R023")
 def test_tool_binding_passes_run_agent_s_real_precondition():
     """`run_agent` additionally requires skill_name == the dispatched agent_name."""
     binding = _tool_capability().to_binding()

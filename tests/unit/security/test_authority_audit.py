@@ -22,15 +22,11 @@ from agent_utilities.security.authority_audit import (
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-@pytest.mark.spec(
-    "AU-SEC-R002", "AU-SEC-R006", "AU-SEC-R007", "AU-SEC-R008", "AU-SEC-R009"
-)
 def test_no_learned_score_grants_or_extends_authority() -> None:
     violations = learned_score_violations(REPO_ROOT)
     assert violations == [], violations
 
 
-@pytest.mark.spec("AU-SEC-R002", "AU-SEC-R007", "AU-SEC-R008", "AU-SEC-R009")
 def test_every_audited_decision_path_resolves() -> None:
     # Every entry must still exist; a renamed/removed function would
     # silently drop coverage from the audit instead of failing it.
@@ -41,7 +37,6 @@ def test_every_audited_decision_path_resolves() -> None:
         assert source
 
 
-@pytest.mark.spec("AU-SEC-R007", "AU-SEC-R008", "AU-SEC-R009")
 def test_audit_covers_every_known_decision_module() -> None:
     covered = {rel_path for rel_path, _ in AUDITED_DECISION_PATHS}
     assert "agent_utilities/security/request_identity.py" in covered

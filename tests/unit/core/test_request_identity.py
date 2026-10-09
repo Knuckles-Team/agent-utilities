@@ -222,7 +222,6 @@ class TestActorFromClaims:
         session = _mint(actor)
         assert session.scopes == frozenset({"kg:read", "kg:write"})
 
-    @pytest.mark.spec("AU-SEC-R006")
     def test_minted_admin_session_expands_only_the_kg_hierarchy(self):
         actor = actor_from_claims(
             {
@@ -235,7 +234,6 @@ class TestActorFromClaims:
         session = _mint(actor)
         assert session.scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
 
-    @pytest.mark.spec("AU-SEC-R006")
     def test_the_elevation_approval_scope_reaches_the_session_only_as_itself(self):
         """AU-SEC requirement 006: an approver's realm role projects as the exact scope
         EG requires; ``kg:admin`` never implies it."""
@@ -885,7 +883,6 @@ class TestServedSecurityProfile:
 
         assert brain_enforcement_enabled() is True
 
-    @pytest.mark.spec("AU-SEC-R001")
     def test_network_with_transport_auth_accepts_mandatory_contract(self):
         from agent_utilities.security.request_identity import (
             apply_served_security_profile,

@@ -221,7 +221,6 @@ def test_kg_2_305_render_schema_grounds_label_column_and_real_edge_columns():
     assert "source_node_id" in rendered  # named as the wrong column to avoid
 
 
-@pytest.mark.spec("AU-INTEGRATION-R021")
 def test_kg_2_305_nl_query_mcp_tool_registered():
     from agent_utilities.mcp import kg_server
     from agent_utilities.mcp.tools.query_tools import register_query_tools
@@ -303,7 +302,6 @@ class _GovernedAggregateEngine:
         ]
 
 
-@pytest.mark.spec("AU-INTEGRATION-R021")
 def test_g32_execution_retry_text_steers_sql_aggregate_failure_to_cypher():
     """Pure unit test of the new deterministic retry guidance (nl_planner._execution_retry_text)."""
     retry = nl_planner._execution_retry_text(
@@ -326,7 +324,6 @@ def test_g32_execution_retry_text_steers_sql_aggregate_failure_to_cypher():
     assert "cypher dialect instead" not in unrelated
 
 
-@pytest.mark.spec("AU-INTEGRATION-R021")
 def test_g32_governed_node_id_failure_self_corrects_to_cypher():
     """A sql aggregate attempt that fails on the governed-node-id check self-
     corrects (within the default max_corrections=1 budget) to a cypher
