@@ -35,7 +35,10 @@ MACHINE_HOME = re.compile(
     r"/(?:home|Users)/(?![<%$])[^/\s]+|"
     r"/mnt/[A-Z]/Users/(?![<%$])[^/\s]+)"
 )
-ENVIRONMENT_DERIVED_HOST_ALIAS = re.compile(r"(?i)\b(?:rw?|gr)\d{3,}\b")
+# Excludes a spec requirement ID: PROGRAM-CODE, hyphen, "R", digits (e.g. a
+# connector-manifest-gate CONCEPT tag). Those always have a literal hyphen
+# directly before the "R"; a bare host alias of the same digit shape never does.
+ENVIRONMENT_DERIVED_HOST_ALIAS = re.compile(r"(?i)(?<!-)\b(?:rw?|gr)\d{3,}\b")
 FIXTURE_SUFFIXES = frozenset({".json", ".py", ".toml", ".yaml", ".yml"})
 INTENTIONAL_NEGATIVE_LITERALS = {
     # Narrow, counted exceptions for tests that prove the corresponding guard fails.

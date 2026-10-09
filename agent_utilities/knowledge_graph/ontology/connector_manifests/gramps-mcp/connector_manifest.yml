@@ -56,9 +56,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events:
 - name: gramps-events.updated
   resource: event
@@ -241,20 +255,20 @@ sync:
     doc_type: person
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-10-09T08:31:47Z'
   source_artifacts:
   - gramps_mcp/connectors/mcp_source_presets.json
   - gramps_mcp/connectors/tool_schema_fingerprints.json
   - gramps_mcp/ontology/gramps.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: 7897b6a649b5f9100cb32ffbde864e155c153d1e51a884fe714ddcd3a70f926d
+    hash: 8fbf0f631fd295185d4d02557f2c63b720e315e40a32ca723f83fca4d595f804
     triple_count: 67
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 3ce1f731bd565f91b7574ea7db827506155e0a18
+  source_commit: baf57dc8fcae34aea54e9c4f8f50fc75e62fcaa1
 policy:
   pii_fields: {}
   tenant_boundary: null

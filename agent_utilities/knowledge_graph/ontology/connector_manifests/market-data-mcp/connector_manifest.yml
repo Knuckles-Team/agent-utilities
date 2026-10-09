@@ -319,20 +319,20 @@ sync:
     params_style: args
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-09-28T00:00:00Z'
+  generated_at: '2026-10-09T08:32:00Z'
   source_artifacts:
   - market_data_mcp/connectors/mcp_source_presets.json
   - market_data_mcp/connectors/tool_schema_fingerprints.json
   - market_data_mcp/ontology/market_data.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: d88b28437cd15785a273fd771cd42c6f5ed9327f3cbf3c0653f74619673e2106
+    hash: 53d7f11c29150900dbce082539aecef93cbc10e7adc37199895cbebb9fb17dfa
     triple_count: 11
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 597b56033e236e76e8b13d282dc53e75cf69a165
+  source_commit: 0791204e9cf1e56729b6685d93169c9f11eb2eca
 policy:
   pii_fields: {}
   tenant_boundary: null

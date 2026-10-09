@@ -41,7 +41,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 8ca88b9ff4764f160809694095b588b742e781d277d6eba45e482c978d866503
+  tool_schema_sha256: 5b5398d0efb100ccf003c5f66380dd5ca3c7b2fa08c9db5d76300d5199ee62a2
   raw:
     source_type: ard
     interface: source_connector_v1
@@ -56,7 +56,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 80afc4cfe7a94b86b55ba85be8988342231c2a1d28d5e13f3f66385adcfcb49c
+  tool_schema_sha256: f5dd87fb7a81787a2eba6545c95ab57f824aab814a1d27eb039f0ba449842834
   raw:
     source_type: arxiv
     interface: source_connector_v1
@@ -71,7 +71,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 1c41146d82912fa338eed9a3d398a7ad84be77ce59075d255178837decd4a284
+  tool_schema_sha256: 0a5daf6df4039abb9ba10298e10385e1179dc67ca775aa5285bc72f7fc3bf95b
   raw:
     source_type: database
     interface: source_connector_v1
@@ -86,7 +86,7 @@ sync:
   updated_field: null
   pagination: null
   doc_type: null
-  tool_schema_sha256: 1ffbd8a1cd79d2fd0960eb78c3e1b32f370d0160e23df1f7f2f826662c5e2884
+  tool_schema_sha256: 16b7cf502dada01b2ad1480e0185e09ce72fa1bcdd04ccbca32cea87e148c82f
   raw:
     source_type: external_graph
     interface: external_graph_ingestion_v1
@@ -101,7 +101,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 75a1a57f62b3834f4ceeb7e631e48352ec13448222498dcf74f8832885a2802a
+  tool_schema_sha256: 1dc0e125c081e4aa62f6d4447d90d2535f1f22b2f71c639f2d5f0b2ce6a0bedf
   raw:
     source_type: filesystem
     interface: source_connector_v1
@@ -116,7 +116,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 51c8c5909a8ea4949c7bfae233c98656e013b26cb677de72acb59ef79b6fcb68
+  tool_schema_sha256: 6d7bf461b85530f6cae2667c6237c81ae5a619fd18d00c052bc2316415578dfa
   raw:
     source_type: git_markdown
     interface: source_connector_v1
@@ -131,7 +131,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: bfba8a93a4042350ca0f3fd6d8650974ba970c3484b4657f1aa81a7132b3387e
+  tool_schema_sha256: 7dcfba3f30982a66c36387f9a98ebcbdb3e17938c7ea7e5e323d73a54714d19c
   raw:
     source_type: graphql_document
     interface: source_connector_v1
@@ -146,7 +146,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 2d7c07e50dbe1ff3b7ab8f6363c6bc9fb21e44923ff7f530baef6cad3c4a50cb
+  tool_schema_sha256: 58f10f6eac49114c0c3e6a210803f18c37ac4a716c9a6802cfe1535e8c506a03
   raw:
     source_type: reader
     interface: source_connector_v1
@@ -161,7 +161,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 0d9e972955568614381c0fd258d29cbc4cdb87c6193cd101bcf4706260ccc2e7
+  tool_schema_sha256: 855afe1ea94c3399dc0e2fef6805c246b8f1b6f4a7eebef7338064e8899118b8
   raw:
     source_type: rest
     interface: source_connector_v1
@@ -176,7 +176,7 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: d4607ac4435c888f25ef29a8ca35c76fc55d1e9fc0b44a2d24410c33547367e2
+  tool_schema_sha256: 1e1b7c013f0147fc63adea44579acc309afe5c909de78a0a0bb156d489441ed3
   raw:
     source_type: rss
     interface: source_connector_v1
@@ -191,26 +191,26 @@ sync:
   updated_field: updated_at
   pagination: null
   doc_type: document
-  tool_schema_sha256: 7bc1cd46d73b7404573a77c42deaf41783385186494d7b1ae62971862c49500c
+  tool_schema_sha256: 48e4e29c673c18817683d9783430aa3187e04cae6796e96d61b50a111ba85361
   raw:
     source_type: web
     interface: source_connector_v1
 provenance:
   generated_by: scripts/generate_native_connector_manifest.py
-  generated_at: '2026-08-29T20:00:00Z'
+  generated_at: '2026-10-09T08:32:51Z'
   source_artifacts:
   - agent_utilities/protocols/source_connectors/connectors
   - agent_utilities/knowledge_graph/ingestion/external_graph.py
   - tool_schema_fingerprints.json
   integrity:
     algorithm: urdna2015-sha256
-    hash: c97eb180307cb9e08b81df3439ade1552d91454485b83d085a9ba1b3503f4a8f
+    hash: 8aab2898434dc0964bdf53d29694971c622eaf0ffa28e4db02f0ddbd76f39ccd
     triple_count: 17
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 2e6d96a65a4b0c61ea1f57ceaf5e318cb6085d88
+  source_commit: 57d7ea6824776b34fc7032e36d989036667ab33a
 policy:
   pii_fields: {}
   tenant_boundary: tenant_id

@@ -34,6 +34,11 @@ def test_no_other_role_implies_provisioning_scopes() -> None:
 
 
 def test_unlisted_roles_never_project() -> None:
-    scopes = _resolve_authenticated_scopes(_actor("kg:read", "identity:admin", "x:y"))
+    # "identity:admin" used to stand in for an unlisted role here, but it is a
+    # genuine EG-registered scope (agent_utilities/security/scope_registry.py)
+    # -- not a representative "unlisted" example. "bogus:unlisted" is not, and
+    # is not a member of PROVISIONING either, so it exercises the same intent
+    # without asserting against a real scope.
+    scopes = _resolve_authenticated_scopes(_actor("kg:read", "bogus:unlisted", "x:y"))
 
     assert scopes == frozenset({"kg:read"})

@@ -321,6 +321,27 @@ def _authority_app(
         "_resolve_current_discovery_grants",
         lambda actor: (_grant_digest(actor.actor_id, actor.tenant_id),),
     )
+    # `_catalog_service_session` (see its docstring) deliberately suspends the
+    # ambient session and re-resolves the FIXED catalog-service identity via
+    # `system_write_session`, which falls through to
+    # `local_process_authority_enabled` whenever no ambient session is bound.
+    # That predicate is environment-dependent: whichever xdist worker this
+    # test lands in under `--dist loadfile` may ALSO run an engine-backed
+    # test file that exported a real `GRAPH_SERVICE_ENDPOINTS` for the whole
+    # worker process (tests/conftest.py's session-scoped `_session_engine`),
+    # which flips the predicate to require a configured `KG_AUTH_TOKEN_REF`/
+    # `KG_IDENTITY_OAUTH2` outside this test's control and turns every read
+    # here into a bare 503 `catalog_unavailable`. Pin the deterministic
+    # zero-infrastructure local path explicitly so this test's outcome never
+    # depends on worker co-location (reproduced locally by co-locating this
+    # file with tests/unit/knowledge_graph/test_ephemeral_engine.py under
+    # `-n2 --dist loadfile`).
+    import agent_utilities.security.request_identity as request_identity
+
+    monkeypatch.setattr(
+        request_identity, "local_process_authority_enabled", lambda _config: True
+    )
+    monkeypatch.setattr(request_identity, "_system_write_session", None)
     app = FastAPI()
     registry_api.register_registry_routes(app, prefix="/api")
     return TestClient(_AuthorityMiddleware(app, actor, session))
@@ -1206,12 +1227,24 @@ def test_missing_graph_session_is_denied(monkeypatch):
 # directly against a fake engine whose `sql_exec` blocks synchronously.
 
 
-def _direct_authority(actor_id: str = "actor-a", tenant_id: str = "tenant-a"):
+def _direct_authority(monkeypatch, actor_id: str = "actor-a", tenant_id: str = "tenant-a"):
     """Build a bare actor/session pair for a direct (non-TestClient) coroutine
     call, mirroring `_authority_app`'s middleware setup without the ASGI
     plumbing -- needed so a test can `await` `_list_kind` concurrently with
     another coroutine on the *same* event loop and observe whether the loop
-    stayed responsive."""
+    stayed responsive.
+
+    Also pins the deterministic local-process identity path the same way
+    `_authority_app` does -- see that function's comment for why this must
+    never depend on ambient `GRAPH_SERVICE_ENDPOINTS`/xdist worker
+    co-location.
+    """
+    import agent_utilities.security.request_identity as request_identity
+
+    monkeypatch.setattr(
+        request_identity, "local_process_authority_enabled", lambda _config: True
+    )
+    monkeypatch.setattr(request_identity, "_system_write_session", None)
 
     actor = ActorContext(
         actor_id=actor_id,
@@ -1254,7 +1287,7 @@ async def test_list_kind_offloads_the_blocking_engine_call_off_the_event_loop(
 
     engine.graph_compute.sql_exec = slow_sql_exec
 
-    actor, session = _direct_authority()
+    actor, session = _direct_authority(monkeypatch)
     monkeypatch.setattr(registry_api, "_get_catalog_engine", lambda: engine)
     monkeypatch.setattr(
         registry_api,
@@ -1613,7 +1646,7 @@ async def test_multi_kind_does_not_block_the_event_loop(monkeypatch):
 
     engine.graph_compute.sql_exec = slow_sql_exec
 
-    actor, session = _direct_authority()
+    actor, session = _direct_authority(monkeypatch)
     monkeypatch.setattr(registry_api, "_get_catalog_engine", lambda: engine)
     monkeypatch.setattr(
         registry_api,

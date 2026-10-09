@@ -80,9 +80,23 @@ actions:
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
+  label: ''
+  parameters: []
+  target_resource: null
+  conflict_policy: null
+  requires_approval: true
+  approval_class: unclassified
+  effects: []
 events:
 - name: firefly-accounts.updated
   resource: account
@@ -340,20 +354,20 @@ sync:
     doc_type: transaction
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-26T13:42:55Z'
+  generated_at: '2026-10-09T08:31:41Z'
   source_artifacts:
   - firefly_iii_mcp/connectors/mcp_source_presets.json
   - firefly_iii_mcp/connectors/tool_schema_fingerprints.json
   - firefly_iii_mcp/ontology/firefly.ttl
   integrity:
     algorithm: urdna2015-sha256
-    hash: 4544fe4525eb6d7b23914e433de1326c8de7d492a7a4dc82c37cd63c2498abe9
+    hash: 7e0a4309fb437aa6affedc183c4e7a2f201fd35461a3b5ab4f87a2579574f051
     triple_count: 100
   signer: UNSIGNED-PREVIEW
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  source_commit: 70c8ae7b3bf96630cb0a68ad3fdf262990f4e3ef
+  source_commit: f643b12f4cb279fb34aca6ca278941b53d097d84
 policy:
   pii_fields: {}
   tenant_boundary: null
