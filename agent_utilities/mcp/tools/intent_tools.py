@@ -19,8 +19,10 @@ The six verbs are graph-os's whole MCP surface: each takes the ecosystem's
 condensed contract (:mod:`agent_utilities.mcp.intent_contract`) — ``action``
 (an operation id of the generated manifest, or ``describe``), ``params``,
 optional natural-language ``intent`` and ``execute``. ``find`` also reaches the
-fleet catalog and ``act`` also calls fleet tools (``fleet.call``) and the
-host's native operations, so no separate fleet meta-tool exists.
+fleet catalog and ``act`` also calls fleet tools — directly by
+``action='<server>.<tool>'`` (AU-CONTROL-R032) or indirectly via
+``action='fleet.call'`` — and the host's native operations, so no separate
+fleet meta-tool exists.
 
 Outcome learning accepts only the observed result of an unpinned,
 unambiguous, policy-authorized execution. Caller-supplied feedback is rejected.
@@ -2468,6 +2470,45 @@ async def _fleet_call(mcp: Any, params: dict[str, Any], execute: bool) -> Any:
     )
 
 
+def _fleet_dotted_tool_name(mcp: Any, action: str) -> str | None:
+    """Resolve ``act(action='<server>.<tool>')`` to its fleet prefixed tool name
+    (AU-CONTROL-R032), or ``None`` when no catalog server matches the prefix.
+
+    The multiplexer's own internal join is ``<prefix>__<cleaned tool name>``
+    (:func:`~agent_utilities.mcp.multiplexer.clean_tool_name`); this is the
+    single, deterministic translation from the dotted ``<server>.<tool>``
+    action id a caller types into that exact internal name, reusing the
+    multiplexer's own collision-free prefix/catalog lookup
+    (``_server_for_prefixed``) — never a second guess at server naming. A dot
+    with no matching catalog server (a typo, or an unrelated dotted action
+    id) returns ``None`` so the caller falls through to the native manifest's
+    own "Unknown operation" error instead of a confusing fleet failure.
+    """
+    mux = getattr(mcp, "_fleet_mux", None)
+    if mux is None or "." not in action:
+        return None
+    prefixed = action.replace(".", "__", 1)
+    return prefixed if mux._server_for_prefixed(prefixed) is not None else None
+
+
+def _fleet_dispatch_params(tool: str, params: dict[str, Any]) -> dict[str, Any]:
+    """Build ``_fleet_call``'s ``{tool, arguments}`` params shape for a direct
+    ``act(action='<server>.<tool>')`` dispatch (AU-CONTROL-R032).
+
+    Mirrors native-operation ergonomics: ``params`` IS the argument dict
+    directly (no caller-visible ``arguments`` nesting), exactly like
+    ``act(action='<tool>.<op>', params={...})`` already works for a manifest
+    operation. ``plan_ref`` stays a top-level control field so the existing
+    preview → ``plan_ref`` → execute contract :func:`_governed` enforces is
+    unaffected.
+    """
+    arguments = {k: v for k, v in params.items() if k != "plan_ref"}
+    call_params: dict[str, Any] = {"tool": tool, "arguments": arguments}
+    if "plan_ref" in params:
+        call_params["plan_ref"] = params["plan_ref"]
+    return call_params
+
+
 async def _fleet_load(mcp: Any, params: dict[str, Any], execute: bool) -> Any:
     """``manage(action="fleet.load")``: mount fleet servers/tools ahead of use."""
     tools = _bounded_names(params, "tools")
@@ -2579,10 +2620,14 @@ def _find_result(candidate: CapabilityCandidate) -> dict[str, Any]:
 
 
 def _fleet_how_to_call(hit: dict[str, Any], server: str) -> str:
-    """The verb call that reaches one fleet discovery hit (AU-CONTROL-R031)."""
+    """The verb call that reaches one fleet discovery hit (AU-CONTROL-R031/R032)."""
     prefixed = str(hit.get("prefixed_name") or "")
     if prefixed:
+        # AU-CONTROL-R032: the dotted action id dispatches through the SAME
+        # fleet.call path as the indirect params form below.
+        dotted = prefixed.replace("__", ".", 1)
         return (
+            f"act(action='{dotted}', params={{...}}) calls it directly, or "
             f"act(action='{FLEET_CALL_ACTION}', params={{'tool': '{prefixed}', "
             "'arguments': {...}}) previews the call; resubmit its plan_ref "
             "with execute=true."
@@ -2729,7 +2774,7 @@ async def _host_dispatch(
     mcp: Any, verb: str, action: str, params: dict[str, Any], execute: bool
 ) -> Any:
     """Serve a verb's operation outside the manifest, or ``None`` if not one."""
-    from agent_utilities.mcp.graphos_surface import host_operations
+    from agent_utilities.mcp.graphos_surface import host_operations, resolve_operation
 
     handlers = {
         ("act", FLEET_CALL_ACTION): _fleet_call,
@@ -2745,6 +2790,18 @@ async def _host_dispatch(
         return {"executed": True, "action": action, "status": status}
     if verb == "act" and action in host_operations(mcp):
         return await _host_operation(mcp, action, params, execute)
+    # AU-CONTROL-R032: act(action='<server>.<tool>') dispatches a fleet tool
+    # through the SAME fleet.call path, without the caller needing the
+    # indirect act(action='fleet.call', params={'tool': ..., 'arguments': {...}})
+    # wrapping. The native manifest (resolve_operation) always wins a real
+    # collision; this is reached only when `action` is not a recognized
+    # native operation.
+    if verb == "act" and action and resolve_operation(action) is None:
+        fleet_tool = _fleet_dotted_tool_name(mcp, action)
+        if fleet_tool is not None:
+            return await _fleet_call(
+                mcp, _fleet_dispatch_params(fleet_tool, params), execute
+            )
     return None
 
 
