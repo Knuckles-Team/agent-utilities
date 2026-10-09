@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+import pytest
+
 from agent_utilities.knowledge_graph.retrieval import context_knapsack as ck
 
 
@@ -35,6 +37,7 @@ def test_the_model_is_one_resolution_per_unit_within_capacity() -> None:
     )
 
 
+@pytest.mark.spec("AU-CONTEXT-R004")
 def test_a_certified_solve_is_taken_as_is() -> None:
     requests: list[Mapping[str, Any]] = []
 
@@ -137,6 +140,7 @@ def test_explicit_zero_caller_budget_is_not_an_unbounded_default() -> None:
     assert cap.tokens(caller_budget=2) == 2
 
 
+@pytest.mark.spec("AU-CONTEXT-R004")
 def test_scoped_context_fit_abstains_when_caller_budget_is_zero() -> None:
     records = [{"nid": "a", "composite": 1.0, "node": {"content": "one two"}}]
     sizer = ck.ContextSizer(_Words(), ck.Capacity(window=8000))
