@@ -97,6 +97,9 @@ GENERATED_GRAPH_SCHEMA_REQUEST_EXPORTS = frozenset(
         "send_owl_reason",
         "send_owl_explain",
         "send_run_datalog_reasoning",
+        # EH-471: the typed vocabulary read AU uses instead of an RDF parser.
+        "OntologyInspectRequest",
+        "send_ontology_inspect",
     }
 )
 GENERATED_SHACL_REPORT_EXPORTS = frozenset(
