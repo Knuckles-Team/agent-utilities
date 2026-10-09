@@ -63,10 +63,10 @@ Non-goals:
 | Requirement | Design section | Test ID | Evidence |
 |---|---|---|---|
 | AU-BASELINE-R001 | [plan.md#live-integration-path](plan.md#live-integration-path) | T-001, T-002 | PENDING |
-| AU-BASELINE-R002 | [plan.md#architecture](plan.md#architecture) | T-003, T-004 | PENDING |
-| AU-BASELINE-R003 | [plan.md#architecture](plan.md#architecture) | T-005 | PENDING |
-| AU-BASELINE-R004 | [plan.md#interfaces-and-data-model](plan.md#interfaces-and-data-model) | T-006 | PENDING |
-| AU-BASELINE-R005 | [plan.md#interfaces-and-data-model](plan.md#interfaces-and-data-model) | T-007 | PENDING |
+| AU-BASELINE-R002 | [plan.md#architecture](plan.md#architecture) | T-003, T-004 | LANDED |
+| AU-BASELINE-R003 | [plan.md#architecture](plan.md#architecture) | T-005 | LANDED |
+| AU-BASELINE-R004 | [plan.md#interfaces-and-data-model](plan.md#interfaces-and-data-model) | T-006 | LANDED |
+| AU-BASELINE-R005 | [plan.md#interfaces-and-data-model](plan.md#interfaces-and-data-model) | T-007 | LANDED |
 
 ## Open questions
 
