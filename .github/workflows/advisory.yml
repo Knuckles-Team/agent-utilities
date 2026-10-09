@@ -362,59 +362,41 @@ jobs:
   # ── formerly the standalone pages.yml — see the header comment for why it
   # moved here. Runs on push to main only; a failure is a red job in this
   # workflow's run, never a blocker for release.yml.
-  pages:
-    name: Deploy GitHub Pages (report only, never blocks)
+  #
+  # Was previously a hand-rolled job that checked out
+  # Knuckles-Team/pipelines at a pinned commit SHA for its shared theme and
+  # spec_dashboard.py script. That pin predated pipelines#27 (the
+  # ASD-STE100 drawing-sheet spec-delivery template), so the deployed page
+  # never picked up the new template -- unlike epistemic-graph, graph-os and
+  # agent-connector-sdk, which already call the reusable Pages workflow at
+  # `@main` per the repository-wide "pipelines is always referenced at
+  # main -- never SHA-pin" policy. Wired identically to those three repos
+  # below; `pages-privacy-check` keeps the standalone-tracked-identity
+  # guardrail the old inline job ran, now as its own fast, report-only job
+  # (the reusable workflow's job cannot carry extra steps -- `uses:` jobs
+  # accept only name/uses/with/secrets/needs/if/permissions/strategy/
+  # concurrency).
+  pages-privacy-check:
+    name: Docs privacy guardrail (report only, never blocks)
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          fetch-depth: 100
-          persist-credentials: false
-
-      - name: Checkout shared documentation theme
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          repository: Knuckles-Team/pipelines
-          ref: eb77612bd3b67375e59a6326c4ab5bc44152eed2
-          path: .pipeline-theme
           persist-credentials: false
 
       - name: Setup Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          # '3.x' floats to the runner's newest CPython. requires-python is
-          # '>=3.12,<3.15' (pyproject.toml); pin explicitly for the same
-          # reason every other job here does.
           python-version: '3.12'
 
-      - name: Install static documentation tooling
-        id: docs_tooling
-        continue-on-error: true
-        run: |
-          python -m pip install --disable-pip-version-check \
-            "mkdocs-material==9.7.6" \
-            "mkdocs-awesome-pages-plugin==2.10.1" \
-            "platformdirs==4.11.0" \
-            "PyYAML==6.0.3"
-
-      - name: Build Docs
-        id: build
-        if: steps.docs_tooling.outcome == 'success'
+      - name: Scan tracked public artifacts for host-specific data or local identities
         continue-on-error: true
         env:
-          GITHUB_TOKEN: ${{ github.token }}
           PROHIBITED_IDENTITY_CATALOG: ${{ vars.PROHIBITED_IDENTITY_CATALOG }}
         run: |
-          python .pipeline-theme/scripts/sync_mkdocs_theme.py check --root . --source-root .pipeline-theme --content-source docs
+          python -m pip install --disable-pip-version-check "platformdirs==4.11.0"
           policy="$RUNNER_TEMP/prohibited-identities.json"
           if [ -n "$PROHIBITED_IDENTITY_CATALOG" ]; then
             printf '%s' "$PROHIBITED_IDENTITY_CATALOG" > "$policy"
@@ -424,34 +406,20 @@ jobs:
             printf '{"version":"pages-default-v1","identities":["%s"]}' "$fallback_identity" > "$policy"
           fi
           python3 scripts/check_tracked_privacy.py --identity-catalog "$policy"
-          mkdocs build --strict
-          python .pipeline-theme/scripts/spec_dashboard.py \
-            --root . --config .config/spec-dashboard.json \
-            --output site/spec-delivery --repository "$GITHUB_REPOSITORY"
 
-      - name: Setup Pages
-        if: steps.build.outcome == 'success'
-        continue-on-error: true
-        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
-
-      - name: Upload artifact
-        if: steps.build.outcome == 'success'
-        continue-on-error: true
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
-        with:
-          path: './site'
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        if: steps.build.outcome == 'success'
-        continue-on-error: true
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5
-
-      - name: Report static documentation preparation failure
-        if: always() && (steps.docs_tooling.outcome != 'success' || steps.build.outcome != 'success')
-        run: |
-          echo "::warning::pages job could not install its isolated documentation tooling or build the static site. No Agent Utilities runtime dependency is installed by this job."
-          exit 0
+  pages:
+    name: Deploy GitHub Pages
+    if: github.event_name == 'push'
+    uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@main
+    with:
+      content_source: docs
+      shared_theme_enabled: true
+      spec_dashboard_enabled: true
+      spec_dashboard_config: .config/spec-dashboard.json
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
 
   # ── Windows coverage (report only, never blocks) ──────────────────────────
   #
