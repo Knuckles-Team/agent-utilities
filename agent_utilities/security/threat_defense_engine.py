@@ -8,10 +8,9 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
-# Rust-native graph compute — using GraphComputeEngine
 from pydantic import BaseModel, Field
 
-from agent_utilities.core.config import setting
+from agent_utilities.core._env import setting
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.core.analogy_engine import (

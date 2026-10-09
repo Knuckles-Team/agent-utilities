@@ -1072,9 +1072,7 @@ def _audit_signing_key(action: str, key_id: str, detail: str) -> None:
     )
 
 
-def provision_signing_key(
-    config: Any, *, secrets_client: Any = None
-) -> ProvisionedSigningKey:
+def provision_signing_key(config: Any, *, secrets_client: Any) -> ProvisionedSigningKey:
     """Resolve — self-provisioning once if needed — the durable signing authority.
 
     Idempotent across restarts: an already-provisioned document is reused. A first
@@ -1085,9 +1083,7 @@ def provision_signing_key(
     never a per-process ephemeral one.
     """
     if secrets_client is None:
-        from .secrets_client import create_secrets_client
-
-        secrets_client = create_secrets_client()
+        raise PermissionBootstrapError("an injected secret client is required")
 
     name = WELL_KNOWN_SIGNING_KEY_NAME
 
@@ -1122,9 +1118,7 @@ def provision_signing_key(
     )
 
 
-def rotate_signing_key(
-    config: Any, *, secrets_client: Any = None
-) -> ProvisionedSigningKey:
+def rotate_signing_key(config: Any, *, secrets_client: Any) -> ProvisionedSigningKey:
     """Rotate the signing authority: new active version, previous active -> grace.
 
     Rotation-ready by construction — the stored document already carries N
@@ -1134,9 +1128,7 @@ def rotate_signing_key(
     compare-and-set on the stored document); the trigger is deliberately manual.
     """
     if secrets_client is None:
-        from .secrets_client import create_secrets_client
-
-        secrets_client = create_secrets_client()
+        raise PermissionBootstrapError("an injected secret client is required")
 
     name = WELL_KNOWN_SIGNING_KEY_NAME
     current_value = secrets_client.get(name)
@@ -1209,12 +1201,15 @@ def _resolve_signing_materials(
     material and any rotation-grace verification materials.
     """
     if signing_key_ref:
-        resolver = secret_resolver
-        if resolver is None:
-            from .cli_secrets import resolve_runtime_secret_reference
-
-            resolver = resolve_runtime_secret_reference
-        return resolver(signing_key_ref), ()
+        if secret_resolver is None:
+            raise PermissionBootstrapError(
+                "an injected secret resolver is required for signing-key references"
+            )
+        return secret_resolver(signing_key_ref), ()
+    if secrets_client is None:
+        raise PermissionBootstrapError(
+            "an injected secret client is required for signing-key provisioning"
+        )
     provisioned = provision_signing_key(config, secrets_client=secrets_client)
     return provisioned.active_material, provisioned.additional_verification_materials
 
@@ -1253,7 +1248,8 @@ def resolve_permission_context(
     (transparently re-issued on use at the governed boundary, so a long task never
     dies at TTL) and is least-privilege — the caller's ``role`` (SPECIALIST by
     default, never blanket admin). ``secret_resolver``/``secrets_client`` are
-    dependency injection for bounded tests; runtime call sites omit them.
+    mandatory dependency injection at the composition boundary. Missing secret
+    authority fails closed; this kernel never discovers a store or resolver.
     """
 
     if (permissions_kernel is None) != (agent_identity is None):
