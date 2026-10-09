@@ -13,7 +13,10 @@
     "AU-CONTEXT-R006.2",
     "AU-CONTEXT-R006.3",
     "AU-CONTEXT-R007",
-    "AU-CONTEXT-R008"
+    "AU-CONTEXT-R008",
+    "AU-CONTEXT-R008.1",
+    "AU-CONTEXT-R008.2",
+    "AU-CONTEXT-R008.3"
   ],
   "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
@@ -186,8 +189,40 @@
     {
       "id": "AU-CONTEXT-R008",
       "title": "Finance recommendations are calibrated, cited, and informational",
+      "delivery_state": "BUILT",
+      "evidence": [],
+      "rollup": true,
+      "children": [
+        "AU-CONTEXT-R008.1",
+        "AU-CONTEXT-R008.2",
+        "AU-CONTEXT-R008.3"
+      ]
+    },
+    {
+      "id": "AU-CONTEXT-R008.1",
+      "title": "Typed, calibrated AnalysisSnapshot model with abstention",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "evidence": [],
+      "depends_on": []
+    },
+    {
+      "id": "AU-CONTEXT-R008.2",
+      "title": "A real entry point produces recommendations from live holdings",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "depends_on": [
+        "AU-CONTEXT-R008.1"
+      ]
+    },
+    {
+      "id": "AU-CONTEXT-R008.3",
+      "title": "Per-strategy scorecards persist for comparison",
+      "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "depends_on": [
+        "AU-CONTEXT-R008.1",
+        "AU-CONTEXT-R008.2"
+      ]
     }
   ]
 }
