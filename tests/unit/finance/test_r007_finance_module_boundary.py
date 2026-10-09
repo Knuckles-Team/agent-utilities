@@ -15,6 +15,11 @@ from pathlib import Path
 # entry is ever added back.
 PINNED_FINANCE_MODULE_SET: frozenset[str] = frozenset(
     {
+        # AU-CONTEXT-R008.1: calibrated, cited, informational-only
+        # recommendation model -- AU-owned decision logic (not deterministic
+        # finance math or a connector), so it stays local and is not part of
+        # the AU-CONTEXT-R007 shrink-toward-EG set.
+        "analysis_snapshot.py",
         "alpha_factors.py",
         "banking.py",
         "banking_models.py",

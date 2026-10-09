@@ -4478,6 +4478,14 @@ class AgentConfig(BaseSettings):
     kg_research_feed_interval: float = Field(
         default=1800.0, alias="KG_RESEARCH_FEED_INTERVAL"
     )
+    # AU-INTEGRATION-R022 — recurring sweep over every connector `sync_source`
+    # knows (not just rss/freshrss/arxiv). Default-ON (each source's own
+    # `_*_configured()` check makes an unconfigured connector a no-op skip);
+    # set KG_CONNECTOR_SYNC=0 to disable.
+    kg_connector_sync: bool = Field(default=True, alias="KG_CONNECTOR_SYNC")
+    kg_connector_sync_interval: float = Field(
+        default=1800.0, alias="KG_CONNECTOR_SYNC_INTERVAL"
+    )
     # CONCEPT:AU-KG.ingest.rss-feed-connector — native RSS/Atom feed URLs (comma-separated) the zero-infra
     # `rss` connector ingests through the unified world-model gate. This is the SEED;
     # feeds added at runtime via graph_feeds live as :FeedSource nodes in the KG and

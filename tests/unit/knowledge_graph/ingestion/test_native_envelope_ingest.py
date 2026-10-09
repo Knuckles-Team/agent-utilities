@@ -612,7 +612,7 @@ def test_native_apply_commits_all_authority_rows_in_one_request() -> None:
     assert compute.client.nodes.values["object-1"]["tenant_id"] == "fixture-tenant"
 
 
-@pytest.mark.spec("AU-INTEGRATION-R022")
+@pytest.mark.spec("AU-INTEGRATION-R023")
 def test_native_mutation_carries_only_engine_allowed_fields() -> None:
     """The ``changes.apply`` mutation draft is a subset of the engine's closed
     mutation contract: tenant, context and timing are minted by the engine
