@@ -52,6 +52,16 @@ from agent_utilities.api.catalog import (
     WorkflowCatalogRecord,
     catalog_read_ports,
 )
+from agent_utilities.api.messaging import (
+    ActionDecision,
+    ActionPolicy,
+    ActionRequest,
+    ActionRule,
+    PolicyDisposition,
+    PolicyReceipt,
+    get_action_policy,
+    in_maintenance_window,
+)
 from agent_utilities.api.provisioning import (
     PackImportAuthorityResolver,
     ProvisioningAuthorityError,
@@ -68,6 +78,10 @@ from agent_utilities.api.session import (
 )
 
 __all__ = [
+    "ActionDecision",
+    "ActionPolicy",
+    "ActionRequest",
+    "ActionRule",
     "AgentControlPlaneUnavailable",
     "AgentCatalogReadPort",
     "AgentCatalogRecord",
@@ -86,6 +100,8 @@ __all__ = [
     "CapabilityResolution",
     "CapabilitySearchPort",
     "CapabilitySearchRequest",
+    "PolicyDisposition",
+    "PolicyReceipt",
     "GraphRlmBenchmarkOptions",
     "GraphRlmBenchmarkRequest",
     "GraphRlmBenchmarkResult",
@@ -121,6 +137,8 @@ __all__ = [
     "catalog_read_ports",
     "compose_agent_control_plane",
     "current_session",
+    "get_action_policy",
+    "in_maintenance_window",
     "pack_import_authority",
     "resolve_session",
     "use_session",
