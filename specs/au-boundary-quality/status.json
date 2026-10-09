@@ -61,7 +61,7 @@
     {
       "id": "AU-QUAL-R004",
       "title": "Named AU test failures are fixed, not skipped",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -69,6 +69,13 @@
           "commit": "c7e28f433ae9516885e65694f19a371b0642f7fc",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c7e28f433ae9516885e65694f19a371b0642f7fc",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "576cf41ee890eb57898e9a68f1c0899c0825655c",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/576cf41ee890eb57898e9a68f1c0899c0825655c",
+          "description": "AU-QUAL-R004 merged to the default branch in this commit."
         }
       ]
     },
@@ -81,8 +88,16 @@
     {
       "id": "AU-QUAL-R006",
       "title": "A privacy check covers the final tree and commit history",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "576cf41ee890eb57898e9a68f1c0899c0825655c",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/576cf41ee890eb57898e9a68f1c0899c0825655c",
+          "description": "AU-QUAL-R006 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-QUAL-R007",

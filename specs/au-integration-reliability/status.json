@@ -164,13 +164,21 @@
     {
       "id": "AU-INTEGRATION-R011",
       "title": "Prove disposability before pruning a branch checkout",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "79694ed969b62764c75d5daa0b03458882e4060f",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/79694ed969b62764c75d5daa0b03458882e4060f",
+          "description": "AU-INTEGRATION-R011 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-INTEGRATION-R012",
       "title": "External-graph contract check follows relocated docs",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -178,13 +186,20 @@
           "commit": "f82de8b90a2cfb8fc8ff497c23b8686bd79a83d5",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f82de8b90a2cfb8fc8ff497c23b8686bd79a83d5",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "37eadb5dab3483fd8474b8ab3746ec6a98703efa",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/37eadb5dab3483fd8474b8ab3746ec6a98703efa",
+          "description": "AU-INTEGRATION-R012 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-INTEGRATION-R013",
       "title": "Privacy gate accepts canonical automation author identities",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -192,6 +207,13 @@
           "commit": "d6208d18fb567e0c41a6599744186d37a68a968b",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/d6208d18fb567e0c41a6599744186d37a68a968b",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "37eadb5dab3483fd8474b8ab3746ec6a98703efa",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/37eadb5dab3483fd8474b8ab3746ec6a98703efa",
+          "description": "AU-INTEGRATION-R013 merged to the default branch in this commit."
         }
       ]
     },
@@ -289,8 +311,16 @@
     {
       "id": "AU-INTEGRATION-R021",
       "title": "An aggregate ask answers with its own rows, never a silent empty answer",
-      "delivery_state": "BUILDING",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "671acde661a3355746be35c0887fc647af80b911",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/671acde661a3355746be35c0887fc647af80b911",
+          "description": "AU-INTEGRATION-R021 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "Merged-head and PR evidence pending review. Unit tests pass on branch fix/g32-nlquery-aggregate-answer: tests/unit/knowledge_graph/core/test_nl_planner.py (self-correction to cypher, exhausted-retry error surfacing) and tests/unit/test_evidence_bundle.py (aggregate rows into answer_candidate). nl_query.nl_to_query (graph_ask) still has no bounded self-correction loop; the sql/sparql/uql surfaces still have no query-text tenant/owner-scope pushdown for a non-aggregate id-less projection."
     }
   ]

@@ -34,9 +34,17 @@
     "AU-CONTROL-R029",
     "AU-CONTROL-R030"
   ],
-  "delivery_state": "BUILDING",
+  "delivery_state": "LANDED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": [],
+  "evidence": [
+    {
+      "kind": "merged_head",
+      "result": "passed",
+      "commit": "c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+      "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c049e325e91dbdea8f26aba31c7d7fec55f797b7",
+      "description": "Every requirement in this spec is merged to the default branch."
+    }
+  ],
   "requirements": [
     {
       "id": "AU-CONTROL-R001",
@@ -377,13 +385,21 @@
     {
       "id": "AU-CONTROL-R017",
       "title": "Single re-decision on capacity denial for topology admission",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "e78a5cf3de4eb1d76fa4f4736bf098499fdad4dd",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/e78a5cf3de4eb1d76fa4f4736bf098499fdad4dd",
+          "description": "AU-CONTROL-R017 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-CONTROL-R018",
       "title": "Subagent allowance negotiated into the run specification",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -391,6 +407,13 @@
           "commit": "56a0bfebdea7bf6a05260d267466dda6ee82f9b5",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/56a0bfebdea7bf6a05260d267466dda6ee82f9b5",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "bd37ae7764a6a144eae063d0e39368a3af5dce09",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/bd37ae7764a6a144eae063d0e39368a3af5dce09",
+          "description": "AU-CONTROL-R018 merged to the default branch in this commit."
         }
       ]
     },

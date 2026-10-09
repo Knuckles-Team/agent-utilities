@@ -177,8 +177,16 @@
     {
       "id": "AU-BOUNDARY-R014",
       "title": "Move graph-os boundary modules out of AU",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "3254358d61d6e7a66825cdca78b9c751b1e18762",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/3254358d61d6e7a66825cdca78b9c751b1e18762",
+          "description": "AU-BOUNDARY-R014 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R015",
@@ -353,7 +361,7 @@
     {
       "id": "AU-BOUNDARY-R030",
       "title": "Move hand-written ontology emitters behind EG pack compilation",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -361,6 +369,13 @@
           "commit": "ea5839ad260340b0f1e741b70d25c8b2e23e3fe2",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ea5839ad260340b0f1e741b70d25c8b2e23e3fe2",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "5e15da9f9e40bad1e4572f231a8459c63b8aa85a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/5e15da9f9e40bad1e4572f231a8459c63b8aa85a",
+          "description": "AU-BOUNDARY-R030 merged to the default branch in this commit."
         }
       ]
     },
@@ -406,7 +421,7 @@
     {
       "id": "AU-BOUNDARY-R035",
       "title": "Re-home the schema-drift package before it lands",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -414,6 +429,13 @@
           "commit": "ead97a911199178a52edb107be2ef111276b6b76",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ead97a911199178a52edb107be2ef111276b6b76",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "5e15da9f9e40bad1e4572f231a8459c63b8aa85a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/5e15da9f9e40bad1e4572f231a8459c63b8aa85a",
+          "description": "AU-BOUNDARY-R035 merged to the default branch in this commit."
         }
       ]
     },
