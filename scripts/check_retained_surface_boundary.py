@@ -54,8 +54,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts._git_scan import tracked_or_walked  # noqa: E402
 
-PACKAGE = ROOT / "agent_utilities"
-
 # Exactly the packages AU-BOUNDARY-R043 names as the retained agent surface,
 # relative to ``agent_utilities/``.
 RETAINED_SURFACE = (
@@ -101,7 +99,7 @@ ALLOWLIST: dict[str, set[str]] = {
 
 
 def _scan_roots() -> list[Path]:
-    return [PACKAGE / part for part in RETAINED_SURFACE]
+    return [ROOT / "agent_utilities" / part for part in RETAINED_SURFACE]
 
 
 def _tracked_or_walked_py_files(scan_root: Path) -> list[Path]:
