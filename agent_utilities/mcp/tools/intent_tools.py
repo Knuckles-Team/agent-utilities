@@ -19,8 +19,10 @@ The six verbs are graph-os's whole MCP surface: each takes the ecosystem's
 condensed contract (:mod:`agent_utilities.mcp.intent_contract`) — ``action``
 (an operation id of the generated manifest, or ``describe``), ``params``,
 optional natural-language ``intent`` and ``execute``. ``find`` also reaches the
-fleet catalog and ``act`` also calls fleet tools (``fleet.call``) and the
-host's native operations, so no separate fleet meta-tool exists.
+fleet catalog and ``act`` also calls fleet tools — directly by
+``action='<server>.<tool>'`` (AU-CONTROL-R032) or indirectly via
+``action='fleet.call'`` — and the host's native operations, so no separate
+fleet meta-tool exists.
 
 Outcome learning accepts only the observed result of an unpinned,
 unambiguous, policy-authorized execution. Caller-supplied feedback is rejected.
@@ -1449,6 +1451,82 @@ def _validate_explicit_action(
     return None
 
 
+def _declared_default_action(tool: str) -> str | None:
+    """The default of the tool's own ``action`` parameter, if it declares one."""
+    function = kg_server.REGISTERED_TOOLS.get(tool)
+    if function is None:
+        return None
+    try:
+        parameter = inspect.signature(function).parameters.get("action")
+    except (TypeError, ValueError):
+        return None
+    if parameter is None:
+        return None
+    default = getattr(parameter.default, "default", parameter.default)
+    return default if isinstance(default, str) else None
+
+
+def _zero_score_falls_back(
+    verb: str, candidate: CapabilityCandidate, explicit_tool: bool, explicit_action: Any
+) -> bool:
+    """AU-CONTROL-R034: no matched term sends an unpinned read to the NL planner."""
+    return (
+        not candidate.matched_terms
+        and not explicit_tool
+        and explicit_action is None
+        and verb in TOOL_VERBS.get(_ASK_FALLBACK_TOOL, ())
+    )
+
+
+def _fallback_reason(fell_back: bool, candidate: CapabilityCandidate) -> str:
+    """The routing ``why`` suffix for an NL-planner fallback."""
+    if not fell_back:
+        return "."
+    reason = (
+        "the selected capability requires structured arguments"
+        if candidate.matched_terms
+        else "no capability descriptor term matched the intent"
+    )
+    return f"; routed through '{_ASK_FALLBACK_TOOL}' because {reason}."
+
+
+def _routed_tool(
+    verb: str, candidate: CapabilityCandidate, explicit_tool: bool, explicit_action: Any
+) -> str:
+    """The top candidate's tool, or the NL planner under AU-CONTROL-R034."""
+    if _zero_score_falls_back(verb, candidate, explicit_tool, explicit_action):
+        return _ASK_FALLBACK_TOOL
+    return candidate.tool
+
+
+def _read_tie_outcome(
+    verb: str,
+    chosen_tool: str,
+    read_actions: frozenset[str],
+    filtered: list[tuple[str, float]],
+    ambiguity: dict[str, Any],
+) -> tuple[list[tuple[str, float]], dict[str, Any] | None]:
+    """AU-CONTROL-R033: run the declared default on a read tie, else refuse.
+
+    The default leads the ranked list; the tied alternatives stay in it, so the
+    routing record reports them.
+    """
+    default = _declared_default_action(chosen_tool)
+    if default in read_actions:
+        rest = [item for item in filtered if item[0] != default]
+        return [(default, filtered[0][1] if filtered else 0.0), *rest], None
+    return filtered, {
+        "error": "Ambiguous read-only action requires an explicit action.",
+        "executed": False,
+        "routing": {
+            "verb": verb,
+            "chosen_tool": chosen_tool,
+            "declared_read_actions": sorted(read_actions),
+            "ambiguity": {"action": ambiguity},
+        },
+    }
+
+
 def _restrict_to_read_actions(
     verb: str,
     chosen_tool: str,
@@ -1483,16 +1561,9 @@ def _restrict_to_read_actions(
         filtered, explicit=explicit_action is not None
     )
     if explicit_action is None and read_action_ambiguity["ambiguous"]:
-        return filtered, {
-            "error": "Ambiguous read-only action requires an explicit action.",
-            "executed": False,
-            "routing": {
-                "verb": verb,
-                "chosen_tool": chosen_tool,
-                "declared_read_actions": sorted(read_actions),
-                "ambiguity": {"action": read_action_ambiguity},
-            },
-        }
+        return _read_tie_outcome(
+            verb, chosen_tool, read_actions, filtered, read_action_ambiguity
+        )
     return filtered, None
 
 
@@ -1883,7 +1954,7 @@ async def dispatch_intent(
             }
 
         top = candidates[0]
-        chosen_tool = top.tool
+        chosen_tool = _routed_tool(verb, top, explicit_tool, explicit_action)
         return None
 
     _candidates_outcome = _resolve_candidates()
@@ -1940,7 +2011,7 @@ async def dispatch_intent(
     def _finalize_call_kwargs() -> dict[str, Any] | None:
         nonlocal chosen_tool, chosen_action, call_kwargs, ranked_actions, fell_back
         text_param = _PRIMARY_TEXT_PARAM.get(chosen_tool)
-        fell_back = False
+        fell_back = chosen_tool != chosen_candidate.tool
         if text_param and text_param not in call_kwargs:
             call_kwargs[text_param] = intent
         elif _should_fall_back_to_nl_planner(
@@ -2012,12 +2083,7 @@ async def dispatch_intent(
                 if chosen_candidate.matched_terms
                 else f"'{chosen_candidate.tool}' is the highest-ranked capability for verb {verb!r}"
             )
-            + (
-                f"; routed through '{_ASK_FALLBACK_TOOL}' because the selected "
-                f"capability requires structured arguments."
-                if fell_back
-                else "."
-            ),
+            + _fallback_reason(fell_back, chosen_candidate),
             "alternatives": [
                 {"tool": c.tool, "action": c.action, "score": round(c.score, 4)}
                 for c in candidates[1:]
@@ -2414,6 +2480,45 @@ async def _fleet_call(mcp: Any, params: dict[str, Any], execute: bool) -> Any:
     )
 
 
+def _fleet_dotted_tool_name(mcp: Any, action: str) -> str | None:
+    """Resolve ``act(action='<server>.<tool>')`` to its fleet prefixed tool name
+    (AU-CONTROL-R032), or ``None`` when no catalog server matches the prefix.
+
+    The multiplexer's own internal join is ``<prefix>__<cleaned tool name>``
+    (:func:`~agent_utilities.mcp.multiplexer.clean_tool_name`); this is the
+    single, deterministic translation from the dotted ``<server>.<tool>``
+    action id a caller types into that exact internal name, reusing the
+    multiplexer's own collision-free prefix/catalog lookup
+    (``_server_for_prefixed``) — never a second guess at server naming. A dot
+    with no matching catalog server (a typo, or an unrelated dotted action
+    id) returns ``None`` so the caller falls through to the native manifest's
+    own "Unknown operation" error instead of a confusing fleet failure.
+    """
+    mux = getattr(mcp, "_fleet_mux", None)
+    if mux is None or "." not in action:
+        return None
+    prefixed = action.replace(".", "__", 1)
+    return prefixed if mux._server_for_prefixed(prefixed) is not None else None
+
+
+def _fleet_dispatch_params(tool: str, params: dict[str, Any]) -> dict[str, Any]:
+    """Build ``_fleet_call``'s ``{tool, arguments}`` params shape for a direct
+    ``act(action='<server>.<tool>')`` dispatch (AU-CONTROL-R032).
+
+    Mirrors native-operation ergonomics: ``params`` IS the argument dict
+    directly (no caller-visible ``arguments`` nesting), exactly like
+    ``act(action='<tool>.<op>', params={...})`` already works for a manifest
+    operation. ``plan_ref`` stays a top-level control field so the existing
+    preview → ``plan_ref`` → execute contract :func:`_governed` enforces is
+    unaffected.
+    """
+    arguments = {k: v for k, v in params.items() if k != "plan_ref"}
+    call_params: dict[str, Any] = {"tool": tool, "arguments": arguments}
+    if "plan_ref" in params:
+        call_params["plan_ref"] = params["plan_ref"]
+    return call_params
+
+
 async def _fleet_load(mcp: Any, params: dict[str, Any], execute: bool) -> Any:
     """``manage(action="fleet.load")``: mount fleet servers/tools ahead of use."""
     tools = _bounded_names(params, "tools")
@@ -2509,6 +2614,7 @@ def _find_result(candidate: CapabilityCandidate) -> dict[str, Any]:
     example = operation_id(candidate.tool, actions[0]) if actions else candidate.tool
     verbs = [verb for verb in candidate.verbs if verb in _DISPATCH_VERBS] or ["act"]
     return {
+        "source": "graphos",
         "tool": candidate.tool,
         "action": candidate.action,
         "group": group_for_tool(candidate.tool),
@@ -2521,6 +2627,65 @@ def _find_result(candidate: CapabilityCandidate) -> dict[str, Any]:
             f"find(action='describe', params={{'action': '{example}'}}) gives its arguments."
         ),
     }
+
+
+def _fleet_how_to_call(hit: dict[str, Any], server: str) -> str:
+    """The verb call that reaches one fleet discovery hit (AU-CONTROL-R031/R032)."""
+    prefixed = str(hit.get("prefixed_name") or "")
+    if prefixed:
+        # AU-CONTROL-R032: the dotted action id dispatches through the SAME
+        # fleet.call path as the indirect params form below.
+        dotted = prefixed.replace("__", ".", 1)
+        return (
+            f"act(action='{dotted}', params={{...}}) calls it directly, or "
+            f"act(action='{FLEET_CALL_ACTION}', params={{'tool': '{prefixed}', "
+            "'arguments': {...}}) previews the call; resubmit its plan_ref "
+            "with execute=true."
+        )
+    if hit.get("uri"):
+        return (
+            f"Read {hit['uri']} for the procedure; it names the fleet tools to "
+            f"call with act(action='{FLEET_CALL_ACTION}', ...)."
+        )
+    return (
+        f"find(action='catalog', params={{'server': '{server}'}}) lists its tools; "
+        f"act(action='{FLEET_CALL_ACTION}', ...) calls one."
+    )
+
+
+def _fleet_find_row(intent_tokens: Counter, hit: dict[str, Any]) -> dict[str, Any]:
+    """Score one fleet hit on the same lexical scale as native capabilities."""
+    server = str(hit.get("server") or "")
+    name = str(hit.get("tool") or hit.get("skill") or server)
+    probe = CapabilityCandidate(
+        tool=f"{server} {name}",
+        action=None,
+        verbs=("act",),
+        doc=str(hit.get("description") or ""),
+    )
+    score, matched = _score(intent_tokens, probe)
+    return {
+        "source": "fleet",
+        "kind": str(hit.get("kind") or "tool"),
+        "server": server,
+        "tool": name,
+        "prefixed_name": hit.get("prefixed_name"),
+        "score": round(score, 4),
+        "fleet_score": hit.get("score"),
+        "matched_terms": matched,
+        "how_to_call": _fleet_how_to_call(hit, server),
+    }
+
+
+def _merge_fleet_ranking(
+    payload: dict[str, Any], intent: str, fleet_hits: list[Any], top_k: int
+) -> None:
+    """Rank fleet hits alongside native capabilities in ``results``."""
+    tokens = _tokenize(intent)
+    rows = [_fleet_find_row(tokens, hit) for hit in fleet_hits if isinstance(hit, dict)]
+    merged = sorted([*payload["results"], *rows], key=lambda row: -float(row["score"]))
+    payload["results"] = merged[:top_k]
+    payload["count"] = len(payload["results"])
 
 
 async def _find_capability(mcp: Any, intent: str, top_k: int = 8) -> dict[str, Any]:
@@ -2547,8 +2712,9 @@ async def _find_capability(mcp: Any, intent: str, top_k: int = 8) -> dict[str, A
             discovery = await mux.discover_tools(intent, top_k=top_k, loaded=set())
             payload["fleet_results"] = discovery.get("results", [])
             payload["fleet_unavailable"] = discovery.get("unavailable", {})
-    except Exception:  # noqa: BLE001 — remote discovery health is reported elsewhere
-        pass
+            _merge_fleet_ranking(payload, intent, payload["fleet_results"], top_k)
+    except Exception as exc:  # noqa: BLE001 — remote discovery health is reported elsewhere
+        payload["fleet_error"] = type(exc).__name__
     return payload
 
 
@@ -2618,7 +2784,7 @@ async def _host_dispatch(
     mcp: Any, verb: str, action: str, params: dict[str, Any], execute: bool
 ) -> Any:
     """Serve a verb's operation outside the manifest, or ``None`` if not one."""
-    from agent_utilities.mcp.graphos_surface import host_operations
+    from agent_utilities.mcp.graphos_surface import host_operations, resolve_operation
 
     handlers = {
         ("act", FLEET_CALL_ACTION): _fleet_call,
@@ -2634,6 +2800,18 @@ async def _host_dispatch(
         return {"executed": True, "action": action, "status": status}
     if verb == "act" and action in host_operations(mcp):
         return await _host_operation(mcp, action, params, execute)
+    # AU-CONTROL-R032: act(action='<server>.<tool>') dispatches a fleet tool
+    # through the SAME fleet.call path, without the caller needing the
+    # indirect act(action='fleet.call', params={'tool': ..., 'arguments': {...}})
+    # wrapping. The native manifest (resolve_operation) always wins a real
+    # collision; this is reached only when `action` is not a recognized
+    # native operation.
+    if verb == "act" and action and resolve_operation(action) is None:
+        fleet_tool = _fleet_dotted_tool_name(mcp, action)
+        if fleet_tool is not None:
+            return await _fleet_call(
+                mcp, _fleet_dispatch_params(fleet_tool, params), execute
+            )
     return None
 
 
