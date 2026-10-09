@@ -39,8 +39,16 @@
     {
       "id": "AU-SEMANTIC-R001",
       "title": "OntologyLifecycle.set_active() fails closed, not a silent local fallback",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "43197d7c65a3dff0fb91e0f2eae55e6a6bf8b53e",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/43197d7c65a3dff0fb91e0f2eae55e6a6bf8b53e",
+          "description": "AU-SEMANTIC-R001 merged to the default branch in this commit."
+        }
+      ],
       "remaining": "On main, OntologyLifecycle already fails closed when the EG GraphSchema authority is unavailable (tested). But __init__/load() still silently accept and drop tenant, an un-scopable graph_name, and category/tags instead of refusing them -- the same silent-fallback class the requirement names. That fi"
     },
     {
@@ -348,8 +356,16 @@
     {
       "id": "AU-SEMANTIC-R024",
       "title": "External graph and database backends move into EG as federation sources",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "274d4c37529413549a7d0256fbba9ac0c7a46a21",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/274d4c37529413549a7d0256fbba9ac0c7a46a21",
+          "description": "AU-SEMANTIC-R024 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-SEMANTIC-R025",

@@ -47,7 +47,7 @@
     {
       "id": "AU-QUAL-R003",
       "title": "Connector validation uses EG's composed GraphSchema",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -55,6 +55,13 @@
           "commit": "077ec5e55292a85ea167bfdc9956e675b410f5eb",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/077ec5e55292a85ea167bfdc9956e675b410f5eb",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "c62dfed3c8696abc1fdb00d61cd4b4fad77e75ef",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c62dfed3c8696abc1fdb00d61cd4b4fad77e75ef",
+          "description": "AU-QUAL-R003 merged to the default branch in this commit."
         }
       ]
     },
