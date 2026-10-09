@@ -12,14 +12,14 @@
     "AU-CONTEXT-R007",
     "AU-CONTEXT-R008"
   ],
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "BUILDING",
   "acceptance_state": "NOT_AUDITED",
   "evidence": [],
   "requirements": [
     {
       "id": "AU-CONTEXT-R001",
       "title": "RetrievalPath templates feed EG-DECISION-ENGINE-R029 as candidates",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -27,13 +27,20 @@
           "commit": "683965fb4cb76da1af3f784adaf3fc2cbbc52d80",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/683965fb4cb76da1af3f784adaf3fc2cbbc52d80",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "88c61dc9164c983a52fdc8b170c10fca2e208d8a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/88c61dc9164c983a52fdc8b170c10fca2e208d8a",
+          "description": "AU-CONTEXT-R001 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTEXT-R002",
       "title": "Corpus re-embedding uses a governed shadow ANN swap",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -41,13 +48,20 @@
           "commit": "14febbf9e36fd799d26c7de16954e40baa76f80d",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/14febbf9e36fd799d26c7de16954e40baa76f80d",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "88c61dc9164c983a52fdc8b170c10fca2e208d8a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/88c61dc9164c983a52fdc8b170c10fca2e208d8a",
+          "description": "AU-CONTEXT-R002 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTEXT-R003",
       "title": "Embedding admission changes come from reviewed proposals only",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -55,13 +69,20 @@
           "commit": "c906e94598fd3190302e5429f7cd1ec601b31e83",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c906e94598fd3190302e5429f7cd1ec601b31e83",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "88c61dc9164c983a52fdc8b170c10fca2e208d8a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/88c61dc9164c983a52fdc8b170c10fca2e208d8a",
+          "description": "AU-CONTEXT-R003 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-CONTEXT-R004",
       "title": "Context sizing solves a certified multi-resolution knapsack",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -69,6 +90,13 @@
           "commit": "aa02d74fa09efd8fddcdd32ca2f93fb10a21cf54",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/aa02d74fa09efd8fddcdd32ca2f93fb10a21cf54",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "88c61dc9164c983a52fdc8b170c10fca2e208d8a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/88c61dc9164c983a52fdc8b170c10fca2e208d8a",
+          "description": "AU-CONTEXT-R004 merged to the default branch in this commit."
         }
       ]
     },
