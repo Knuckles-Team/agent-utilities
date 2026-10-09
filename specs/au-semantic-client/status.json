@@ -20,6 +20,7 @@
     "AU-SEMANTIC-R014",
     "AU-SEMANTIC-R015",
     "AU-SEMANTIC-R016",
+    "AU-SEMANTIC-R016.1",
     "AU-SEMANTIC-R017",
     "AU-SEMANTIC-R018",
     "AU-SEMANTIC-R019",
@@ -286,6 +287,13 @@
       "id": "AU-SEMANTIC-R016",
       "title": "Document, session and feed source ingestion moves to the SDK",
       "delivery_state": "SPECIFIED",
+      "evidence": [],
+      "remaining": "Split 2026-10-09: size score above 6, more than 2 code roots, cross-repo (AU to connector SDK). See AU-SEMANTIC-R016.1 for the first child; later children copy the behavior into the SDK, then switch AU importers and delete."
+    },
+    {
+      "id": "AU-SEMANTIC-R016.1",
+      "title": "The AU-SEMANTIC-R016 migration scope is a typed, validated manifest",
+      "delivery_state": "BUILDING",
       "evidence": []
     },
     {
