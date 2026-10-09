@@ -1,15 +1,15 @@
 # Tasks — AU-SEC-01
 
-| Task | Requirement | Deliverable and completion proof |
-|---|---|---|
-| T1 | SEC-01/02 | Validate actor/session projection and local-only authority; gateway and profile positive/negative tests. |
-| T2 | SEC-03 | Preserve dedicated control view and typed unavailable error; injected outage test. |
-| T3 | SEC-04 | Generate classed AU allowlist from canonical registry; exact parity and stale-generation checks. |
-| T4 | SEC-05/06 | Wire request/approve/revoke to the real public and tool paths with independent approver, expiry, idempotency, and final engine check. |
-| T5 | SEC-07 | Wire bounded profile decisions to existing orchestration and approval flow; replay and revision conflict tests. |
-| T6 | SEC-08 | Connect invalidation events to caches; test event loss and max TTL. |
-| T7 | SEC-09 | Connect drift result to orchestration and SDK checkpoint contract; quarantine/recovery tests. |
-| T8 | all | Run test matrix, CCCC/jscpd/Dupehound and privacy checks; capture exact commit, hosted result, and cross-owner acceptance. |
-| T9 | AU-SEC-R009 | Add a static/automated review confirming no learned probability, similarity score, or other model-derived confidence value grants or extends authorization in AU or epistemic-graph; every authorization decision traces to an explicit policy or approval record. |
+| Task | Requirement | Deliverable and completion proof | Status |
+|---|---|---|---|
+| T1 | SEC-01/02 | Validate actor/session projection and local-only authority; gateway and profile positive/negative tests. | [x] LANDED — `agent_utilities/security/request_identity.py` (`mint_graph_session`, `_mint_local_process_authority`), `tests/unit/core/test_request_identity.py`, `tests/unit/security/test_local_process_grants.py`, `tests/unit/security/profiles/test_tiny_profile_admin_scope.py` on `origin/main` (PR #10, commits `19109362d`/`caeeff7c3`). |
+| T2 | SEC-03 | Preserve dedicated control view and typed unavailable error; injected outage test. | [x] LANDED — `agent_utilities/knowledge_graph/core/engine.py` raises `ControlGraphUnavailable`; `tests/unit/knowledge_graph/core/test_engine_resolver.py`, `tests/unit/knowledge_graph/core/test_control_backend_binding.py` on `origin/main` (PR #10, commit `caeeff7c3`). |
+| T3 | SEC-04 | Generate classed AU allowlist from canonical registry; exact parity and stale-generation checks. | [x] LANDED — `agent_utilities/security/scope_registry.py`, `scripts/gen_scope_registry.py`, `tests/unit/security/test_scope_registry.py` on `origin/main` (PR #10, commit `eba6b8e9a`). |
+| T4 | SEC-05/06 | Wire request/approve/revoke to the real public and tool paths with independent approver, expiry, idempotency, and final engine check. | [x] LANDED — `agent_utilities/security/elevation.py` (`ElevationService`), `tests/unit/security/test_elevation.py`, `tests/unit/security/elevation_fakes.py` on `origin/main` (PR #10, commit `d1b9fc6dc`). |
+| T5 | SEC-07 | Wire bounded profile decisions to existing orchestration and approval flow; replay and revision conflict tests. | [x] LANDED — `agent_utilities/security/guardrail_evolution.py`, `agent_utilities/security/guardrail_profile.py`, `tests/unit/security/test_guardrail_evolution.py`, `tests/unit/security/test_guardrail_profile.py` on `origin/main` (PR #10, commit `0b70fad31`). |
+| T6 | SEC-08 | Connect invalidation events to caches; test event loss and max TTL. | [x] LANDED — `agent_utilities/caching/freshness.py`, `agent_utilities/caching/semantic_cache.py`, `tests/unit/caching/test_freshness.py` on `origin/main` (PR #10, commit `45f3c3459`). |
+| T7 | SEC-09 | Connect drift result to orchestration and SDK checkpoint contract; quarantine/recovery tests. | [x] LANDED — `agent_utilities/knowledge_graph/schema_drift/` (`classify.py`, `gate.py`, `activation.py`, `policy.py`), `tests/unit/knowledge_graph/schema_drift/test_classify.py`, `tests/unit/knowledge_graph/schema_drift/test_gate.py` on `origin/main` (PR #10, commit `9cc9e08c1`). |
+| T8 | all | Run test matrix, CCCC/jscpd/Dupehound and privacy checks; capture exact commit, hosted result, and cross-owner acceptance. | Open — hosted-result/cross-owner acceptance capture not yet done; `delivery_state` remains ahead of `acceptance_state`. |
+| T9 | AU-SEC-R009 | Add a static/automated review confirming no learned probability, similarity score, or other model-derived confidence value grants or extends authorization in AU or epistemic-graph; every authorization decision traces to an explicit policy or approval record. | [x] LANDED (AU portion) — `agent_utilities/security/authority_audit.py` + `tests/unit/security/test_authority_audit.py` statically audit every AU authorization-decision path. The epistemic-graph portion is out of scope for this repo/PR. |
 
 Tasks may be split across PRs. Mark a row **LANDED** only after its code reaches default branch; mark **ACCEPTED** only after required evidence and owner contract checks are linked.
