@@ -21,6 +21,8 @@
 | Bare, non-planning and hinted `ask` | unit routing | plan for bare planning text; no route for code questions or hinted calls |
 | Cross-source question over two fake sources | unit, `tests/unit/knowledge_graph/test_virtual_graph.py` | ontology selects both sources; live bind joins; zero materialized rows; key filter pushed only with `filter:in` |
 | Unapproved mapping, row budget, credential ref, undiscovered field | unit negative | uncovered class with no reads; incomplete report; refused connection; refused mapping |
+| Fleet hit for "list Docker containers" | unit, `tests/unit/test_intent_fleet_ranking_and_ties.py` | fleet row ranks first; server named; `how_to_call` uses `fleet.call`; failed probe reported as `fleet_error` |
+| Read-only action tie and unmatched `ask` | unit, `tests/unit/test_intent_fleet_ranking_and_ties.py` | tie runs the declared default; no read default refuses; unmatched `ask` routes to `nl_query`; pinned calls never fall back |
 
 Fresh checkout: `python3 scripts/uv_workspace.py doctor`; install locked extras using the repository helper, then run `python3 scripts/uv_workspace.py run --all-extras pytest tests/unit tests/orchestration -q` and the focused new conformance tests. Tests must provide fake EG/gateway/provider adapters and temporary directories; ordinary PR checks must need no pre-existing deployment, vendor account or GPU. Live certification is a separately labelled optional environment test with captured receipts.
 
