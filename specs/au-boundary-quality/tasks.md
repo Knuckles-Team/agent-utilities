@@ -12,4 +12,6 @@
 | Q8 | AU-QUAL-R006 | [x] Run a privacy check across the complete working tree and every commit message as a required gate before code reaches a public remote; fails the build on a disallowed pattern. Commit-message scan (`_commit_message_violations`) is bounded to commits not yet reachable from `origin/main`; a pre-existing, unrelated 2-finding tracked-tree failure (`test_full_corpus_scan_is_clean`) remains open, tracked separately under AU-QUAL-R004's remaining failure groups. |
 | Q9 | AU-QUAL-R008 | `scripts/liveness_reconciler.py` rescues exact effective service-registry targets; `tests/gates/test_liveness_reconciler.py` covers last-row-wins, nonliteral and dispatch parity. |
 
+**Split recorded (rapid-delivery, 2026-10-09):** AU-QUAL-R005 is split per the Sizing rule (full mypy-clean test tree exceeds one bounded PR). `AU-QUAL-R005.1` ships the typed `MypyExclusionPolicy` model (`agent_utilities/quality/mypy_policy.py`) that refuses any policy carving `tests/` back out of coverage, plus its refusal test (`tests/unit/quality/test_mypy_policy.py`). The real mypy-config diff and the test-tree fixes remain `AU-QUAL-R005.2+`, unshipped here.
+
 Mark `LANDED` by default-branch commit and `ACCEPTED` only when exact-run evidence satisfies the row. An interim source fix may leave another row `BUILDING`.
