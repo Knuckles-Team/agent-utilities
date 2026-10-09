@@ -1,7 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "spec_id": "AU-CONTEXT-001",
   "owner_repo": "agent-utilities",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-CONTEXT-R001",
     "AU-CONTEXT-R002",
@@ -20,137 +21,62 @@
     "AU-CONTEXT-R008.2",
     "AU-CONTEXT-R008.3"
   ],
-  "delivery_state": "BUILDING",
-  "acceptance_state": "NOT_AUDITED",
-  "evidence": [],
   "requirements": [
     {
       "id": "AU-CONTEXT-R001",
       "title": "RetrievalPath templates feed EG-DECISION-ENGINE-R029 as candidates",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "683965fb4cb76da1af3f784adaf3fc2cbbc52d80",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/683965fb4cb76da1af3f784adaf3fc2cbbc52d80",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "88c61dc9164c983a52fdc8b170c10fca2e208d8a",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/88c61dc9164c983a52fdc8b170c10fca2e208d8a",
-          "description": "AU-CONTEXT-R001 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "88c61dc9164c"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-CONTEXT-R002",
       "title": "Corpus re-embedding uses a governed shadow ANN swap",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "14febbf9e36fd799d26c7de16954e40baa76f80d",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/14febbf9e36fd799d26c7de16954e40baa76f80d",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "88c61dc9164c983a52fdc8b170c10fca2e208d8a",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/88c61dc9164c983a52fdc8b170c10fca2e208d8a",
-          "description": "AU-CONTEXT-R002 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "88c61dc9164c"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-CONTEXT-R003",
       "title": "Embedding admission changes come from reviewed proposals only",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "c906e94598fd3190302e5429f7cd1ec601b31e83",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c906e94598fd3190302e5429f7cd1ec601b31e83",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "88c61dc9164c983a52fdc8b170c10fca2e208d8a",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/88c61dc9164c983a52fdc8b170c10fca2e208d8a",
-          "description": "AU-CONTEXT-R003 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "88c61dc9164c"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-CONTEXT-R004",
       "title": "Context sizing solves a certified multi-resolution knapsack",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "aa02d74fa09efd8fddcdd32ca2f93fb10a21cf54",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/aa02d74fa09efd8fddcdd32ca2f93fb10a21cf54",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "88c61dc9164c983a52fdc8b170c10fca2e208d8a",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/88c61dc9164c983a52fdc8b170c10fca2e208d8a",
-          "description": "AU-CONTEXT-R004 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "88c61dc9164c"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-CONTEXT-R005",
       "title": "Finance scheduling and a sourced flip-explainer agent",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "d06803632541d1d592757138315d9131bf994626",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/d06803632541d1d592757138315d9131bf994626",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "88c61dc9164c983a52fdc8b170c10fca2e208d8a",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/88c61dc9164c983a52fdc8b170c10fca2e208d8a",
-          "description": "AU-CONTEXT-R005 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "88c61dc9164c"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-CONTEXT-R006",
       "title": "Paper trading is isolated; live orders need governed approval",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "f48c0bb765dd19d4ee5bb1c8687c37f4f047554b",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f48c0bb765dd19d4ee5bb1c8687c37f4f047554b",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "0cd7be250b3de6b16266b8ff069ebae974cf3b8e",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/0cd7be250b3de6b16266b8ff069ebae974cf3b8e",
-          "description": "AU-CONTEXT-R006 merged to the default branch in this commit."
-        }
+      "landed_in": [
+        "0cd7be250b3d",
+        "88c61dc9164c"
       ],
-      "rollup": true,
-      "children": [
+      "verified_by": [],
+      "rollup_of": [
         "AU-CONTEXT-R006.1",
         "AU-CONTEXT-R006.2",
         "AU-CONTEXT-R006.3"
@@ -160,99 +86,73 @@
       "id": "AU-CONTEXT-R006.1",
       "title": "agent-utilities keeps finance agent roles only; paper trading stays isolated",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "636c91a1613610c5ccc78672436a6c4d1cb9b1c5",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/636c91a1613610c5ccc78672436a6c4d1cb9b1c5",
-          "description": "AU-CONTEXT-R006.1 merged to the default branch in this commit."
-        }
+      "landed_in": [
+        "0cd7be250b3d",
+        "636c91a16136",
+        "dbe03a6687ca"
       ],
-      "depends_on": []
+      "verified_by": []
     },
     {
       "id": "AU-CONTEXT-R006.2",
       "title": "Live orders use the SDK's governed write-back contract",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "0cd7be250b3de6b16266b8ff069ebae974cf3b8e",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/0cd7be250b3de6b16266b8ff069ebae974cf3b8e",
-          "description": "AU-CONTEXT-R006.2 merged to the default branch in this commit."
-        }
+      "landed_in": [
+        "0cd7be250b3d",
+        "dbe03a6687ca"
       ],
-      "depends_on": [
-        "AU-CONTEXT-R006.1"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTEXT-R006.3",
       "title": "A finance widget replaces the placeholder widget in graph-os",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "0cd7be250b3de6b16266b8ff069ebae974cf3b8e",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/0cd7be250b3de6b16266b8ff069ebae974cf3b8e",
-          "description": "AU-CONTEXT-R006.3 merged to the default branch in this commit."
-        }
+      "landed_in": [
+        "0cd7be250b3d",
+        "dbe03a6687ca"
       ],
-      "depends_on": [
-        "AU-CONTEXT-R006.2"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTEXT-R007",
       "title": "Finance math and feeds move out of agent-utilities",
-      "delivery_state": "BUILDING",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "f48c0bb765dd19d4ee5bb1c8687c37f4f047554b",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f48c0bb765dd19d4ee5bb1c8687c37f4f047554b",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "703c3eb9d88d6944542d58188ee0a1c4461c282c",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/703c3eb9d88d6944542d58188ee0a1c4461c282c",
-          "description": "AU-CONTEXT-R007 merged to the default branch in this commit."
-        }
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "703c3eb9d88d",
+        "88c61dc9164c"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-CONTEXT-R007.1",
+        "AU-CONTEXT-R007.2"
       ]
     },
     {
       "id": "AU-CONTEXT-R007.1",
       "title": "A boundary test pins the finance-math module set, and a typed delegation seam prefers EG when available",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "4eac8c6dc419b697a683857caeab8b7fb07b22bf",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/4eac8c6dc419b697a683857caeab8b7fb07b22bf",
-          "description": "AU-CONTEXT-R007.1 merged to the default branch in this commit (PR #148, spec: AU-side .1 slices for AU-SEMANTIC-R009/R015 and AU-CONTEXT-R007)."
-        }
-      ]
+      "landed_in": [
+        "4eac8c6dc419"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-CONTEXT-R007.2",
       "title": "The local finance-math modules and the fallback branch are deleted after cutover",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-CONTEXT-R008",
       "title": "Finance recommendations are calibrated, cited, and informational",
-      "delivery_state": "BUILT",
-      "evidence": [],
-      "rollup": true,
-      "children": [
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "0cd7be250b3d",
+        "88c61dc9164c"
+      ],
+      "verified_by": [],
+      "rollup_of": [
         "AU-CONTEXT-R008.1",
         "AU-CONTEXT-R008.2",
         "AU-CONTEXT-R008.3"
@@ -262,35 +162,24 @@
       "id": "AU-CONTEXT-R008.1",
       "title": "Typed, calibrated AnalysisSnapshot model with abstention",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "0cd7be250b3de6b16266b8ff069ebae974cf3b8e",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/0cd7be250b3de6b16266b8ff069ebae974cf3b8e",
-          "description": "AU-CONTEXT-R008.1 merged to the default branch in this commit."
-        }
+      "landed_in": [
+        "0cd7be250b3d"
       ],
-      "depends_on": []
+      "verified_by": []
     },
     {
       "id": "AU-CONTEXT-R008.2",
       "title": "A real entry point produces recommendations from live holdings",
       "delivery_state": "SPECIFIED",
-      "evidence": [],
-      "depends_on": [
-        "AU-CONTEXT-R008.1"
-      ]
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-CONTEXT-R008.3",
       "title": "Per-strategy scorecards persist for comparison",
       "delivery_state": "SPECIFIED",
-      "evidence": [],
-      "depends_on": [
-        "AU-CONTEXT-R008.1",
-        "AU-CONTEXT-R008.2"
-      ]
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }

@@ -1,65 +1,41 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "spec_id": "AU-FREEZE-001",
   "owner_repo": "agent-utilities",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "AU-FREEZE-R001",
     "AU-FREEZE-R002",
     "AU-FREEZE-R003"
-  ],
-  "delivery_state": "LANDED",
-  "acceptance_state": "NOT_AUDITED",
-  "evidence": [
-    {
-      "kind": "merged_head",
-      "result": "passed",
-      "commit": "4059a262d70ee93ba0c096cd91153547addadfe3",
-      "url": "https://github.com/Knuckles-Team/agent-utilities/commit/4059a262d70ee93ba0c096cd91153547addadfe3",
-      "description": "Every requirement in this spec is merged to the default branch."
-    }
   ],
   "requirements": [
     {
       "id": "AU-FREEZE-R001",
       "title": "Canonical AU release-evidence freeze manifest",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "4059a262d70ee93ba0c096cd91153547addadfe3",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/4059a262d70ee93ba0c096cd91153547addadfe3",
-          "description": "AU-FREEZE-R001 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "4059a262d70e"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-FREEZE-R002",
       "title": "Quarantine unresolved scanner findings from the freeze",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "4059a262d70ee93ba0c096cd91153547addadfe3",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/4059a262d70ee93ba0c096cd91153547addadfe3",
-          "description": "AU-FREEZE-R002 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "4059a262d70e"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-FREEZE-R003",
       "title": "CI installs the engine from the EG release wheel",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "64d317c9e38596557fe6b38538cbcf36fd50f8fc",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/64d317c9e38596557fe6b38538cbcf36fd50f8fc",
-          "description": "AU-FREEZE-R003 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "4059a262d70e",
+        "64d317c9e385"
+      ],
+      "verified_by": []
     }
   ]
 }

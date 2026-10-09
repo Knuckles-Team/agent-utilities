@@ -1,163 +1,113 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "spec_id": "AU-RETIRE-001",
   "owner_repo": "agent-utilities",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-RETIRE-R001",
     "AU-RETIRE-R002",
     "AU-RETIRE-R003",
+    "AU-RETIRE-R003.1",
+    "AU-RETIRE-R003.2",
     "AU-RETIRE-R004",
     "AU-RETIRE-R005",
     "AU-RETIRE-R006",
     "AU-RETIRE-R007",
-    "AU-RETIRE-R008",
-    "AU-RETIRE-R003.1",
-    "AU-RETIRE-R003.2"
-  ],
-  "delivery_state": "LANDED",
-  "acceptance_state": "NOT_AUDITED",
-  "evidence": [
-    {
-      "kind": "merged_head",
-      "result": "passed",
-      "commit": "6a408267e40320f2247c8d626bccdc0686018fbd",
-      "url": "https://github.com/Knuckles-Team/agent-utilities/commit/6a408267e40320f2247c8d626bccdc0686018fbd",
-      "description": "Every requirement in this spec is merged to the default branch."
-    }
+    "AU-RETIRE-R008"
   ],
   "requirements": [
     {
       "id": "AU-RETIRE-R001",
       "title": "Complete inventory and retirement of duplicate graph engine code",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "6a408267e40320f2247c8d626bccdc0686018fbd",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/6a408267e40320f2247c8d626bccdc0686018fbd",
-          "description": "AU-RETIRE-R001 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "6a408267e403"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-RETIRE-R002",
       "title": "Enrichment edges carry a provenance rung and confidence",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "d165697978b7f73e50c1d3385258283a59971822",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/d165697978b7f73e50c1d3385258283a59971822",
-          "description": "Implemented on the default branch; exercised by tests/unit/knowledge_graph/enrichment/test_models.py::test_edge_rung_is_ordered_cheapest_to_most_expensive"
-        }
-      ]
+      "landed_in": [
+        "d165697978b7"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-RETIRE-R003",
       "title": "OBO ontology terms ingest as typed ReferenceTerm individuals",
-      "delivery_state": "BUILDING",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "6a408267e40320f2247c8d626bccdc0686018fbd",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/6a408267e40320f2247c8d626bccdc0686018fbd",
-          "description": "AU-RETIRE-R003 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "AU-RETIRE-R004",
-      "title": "Fix doubled node_type text in embedding composition",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "bc7bba33932d89a3f9cd9e84d8fb494f066e3651",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/bc7bba33932d89a3f9cd9e84d8fb494f066e3651",
-          "description": "AU-RETIRE-R004 merged to the default branch in this commit."
-        }
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "6a408267e403"
       ],
-      "remaining": "The _ENTITY_TEXT_SKIP_KEYS fix (commit 82eff59f0, already on main) stops the doubling, but its dedicated regression test (tests/unit/knowledge_graph/enrichment/test_entity_text_bare_node_type.py) exists only on branch fd8afdff2, not on main."
-    },
-    {
-      "id": "AU-RETIRE-R005",
-      "title": "Per-stage timing instrumentation across the full ingest path",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "dd925ea09bf7695896e7e05ab4c7a6931f1fab8c",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/dd925ea09bf7695896e7e05ab4c7a6931f1fab8c",
-          "description": "Implemented on the default branch; exercised by tests/unit/knowledge_graph/test_ingest_profile.py::test_stage_timing_and_record"
-        }
-      ]
-    },
-    {
-      "id": "AU-RETIRE-R006",
-      "title": "Delta ingest reaps nodes for deleted files",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "bc7bba33932d89a3f9cd9e84d8fb494f066e3651",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/bc7bba33932d89a3f9cd9e84d8fb494f066e3651",
-          "description": "AU-RETIRE-R006 merged to the default branch in this commit."
-        }
-      ]
-    },
-    {
-      "id": "AU-RETIRE-R007",
-      "title": "Deterministic embedding admission classifier at the ingest chokepoint",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "82eff59f049dca07fa7eeb0e149fa9481204ea21",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/82eff59f049dca07fa7eeb0e149fa9481204ea21",
-          "description": "Implemented on the default branch; exercised by tests/unit/knowledge_graph/ingestion/test_embedding_admission.py::test_classify_by_shape_does_not_reject_ordinary_hyphenated_names"
-        }
-      ]
-    },
-    {
-      "id": "AU-RETIRE-R008",
-      "title": "Sequence ingestion-economics work ahead of file relocation",
-      "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "6a408267e40320f2247c8d626bccdc0686018fbd",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/6a408267e40320f2247c8d626bccdc0686018fbd",
-          "description": "AU-RETIRE-R008 merged to the default branch in this commit."
-        }
+      "verified_by": [],
+      "rollup_of": [
+        "AU-RETIRE-R003.1",
+        "AU-RETIRE-R003.2"
       ]
     },
     {
       "id": "AU-RETIRE-R003.1",
       "title": "Remaining scope of AU-RETIRE-R003 (slice .1): OBO ontology terms ingest as typed ReferenceTerm individuals",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "f25a287bac6c96b8f6ea51f11d528502a7ca6924",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f25a287bac6c96b8f6ea51f11d528502a7ca6924",
-          "description": "AU-RETIRE-R003.1 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "f25a287bac6c"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-RETIRE-R003.2",
       "title": "Remaining scope of AU-RETIRE-R003 (slice .2): OBO ontology terms ingest as typed ReferenceTerm individuals",
       "delivery_state": "SPECIFIED",
-      "evidence": []
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETIRE-R004",
+      "title": "Fix doubled node_type text in embedding composition",
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "bc7bba33932d"
+      ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETIRE-R005",
+      "title": "Per-stage timing instrumentation across the full ingest path",
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "dd925ea09bf7"
+      ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETIRE-R006",
+      "title": "Delta ingest reaps nodes for deleted files",
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "5822ee9bef09",
+        "bc7bba33932d"
+      ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETIRE-R007",
+      "title": "Deterministic embedding admission classifier at the ingest chokepoint",
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "82eff59f049d"
+      ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETIRE-R008",
+      "title": "Sequence ingestion-economics work ahead of file relocation",
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "6a408267e403"
+      ],
+      "verified_by": []
     }
   ]
 }

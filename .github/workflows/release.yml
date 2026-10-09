@@ -236,6 +236,29 @@ jobs:
       - name: Verify required epistemic-graph release is resolvable on PyPI
         run: python3 scripts/release/check_eg_pypi_resolvable.py
 
+  # Spec-status lifecycle gates (SPEC-STATUS-LIFECYCLE.md). Deliberately not in
+  # any `needs:` and not a required check: advisory until the generator and
+  # gates are proven stable across the fleet.
+  spec-gates:
+    name: spec gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: spec-status
+        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-status
+
+      - name: spec-decomposition
+        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-decomposition
+
+      - name: spec-trailers
+        if: github.event_name == 'pull_request'
+        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-trailers --base-ref "origin/${{ github.base_ref }}"
+
   # ── STAGE 1: release-critical checks only. Nothing else may live here. ──
   gates:
     name: gates

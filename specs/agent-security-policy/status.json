@@ -1,7 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "spec_id": "AU-SEC-01",
   "owner_repo": "agent-utilities",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "AU-SEC-R001",
     "AU-SEC-R002",
@@ -14,213 +15,115 @@
     "AU-SEC-R009",
     "AU-SEC-R010"
   ],
-  "delivery_state": "LANDED",
-  "acceptance_state": "NOT_AUDITED",
-  "evidence": [
-    {
-      "kind": "merged_head",
-      "result": "passed",
-      "commit": "c7483960ebb03ec81f59396f561b41a5865d3b8c",
-      "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c7483960ebb03ec81f59396f561b41a5865d3b8c",
-      "description": "Every requirement in this spec is merged to the default branch."
-    }
-  ],
   "requirements": [
     {
       "id": "AU-SEC-R001",
       "title": "Tiny profile grants scoped authority, not blanket admin",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "3df5104d3dce99db4ec9a5781fe04f13ea7fd5fd",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/3df5104d3dce99db4ec9a5781fe04f13ea7fd5fd",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "c7483960ebb03ec81f59396f561b41a5865d3b8c",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c7483960ebb03ec81f59396f561b41a5865d3b8c",
-          "description": "AU-SEC-R001 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "19109362ddd4",
+        "2acbf25f8bb2",
+        "c7483960ebb0"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R002",
       "title": "Control view failure never falls back to the content graph",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "64e7d4493c2bae60e9282dc429898b7e6a6ba1e4",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/64e7d4493c2bae60e9282dc429898b7e6a6ba1e4",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "c7483960ebb03ec81f59396f561b41a5865d3b8c",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c7483960ebb03ec81f59396f561b41a5865d3b8c",
-          "description": "AU-SEC-R002 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "2acbf25f8bb2",
+        "c7483960ebb0",
+        "caeeff7c3ef9"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R003",
       "title": "Caches subscribe to invalidation with volatility-bounded TTL",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "7943207de987b7252e6244f59561d0fe5b46a083",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/7943207de987b7252e6244f59561d0fe5b46a083",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "c7483960ebb03ec81f59396f561b41a5865d3b8c",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c7483960ebb03ec81f59396f561b41a5865d3b8c",
-          "description": "AU-SEC-R003 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "2acbf25f8bb2",
+        "45f3c3459198",
+        "c7483960ebb0"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R004",
       "title": "AU treats schema drift as a fail-closed typed result",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "2c92e37c39af66257e131fb32ceeb6d86998c3b8",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2c92e37c39af66257e131fb32ceeb6d86998c3b8",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "c7483960ebb03ec81f59396f561b41a5865d3b8c",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c7483960ebb03ec81f59396f561b41a5865d3b8c",
-          "description": "AU-SEC-R004 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "2acbf25f8bb2",
+        "9cc9e08c1a0e",
+        "c7483960ebb0"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R005",
       "title": "AU proposes schema-repair mappings; EG alone activates them",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "ead97a911199178a52edb107be2ef111276b6b76",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ead97a911199178a52edb107be2ef111276b6b76",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "c7483960ebb03ec81f59396f561b41a5865d3b8c",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c7483960ebb03ec81f59396f561b41a5865d3b8c",
-          "description": "AU-SEC-R005 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "2acbf25f8bb2",
+        "9cc9e08c1a0e",
+        "c7483960ebb0",
+        "c7fc09d3d2f6"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R006",
       "title": "Elevation can be requested, approved, and revoked",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "d186f69edd13390b1c78cf2c482cdc4a8f190f54",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/d186f69edd13390b1c78cf2c482cdc4a8f190f54",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "c7483960ebb03ec81f59396f561b41a5865d3b8c",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c7483960ebb03ec81f59396f561b41a5865d3b8c",
-          "description": "AU-SEC-R006 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "2acbf25f8bb2",
+        "c7483960ebb0",
+        "d1b9fc6dc5e5"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R007",
       "title": "Guardrail tightening is automatic; loosening needs approval",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "d186f69edd13390b1c78cf2c482cdc4a8f190f54",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/d186f69edd13390b1c78cf2c482cdc4a8f190f54",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "c7483960ebb03ec81f59396f561b41a5865d3b8c",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c7483960ebb03ec81f59396f561b41a5865d3b8c",
-          "description": "AU-SEC-R007 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "0b70fad31246",
+        "2acbf25f8bb2",
+        "c7483960ebb0"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R008",
       "title": "AU allowlist is generated from the canonical scope registry",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "branch",
-          "result": "passed",
-          "commit": "479ba69d7f40e70260a17f5d8f79ed8e8f7fe230",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/479ba69d7f40e70260a17f5d8f79ed8e8f7fe230",
-          "description": "Implementation commit is published on a branch; not yet merged to the default branch."
-        },
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "c7483960ebb03ec81f59396f561b41a5865d3b8c",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/c7483960ebb03ec81f59396f561b41a5865d3b8c",
-          "description": "AU-SEC-R008 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "2acbf25f8bb2",
+        "c7483960ebb0",
+        "eba6b8e9a661"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R009",
       "title": "Learned scores never grant security authority",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "8a7a9e0e3fbebf6c11adff629eda273cf3b9bbfc",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/8a7a9e0e3fbebf6c11adff629eda273cf3b9bbfc",
-          "description": "AU-SEC-R009 merged to the default branch in this commit."
-        }
-      ]
+      "landed_in": [
+        "2acbf25f8bb2",
+        "8a7a9e0e3fbe"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-SEC-R010",
       "title": "The shared tenant hierarchy reads as the service identity",
       "delivery_state": "LANDED",
-      "evidence": [
-        {
-          "kind": "merged_head",
-          "result": "passed",
-          "commit": "e2b2152f1396c9face66eb5c78788d527c6dc961",
-          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/e2b2152f1396c9face66eb5c78788d527c6dc961",
-          "description": "Implementation merged to the default branch; the commit names this requirement."
-        }
-      ]
+      "landed_in": [
+        "3fb99d2ff295",
+        "e2b2152f1396"
+      ],
+      "verified_by": []
     }
   ]
 }
