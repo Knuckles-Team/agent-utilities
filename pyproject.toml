@@ -792,7 +792,7 @@ all = [
 
 [project.scripts]
 graph-os = "agent_utilities.mcp.kg_server:mcp_server"
-# graph-os-daemon is graph-os-owned (GRAPHOS-DEPLOY-R007.3): graph_os.gateway.daemon:main.
+# graph-os-daemon is graph-os-owned (GRAPHOS-DEPLOY requirement R.007.3): graph_os.gateway.daemon:main.
 # Declaring it here too was an install-time console-script name collision.
 # agent_utilities.gateway.daemon remains -- it still has real non-test importers
 # (agent_utilities/gateway/api.py, agent_utilities/security/error_surface.py,
