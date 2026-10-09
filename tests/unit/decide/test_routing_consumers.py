@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-
 from agent_utilities import decide
 from agent_utilities.decide.consumers.routing import route_by_cost, route_model
 from agent_utilities.orchestration.outcome_router import OutcomeRouter
@@ -17,7 +15,6 @@ def _keys(transport: FakeTransport) -> list[list[str]]:
     return [[n["key"] for n in o["numbers"]] for o in options]
 
 
-@pytest.mark.spec("AU-CONTROL-R002", "AU-CONTROL-R006", "AU-CONTROL-R022")
 def test_outcome_router_takes_eg_s_decision(eg: FakeTransport) -> None:
     eg.answer = acted("deep")
     chosen = OutcomeRouter("shape").select("qa", "fast", ("fast", "deep"))
@@ -26,7 +23,6 @@ def test_outcome_router_takes_eg_s_decision(eg: FakeTransport) -> None:
     assert _keys(eg) == [["prior", "reward"], ["prior", "reward"]]
 
 
-@pytest.mark.spec("AU-CONTROL-R002", "AU-CONTROL-R006", "AU-CONTROL-R022")
 def test_outcome_router_keeps_its_prior_when_eg_abstains(eg: FakeTransport) -> None:
     eg.answer = abstained()
     router = OutcomeRouter("shape")
@@ -46,7 +42,6 @@ def _model(model_id: str, tier: str) -> SimpleNamespace:
     )
 
 
-@pytest.mark.spec("AU-CONTROL-R002", "AU-CONTROL-R006", "AU-CONTROL-R022")
 def test_model_routing_decides_among_eligible_models(eg: FakeTransport) -> None:
     light, heavy = _model("m-light", "light"), _model("m-heavy", "heavy")
     eg.answer = acted("m-light")

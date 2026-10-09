@@ -22,7 +22,6 @@ from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools.intent_tools import _fleet_mux
 
 
-@pytest.mark.spec("AU-CONTROL-R031")
 def test_attach_headless_fleet_loader_calls_attach_fleet_loader_with_composed_args() -> (
     None
 ):
@@ -45,7 +44,6 @@ def test_attach_headless_fleet_loader_calls_attach_fleet_loader_with_composed_ar
     assert not hasattr(mcp, "_fleet_mux_unavailable_reason")
 
 
-@pytest.mark.spec("AU-CONTROL-R031")
 def test_attach_headless_fleet_loader_records_the_exact_failure_cause(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -78,7 +76,6 @@ def test_attach_headless_fleet_loader_records_the_exact_failure_cause(
     assert "RuntimeError" in caplog.text
 
 
-@pytest.mark.spec("AU-CONTROL-R031")
 def test_ensure_tools_registered_attaches_fleet_loader_to_the_built_mcp() -> None:
     """``ensure_tools_registered()`` now attaches a fleet loader to the exact
     ``mcp`` its headless ``_build_server(bootstrap=False)`` call returns."""

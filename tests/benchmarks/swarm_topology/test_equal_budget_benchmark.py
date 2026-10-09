@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from agent_utilities.decide.consumers.assembly import Assembler
 from agent_utilities.decide.topology import SWARM_NS
 from agent_utilities.decide.topology.benchmark import (
@@ -23,7 +21,6 @@ from agent_utilities.decide.topology.benchmark import (
 from tests.unit.decide.fakes import FakeGraphs
 
 
-@pytest.mark.spec("AU-CONTROL-R020")
 def test_every_baseline_runs_under_the_same_budget() -> None:
     rows = {row.policy: row for row in run_suite(BASELINES)}
     assert set(rows) == set(BASELINES)
@@ -35,14 +32,12 @@ def test_every_baseline_runs_under_the_same_budget() -> None:
         assert 0.0 <= low <= row.successes / row.answered <= high <= 1.0
 
 
-@pytest.mark.spec("AU-CONTROL-R020")
 def test_an_abstention_is_not_a_failure() -> None:
     row = run_policy("abstains", lambda task, budget: Answer(None))
     assert (row.answered, row.abstentions, row.successes) == (0, len(TASKS), 0)
     assert row.success_interval == (0.0, 1.0)
 
 
-@pytest.mark.spec("AU-CONTROL-R020")
 def test_the_eg_planner_asks_the_topology_question_under_the_budget() -> None:
     plan = {
         "class_iri": SWARM_NS + "FanOutJoin",

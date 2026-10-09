@@ -11,7 +11,6 @@ the live-path recompile-and-hash still succeeds end to end.
 
 from __future__ import annotations
 
-import pytest
 from agent_connector_sdk.manifest.model import ConnectorManifest as SDKManifest
 from agent_connector_sdk.manifest.ontology_pack import compile_manifest_ontology
 
@@ -48,7 +47,6 @@ def _sample_manifest() -> ConnectorManifest:
     )
 
 
-@pytest.mark.spec("AU-SEC-R005")
 def test_sdk_ontology_pack_reproduces_aus_turtle_byte_for_byte():
     manifest = _sample_manifest()
 

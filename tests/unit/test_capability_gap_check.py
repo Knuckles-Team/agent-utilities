@@ -12,19 +12,16 @@ from agent_utilities.api.capability_gap_check import (
 )
 
 
-@pytest.mark.spec("AU-SEMANTIC-R022.1", "AU-SEMANTIC-R025.1", "AU-SEMANTIC-R027.1")
 def test_missing_verdict_refused_without_any_search() -> None:
     with pytest.raises(CapabilityGapUnverified):
         CapabilityGapResult.determine("foo_tool", searches=(), is_missing=True)
 
 
-@pytest.mark.spec("AU-SEMANTIC-R022.1", "AU-SEMANTIC-R025.1", "AU-SEMANTIC-R027.1")
 def test_search_record_refuses_empty_query() -> None:
     with pytest.raises(CapabilityGapUnverified):
         EGSurfaceSearch(surface=EGSurface.METHOD_CATALOG, query="   ")
 
 
-@pytest.mark.spec("AU-SEMANTIC-R022.1", "AU-SEMANTIC-R025.1", "AU-SEMANTIC-R027.1")
 def test_missing_verdict_accepted_with_recorded_eg_side_search() -> None:
     search = EGSurfaceSearch(
         surface=EGSurface.METHOD_CATALOG, query="list_capabilities"

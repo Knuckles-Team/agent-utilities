@@ -22,15 +22,11 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = REPO_ROOT / "agent_utilities"
 
 
-def _modules_importing(
-    needle_substrings: tuple[str, ...], exclude: tuple[str, ...]
-) -> frozenset[str]:
+def _modules_importing(needle_substrings: tuple[str, ...], exclude: tuple[str, ...]) -> frozenset[str]:
     """Return relative paths (posix, from agent_utilities/) of production
     files whose import statements reference any of `needle_substrings`,
     excluding the defining modules themselves. Test files are out of scope:
@@ -149,12 +145,6 @@ PINNED_PLACEMENT_MINING_IMPORTERS: frozenset[str] = frozenset(
 )
 
 
-@pytest.mark.spec(
-    "AU-BOUNDARY-R028.2.1",
-    "AU-BOUNDARY-R028.6.1",
-    "AU-BOUNDARY-R028.7.1",
-    "AU-BOUNDARY-R028.8.1",
-)
 def test_r028_2_1_infra_importer_set_has_not_grown() -> None:
     found = _modules_importing(
         ("knowledge_graph.infra", "knowledge_graph import infra"),
@@ -165,12 +155,6 @@ def test_r028_2_1_infra_importer_set_has_not_grown() -> None:
     )
 
 
-@pytest.mark.spec(
-    "AU-BOUNDARY-R028.2.1",
-    "AU-BOUNDARY-R028.6.1",
-    "AU-BOUNDARY-R028.7.1",
-    "AU-BOUNDARY-R028.8.1",
-)
 def test_r028_6_1_observability_triad_importer_set_has_not_grown() -> None:
     found = _modules_importing(
         (
@@ -193,12 +177,6 @@ def test_r028_6_1_observability_triad_importer_set_has_not_grown() -> None:
     )
 
 
-@pytest.mark.spec(
-    "AU-BOUNDARY-R028.2.1",
-    "AU-BOUNDARY-R028.6.1",
-    "AU-BOUNDARY-R028.7.1",
-    "AU-BOUNDARY-R028.8.1",
-)
 def test_r028_7_1_relational_authority_importer_set_has_not_grown() -> None:
     found = _modules_importing(
         ("governance.relational_authority", "governance import relational_authority"),

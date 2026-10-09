@@ -196,20 +196,6 @@ def _entries() -> list[tuple[str, str, str]]:
     ]
 
 
-@pytest.mark.spec(
-    "AU-BOUNDARY-R023",
-    "AU-BOUNDARY-R024",
-    "AU-BOUNDARY-R025",
-    "AU-BOUNDARY-R026",
-    "AU-BOUNDARY-R027",
-    "AU-BOUNDARY-R029",
-    "AU-BOUNDARY-R030",
-    "AU-BOUNDARY-R031",
-    "AU-BOUNDARY-R032",
-    "AU-BOUNDARY-R033",
-    "AU-BOUNDARY-R034",
-    "AU-SEMANTIC-R014",
-)
 @pytest.mark.parametrize("requirement_id,destination,module_path", _entries())
 def test_inventoried_relocation_target_still_present(
     requirement_id: str, destination: str, module_path: str
@@ -228,20 +214,6 @@ def test_inventoried_relocation_target_still_present(
     )
 
 
-@pytest.mark.spec(
-    "AU-BOUNDARY-R023",
-    "AU-BOUNDARY-R024",
-    "AU-BOUNDARY-R025",
-    "AU-BOUNDARY-R026",
-    "AU-BOUNDARY-R027",
-    "AU-BOUNDARY-R029",
-    "AU-BOUNDARY-R030",
-    "AU-BOUNDARY-R031",
-    "AU-BOUNDARY-R032",
-    "AU-BOUNDARY-R033",
-    "AU-BOUNDARY-R034",
-    "AU-SEMANTIC-R014",
-)
 def test_every_destination_is_a_known_target() -> None:
     """Pin the only two valid relocation targets for this slice's rows."""
     known = {EPISTEMIC_GRAPH, AGENT_CONNECTOR_SDK}
@@ -250,20 +222,6 @@ def test_every_destination_is_a_known_target() -> None:
             assert destination in known, (requirement_id, destination)
 
 
-@pytest.mark.spec(
-    "AU-BOUNDARY-R023",
-    "AU-BOUNDARY-R024",
-    "AU-BOUNDARY-R025",
-    "AU-BOUNDARY-R026",
-    "AU-BOUNDARY-R027",
-    "AU-BOUNDARY-R029",
-    "AU-BOUNDARY-R030",
-    "AU-BOUNDARY-R031",
-    "AU-BOUNDARY-R032",
-    "AU-BOUNDARY-R033",
-    "AU-BOUNDARY-R034",
-    "AU-SEMANTIC-R014",
-)
 def test_inventory_covers_exactly_the_assigned_rows() -> None:
     """Pin the row set this slice covers so a future edit that adds or drops
     a row notices the change instead of silently expanding scope.

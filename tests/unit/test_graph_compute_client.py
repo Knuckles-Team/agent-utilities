@@ -26,13 +26,11 @@ class _PartialEGClient:
         return "computed"
 
 
-@pytest.mark.spec("AU-SEMANTIC-R010.1")
 def test_for_client_refuses_none() -> None:
     with pytest.raises(GraphComputeClientUnavailable):
         GraphComputeClient.for_client(None)
 
 
-@pytest.mark.spec("AU-SEMANTIC-R010.1")
 def test_for_client_refuses_client_missing_required_methods() -> None:
     with pytest.raises(GraphComputeClientUnavailable) as excinfo:
         GraphComputeClient.for_client(_PartialEGClient())
@@ -40,7 +38,6 @@ def test_for_client_refuses_client_missing_required_methods() -> None:
     assert "resolve_object_mapping" in str(excinfo.value)
 
 
-@pytest.mark.spec("AU-SEMANTIC-R010.1")
 def test_for_client_accepts_full_surface_and_delegates() -> None:
     composed = GraphComputeClient.for_client(_FullEGClient())
     assert composed.compute_graph() == "computed"

@@ -29,7 +29,6 @@ def kinds(approved: RecordShape, records: list[dict], **kw) -> dict[str, DriftCl
     return {c.field: c.kind for c in classify(approved, infer_shape(records), **kw)}
 
 
-@pytest.mark.spec("AU-SEC-R004")
 def test_an_unchanged_delta_has_no_drift_and_a_stable_digest() -> None:
     same = infer_shape([{"id": "c", "name": "q", "replicas": 3, "image": "y"}])
     assert classify(APPROVED, same) == ()

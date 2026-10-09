@@ -915,7 +915,6 @@ class _GraphTestLifecycle:
 _ACTIVE_GRAPH_TEST_LIFECYCLE: _GraphTestLifecycle | None = None
 
 
-@pytest.mark.spec("AU-INTEGRATION-R016", "AU-INTEGRATION-R017", "AU-SEMANTIC-R001")
 @pytest.fixture()
 def test_engine_lifecycle(isolate_graph_compute_engine):
     """Expose the current test's explicit graph/auxiliary-engine lifecycle."""

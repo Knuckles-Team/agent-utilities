@@ -89,7 +89,6 @@ class TestMergePolicyRule:
         assert check.passed is False
         assert "quality" in check.reason
 
-    @pytest.mark.spec("AU-SEMANTIC-R004", "AU-SEMANTIC-R007")
     def test_missing_goal_fails_even_with_explicit_score(self):
         v = PromotionGovernanceValidator(None, policy=_policy())
         check = v._check_merge_policy({"name": "x", "quality_score": 0.99})
@@ -109,7 +108,6 @@ class TestShaclRule:
     These bind a fake report instead of ``importorskip("pyshacl")``, the
     same shape ``tests/ontology/test_shacl_gate.py`` uses."""
 
-    @pytest.mark.spec("AU-SEMANTIC-R004", "AU-SEMANTIC-R007")
     def test_agent_without_name_violates_agent_shape(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -127,7 +125,6 @@ class TestShaclRule:
         check = v._check_shacl({"type": "Agent", "goal": "do things"})
         assert check.passed is False
 
-    @pytest.mark.spec("AU-SEMANTIC-R004", "AU-SEMANTIC-R007")
     def test_named_agent_conforms(self) -> None:
         v = PromotionGovernanceValidator(_Engine(), policy=_policy())
         check = v._check_shacl({"type": "Agent", "name": "researcher", "goal": "g"})

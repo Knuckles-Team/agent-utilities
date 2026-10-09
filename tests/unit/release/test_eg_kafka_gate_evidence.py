@@ -41,7 +41,6 @@ def _write_evidence(tmp_path: Path, **overrides: object) -> Path:
     return path
 
 
-@pytest.mark.spec("AU-INTEGRATION-R010")
 def test_matching_pin_and_passed_result_is_accepted(tmp_path: Path) -> None:
     pyproject = _write_pyproject(tmp_path)
     evidence = _write_evidence(tmp_path)
@@ -54,7 +53,6 @@ def test_matching_pin_and_passed_result_is_accepted(tmp_path: Path) -> None:
     assert result["result"] == "passed"
 
 
-@pytest.mark.spec("AU-INTEGRATION-R010")
 def test_version_mismatch_is_refused(tmp_path: Path) -> None:
     pyproject = _write_pyproject(tmp_path)
     evidence = _write_evidence(tmp_path, epistemic_graph_version="2.26.0")
@@ -63,7 +61,6 @@ def test_version_mismatch_is_refused(tmp_path: Path) -> None:
         verify_eg_kafka_gate_evidence(pyproject_path=pyproject, evidence_path=evidence)
 
 
-@pytest.mark.spec("AU-INTEGRATION-R010")
 def test_non_passed_result_is_refused(tmp_path: Path) -> None:
     pyproject = _write_pyproject(tmp_path)
     evidence = _write_evidence(tmp_path, result="failed")
