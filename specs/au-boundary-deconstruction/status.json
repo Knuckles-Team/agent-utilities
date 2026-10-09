@@ -186,8 +186,16 @@
     {
       "id": "AU-BOUNDARY-R013",
       "title": "Restrict graph-os to AU's public API only",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "5b4e8d0a31d034ed6c651eb195f4fe2a8558c8eb",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/5b4e8d0a31d034ed6c651eb195f4fe2a8558c8eb",
+          "description": "AU-BOUNDARY-R013 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R014",
@@ -218,7 +226,7 @@
     {
       "id": "AU-BOUNDARY-R017",
       "title": "Split messaging behavior and authority across AU, graph-os, and EG",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -226,6 +234,13 @@
           "commit": "70d2ee65661cec928683811279aca416c111d96f",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/70d2ee65661cec928683811279aca416c111d96f",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "5b4e8d0a31d034ed6c651eb195f4fe2a8558c8eb",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/5b4e8d0a31d034ed6c651eb195f4fe2a8558c8eb",
+          "description": "AU-BOUNDARY-R017 merged to the default branch in this commit."
         }
       ]
     },
@@ -356,14 +371,30 @@
     {
       "id": "AU-BOUNDARY-R028",
       "title": "Move remaining graph standardization and security modules to EG (rollup)",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "9fec85433f51cfde9b0f01ad4fe98ca8d82df4a3",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/9fec85433f51cfde9b0f01ad4fe98ca8d82df4a3",
+          "description": "AU-BOUNDARY-R028 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R028.1",
       "title": "Retire kg/standardization/{cohorts,consolidation,standards}.py (excludes drift.py)",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "4d0883da01d272cfff90e4fe5b98ba6f126e0119",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/4d0883da01d272cfff90e4fe5b98ba6f126e0119",
+          "description": "AU-BOUNDARY-R028.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R028.2",
@@ -374,20 +405,44 @@
     {
       "id": "AU-BOUNDARY-R028.3",
       "title": "Retire kg/quantum/{budget,__init__}.py and observability/quantum_trace.py",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "8edddc8b0a0005b1c5c9328d5aa9b76498a29d8a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/8edddc8b0a0005b1c5c9328d5aa9b76498a29d8a",
+          "description": "AU-BOUNDARY-R028.3 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R028.4",
       "title": "Retire kg/security/{cognitive_trap_defense,policy_ingestor,graph_validator,rule_ingestor}.py",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "9fec85433f51cfde9b0f01ad4fe98ca8d82df4a3",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/9fec85433f51cfde9b0f01ad4fe98ca8d82df4a3",
+          "description": "AU-BOUNDARY-R028.4 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R028.5",
       "title": "Retire protocols/enterprise/{__init__,read_models}.py",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "4d0883da01d272cfff90e4fe5b98ba6f126e0119",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/4d0883da01d272cfff90e4fe5b98ba6f126e0119",
+          "description": "AU-BOUNDARY-R028.5 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R028.6",
@@ -602,8 +657,16 @@
     {
       "id": "AU-BOUNDARY-R043",
       "title": "Retained agent surface is declared and import-bounded",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "8a45ab8013adf2e24e1597d8acb495e4f4422f05",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/8a45ab8013adf2e24e1597d8acb495e4f4422f05",
+          "description": "AU-BOUNDARY-R043 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R044",

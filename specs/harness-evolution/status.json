@@ -86,15 +86,33 @@
     {
       "id": "AU-HARNESS-R004",
       "title": "AU proposes corrections through the graph, never writes Git directly",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
-      "split_into": ["AU-HARNESS-R004.1"]
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "26bfecfbde1ae8551b5043791a4f1cbce7be57e9",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/26bfecfbde1ae8551b5043791a4f1cbce7be57e9",
+          "description": "AU-HARNESS-R004 merged to the default branch in this commit."
+        }
+      ],
+      "split_into": [
+        "AU-HARNESS-R004.1"
+      ]
     },
     {
       "id": "AU-HARNESS-R004.1",
       "title": "Typed correction-proposal model",
-      "delivery_state": "BUILDING",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "068bd9c17859cf3a0db1fdea95db9446d9654888",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/068bd9c17859cf3a0db1fdea95db9446d9654888",
+          "description": "AU-HARNESS-R004.1 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-HARNESS-R005",
