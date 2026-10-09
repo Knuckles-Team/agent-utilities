@@ -33,6 +33,7 @@ def _register() -> object:
     return quant_mcp_tools.register_quant_tools(_CollectingMCP(), engine_default=None)
 
 
+@pytest.mark.spec("AU-CONTEXT-R006.1")
 @pytest.mark.parametrize("mode", ["paper", "live"])
 @pytest.mark.parametrize("action", ["submit_order", "cancel_order", "status"])
 def test_execute_domain_never_reaches_a_broker(mode: str, action: str) -> None:
@@ -57,6 +58,7 @@ def test_execute_domain_never_reaches_a_broker(mode: str, action: str) -> None:
     assert "Mock fallback disabled" in result
 
 
+@pytest.mark.spec("AU-CONTEXT-R006.1")
 def test_execute_domain_raises_the_typed_refusal_not_a_silent_mock() -> None:
     """The underlying refusal is a typed error, not a value the caller could
     mistake for a placed order."""

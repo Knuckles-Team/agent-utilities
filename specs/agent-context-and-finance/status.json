@@ -25,11 +25,14 @@
     {
       "id": "AU-CONTEXT-R001",
       "title": "RetrievalPath templates feed EG-DECISION-ENGINE-R029 as candidates",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "88c61dc9164c"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/decide/test_retrieval_consumer.py:15",
+        "tests/unit/decide/test_retrieval_consumer.py:30"
+      ]
     },
     {
       "id": "AU-CONTEXT-R002",
@@ -43,20 +46,26 @@
     {
       "id": "AU-CONTEXT-R003",
       "title": "Embedding admission changes come from reviewed proposals only",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "88c61dc9164c"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/knowledge_graph/ingestion/test_admission_feedback.py:25",
+        "tests/unit/knowledge_graph/ingestion/test_admission_feedback.py:67"
+      ]
     },
     {
       "id": "AU-CONTEXT-R004",
       "title": "Context sizing solves a certified multi-resolution knapsack",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "88c61dc9164c"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/retrieval/test_context_knapsack.py:143",
+        "tests/retrieval/test_context_knapsack.py:40"
+      ]
     },
     {
       "id": "AU-CONTEXT-R005",
@@ -85,13 +94,17 @@
     {
       "id": "AU-CONTEXT-R006.1",
       "title": "agent-utilities keeps finance agent roles only; paper trading stays isolated",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0cd7be250b3d",
         "636c91a16136",
-        "dbe03a6687ca"
+        "dbe03a6687ca",
+        "f474735cab25"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/finance/test_quant_live_order_refusal.py:36",
+        "tests/unit/finance/test_quant_live_order_refusal.py:61"
+      ]
     },
     {
       "id": "AU-CONTEXT-R006.2",
@@ -99,7 +112,8 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "0cd7be250b3d",
-        "dbe03a6687ca"
+        "dbe03a6687ca",
+        "f474735cab25"
       ],
       "verified_by": []
     },
@@ -109,7 +123,8 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "0cd7be250b3d",
-        "dbe03a6687ca"
+        "dbe03a6687ca",
+        "f474735cab25"
       ],
       "verified_by": []
     },
@@ -130,11 +145,16 @@
     {
       "id": "AU-CONTEXT-R007.1",
       "title": "A boundary test pins the finance-math module set, and a typed delegation seam prefers EG when available",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "4eac8c6dc419"
+        "4eac8c6dc419",
+        "f474735cab25"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/finance/test_finance_delegation.py:16",
+        "tests/unit/finance/test_finance_delegation.py:23",
+        "tests/unit/finance/test_finance_delegation.py:41"
+      ]
     },
     {
       "id": "AU-CONTEXT-R007.2",
@@ -161,11 +181,16 @@
     {
       "id": "AU-CONTEXT-R008.1",
       "title": "Typed, calibrated AnalysisSnapshot model with abstention",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "0cd7be250b3d"
+        "0cd7be250b3d",
+        "f474735cab25"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/finance/test_analysis_snapshot_recommendation.py:27",
+        "tests/unit/finance/test_analysis_snapshot_recommendation.py:47",
+        "tests/unit/finance/test_analysis_snapshot_recommendation.py:64"
+      ]
     },
     {
       "id": "AU-CONTEXT-R008.2",
