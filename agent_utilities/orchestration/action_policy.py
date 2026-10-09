@@ -52,6 +52,7 @@ import math
 import threading
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -78,6 +79,41 @@ _ALLOWING = {DECISION_ALLOW, DECISION_ALLOW_NOTIFY}
 _LEDGER_SCAN_LIMIT = 500
 
 POLICY_RECEIPT_SCHEMA = "policy-receipt.v1"
+
+#: The durable control-lease ``kind`` an action approval is filed under
+#: (GRAPHOS-IDENTITY-R019: GraphOS's ``approvals.*`` operations list, get and
+#: decide leases of exactly this kind over the engine's generic control-lease
+#: surface). ``agent_utilities.knowledge_graph.schema_drift.repair.APPROVAL_KIND``
+#: predates this module and intentionally carries the identical literal.
+ACTION_APPROVAL_KIND = "action.approval"
+
+#: Lifecycle fields every control lease carries, regardless of domain payload.
+_LEASE_LIFECYCLE_FIELDS = (
+    "lease_id",
+    "kind",
+    "status",
+    "revision",
+    "requested_at_ms",
+    "approved_at_ms",
+    "hard_expires_at_ms",
+    "ended_at_ms",
+)
+
+
+def approval_lease_to_props(lease: Mapping[str, Any]) -> dict[str, Any]:
+    """Project one ``ACTION_APPROVAL_KIND`` control lease to public properties.
+
+    Starts from the lease's own ``props`` payload (the action-specific
+    request body), then layers the shared lifecycle fields on top so a
+    caller sees both without needing the raw engine lease shape. Never
+    mutates ``lease``.
+    """
+    payload = lease.get("props")
+    props: dict[str, Any] = dict(payload) if isinstance(payload, Mapping) else {}
+    for field_name in _LEASE_LIFECYCLE_FIELDS:
+        if field_name in lease:
+            props[field_name] = lease[field_name]
+    return props
 
 
 class PolicyDisposition(StrEnum):
