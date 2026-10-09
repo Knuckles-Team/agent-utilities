@@ -11,20 +11,24 @@ stays only as the deterministic fallback for a caller no topology asker is
 installed for.
 
 The plan PROPOSES capacity; graph-os acquires it (``AcquireCapacity``) after
-commit, and the harness admission is built from the committed plan.
+commit, and the harness admission is built from the committed plan. A
+``capacity_denied`` abstention gets exactly one re-decision, with a narrower
+ask, from :func:`ask_topology` itself -- never a second, never a loop
+(AU-CONTROL-R017).
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from agent_utilities.decide.consumers.assembly import (
     Assembled,
     Assembler,
     AssemblyBudget,
+    abstain_reasons,
     assembly_request,
 )
 from agent_utilities.decide.topology.schema_source import SWARM_NS
@@ -35,6 +39,10 @@ logger = logging.getLogger(__name__)
 INDEPENDENT_SUBTASKS = SWARM_NS + "IndependentSubtasks"
 NEEDS_NEGOTIATION = SWARM_NS + "NeedsNegotiation"
 TASK_SHAPE = SWARM_NS + "TaskShape"
+
+#: The abstain reason EG names when no cell has headroom for this request's
+#: cells at its declared priority (AU-CONTROL-R017).
+CAPACITY_DENIED = "capacity_denied"
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,6 +114,20 @@ def plan_of(result: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
     return plan if isinstance(plan, Mapping) else None
 
 
+def _narrowed_for_capacity(ask: TopologyAsk) -> TopologyAsk:
+    """The one strictly narrower ask AU-CONTROL-R017 allows on capacity denial.
+
+    Halves width and rounds (floored at 1); never widens, never loops -- the
+    caller re-decides with this ask exactly once, then keeps whatever answer
+    that re-decision gives.
+    """
+    return replace(
+        ask,
+        max_width=max(1, ask.max_width // 2),
+        max_rounds=max(1, ask.max_rounds // 2),
+    )
+
+
 async def ask_topology(
     assembler: Assembler,
     ask: TopologyAsk,
@@ -113,10 +135,16 @@ async def ask_topology(
     *,
     task_iris: Sequence[str] = (),
     capabilities: Sequence[str] = (),
+    _redecided: bool = False,
 ) -> Assembled:
     """Ask EG the topology question; commit a solved plan when the assembler
     carries a commit context (graph-os), evaluate-only otherwise (work-market
-    pricing). An abstention is returned, never replaced by a guess."""
+    pricing). An abstention is returned, never replaced by a guess.
+
+    On a ``capacity_denied`` abstention, re-asks EG exactly once more with a
+    narrower ask (:func:`_narrowed_for_capacity`); whatever that single
+    re-decision answers is final, solved or abstained (AU-CONTROL-R017).
+    """
     request = topology_request(
         assembler.tenant,
         ask,
@@ -124,7 +152,17 @@ async def ask_topology(
         task_iris=task_iris,
         capabilities=capabilities,
     )
-    return await assembler.assemble(request, lambda reasons: None)
+    answer = await assembler.assemble(request, lambda reasons: None)
+    if not _redecided and CAPACITY_DENIED in abstain_reasons(answer.result or {}):
+        return await ask_topology(
+            assembler,
+            _narrowed_for_capacity(ask),
+            templates,
+            task_iris=task_iris,
+            capabilities=capabilities,
+            _redecided=True,
+        )
+    return answer
 
 
 #: A decided topology class -> the AU executor family that runs it. A
@@ -223,6 +261,7 @@ def decided_topology(pattern: str, reasoning: str, shape: TaskShape) -> tuple[st
 
 
 __all__ = [
+    "CAPACITY_DENIED",
     "TaskShape",
     "TopologyAsk",
     "ask_topology",
