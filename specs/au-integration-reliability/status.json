@@ -22,7 +22,8 @@
     "AU-INTEGRATION-R017",
     "AU-INTEGRATION-R018",
     "AU-INTEGRATION-R019",
-    "AU-INTEGRATION-R020"
+    "AU-INTEGRATION-R020",
+    "AU-INTEGRATION-R021"
   ],
   "delivery_state": "SPECIFIED",
   "acceptance_state": "NOT_AUDITED",
@@ -268,6 +269,13 @@
         }
       ],
       "remaining": "Regression test tests/unit/messaging/test_run_envelope_unwrap.py lands with this PR; PR #60 late-reply path reuses unwrap_run_envelope after both merge."
+    },
+    {
+      "id": "AU-INTEGRATION-R021",
+      "title": "An aggregate ask answers with its own rows, never a silent empty answer",
+      "delivery_state": "BUILDING",
+      "evidence": [],
+      "remaining": "Merged-head and PR evidence pending review. Unit tests pass on branch fix/g32-nlquery-aggregate-answer: tests/unit/knowledge_graph/core/test_nl_planner.py (self-correction to cypher, exhausted-retry error surfacing) and tests/unit/test_evidence_bundle.py (aggregate rows into answer_candidate). nl_query.nl_to_query (graph_ask) still has no bounded self-correction loop; the sql/sparql/uql surfaces still have no query-text tenant/owner-scope pushdown for a non-aggregate id-less projection."
     }
   ]
 }
