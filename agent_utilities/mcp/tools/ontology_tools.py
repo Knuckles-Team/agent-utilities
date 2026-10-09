@@ -974,42 +974,6 @@ def _repo_provenance_ingest(engine: Any, obj: Any, node_id: str, repo_id: str) -
     )
 
 
-def _ontology_derive_discover_extensions(sample_text: str, object_type: str) -> str:
-    # Ontology-aware schema discovery (KG-2.259): propose .ttl extensions
-    # from a text sample, diffed against the live ontology. Human/SHACL-
-    # gated — returns a proposal, never auto-merges.
-    from agent_utilities.knowledge_graph.enrichment.cards import make_lite_llm_fn
-    from agent_utilities.knowledge_graph.extraction.schema_discovery import (
-        discover_schema_extensions,
-        discovery_report,
-    )
-
-    texts = [sample_text] if sample_text else []
-    discovered = discover_schema_extensions(
-        texts, object_type or "document", make_lite_llm_fn()
-    )
-    return json.dumps(discovery_report(discovered), default=str)
-
-
-def _ontology_derive_generate(sample_text: str, object_type: str) -> str:
-    # From-scratch ontology generator (Ontology-Playground coverage row #13):
-    # the SAME schema-discovery LLM path as 'discover_extensions', run against
-    # an EMPTY base — a complete standalone Interface/LinkType proposal,
-    # never a diff vs the live ontology. Never auto-applied/merged (respects
-    # the platform's gated-.ttl governance, same as 'discover_extensions').
-    from agent_utilities.knowledge_graph.enrichment.cards import make_lite_llm_fn
-    from agent_utilities.knowledge_graph.extraction.schema_discovery import (
-        generate_standalone_ontology,
-        ontology_generation_report,
-    )
-
-    texts = [sample_text] if sample_text else []
-    discovered = generate_standalone_ontology(texts, object_type, make_lite_llm_fn())
-    return json.dumps(
-        ontology_generation_report(discovered, domain_hint=object_type), default=str
-    )
-
-
 def _ontology_derive_list() -> str:
     from agent_utilities.knowledge_graph.ontology.derived_properties import (
         DEFAULT_DERIVED_REGISTRY,
@@ -2390,13 +2354,10 @@ def register_ontology_tools(mcp):
     def ontology_derive(
         action: str = Field(
             default="compute",
-            description="'list' declarations, 'compute' one property, 'compute_all', "
-            "'discover_extensions' (propose ontology .ttl extensions from a text "
-            "sample, CONCEPT:AU-KG.ontology.do-not-auto-merge), or 'generate' "
-            "(from-scratch: propose a COMPLETE standalone Interface/LinkType "
-            "ontology from a text sample against an EMPTY base — same "
-            "schema-discovery LLM path, never a diff vs the live ontology, "
-            "always a human-reviewed proposal).",
+            description="'list' declarations, 'compute' one property, or "
+            "'compute_all'. (Schema-discovery/standalone-generation proposals "
+            "moved behind EG pack compilation, AU-SEMANTIC-R021.2 — no longer "
+            "served from this tool.)",
         ),
         object_json: str = Field(
             default="{}", description="JSON object dict the property is computed for."
@@ -2406,22 +2367,11 @@ def register_ontology_tools(mcp):
         ),
         object_type: str = Field(
             default="",
-            description="Optional object type for declaration resolution; the "
-            "content/source type for action='discover_extensions'/'generate' "
-            "(a domain hint, e.g. 'clinical_trial').",
-        ),
-        sample_text: str = Field(
-            default="",
-            description="Representative document/business-scenario text for "
-            "action='discover_extensions'/'generate'.",
+            description="Optional object type for declaration resolution.",
         ),
     ) -> str:
-        """Compute derived properties / discover or generate ontology extensions."""
+        """Compute derived properties (declared function/cypher/sparql/embedding-backed)."""
         try:
-            if action == "discover_extensions":
-                return _ontology_derive_discover_extensions(sample_text, object_type)
-            if action == "generate":
-                return _ontology_derive_generate(sample_text, object_type)
             if action == "list":
                 return _ontology_derive_list()
             if action == "compute":

@@ -2519,16 +2519,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "compute_all",
         "name": "ontology_derive_compute_all",
     },
-    {
-        "tool": "ontology_derive",
-        "action": "discover_extensions",
-        "name": "ontology_derive_discover_extensions",
-    },
-    {
-        "tool": "ontology_derive",
-        "action": "generate",
-        "name": "ontology_derive_generate",
-    },
     {"tool": "ontology_derive", "action": "list", "name": "ontology_derive_list"},
     {
         "tool": "ontology_function",
