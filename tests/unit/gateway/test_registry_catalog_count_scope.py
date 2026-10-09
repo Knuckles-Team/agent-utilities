@@ -28,6 +28,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from agent_utilities.gateway import registry_api
+from agent_utilities.knowledge_graph.core.session import GraphSession
+from agent_utilities.security.actor_identity import ActorType
+from agent_utilities.security.brain_context import ActorContext
 from tests.unit.gateway._registry_support import BindAuthority, registry_reader
 
 _TENANT_TERM = re.compile(r"tenant_id = '([^']*)'")
