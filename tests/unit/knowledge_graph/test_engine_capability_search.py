@@ -11,6 +11,15 @@ from __future__ import annotations
 import types
 from typing import Any
 
+import pytest
+
+from agent_utilities.knowledge_graph.core.session import (
+    GraphSession,
+    ScopeError,
+    SessionRequiredError,
+    suspend_session,
+    use_session,
+)
 from agent_utilities.knowledge_graph.retrieval.capability_projection import (
     CapabilitySubsumptionProjection,
 )
@@ -18,6 +27,25 @@ from agent_utilities.knowledge_graph.retrieval.engine_capability_search import (
     build_capability_filters,
     engine_filtered_search,
 )
+from agent_utilities.security.actor_identity import ActorType
+from agent_utilities.security.brain_context import ActorContext
+
+
+def _session(*, scopes: frozenset[str] = frozenset({"kg:read"})) -> GraphSession:
+    actor = ActorContext(
+        actor_id="capability-search:test",
+        actor_type=ActorType.AI_AGENT,
+        tenant_id="tenant-a",
+        authenticated=True,
+    )
+    return GraphSession(actor=actor, tenant="tenant-a", scopes=scopes)
+
+
+@pytest.fixture(autouse=True)
+def _verified_search_session():
+    with use_session(_session()):
+        yield
+
 
 _HIERARCHY = CapabilitySubsumptionProjection(
     relations=frozenset(
@@ -136,6 +164,52 @@ def test_engine_query_with_tenant_and_policy_filters():
         "op": "array_contains",
         "value": "restricted",
     } in filter_ops
+
+
+def test_search_requires_verified_read_authority_before_touching_engine():
+    graph = _RecordingGraph([{"id": "agent:x", "score": 0.8}])
+    engine = types.SimpleNamespace(graph=graph)
+
+    with suspend_session(), pytest.raises(SessionRequiredError):
+        engine_filtered_search(engine, [1.0], k=1)
+    assert graph.calls == []
+
+    with use_session(_session(scopes=frozenset())), pytest.raises(ScopeError):
+        engine_filtered_search(engine, [1.0], k=1)
+    assert graph.calls == []
+
+
+def test_payload_tenant_cannot_retarget_verified_authority():
+    graph = _RecordingGraph([{"id": "agent:x", "score": 0.8}])
+    engine = types.SimpleNamespace(graph=graph)
+
+    with pytest.raises(SessionRequiredError):
+        engine_filtered_search(engine, [1.0], k=1, tenant="tenant-other")
+    assert graph.calls == []
+
+
+def test_explicit_session_cannot_replace_ambient_authority():
+    graph = _RecordingGraph([{"id": "agent:x", "score": 0.8}])
+    engine = types.SimpleNamespace(graph=graph)
+
+    with pytest.raises(SessionRequiredError):
+        engine_filtered_search(
+            engine,
+            [1.0],
+            k=1,
+            session=_session(scopes=frozenset({"kg:read", "kg:admin"})),
+        )
+    assert graph.calls == []
+
+
+def test_omitted_payload_tenant_uses_verified_session_in_native_plan():
+    graph = _RecordingGraph([{"id": "agent:x", "score": 0.8}])
+    engine = types.SimpleNamespace(graph=graph)
+
+    assert engine_filtered_search(engine, [1.0], k=1) == [("agent:x", 0.8)]
+    assert {
+        "Filter": {"property": "tenant", "op": "eq_or_null", "value": "tenant-a"}
+    } in graph.calls[0]
 
 
 def test_unfiltered_query_still_uses_unified_plan_when_available():
