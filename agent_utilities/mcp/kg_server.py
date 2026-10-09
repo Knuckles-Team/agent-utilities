@@ -5598,9 +5598,16 @@ def _attach_headless_fleet_loader(mcp: Any) -> None:
 
     When attach fails for any reason (no graph engine, no catalog source,
     anything else), this attaches nothing — never a degraded or empty
-    multiplexer — and records the exact cause on ``mcp`` so
+    multiplexer — and records a CLASS-NAME-ONLY cause on ``mcp`` so
     :func:`~agent_utilities.mcp.tools.intent_tools._fleet_mux` can raise it
-    verbatim instead of the generic "embedded/headless build" message.
+    instead of the generic "embedded/headless build" message, without
+    embedding the caught exception's own message text in a value that
+    reaches a served caller (``test_exception_surface_static_gate.py``'s
+    ``test_served_packages_do_not_expose_raw_exception_text``). The full
+    exception, message included, is still logged verbatim server-side below
+    -- ``logger`` is an ``agent_utilities.*`` logger, so
+    ``install_log_privacy_boundary`` sanitizes it before it leaves the
+    process; nothing about diagnosability is lost, only what a caller sees.
     """
     from agent_utilities.mcp.multiplexer import attach_fleet_loader
 
@@ -5612,9 +5619,14 @@ def _attach_headless_fleet_loader(mcp: Any) -> None:
             catalog_writer=_write_refreshed_fleet_catalog,
         )
     except Exception as exc:  # noqa: BLE001 - cause recorded verbatim below, never swallowed
-        reason = f"fleet loader attach failed in this headless build ({type(exc).__name__}: {exc})"
-        mcp._fleet_mux_unavailable_reason = reason
-        logger.warning("ensure_tools_registered: %s", reason)
+        mcp._fleet_mux_unavailable_reason = (
+            f"fleet loader attach failed in this headless build ({type(exc).__name__})"
+        )
+        logger.warning(
+            "ensure_tools_registered: fleet loader attach failed in this headless build (%s): %s",
+            type(exc).__name__,
+            exc,
+        )
 
 
 def ensure_tools_registered() -> None:

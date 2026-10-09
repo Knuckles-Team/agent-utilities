@@ -12,6 +12,7 @@ used with these exact arguments by this module's own full composed server.
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -43,20 +44,36 @@ def test_attach_headless_fleet_loader_calls_attach_fleet_loader_with_composed_ar
     assert not hasattr(mcp, "_fleet_mux_unavailable_reason")
 
 
-def test_attach_headless_fleet_loader_records_the_exact_failure_cause() -> None:
+def test_attach_headless_fleet_loader_records_the_exact_failure_cause(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """No silent fallback: a failed attach leaves ``mcp`` unattached and
-    records why, rather than a degraded or empty multiplexer."""
+    records why, rather than a degraded or empty multiplexer.
+
+    The exact cause (the exception's own message) reaches the server-side
+    log -- an ``agent_utilities.*`` logger, sanitized by the process-wide
+    log-privacy boundary before it leaves the process -- but the value
+    stored on ``mcp`` is read verbatim by a served caller
+    (``intent_tools._fleet_mux``), so it carries only the exception's CLASS
+    name, never its message
+    (``test_exception_surface_static_gate.py::test_served_packages_do_not_expose_raw_exception_text``).
+    """
     mcp = SimpleNamespace()
-    with patch(
-        "agent_utilities.mcp.multiplexer.attach_fleet_loader",
-        side_effect=RuntimeError("no mcp_config.json found"),
+    with (
+        caplog.at_level(logging.WARNING, logger="agent_utilities.mcp.kg_server"),
+        patch(
+            "agent_utilities.mcp.multiplexer.attach_fleet_loader",
+            side_effect=RuntimeError("no mcp_config.json found"),
+        ),
     ):
         kg_server._attach_headless_fleet_loader(mcp)
 
     assert getattr(mcp, "_fleet_mux", None) is None
     reason = mcp._fleet_mux_unavailable_reason
     assert "RuntimeError" in reason
-    assert "no mcp_config.json found" in reason
+    assert "no mcp_config.json found" not in reason
+    assert "no mcp_config.json found" in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 def test_ensure_tools_registered_attaches_fleet_loader_to_the_built_mcp() -> None:
