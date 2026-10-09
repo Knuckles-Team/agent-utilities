@@ -325,9 +325,10 @@ def correlate_incidents(*, window_s: int = 300, days: int = 1) -> list[dict[str,
     in the cluster. Each cluster becomes ONE synthesized incident (a cluster of
     size one is still a valid incident); anomalies on a different asset, or
     more than ``window_s`` apart on the same asset, land in separate incidents.
-    Reuses :func:`agent_utilities.observability.health.correlate`'s systemic
-    -collapse *pattern* one layer up — here the "entity" being collapsed is the
-    time-window cluster, not a single anomaly kind.
+    Reuses :func:`graph_os.observability.health.correlate`'s (moved to
+    graph-os, GRAPHOS-HOST-R008) systemic-collapse *pattern* one layer up —
+    here the "entity" being collapsed is the time-window cluster, not a
+    single anomaly kind.
 
     Idempotent: an already-open incident with the same entity+signature (see
     :func:`_signature`) is not duplicated — the returned dict for that cluster
