@@ -252,9 +252,18 @@ jobs:
 
       - *sdk-checkout
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      # Homelab self-hosted runners have no AVX2; actions/setup-python's
+      # python-build-standalone distribution requires it and fails with
+      # "CPU ISA level is lower than required" (exit 127). uv-managed Python
+      # builds have no such requirement, so uv is the python provider here
+      # too -- one step both installs python (so `python`/`python3` resolve
+      # for later steps, same as actions/setup-python did) and sets up uv.
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
+          version: '0.11.7'
           python-version: '3.12'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
 
       # ---- Secret-history scan (D-CIP-13). Stdlib-only; no environment sync
       # needed yet. Scans the patch text actually introduced by this push/PR
@@ -274,12 +283,6 @@ jobs:
           fi
           echo "Scanning ${BASE}..HEAD for credential-shaped content"
           python3 scripts/security/check_secret_history.py --base "$BASE"
-
-      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
-        with:
-          version: '0.11.7'
-          enable-cache: true
-          cache-dependency-glob: uv.lock
 
       # Static source-contract lane. D-CIP-4/D-CIP-9 precedent: no runtime
       # engine needed for source-level checks or the test suite (tests
@@ -444,13 +447,16 @@ jobs:
 
       - *sdk-checkout
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: '3.12'
-
+      # Homelab self-hosted runners have no AVX2; actions/setup-python's
+      # python-build-standalone distribution requires it and fails with
+      # "CPU ISA level is lower than required" (exit 127). uv-managed Python
+      # builds have no such requirement, so uv is the python provider here
+      # too -- one step both installs python (so `python`/`python3` resolve
+      # for later steps, same as actions/setup-python did) and sets up uv.
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           version: '0.11.7'
+          python-version: '3.12'
           enable-cache: true
           cache-dependency-glob: uv.lock
 
