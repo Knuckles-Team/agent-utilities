@@ -140,17 +140,69 @@ def _knowledge_graph_dir() -> Path:
 _FOUNDATIONAL_ONTOLOGY_CLASSES: frozenset[str] = frozenset({"Document", "Person"})
 
 
-def canonical_ontology_class_names() -> frozenset[str]:
-    """Every ``owl:Class`` local name a domain pack may validly crosswalk onto.
+def _select_graph_compute(engine: Any) -> Any:
+    """Resolve the ``graph_compute``-shaped object a caller handed us.
 
-    Offline, deterministic, no LLM: :data:`_FOUNDATIONAL_ONTOLOGY_CLASSES`
-    plus a straight rdflib parse of any ``ontology*.ttl`` still physically
-    present in the package (none ship today — the bundled canonical ontology
-    library moved to epistemic-graph — but a sibling module reintroducing one
-    is picked up with no code change here). Used only to check that a domain
+    Mirrors :func:`..ontology.lifecycle._select_graph_compute`'s duck typing:
+    accept either the composed engine (``engine.graph_compute``) or the
+    ``graph_compute`` facade itself.
+    """
+    return getattr(engine, "graph_compute", engine)
+
+
+def _eg_served_class_names(engine: Any) -> frozenset[str]:
+    """Every ``class``-kind local name EG's served GraphSchema vocabulary has.
+
+    Pages through ``GraphSchemaClasses`` (``kind="class"`` — the plain wire
+    value, not the generated enum, so this module never has to match AU's
+    pinned ``epistemic-graph`` floor against the enum's own availability)
+    until ``next_cursor`` is exhausted. Raises :class:`DomainPackError` on any
+    failure — a caller that passed an ``engine`` gets EG's answer or an
+    explicit refusal, never a silent fall back to the offline/local class
+    list.
+    """
+    graph_compute = _select_graph_compute(engine)
+    names: set[str] = set()
+    cursor: str | None = None
+    try:
+        while True:
+            view = graph_compute.graph_schema_classes(
+                cursor=cursor, kind="class", limit=1000
+            )
+            names.update(term.local_name for term in view.terms)
+            cursor = view.next_cursor
+            if not cursor:
+                break
+    except Exception as exc:  # noqa: BLE001 - fail closed, never silently local
+        raise DomainPackError(
+            "domain pack class verification: EG's served graph-schema-classes "
+            f"read is unavailable ({type(exc).__name__}: {exc}) — refusing "
+            "rather than falling back to the offline class list"
+        ) from exc
+    return frozenset(names)
+
+
+def canonical_ontology_class_names(engine: Any = None) -> frozenset[str]:
+    """Every class local name a domain pack may validly crosswalk onto.
+
+    With an ``engine``, this is EG's served ``GraphSchemaClasses`` vocabulary
+    (:func:`_eg_served_class_names`) plus :data:`_FOUNDATIONAL_ONTOLOGY_CLASSES`
+    — AU verifies domain-pack class references against EG's own authority
+    rather than a local copy (AU-SEMANTIC-R002).
+
+    With no ``engine`` (the default, used wherever a caller has none to give,
+    for example an offline pack lint), this falls back to the previous
+    offline/deterministic check: :data:`_FOUNDATIONAL_ONTOLOGY_CLASSES` plus a
+    straight rdflib parse of any ``ontology*.ttl`` still physically present in
+    the package (none ship today — the bundled canonical ontology library
+    moved to epistemic-graph — but a sibling module reintroducing one is
+    picked up with no code change here). Used only to check that a domain
     pack's mappings reference a class name that is genuinely known — never to
     decide whether that class is wired/active in a live graph.
     """
+    if engine is not None:
+        return _FOUNDATIONAL_ONTOLOGY_CLASSES | _eg_served_class_names(engine)
+
     import rdflib
 
     kg_dir = _knowledge_graph_dir()
@@ -197,10 +249,14 @@ def _mapping_class_names(rule: Any) -> list[tuple[str, str | None]]:
 
 
 def _check_ontology_classes(
-    manifest: DomainPackManifest, ontology_spec: OntologySpec, *, label: str
+    manifest: DomainPackManifest,
+    ontology_spec: OntologySpec,
+    *,
+    label: str,
+    engine: Any = None,
 ) -> None:
     own_classes = frozenset(c.local for c in ontology_spec.classes)
-    canonical = canonical_ontology_class_names()
+    canonical = canonical_ontology_class_names(engine)
     for rule in manifest.mappings:
         for field_name, class_name in _mapping_class_names(rule):
             if not _resolve_class(
@@ -217,14 +273,14 @@ def _check_ontology_classes(
 
 
 def _check_shacl_shapes(
-    manifest: DomainPackManifest, pack_dir: Path, *, label: str
+    manifest: DomainPackManifest, pack_dir: Path, *, label: str, engine: Any = None
 ) -> None:
     if not manifest.shacl_shapes:
         return
     import rdflib
 
     own_classes = frozenset(r.name for r in manifest.ontology.resources)
-    canonical = canonical_ontology_class_names()
+    canonical = canonical_ontology_class_names(engine)
     sh_target_class = rdflib.URIRef("http://www.w3.org/ns/shacl#targetClass")
     for rel_path in manifest.shacl_shapes:
         shape_path = pack_dir / rel_path
@@ -279,12 +335,17 @@ def _check_evaluation_cases(manifest: DomainPackManifest, *, label: str) -> None
             )
 
 
-def load_pack(path: str | Path) -> LoadedDomainPack:
+def load_pack(path: str | Path, engine: Any = None) -> LoadedDomainPack:
     """Load and fail-closed-validate one ``domain_pack.yml``.
 
     Raises :class:`DomainPackError` (or lets a schema ``ValidationError``
     surface) on ANY defect. There is no partial-success return — a pack either
     passes every check and is returned whole, or nothing is returned at all.
+
+    ``engine``, when given, is the composed EG client (or its ``graph_compute``
+    facade) used to verify class references against EG's served
+    graph-schema-classes read (AU-SEMANTIC-R002) instead of the offline class
+    list.
     """
     pack_path = Path(path)
     manifest_path = pack_path / "domain_pack.yml" if pack_path.is_dir() else pack_path
@@ -337,8 +398,8 @@ def load_pack(path: str | Path) -> LoadedDomainPack:
             f"{label}: ontology extension does not compile ({type(exc).__name__})"
         ) from exc
 
-    _check_ontology_classes(manifest, ontology_spec, label=label)
-    _check_shacl_shapes(manifest, pack_dir, label=label)
+    _check_ontology_classes(manifest, ontology_spec, label=label, engine=engine)
+    _check_shacl_shapes(manifest, pack_dir, label=label, engine=engine)
     _check_evaluation_cases(manifest, label=label)
 
     return LoadedDomainPack(
@@ -357,9 +418,10 @@ class DomainPackRegistry:
     it already is across every existing domain ontology module).
     """
 
-    def __init__(self, root: str | Path):
+    def __init__(self, root: str | Path, *, engine: Any = None):
         self._root = Path(root)
         self._packs: dict[str, LoadedDomainPack] = {}
+        self._engine = engine
 
     @property
     def root(self) -> Path:
@@ -368,7 +430,7 @@ class DomainPackRegistry:
     def install(self, pack_dir: str | Path) -> LoadedDomainPack:
         """Validate and register one pack. Raises (never silently degrades)
         on any :class:`DomainPackError`."""
-        loaded = load_pack(pack_dir)
+        loaded = load_pack(pack_dir, engine=self._engine)
         self._packs[loaded.manifest.pack] = loaded
         return loaded
 

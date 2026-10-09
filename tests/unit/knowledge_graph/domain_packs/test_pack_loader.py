@@ -31,6 +31,37 @@ from agent_utilities.knowledge_graph.domain_packs.pack_loader import (
 from agent_utilities.knowledge_graph.ingestion.evidence_spine import Fragment
 
 
+class _FakeSchemaTerm:
+    def __init__(self, local_name: str) -> None:
+        self.local_name = local_name
+
+
+class _FakeGraphSchemaClassesView:
+    def __init__(self, names: tuple[str, ...]) -> None:
+        self.terms = [_FakeSchemaTerm(name) for name in names]
+        self.next_cursor: str | None = None
+
+
+class _FakeGraphCompute:
+    """Stands in for the generated EG client's ``graph_compute`` facade."""
+
+    def __init__(self, served_classes: tuple[str, ...] = (), *, fail: bool = False):
+        self._served_classes = served_classes
+        self._fail = fail
+        self.calls: list[dict] = []
+
+    def graph_schema_classes(self, *, cursor=None, kind=None, limit=1000):
+        self.calls.append({"cursor": cursor, "kind": kind, "limit": limit})
+        if self._fail:
+            raise RuntimeError("engine unreachable")
+        return _FakeGraphSchemaClassesView(self._served_classes)
+
+
+class _FakeEngine:
+    def __init__(self, graph_compute: _FakeGraphCompute) -> None:
+        self.graph_compute = graph_compute
+
+
 def test_valid_pack_loads_and_compiles_its_ontology_extension(tmp_path):
     manifest = _fixtures.build_manifest()
     pack_dir = _fixtures.write_pack(tmp_path, manifest)
@@ -288,3 +319,89 @@ def test_reset_default_registry_forces_rediscovery(tmp_path, monkeypatch):
     assert first is not second
     assert first.get("runbooks") is None
     assert second.get("runbooks") is not None
+
+
+def test_canonical_ontology_class_names_with_engine_queries_eg_served_classes():
+    graph_compute = _FakeGraphCompute(served_classes=("Incident",))
+    engine = _FakeEngine(graph_compute)
+
+    names = canonical_ontology_class_names(engine)
+
+    assert "Incident" in names
+    # Still carries the foundational classes every pack mapping crosswalks onto.
+    assert "Document" in names
+    assert "Person" in names
+    assert graph_compute.calls == [{"cursor": None, "kind": "class", "limit": 1000}]
+
+
+def test_mapping_referencing_eg_served_class_is_accepted_with_engine(tmp_path):
+    manifest = _fixtures.build_manifest(
+        mappings=[
+            FrontmatterMapping(
+                key="status",
+                node_type="Incident",
+                produce="property",
+                property="status",
+            )
+        ],
+        evaluation_cases=[],
+    )
+    pack_dir = _fixtures.write_pack(tmp_path, manifest)
+    engine = _FakeEngine(_FakeGraphCompute(served_classes=("Incident",)))
+
+    loaded = load_pack(pack_dir, engine=engine)
+
+    assert loaded.manifest.pack == "runbooks"
+
+
+def test_mapping_referencing_class_eg_does_not_serve_is_still_refused(tmp_path):
+    manifest = _fixtures.build_manifest(
+        mappings=[
+            FrontmatterMapping(
+                key="status",
+                node_type="TotallyMadeUpClassNoOneDeclared",
+                produce="property",
+                property="status",
+            )
+        ],
+        evaluation_cases=[],
+    )
+    pack_dir = _fixtures.write_pack(tmp_path, manifest)
+    engine = _FakeEngine(_FakeGraphCompute(served_classes=("Incident",)))
+
+    with pytest.raises(DomainPackError, match="unknown ontology class"):
+        load_pack(pack_dir, engine=engine)
+
+
+def test_eg_served_class_lookup_failure_is_refused_not_silently_local(tmp_path):
+    """A pack whose mapping references ONLY an offline-known class (Document)
+    still refuses when the engine is given but unreachable — EG's authority is
+    not silently skipped in favor of the local list once an engine is passed
+    (AU-SEMANTIC-R001's "no silent local fallback" rule, applied to R002)."""
+    manifest = _fixtures.build_manifest()
+    pack_dir = _fixtures.write_pack(tmp_path, manifest)
+    engine = _FakeEngine(_FakeGraphCompute(fail=True))
+
+    with pytest.raises(DomainPackError, match="graph-schema-classes"):
+        load_pack(pack_dir, engine=engine)
+
+
+def test_registry_install_threads_engine_into_load_pack(tmp_path):
+    manifest = _fixtures.build_manifest(
+        mappings=[
+            FrontmatterMapping(
+                key="status",
+                node_type="Incident",
+                produce="property",
+                property="status",
+            )
+        ],
+        evaluation_cases=[],
+    )
+    pack_dir = _fixtures.write_pack(tmp_path, manifest)
+    engine = _FakeEngine(_FakeGraphCompute(served_classes=("Incident",)))
+    registry = DomainPackRegistry(tmp_path, engine=engine)
+
+    loaded = registry.install(pack_dir)
+
+    assert loaded.manifest.pack == "runbooks"
