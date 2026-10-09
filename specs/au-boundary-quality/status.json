@@ -89,8 +89,16 @@
     {
       "id": "AU-QUAL-R005",
       "title": "Test files are included in mypy with real fixes",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "ed6485573f1e506acf80c7a1478365312bc93261",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/ed6485573f1e506acf80c7a1478365312bc93261",
+          "description": "AU-QUAL-R005 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-QUAL-R006",

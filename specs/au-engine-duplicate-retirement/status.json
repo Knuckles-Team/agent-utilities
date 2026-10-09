@@ -12,15 +12,31 @@
     "AU-RETIRE-R007",
     "AU-RETIRE-R008"
   ],
-  "delivery_state": "BUILDING",
+  "delivery_state": "LANDED",
   "acceptance_state": "NOT_AUDITED",
-  "evidence": [],
+  "evidence": [
+    {
+      "kind": "merged_head",
+      "result": "passed",
+      "commit": "6a408267e40320f2247c8d626bccdc0686018fbd",
+      "url": "https://github.com/Knuckles-Team/agent-utilities/commit/6a408267e40320f2247c8d626bccdc0686018fbd",
+      "description": "Every requirement in this spec is merged to the default branch."
+    }
+  ],
   "requirements": [
     {
       "id": "AU-RETIRE-R001",
       "title": "Complete inventory and retirement of duplicate graph engine code",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "6a408267e40320f2247c8d626bccdc0686018fbd",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/6a408267e40320f2247c8d626bccdc0686018fbd",
+          "description": "AU-RETIRE-R001 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-RETIRE-R002",
@@ -39,8 +55,16 @@
     {
       "id": "AU-RETIRE-R003",
       "title": "OBO ontology terms ingest as typed ReferenceTerm individuals",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "6a408267e40320f2247c8d626bccdc0686018fbd",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/6a408267e40320f2247c8d626bccdc0686018fbd",
+          "description": "AU-RETIRE-R003 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-RETIRE-R004",
@@ -102,8 +126,16 @@
     {
       "id": "AU-RETIRE-R008",
       "title": "Sequence ingestion-economics work ahead of file relocation",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "6a408267e40320f2247c8d626bccdc0686018fbd",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/6a408267e40320f2247c8d626bccdc0686018fbd",
+          "description": "AU-RETIRE-R008 merged to the default branch in this commit."
+        }
+      ]
     }
   ]
 }

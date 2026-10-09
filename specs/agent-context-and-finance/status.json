@@ -132,7 +132,7 @@
     {
       "id": "AU-CONTEXT-R006",
       "title": "Paper trading is isolated; live orders need governed approval",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -140,6 +140,13 @@
           "commit": "f48c0bb765dd19d4ee5bb1c8687c37f4f047554b",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f48c0bb765dd19d4ee5bb1c8687c37f4f047554b",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "0cd7be250b3de6b16266b8ff069ebae974cf3b8e",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/0cd7be250b3de6b16266b8ff069ebae974cf3b8e",
+          "description": "AU-CONTEXT-R006 merged to the default branch in this commit."
         }
       ],
       "rollup": true,
@@ -152,15 +159,31 @@
     {
       "id": "AU-CONTEXT-R006.1",
       "title": "agent-utilities keeps finance agent roles only; paper trading stays isolated",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "636c91a1613610c5ccc78672436a6c4d1cb9b1c5",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/636c91a1613610c5ccc78672436a6c4d1cb9b1c5",
+          "description": "AU-CONTEXT-R006.1 merged to the default branch in this commit."
+        }
+      ],
       "depends_on": []
     },
     {
       "id": "AU-CONTEXT-R006.2",
       "title": "Live orders use the SDK's governed write-back contract",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "0cd7be250b3de6b16266b8ff069ebae974cf3b8e",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/0cd7be250b3de6b16266b8ff069ebae974cf3b8e",
+          "description": "AU-CONTEXT-R006.2 merged to the default branch in this commit."
+        }
+      ],
       "depends_on": [
         "AU-CONTEXT-R006.1"
       ]
@@ -168,8 +191,16 @@
     {
       "id": "AU-CONTEXT-R006.3",
       "title": "A finance widget replaces the placeholder widget in graph-os",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "0cd7be250b3de6b16266b8ff069ebae974cf3b8e",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/0cd7be250b3de6b16266b8ff069ebae974cf3b8e",
+          "description": "AU-CONTEXT-R006.3 merged to the default branch in this commit."
+        }
+      ],
       "depends_on": [
         "AU-CONTEXT-R006.2"
       ]
@@ -177,7 +208,7 @@
     {
       "id": "AU-CONTEXT-R007",
       "title": "Finance math and feeds move out of agent-utilities",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -185,6 +216,13 @@
           "commit": "f48c0bb765dd19d4ee5bb1c8687c37f4f047554b",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/f48c0bb765dd19d4ee5bb1c8687c37f4f047554b",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "703c3eb9d88d6944542d58188ee0a1c4461c282c",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/703c3eb9d88d6944542d58188ee0a1c4461c282c",
+          "description": "AU-CONTEXT-R007 merged to the default branch in this commit."
         }
       ]
     },
@@ -215,8 +253,16 @@
     {
       "id": "AU-CONTEXT-R008.1",
       "title": "Typed, calibrated AnalysisSnapshot model with abstention",
-      "delivery_state": "SPECIFIED",
-      "evidence": [],
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "0cd7be250b3de6b16266b8ff069ebae974cf3b8e",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/0cd7be250b3de6b16266b8ff069ebae974cf3b8e",
+          "description": "AU-CONTEXT-R008.1 merged to the default branch in this commit."
+        }
+      ],
       "depends_on": []
     },
     {

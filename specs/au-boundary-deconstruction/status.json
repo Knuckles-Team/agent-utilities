@@ -114,7 +114,7 @@
     {
       "id": "AU-BOUNDARY-R003",
       "title": "Retire AU's legacy MCP host and action manifest",
-      "delivery_state": "BUILDING",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -122,14 +122,29 @@
           "commit": "2299e7854315b238bea1f84531f4cdd5c89013db",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2299e7854315b238bea1f84531f4cdd5c89013db",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
+          "description": "AU-BOUNDARY-R003 merged to the default branch in this commit."
         }
       ]
     },
     {
       "id": "AU-BOUNDARY-R004",
       "title": "Retire AU's multiplexer family duplicated in graph-os",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
+          "description": "AU-BOUNDARY-R004 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R005",
@@ -188,14 +203,30 @@
     {
       "id": "AU-BOUNDARY-R010",
       "title": "Delete AU's SDK-duplicated connector toolkit",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
+          "description": "AU-BOUNDARY-R010 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R011",
       "title": "Delete AU's source lifecycle and certification code",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
+          "description": "AU-BOUNDARY-R011 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R012",
@@ -249,8 +280,16 @@
     {
       "id": "AU-BOUNDARY-R015",
       "title": "Move the agent HTTP and A2A/ACP host out of AU",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/2456745c1e4d3c90d77f5d3e3c3eff8cee4cc98b",
+          "description": "AU-BOUNDARY-R015 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-BOUNDARY-R016",

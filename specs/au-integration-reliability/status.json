@@ -166,8 +166,16 @@
     {
       "id": "AU-INTEGRATION-R010",
       "title": "Kafka enqueue-only-proof contract runs and passes honestly",
-      "delivery_state": "UNKNOWN",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "35fde39bdb9dcbe9f32b76e4176393c9ead2845c",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/35fde39bdb9dcbe9f32b76e4176393c9ead2845c",
+          "description": "AU-INTEGRATION-R010 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-INTEGRATION-R011",
@@ -228,8 +236,16 @@
     {
       "id": "AU-INTEGRATION-R014",
       "title": "Benchmark query-serving improvements against the existing path",
-      "delivery_state": "SPECIFIED",
-      "evidence": []
+      "delivery_state": "LANDED",
+      "evidence": [
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "35fde39bdb9dcbe9f32b76e4176393c9ead2845c",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/35fde39bdb9dcbe9f32b76e4176393c9ead2845c",
+          "description": "AU-INTEGRATION-R014 merged to the default branch in this commit."
+        }
+      ]
     },
     {
       "id": "AU-INTEGRATION-R015",
