@@ -280,12 +280,18 @@ def test_conformance_run_graph_slice_with_no_deviations_has_no_run_node() -> Non
     assert {link["relationship"] for link in links} == {"CHECKED_UNDER_PERSPECTIVE"}
 
 
-def test_conformance_run_graph_slice_conforms_to_process_intelligence_shapes() -> None:
+def test_conformance_run_graph_slice_conforms_to_process_intelligence_shapes(
+    engine_graph,
+) -> None:
     """Prove the emitted LPG vocabulary matches the SHACL contract — mirrors
     ``test_emitted_lpg_vocabulary_conforms_to_process_intelligence_shapes`` in
-    ``test_semantic_event_model.py`` for the OCEL slice."""
+    ``test_semantic_event_model.py`` for the OCEL slice.
+
+    EH-431: checked through the engine's real ``shacl_validate_ad_hoc``
+    surface, not a local ``pyshacl`` call (AU never validates shapes itself).
+    Requires a real engine; skips cleanly when none is available.
+    """
     rdflib = pytest.importorskip("rdflib")
-    pyshacl = pytest.importorskip("pyshacl")
     from rdflib.namespace import RDF, XSD
 
     run = _run()
@@ -348,9 +354,10 @@ def test_conformance_run_graph_slice_conforms_to_process_intelligence_shapes() -
         / "shapes"
         / "process_intelligence.shapes.ttl"
     )
-    conforms, _, report = pyshacl.validate(
-        graph,
-        shacl_graph=str(shapes_path),
-        inference="none",
+    data_ttl = graph.serialize(format="turtle")
+    if isinstance(data_ttl, bytes):
+        data_ttl = data_ttl.decode()
+    report = engine_graph.shacl_validate_ad_hoc(
+        data_ttl, shapes_path.read_text(encoding="utf-8")
     )
-    assert conforms, report
+    assert report.conforms, report.results

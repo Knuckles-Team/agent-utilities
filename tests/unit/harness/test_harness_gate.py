@@ -3,13 +3,15 @@
 These tests reproduce HarnessX's τ³-Bench Telecom failure (5 same-dimension edits
 accumulating sub-threshold coupling) and show our SHACL gate **blocks** it — a
 formal guarantee the paper's per-edit pass@2 gate explicitly lacks.
+
+EH-431: ``HarnessGate`` validates through the engine's real
+``shacl_validate_ad_hoc`` surface (see ``harness_gate.py``), never local
+``pyshacl`` — these tests exercise the default (ambient-engine) construction
+and require a real engine; they skip cleanly (via the standard AU
+engine-availability check) when none is available in this environment.
 """
 
 from __future__ import annotations
-
-import pytest
-
-pytest.importorskip("pyshacl")
 
 from agent_utilities.harness.harness_gate import HarnessGate
 
