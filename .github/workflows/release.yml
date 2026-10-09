@@ -91,6 +91,7 @@ jobs:
   clone-scanners:
     name: pinned clone scanners
     runs-on: ubuntu-24.04
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     steps:
       # A pull_request's default checkout is a synthetic merge commit. Pin the
       # checkout to the immutable contributor SHA so the wrapper's HEAD and
@@ -226,6 +227,7 @@ jobs:
     name: epistemic-graph release is resolvable on PyPI
     runs-on: ubuntu-latest
     continue-on-error: true
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -237,7 +239,11 @@ jobs:
   # ── STAGE 1: release-critical checks only. Nothing else may live here. ──
   gates:
     name: gates
-    runs-on: ubuntu-latest
+    # Homelab self-hosted runner for same-repo push/PR traffic; a fork PR's
+    # head repo never matches `github.repository`, so it always lands on
+    # the GitHub-hosted runner instead (graph-os PR #125 pattern).
+    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -367,8 +373,48 @@ jobs:
       # the same worker. The `xdist_group` mark on that file is therefore
       # redundant under `loadfile` (inert, harmless to leave in place) rather
       # than load-bearing.
-      - name: Test suite
+      # Operator decision (2026-10-09): PR gates run a diff-scoped test
+      # subset so a PR turns around in minutes; push to main / a release tag
+      # still runs the full suite unchanged below. Mirrors graph-os PR #125's
+      # pr-test-scope pattern (pipelines #32).
+      - name: Resolve pull-request test scope
+        if: github.event_name == 'pull_request'
+        id: pr-test-scope
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' \
+            pipelines-hook pr-test-scope --base-ref "$BASE_REF" \
+            --src-root agent_utilities --tests-root tests > "$RUNNER_TEMP/pr-test-scope.txt"
+          cat "$RUNNER_TEMP/pr-test-scope.txt"
+          {
+            echo "scope<<PR_TEST_SCOPE_EOF"
+            cat "$RUNNER_TEMP/pr-test-scope.txt"
+            echo "PR_TEST_SCOPE_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Full test suite (push to main / release tag)
+        if: github.event_name != 'pull_request'
         run: python3 -m pytest -q -n auto --dist loadfile
+
+      - name: Test suite -- pull request fast subset
+        if: github.event_name == 'pull_request'
+        env:
+          SCOPE: ${{ steps.pr-test-scope.outputs.scope }}
+        run: |
+          set -euo pipefail
+          if [ "$SCOPE" = "NONE" ]; then
+            echo "pr-test-scope: no agent_utilities/tests change in this diff; skipping pytest"
+          elif [ "$SCOPE" = "FULL" ]; then
+            echo "pr-test-scope: unmapped source change (or an unreadable diff); running the full suite"
+            python3 -m pytest -q -n auto --dist loadfile
+          else
+            echo "pr-test-scope: running only the tests this diff affects:"
+            echo "$SCOPE"
+            mapfile -t affected_tests <<< "$SCOPE"
+            python3 -m pytest -q -n auto --dist loadfile "${affected_tests[@]}"
+          fi
 
   # ── STAGE 2: build the release wheel. Needs: gates + clone-scanners +
   # engine-release-order. ──────────────────────────────────────────────────
@@ -384,7 +430,11 @@ jobs:
   build:
     name: build
     needs: [gates, clone-scanners, engine-release-order]
-    runs-on: ubuntu-latest
+    # Homelab self-hosted runner for same-repo push/PR traffic; a fork PR's
+    # head repo never matches `github.repository`, so it always lands on
+    # the GitHub-hosted runner instead (graph-os PR #125 pattern).
+    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     env:
       SOURCE_DATE_EPOCH: "0"
     steps:
@@ -449,6 +499,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
     steps:
       - *release-checkout
       - *release-python
