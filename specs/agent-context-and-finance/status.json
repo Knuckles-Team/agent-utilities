@@ -106,7 +106,7 @@
     {
       "id": "AU-CONTEXT-R005",
       "title": "Finance scheduling and a sourced flip-explainer agent",
-      "delivery_state": "BUILT",
+      "delivery_state": "LANDED",
       "evidence": [
         {
           "kind": "branch",
@@ -114,6 +114,13 @@
           "commit": "d06803632541d1d592757138315d9131bf994626",
           "url": "https://github.com/Knuckles-Team/agent-utilities/commit/d06803632541d1d592757138315d9131bf994626",
           "description": "Implementation commit is published on a branch; not yet merged to the default branch."
+        },
+        {
+          "kind": "merged_head",
+          "result": "passed",
+          "commit": "88c61dc9164c983a52fdc8b170c10fca2e208d8a",
+          "url": "https://github.com/Knuckles-Team/agent-utilities/commit/88c61dc9164c983a52fdc8b170c10fca2e208d8a",
+          "description": "AU-CONTEXT-R005 merged to the default branch in this commit."
         }
       ]
     },
