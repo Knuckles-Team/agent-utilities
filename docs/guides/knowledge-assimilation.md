@@ -49,7 +49,7 @@ graph TD
 | **Classifier** | `graph_search`, `graph_query` | Scores with `UniversalKnowledgeClassifier` against KG context |
 | **Ingester** | `graph_ingest`, `graph_write` | Persists to KG with proper node type + edges |
 | **Analyst** | `graph_analyze` | Runs comparative-analysis against agent-utilities |
-| **Implementer** | `graph_write`, `github-mcp` | Generates SDD plans, optionally executes + PRs |
+| **Implementer** | `graph_write`, `github-mcp` | Generates SDD plans, optionally runs + PRs |
 | **Distiller** | `graph_write` | Distills successful patterns into reusable skills/prompts |
 
 ---
@@ -105,7 +105,7 @@ Both pipelines share the same downstream tools: `comparative-analysis`,
 3. If high potential: **Ingester** persists + creates `EvolutionCandidateNode`
 4. **Analyst** runs `comparative-analysis` to detect gaps in agent-utilities
 5. **Implementer** generates SDD plan with constitution-mandated artifacts
-6. Optionally auto-executes → creates skill/prompt → PRs to universal-skills
+6. Optionally auto-runs → creates skill/prompt → PRs to universal-skills
 7. Logs `EvolutionCycle` node in KG for tracking and momentum
 8. **Distiller** distills successful patterns as reusable workflow templates
 
@@ -128,7 +128,7 @@ secret://oauth/<provider>                # Runtime reference into the configured
 | `XAI_API_KEY` | (none) | Fallback API key if OAuth unavailable |
 
 > Note: `EVOLUTION_AUTO_EXECUTE` and `EVOLUTION_MIN_POTENTIAL` are not currently
-> read by the engine; auto-execute and minimum-potential gating are decided by
+> read by the engine; auto-run and minimum-potential gating are decided by
 > the `agent-utilities-evolution` skill rather than environment variables.
 
 ---

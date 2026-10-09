@@ -2,13 +2,13 @@
 
 ## Overview
 
-To enable an Enterprise-grade Knowledge Graph platform, `agent-utilities` employs a sophisticated, Local-First Event Sourcing architecture combined with a Cost-Based Query Router. This allows the system to seamlessly toggle between lightweight, single-process execution (during development) and heavy-duty, multi-node deployment (in production) without any code changes.
+To enable an Enterprise-grade Knowledge Graph platform, `agent-utilities` employs a sophisticated, Local-First Event Sourcing architecture combined with a Cost-Based Query Router. This allows the system to smoothly toggle between lightweight, single-process execution (during development) and heavy-duty, multi-node deployment (in production) without any code changes.
 
 ## 1. Event Sourcing & The EventBus (`EventBackend`)
 
 Because Python's network-bound queries are too slow for deep topological algorithms (like PageRank or pathfinding), `agent-utilities` delegates high-performance graph processing to an in-memory Rust layer (`epistemic-graph`).
 
-To prevent Data Drift between the engine authority and any working-set cache, we use an **Event Sourcing Pattern**:
+To prevent Data Drift between the engine authority and any working-set cache, this repository use an **Event Sourcing Pattern**:
 
 1. When a mutation (`INSERT` / `DELETE`) commits through the engine authority (`graph_compute.py` / envelope ingestion), it publishes a `TRIPLE_INSERT` or `TRIPLE_DELETE` event to the `kg.mutations` topic via the `EventBackend`.
 2. Consumer systems (like `epistemic-graph`) listen to this topic and dynamically patch their local working set in milliseconds.

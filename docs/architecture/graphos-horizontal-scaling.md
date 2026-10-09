@@ -15,8 +15,8 @@
 > run since 2026-07-26 — confirmed still current via `kubectl get deploy
 > graph-os -n platform -o yaml` as of 2026-08-02 (`strategy.type: Recreate`).
 > **This page's content below is retained for reference only** — it documents
-> real, previously-live infrastructure (engine TLS, HPA mechanics) that would
-> need to be re-established if Shape 2 is ever re-adopted for true
+> real, previously-live infrastructure (engine TLS, HPA mechanics) that will
+> must be re-established if Shape 2 is ever re-adopted for true
 > zero-downtime rolling updates, which Shape 1 deliberately traded away for a
 > much simpler single-writer-lock model. Do not treat §1's table as
 > describing the current Deployment; read
@@ -124,12 +124,12 @@ volumes:
 
 `au-src` and `eg-wheel` were already migrated to NFS (any node can mount them); the
 config directory was not. A second replica scheduled on any of the cluster's **other**
-nodes would find no `<ENGINE_HOST_HOME>/.config/agent-utilities-next` on that host and boot with an
+nodes will find no `<ENGINE_HOST_HOME>/.config/agent-utilities-next` on that host and boot with an
 empty (or absent) durable config — this is a **config-distribution** gap, unrelated to
 whether the engine speaks TLS. It is also the more mundane of the two Blockers and
 should be fixed first, independent of §3.
 
-Fix options (either is sufficient — pick one, don't do both):
+Fix options (either is enough — pick one, don't do both):
 
 - **(a) Publish `config.json` onto the same NFS export** `au-src`/`eg-wheel` already
   use, and mount it read-only from there instead of the <ENGINE_NODE>-local hostPath. Minimal
@@ -181,7 +181,7 @@ engine already ships for exactly this purpose:
   is exactly what `ENGINE_TLS_SERVER_NAME=<ENGINE_NODE_IP>` is, today, by hand.
 
 **Why this is not an urgent blocker today, and is a correctness gap tomorrow:** with
-one static engine node, the IP pin is functionally sufficient — the cluster's flat
+one static engine node, the IP pin is functionally enough — the cluster's flat
 host network (`MCP_TRUSTED_PROXY_CIDRS` already trusts the cluster's own host subnet)
 means any graph-os replica on any cluster node can already reach `<ENGINE_NODE_IP>:9100`. Nothing in
 §2's fix is blocked on this section. It becomes load-bearing the moment either (a) the
@@ -205,10 +205,10 @@ current program; this is a genuine SDK-level constraint, not an au gap). Once
   — live today, a no-op at `replicas: 1`, and becomes load-bearing the moment a second
   replica exists.
 - Cookie affinity does **not** survive a **pod restart** — a scaled-down or rescheduled
-  pod's dict is empty regardless of the cookie, so its in-flight sessions are lost and
+  pod's dict is empty in either case of the cookie, so its in-flight sessions are lost and
   the client must reconnect. This is the direct implication for HPA specifically: a
   scale-down event (not just a crash) drops whatever sessions were pinned to the
-  terminated replica.
+  stop replica.
 
 **This is not something this program needs to fix to ship HPA** — it is an accepted,
 already-mitigated limitation (same conclusion as the genesis skill reference and the
@@ -261,14 +261,14 @@ embedded per-pod, `unified-in-process`) and is explicitly single-replica by desi
 (nothing to horizontally scale in a self-contained unit — see that shape's own "nothing
 to hyperscale here by design" note in the genesis reference).
 
-## 7. Validation checklist (for whoever executes §5)
+## 7. Validation checklist (for whoever runs §5)
 
 - [ ] A graph-os pod with §2's fix applied, scheduled on a node **other than <ENGINE_NODE>**,
       reaches `Ready` and its `/health` reports the engine reachable.
 - [ ] Two graph-os replicas (`kubectl get deploy graph-os -o jsonpath='{.status.readyReplicas}'`
       → `2`) on **different** nodes, both healthy.
 - [ ] A single MCP streamable-http session, opened against the Ingress, survives
-      several requests (cookie affinity keeps it on one replica) — confirm via the
+      multiple requests (cookie affinity keeps it on one replica) — confirm via the
       `Set-Cookie`/repeat-request pattern, not just pod logs.
 - [ ] Kill the replica an active session is pinned to; confirm the client reconnects
       (new session on a surviving replica) rather than hanging — i.e. the documented

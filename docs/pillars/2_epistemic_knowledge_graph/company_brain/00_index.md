@@ -3,7 +3,7 @@
 > **Own the ontology. Own the policy. Own the judgment.**
 > The Company Brain is not another app — it is the infrastructure layer that every app sits on.
 
-Welcome to the Company Brain documentation for `agent-utilities`. This directory contains comprehensive, verbose documentation covering every aspect of the Company Brain architecture — the operational state infrastructure that transforms a single-agent knowledge graph into a multi-writer, multi-reader, multi-tenant organizational brain.
+Welcome to the Company Brain documentation for `agent-utilities`. This directory contains complete, verbose documentation covering every aspect of the Company Brain architecture — the operational state infrastructure that transforms a single-agent knowledge graph into a multi-writer, multi-reader, multi-tenant organizational brain.
 
 ---
 
@@ -22,7 +22,7 @@ The Company Brain is the infrastructure layer that lets every app, agent, workfl
 
 ### Actor-Agnostic Design
 
-The Company Brain treats **humans, AI agents, automated services, and hybrid human+AI teams** as equal first-class participants. There is no hierarchy between organic and synthetic intelligence — every primitive applies the same rules regardless of who (or what) is interacting with the brain. An `ActorType` enum distinguishes them for provenance and audit purposes, but the infrastructure itself imposes no capability differences.
+The Company Brain treats **humans, AI agents, automated services, and hybrid human+AI teams** as equal first-class participants. There is no hierarchy between organic and synthetic intelligence — every primitive applies the same rules in either case of who (or what) is interacting with the brain. An `ActorType` enum distinguishes them for provenance and audit purposes, but the infrastructure itself imposes no capability differences.
 
 ---
 
@@ -30,7 +30,7 @@ The Company Brain treats **humans, AI agents, automated services, and hybrid hum
 
 | Document | Description |
 |:---------|:------------|
-| [Architecture](architecture.md) | Full architectural deep-dive: state graph, mixin composition, backend abstraction, 5-Pillar integration |
+| [Architecture](architecture.md) | Full architectural detailed review: state graph, mixin composition, backend abstraction, 5-Pillar integration |
 | [Concurrency Control](concurrency.md) | Version vectors, Compare-And-Swap, graph-level locking, multi-writer safety |
 | [Multi-Tenancy](multi_tenancy.md) | Tenant isolation, hierarchies, scoped queries, membership management |
 | [Conflict Resolution](conflict_resolution.md) | Contradiction detection, merge strategies, source arbitration |

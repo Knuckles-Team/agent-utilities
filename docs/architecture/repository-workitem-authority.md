@@ -100,8 +100,8 @@ status from the same durable WorkItem row. A stale owner, epoch, or fencing toke
 cannot checkpoint or publish a result.
 
 The adapter does not mint authentication: its MCP/REST caller must provide a
-verified tenant context (and the native authority may bind that tenant). Reads
-require that verified scope; caller-supplied tenant values cannot override a
+checked tenant context (and the native authority may bind that tenant). Reads
+require that checked scope; caller-provided tenant values cannot override a
 bound authority. Repository row
 queries use that same authority as submit/get, and filter by the registered
 repository kind set before applying repository/lane/candidate/generation/

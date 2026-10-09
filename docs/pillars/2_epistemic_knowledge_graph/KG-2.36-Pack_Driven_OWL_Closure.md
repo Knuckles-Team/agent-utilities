@@ -15,7 +15,7 @@ back-edge automatically).
 ## Why — the "free value-add"
 
 This is a capability a flat regex brain layer (gbrain) structurally cannot provide.
-Because we already run an OWL reasoner with a closure cycle, exposing pack edges to
+Because this repository already run an OWL reasoner with a closure cycle, exposing pack edges to
 it is nearly free and turns extracted edges (AU-KG.research.zero-llm-pack-link) into a reasoned graph: support
 chains, citation networks, and symmetric relations close automatically.
 

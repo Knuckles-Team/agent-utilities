@@ -6,7 +6,7 @@
 
 Agent Utilities uses one orchestration path whose execution shape is constructed for
 each job. A small conversational request can complete directly, while a complex or
-tool-bearing request activates discovery, dispatch, verification, and extended
+tool-bearing request enables discovery, dispatch, verification, and extended
 reasoning. These are shapes of the same governed planner, not separate runtime modes.
 
 ## Execution shape
@@ -53,7 +53,7 @@ flowchart TD
 1. **Recipe reuse:** a bounded cache keyed by an opaque normalized job signature
    reuses a successful shape without repeating discovery.
 2. **Structural classification:** `orchestration_signal_strength` classifies clear
-   conversational and tool-bearing work without I/O or an LLM call.
+   conversational and tool-bearing work without `I/O` or an LLM call.
 3. **Rust hybrid retrieval:** only ambiguous work calls `engine.search_hybrid` to
    distinguish a tool task from a conversational turn.
 4. **Outcome feedback:** `record_shape_outcome` retains successful recipes and evicts
@@ -111,6 +111,6 @@ Deployment-varying model routes, timeouts, identity, and telemetry settings come
 runtime secret/TLS references. Content capture remains off unless explicitly approved.
 
 Each run records the selected shape, confidence, bounded timings, tool references,
-policy decisions, and outcome under the trace/outcome ontology. This is sufficient for
+policy decisions, and outcome under the trace/outcome ontology. This is enough for
 performance analysis and reward updates without retaining the originating identity or
 raw request content.

@@ -4,36 +4,36 @@
 
 The **Graph Orchestration Engine** represents the foundational execution layer of the `agent-utilities` ecosystem. Moving away from rigid LLM chains and monolithic prompt contexts, this pillar implements a Hierarchical Task Network (HTN) backed by Pydantic Graph, transitioning linear execution into dynamic, topological routing.
 
-## Why We Built This (Rationale)
+## Why This repository Built This (Rationale)
 
-As our agent ecosystem scaled to include dozens of domain specialists (Python, TS, CI/CD, DB) and hundreds of MCP tools, we encountered three critical failure modes:
+As this repository's agent ecosystem scaled to include dozens of domain specialists (Python, TS, CI/CD, DB) and hundreds of MCP tools, this repository encountered three critical failure modes:
 1. **Prompt Bloat & Context Pollution**: Injecting all available tools into a single prompt exceeded context limits and degraded LLM reasoning accuracy.
 2. **Sequential Bottlenecks**: Large features were executed linearly, squandering the opportunity for parallel discovery and implementation.
-3. **Catastrophic Forgetting & Loop Cycles**: Agents would forget successful tool combinations or fall into infinite retry loops without an enforced architectural guardrail.
+3. **Catastrophic Forgetting & Loop Cycles**: Agents will forget successful tool combinations or fall into infinite retry loops without an enforced architectural guardrail.
 
 ## How It Works (Implementation)
 
-The architecture solves these bottlenecks through several interdependent primitives:
+The architecture solves these bottlenecks through multiple interdependent primitives:
 
 ### Registry Hot Cache & Unified Specialists (ORCH-1.2)
-We collapsed the artificial boundary between `prompt` and `mcp` agents into a singular `specialist` type. The **Registry Hot Cache** maintains an O(1) session-scoped index of these specialists. Instead of passing 50+ specialists to the orchestrator, it filters down to the Top-7 relevant specialists per query, reducing prompt token bloat by ~7x.
+This repository collapsed the artificial boundary between `prompt` and `mcp` agents into a singular `specialist` type. The **Registry Hot Cache** maintains an O(1) session-scoped index of these specialists. Instead of passing 50+ specialists to the orchestrator, it filters down to the Top-7 relevant specialists per query, reducing prompt token bloat by ~7x.
 
 ### Spec-Driven Development Pipeline (AU-ORCH.planning.spec-driven-pipeline)
 The orchestrator implements a multi-stage SDD pipeline:
 - **Discovery & Requirements**: Generates structured `Spec` models with measurable success criteria.
 - **Task Decomposition**: Emits a `Tasks` dependency graph, identifying which subtasks can be executed in parallel (e.g., frontend and backend).
-- **Parallel Dispatch**: Fuses tasks out to specific `specialist` workers, leveraging the `Execution Visibility Graph` to constrain context so a backend specialist only sees backend-related prior steps.
+- **Parallel Dispatch**: Fuses tasks out to specific `specialist` workers, use the `Execution Visibility Graph` to constrain context so a backend specialist only sees backend-related prior steps.
 
 ### Learned Agent Routing & Execution Budgets (AU-ORCH.planning.journey-milestone & ORCH-1.3)
 Routing isn't static. `TraceLearnedPolicy` uses softmax scoring over historical `ExecutionTrace` records with an exponential moving average (EMA) to actively down-weight specialists with low success rates. `ExecutionBudget` acts as an absolute cost governor, preempting infinite loops by enforcing USD/token constraints at the dispatcher step.
 
 ## Benefits Introduced
 
-- **Cost Efficiency**: By utilizing `Confidence-Gated Model Routing`, trivial queries fallback to smaller models (`gpt-4o-mini`), saving reasoning tokens for complex HTN planning.
+- **Cost Efficiency**: By use `Confidence-Gated Model Routing`, trivial queries fallback to smaller models (`gpt-4o-mini`), saving reasoning tokens for complex HTN planning.
 - **Architectural Safety**: `Subagent Lifecycle Patterns` and recursive execution constraints ensure the system fails gracefully and retries contextually rather than spinning in infinite loops.
 - **Test-Time Scaling**: The system achieves zero-shot generalization by spawning parallel agent rollouts and selecting the optimal path via dynamic subgraph convergence and evolutionary aggregation.
 
-## Key Concepts Leveraged
+## Key Concepts Use
 - **ORCH-1.0**: Orchestration Engine
 - **ORCH-1.1**: Agentic Planning Engine (Planning)
 - **ORCH-1.2**: Agentic Planning Engine (Routing)
@@ -91,7 +91,7 @@ graph LR
     end
 ```
 
-→ **Deep-dive**: [first-principles.md](../guides/first-principles.md) · [registry-cache.md](../guides/registry-cache.md) · [process-lifecycle.md](../guides/process-lifecycle.md)
+→ **Detailed review**: [first-principles.md](../guides/first-principles.md) · [registry-cache.md](../guides/registry-cache.md) · [process-lifecycle.md](../guides/process-lifecycle.md)
 
 ## Architecture & Orchestration Overview
 
@@ -100,7 +100,7 @@ graph LR
 | `agent-webui` | Library | Cinematic Graph Activity Visualization. |
 | `agent-terminal-ui` | Library | High-performance Terminal User Interface (TUI) achieving feature parity with **Claude Code** (Slash commands, Keyboard shortcuts, File mentions). |
 
-`agent-utilities` implements a multi-stage execution pipeline using `pydantic-graph` for maximum precision and resilience. Protocol adapters (AG-UI, ACP) leverage `graph.iter()` for direct, step-by-step graph execution — bypassing the outer LLM agent entirely when a graph is present.
+`agent-utilities` implements a multi-stage execution pipeline using `pydantic-graph` for maximum precision and resilience. Protocol adapters (AG-UI, ACP) use `graph.iter()` for direct, step-by-step graph execution — bypassing the outer LLM agent entirely when a graph is present.
 
 ### Spec-Driven Development (SDD) Lifecycle
 
@@ -110,7 +110,7 @@ graph LR
 2.  **Requirement Specification** (`spec-generator`): Decomposes user intent into a formal `Spec` including user scenarios, functional requirements, and measurable success metrics.
 3.  **Technical Implementation Plan** (`task-planner`): Generates a step-by-step architectural approach and a `Tasks` model with explicit dependencies and file-path affinity for collision-free parallel execution.
 4.  **Baseline & Manual Testing**: Integrates `first_run_tests` and `run_manual_test` into the implementation phase to ensure baseline stability and exploratory verification.
-5.  **Parallel Execution** (`SDDManager`): The `dispatcher` leverages the SDD analysis engine to identify safe parallel execution batches, fanning out implementation tasks to domain specialists (Python, TS, etc.).
+5.  **Parallel Execution** (`SDDManager`): The `dispatcher` use the SDD analysis engine to identify safe parallel execution batches, fanning out implementation tasks to domain specialists (Python, TS, etc.).
 6.  **Quality Verification & Documentation**: Audits results via `spec-verifier`, then generates `code-walkthrough` and `interactive-explain` artifacts to document the final implementation.
 
 ### Execution Flow: Dynamic Multi-Layer Parallelism
@@ -288,7 +288,7 @@ graph TD
 * **RecursiveLink**: A lightweight, multi-layer projection module that acts as the connective tissue between models, leaving original LLM weights completely frozen:
   * **Inner RecursiveLink**: Maps an agent's newly generated hidden states directly back into its own input embedding space, enabling continuous internal reasoning loops without token decoding.
   * **Outer RecursiveLink**: Maps embedding dimensions between disparate model shapes (e.g. Llama-3's 4096-d space to Gemma-3's 3072-d space) to bridge latent states between heterogeneous agents.
-* **Shared Backbone Brain**: Multiple agent roles (e.g., Planner, Coder, Critic) can reside on the exact same foundation model instance in VRAM, sharing base weights while utilizing lightweight individual `RecursiveLink` modules for role specialization.
+* **Shared Backbone Brain**: Multiple agent roles (e.g., Planner, Coder, Critic) can reside on the exact same foundation model instance in VRAM, sharing base weights while use lightweight individual `RecursiveLink` modules for role specialization.
 
 ---
 
@@ -308,16 +308,16 @@ graph TD
 ```
 
 #### 1. Native Open-Weights Pipeline (Optional GPU Mode)
-For specialized local runs executing open-source weights (via PyTorch, Hugging Face `transformers`, or custom vLLM adapters):
+For specialized local runs running open-source weights (via PyTorch, Hugging Face `transformers`, or custom vLLM adapters):
 * The system accesses the model's `last_hidden_state` activations during generation, runs them through the lightweight PyTorch `RecursiveLink` projection layers, and injects them directly into the input attention space of the next agent.
-* **Decoupled Security**: All neural modeling code would be isolated in a modular wrapper (planned `agent_utilities/rlm/mas_local.py`, not yet present). This ensures **zero dependencies** (like PyTorch) are imported during standard framework operations, maintaining a strict zero-overhead baseline.
+* **Decoupled Security**: All neural modeling code will be isolated in a modular wrapper (planned `agent_utilities/rlm/mas_local.py`, not yet present). This ensures **zero dependencies** (like PyTorch) are imported during standard framework operations, maintaining a strict zero-overhead baseline.
 
 #### 2. Universal API Semantic Simulator (Off-the-Shelf Fallback)
 For standard deployments using cloud-hosted models (Gemini, OpenAI, Claude) where hidden layer access is technically restricted, the orchestrator extrapolates the core benefits of RecursiveMAS via **API-level symbolic emulation**:
 
 * **State Containment via persistent REPL**: Rather than passing raw chat logs back and forth via the API, the orchestrator keeps all intermediate calculations, databases, and heavy text dumps stored locally in variables inside the persistent RLM Python REPL (`RLMEnvironment`).
 * **Metadata-Only Prompting**: The API prompt is fed only constant-size **metadata** (e.g. variable names, types, and lengths) rather than raw variables. Agents interact by writing python code to mutate REPL states, achieving the whitepaper's **75% token reduction** and preventing context pollution entirely.
-* **Semantic Embedding Vectors**: Agents share intermediate thought states by passing lightweight high-dimensional embedding vectors (retrieved via cheap off-the-shelf embedding endpoints) representing the semantic "Thought Mementos". These vectors are used to programmatically query the local Knowledge Graph or rank context slices without generating raw text, mimicking the continuous latent state hand-off of the neural pipeline.
+* **Semantic Embedding Vectors**: Agents share intermediate thought states by passing lightweight high-dimensional embedding vectors (fetched via cheap off-the-shelf embedding endpoints) representing the semantic "Thought Mementos". These vectors are used to programmatically query the local Knowledge Graph or rank context slices without generating raw text, mimicking the continuous latent state hand-off of the neural pipeline.
 
 ### ORCH-1.27 — Role-Specialized Model Routing
 
@@ -406,12 +406,12 @@ typed `AgentTurnEnvelope`
 SKIP LOCKED, or per-host SQLite — composing the KG-2.55 transport stack with a
 `session:<id>` partition key above the KG-2.56 tenant key). A stateless
 **`agent-dispatch-worker`** fleet claims turns under per-session mutual
-exclusion, rehydrates from the shared state store, executes the existing
+exclusion, rehydrates from the shared state store, runs the existing
 goal/orchestration bodies, and writes back durably before acking —
 at-least-once with idempotent re-claims, so a crashed worker is crash recovery,
 not data loss. Workers heartbeat into the `dispatch_workers` registry,
 `/api/fleet/topology` lists them, and `graph_orchestrate job/{id}` reports the
-executing worker. The `inline` default is byte-for-byte the previous behavior.
+running worker. The `inline` default is byte-for-byte the previous behavior.
 Full design: [Queue-Driven Agent Dispatch](../architecture/agent_dispatch.md);
 walkthrough: [queue-dispatch example](../examples/queue-dispatch-walkthrough.md).
 

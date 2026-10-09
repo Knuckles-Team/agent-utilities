@@ -52,10 +52,10 @@ gh pr create --draft --base main
 Hosted CI runs the same pre-commit configuration plus the release gates on the
 pull request; mark it ready for review once it is green.
 
-On a shared host where several agents and people use one checkout, **do not
+On a shared host where multiple agents and people use one checkout, **do not
 edit the canonical checkout** at `agent-packages/agent-utilities`: a background
 sync can reset its working tree, and the `lane-guard` hook refuses commits
-there. Take your own git worktree on your own branch:
+there. Take the operator's own git worktree on the operator's own branch:
 
 ```bash
 rm_worktree add agent-utilities <your-branch>     # repository-manager MCP, or:
@@ -65,7 +65,7 @@ git worktree add ${XDG_STATE_HOME}/repository-worktrees/agent-utilities/<branch>
 Commit early and often (commits survive a working-tree reset). Push only when
 asked.
 
-## Before you push
+## Before the operator push
 
 The installed pre-push gate is deliberately bounded for a sub-10-minute
 publication cycle: lint/format/type checks, lockfile consistency, public-surface
@@ -78,7 +78,7 @@ python -m pytest                              # unit suite (keep it green)
 python3 scripts/safe_precommit_all_files.py   # use this instead of direct `pre-commit run --config .config/pre-commit.yaml --all-files`
 ```
 
-Note: the full pytest hook is manual-only and can fail repo-wide due to an
+Note: the full pytest hook is manual-only and can fail repo-wide because an
 unrelated egeria/py3.12 dependency pin — validate with the system
 `python -m pytest` if so.
 
@@ -88,14 +88,14 @@ after; a file-rewriting hook (`ruff-format`, `turtle-format`, …) touching the 
 path can make that restore silently drop the unstaged edit — and
 `docs/concept_reservations.yaml` is a shared, cross-session ledger deliberately
 left unstaged, so a careless run can destroy another session's reservations.
-`scripts/safe_precommit_all_files.py` backs up your unstaged diff first and
-verifies it's still there afterward. See `AGENTS.md`'s *Quality Bar* section for
+`scripts/safe_precommit_all_files.py` backs up the operator's unstaged diff first and
+checks it's still there afterward. See `AGENTS.md`'s *Quality Bar* section for
 the full explanation and recovery steps.
 
 ### Guardrail ENV parity (passes-local / fails-CI)
 
 `pre-commit run --config .config/pre-commit.yaml --all-files` runs the
-guardrail gates in your **full** install.
+guardrail gates in the operator's **full** install.
 CI's `release.yml` `gates` job runs them in a deliberately **lean** install
 (`uv sync --frozen --extra test --group guardrails --no-install-package
 epistemic-graph --no-install-package langfuse-agent` — no `[agent-runtime]`/`[all]`
@@ -139,6 +139,6 @@ and its
 and
 [task-planner](https://github.com/Knuckles-Team/universal-skills/tree/main/universal_skills/development/task-planner)
 skills. The file sequence aligns with [GitHub Spec Kit
-v1.0.12](https://github.com/github/spec-kit/releases/tag/v1.0.12); `test-spec.md` makes our test and
+v1.0.12](https://github.com/github/spec-kit/releases/tag/v1.0.12); `test-spec.md` makes this repository's test and
 quality contract explicit. Link the PR to its spec IDs and include exact test, wiring, CCCC, jscpd,
 dupehound, and KISS evidence before proposing a landed status.

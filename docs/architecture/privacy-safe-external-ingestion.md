@@ -93,7 +93,7 @@ enforced across the whole operation. Injected transports must return the same
 bounded raw-byte contract and are restricted to isolated tests. Upstream error
 messages and response rows are never copied into public errors or traces.
 
-Mapping policies may define several approved operations, including domain- or
+Mapping policies may define multiple approved operations, including domain- or
 lifecycle-shaped documents, without compiling a customer's schema into Agent
 Utilities. Variables are selected from `variables_ref` by operation alias.
 Optional-field fallbacks and partial-error handling must be explicit policy;

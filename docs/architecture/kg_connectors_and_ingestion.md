@@ -170,7 +170,7 @@ write fan-in (`ingest_external_batch`), every entity gets a stable `content_hash
 over its semantic properties. Before writing, stored hashes are read in **one
 batched round-trip** and unchanged entities are dropped — **no MERGE, no
 re-reasoning** — *even when the source was fetched in full*. This is what makes a
-full re-mirror cheap and turns every connector incremental regardless of whether
+full re-mirror cheap and turns every connector incremental in either case of whether
 its API supports watermarks. Disable with `KG_WRITE_DELTA=0`.
 
 ```mermaid
@@ -182,14 +182,14 @@ flowchart LR
   F -->|no| K["skip (skipped_unchanged++)"]
 ```
 
-**Leveraging Rust epistemic-graph.** For code, the content hash is *free*: the
+**Use Rust epistemic-graph.** For code, the content hash is *free*: the
 tree-sitter parser emits a content-stable `ast_hash` on every symbol, so "which
 symbols changed" is answered by comparing `ast_hash`, not by node existence.
 
 > **Corrected 2026-09-04.** This paragraph previously said the parser *uses*
 > `ast_hash` as the `symbol:<hash>` node id, and that node existence
 > (`HasNodesBatch`) therefore answers the delta question. Both halves are now
-> false and the technique would be wrong if applied: since `3831475a` the node id
+> false and the technique will be wrong if applied: since `3831475a` the node id
 > is OCCURRENCE identity -- `sha256(file_path, symbol_type, qualified_symbol,
 > per-file ordinal)` -- so it is stable across content edits, and a node
 > continues to exist unchanged when a symbol's body changes. Delta detection must
@@ -224,7 +224,7 @@ flowchart LR
 The vector transaction changes only the embedding and its maintenance/readiness
 fields, so existing connector properties, ownership, classification, and ACL
 state remain intact.
-It also fences the exact name/summary/fallback values used to construct the
+It also fences the exact name/summary/fallback values used to build the
 embedding input: a concurrent content update loses the CAS and is retried from a
 fresh property snapshot instead of receiving a stale vector. Every response
 vector is non-empty, finite, and dimension-consistent before any vector property
@@ -254,7 +254,7 @@ opt-out via `KG_AMBIENT_EPISTEMIC_DISABLED_SOURCES`):
 - **Valid-time from the source's own timestamp.** Every envelope already
   carries `event_time`/`valid_time` (populated from the connector's own
   `updated_field`/version-field). `envelope_ingest._stamp_ambient_valid_time`
-  maps that onto the written row's bitemporal `valid_from`; a delete/reconcile
+  maps that onto the written row's bitemporal `valid_from`; a remove/reconcile
   tombstone closes `valid_to` at the supersession instant
   (`_stamp_ambient_valid_until`). **Never fabricated** — a source with no
   usable timestamp writes neither property, so `is_valid_as_of` still treats
@@ -325,7 +325,7 @@ lands in **one ontology** and is reasoned over together:
   write path's `as_of` (X5, W3.4) closes the read path's long-standing
   bitemporal `as_of` support: `run_writeback` stamps `as_of` onto every
   returned proposal (audit-trail coverage for every sink with no per-sink
-  change), and the ServiceNow/Egeria sinks additionally embed it into the
+  change), and the ServiceNow/Egeria sinks also embed it into the
   LIVE outbound payload (ServiceNow `work_notes` text; Egeria
   `additional_properties`) — so a backfeed records which KG state it derived
   from, not just that a write happened.
@@ -371,10 +371,10 @@ connector reports **nothing**:
    in-package native connector bundle signs the local-module closure for `rss`,
    `web`, `filesystem`, and the other zero-infrastructure sources. Only the
    explicit internal-introspection sources documented by the gate bypass this
-   external supply-chain boundary.
+   external provide-chain boundary.
 3. **A reconcile pass can't mistake a failed fetch for "everything was
-   deleted."** `source_sync._reconcile` distinguishes a live-id fetch that
-   errored or was skipped (`fetch_ok=False` — always skips, regardless of
+   removed."** `source_sync._reconcile` distinguishes a live-id fetch that
+   errored or was skipped (`fetch_ok=False` — always skips, in either case of
    policy) from a genuinely empty authoritative snapshot, which only
    tombstones every previously-known node for that source when it is named in
    `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE` (comma-separated, empty by default).
@@ -474,7 +474,7 @@ flowchart TD
   fact, which only runs after `graph_claims(action="accept")` clears the
   fail-closed `ActionPolicy` approval-queue gate (`kind="claim.accept"`,
   default tier `approval_required`). Unqueryable-as-fact is a property of what
-  got written, not a filter a query path could forget to apply.
+  got written, not a filter a query path can forget to apply.
 * **Every gate fails closed.** An unreadable classification policy, an
   unvalidatable SHACL shape (missing validator, missing shapes, malformed
   report), or an unscannable PII pass is recorded as a FAILED check — never
@@ -487,7 +487,7 @@ flowchart TD
 * **Retraction/supersession preserves history.** `supersession.retire_fact`
   tombstones through the SAME fail-closed `ingest_envelope` path connectors
   use (`operation="delete"` — archives, closes the bitemporal interval, never
-  deletes the node) and links a `SUPERSEDES` evidence edge, so a retired fact
+  removes the node) and links a `SUPERSEDES` evidence edge, so a retired fact
   stays inspectable with the claim that retired it.
 * **Dead-letter is loud and drainable.** `knowledge_graph/ingestion/
   dead_letter.py` adds `list`/`drain` over the existing `WorkItem` dead-letter
@@ -541,9 +541,9 @@ returns a `PreparedConnectorPage` whose certification is `quarantined` or
 `partial`; accepted envelopes may be inspected by the caller, but the page
 cannot advance its checkpoint.  Only a complete, diagnostic-free,
 fetch-complete page can expose a checkpoint candidate.  Its
-`snapshot_complete()` helper additionally refuses an empty live-id set unless
-the caller supplies `authoritative_empty=True`, so failed or partial fetches
-cannot become deletion or verified-empty snapshots.  The returned envelopes
+`snapshot_complete()` helper also refuses an empty live-id set unless
+the caller provides `authoritative_empty=True`, so failed or partial fetches
+cannot become deletion or checked-empty snapshots.  The returned envelopes
 still use the existing `ingest_envelope`/`ingest_envelopes` path; the engine,
 not this boundary, remains the SHACL/ICV and durability authority.
 

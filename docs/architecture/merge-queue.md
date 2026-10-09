@@ -20,7 +20,7 @@ CONCEPT:AU-OS.governance.merge-deploy-decoupling
 
 Work used to sit on long-lived branches and land in a bulk reconciliation gate at
 the end of a wave. **The batching was never the value — the adversarial review
-inside it was.** Batching was how we afforded that review. Once the review is
+inside it was.** Batching was how this repository afforded that review. Once the review is
 automated, continuous merge is strictly better, because long-lived branches have a
 cost that no amount of end-of-wave care pays back.
 
@@ -32,7 +32,7 @@ cost that no amount of end-of-wave care pays back.
 | Stale premises | ~8 deferred items worked against a `main` that no longer existed. A premise rots in proportion to how long the branch lives. |
 | Prune blast radius | 79 worktrees at peak, and a prune bug whose blast radius scaled with the long-lived branch count. |
 
-**And what the bulk review caught that naive continuous merge would miss** — each is
+**And what the bulk review caught that naive continuous merge will miss** — each is
 now a mechanical check rather than a human reading diffs:
 
 | The bulk gate caught | Now caught by |
@@ -85,7 +85,7 @@ the queue is the bottleneck, and a gate whose cost exceeds its value gets
 bypassed.** That is this codebase's single most repeated failure: `D-OP-4` (a
 pre-commit chain too slow to run per-commit, so work went uncommitted), `D-KCI-6`
 (a generator whose safe output looked destructive, so nobody ran it). A merge queue
-gated on the 43-minute full suite would be bypassed within a day, and a bypassed
+gated on the 43-minute full suite will be bypassed within a day, and a bypassed
 queue is worse than no queue because it also carries the illusion of a gate.
 
 **Published budget: 180 s** from "my candidate is at the head of the queue" to
@@ -141,7 +141,7 @@ p90 gate of 60 s:
 
 **So batching is not an optimisation here; it is the difference between a queue that
 works at 100 agents and one that does not.** It is the industry merge-train pattern
-and we adopted it for exactly that reason.
+and this repository adopted it for exactly that reason.
 
 The cost of batching is **mis-attribution** — a failing batch does not say which
 candidate failed — and that is paid off by **bisection** (`integrate_batch`): split
@@ -203,7 +203,7 @@ queue that treats "merged cleanly" as "merged safely" has confused the two.
 The concern raised was concrete: `main` carries the D-WD-1 fix that removed an
 engine round-trip (`resolve_placement`) from the identity minter; **22 of 25
 unmerged branch tips still contain that line**, and most merge without conflict — so
-landing them would silently re-arm an engine dependency on the authentication path.
+landing them will silently re-arm an engine dependency on the authentication path.
 
 Measured directly, by materialising **all 23 mergeable candidates** and reading the
 file off disk in each merged tree:
@@ -255,8 +255,8 @@ already has, so the fix line is *at* the merge base — never "added since". Con
 on `branchB` above: it reports nothing.
 
 The second predicate does catch it, but it is definitionally "every line this branch
-deletes". Firing on 17 of 23 real candidates with a 667-line worst case is a gate
-lanes would learn to scroll past inside a day — the exact `D-OP-4` / `D-KCI-6`
+removes". Firing on 17 of 23 real candidates with a 667-line worst case is a gate
+lanes will learn to scroll past inside a day — the exact `D-OP-4` / `D-KCI-6`
 failure this design is built to avoid. A file-deletion arm fared no better: its one
 finding across 23 candidates (`tests/test_backend_tiered_migration.py` on
 `fix/otr4-heterogeneous-tail`) was a **false positive** — a deliberate test-file move
@@ -281,7 +281,7 @@ Two design choices make this generalize rather than special-case D-WD-1:
   `merge_queue.py`. A candidate that *adds* a contract has that contract enforced
   against itself in the same gate run.
 * **Compared against the base.** A candidate whose merged tree has *fewer* contracts
-  than the base is refused: deleting the check that guards an invariant is not a way
+  than the base is refused: removing the check that guards an invariant is not a way
   to satisfy it. A repository that genuinely has none passes, and says so — "nothing
   found" and "everything passed" must not share a value, but neither may an honest
   absence be treated as a fault.
@@ -313,7 +313,7 @@ in the gate: `check_current_only_contract.py` (~490 retired-surface references),
 `check_context_compiler_boundary.py` (23 raw-`Agent`-construction sites),
 `check_native_change_envelope_boundary.py` (1 legacy direct-write seam). Judging
 every discovered script by exit code alone — the original shape of this step —
-would refuse **every** candidate the moment discovery widened, recreating the exact
+will refuse **every** candidate the moment discovery widened, recreating the exact
 absolute-green deadlock this document's differential-test section already escaped.
 `compute_contract_baseline` (mirroring `compute_test_baseline` below) now diffs
 each non-clean script's *output lines* against the same script's output on
@@ -377,11 +377,11 @@ individual failing-test-id.
   because it is not on a candidate's critical path once its cache is warm.
   Pure content-hash keying (hash the selected files' bytes, drop `base_sha`
   from the key entirely) was considered and rejected: most merges touch
-  source files the selected tests import, so a content-only key would reuse a
+  source files the selected tests import, so a content-only key will reuse a
   baseline computed against a different, stale tree — violating "never permit
   a failure that isn't provably present on the base ref." Only a *readable*
   result is ever cached: an unreadable run may be a transient fluke, and
-  caching that would turn one bad run into a standing refusal.
+  caching that will turn one bad run into a standing refusal.
 * **Measured cost.** Against this repo's own real, pre-existing red
   (`tests/integration/knowledge_graph/test_engine_helpers.py` +
   `test_knowledge_tools.py`, 30 failing / 1 passing on `main` at the time of
@@ -414,7 +414,7 @@ Three deliberate scoping decisions:
 * **module-level only.** A method named `run` on two different classes is not a
   duplicate; a module-level `class Fragment` defined twice is.
 * **added, not present.** A name already on `main` is shared ancestry, not a
-  collision. Reporting it would bury the signal.
+  collision. Reporting it will bury the signal.
 * **a file that does not parse contributes nothing** — but that is not a fail-open
   read, because import-smoke and the targeted tests report a syntax error loudly,
   with a usable traceback. This check declines to guess where a better-placed check
@@ -427,14 +427,14 @@ to 79 again. The prune is **delegated to repository-manager's guarded prune**
 (`CONCEPT:RM-PRUNE-GUARD`) and is not re-implemented here, because that
 implementation already gets three things right that a naive prune does not:
 
-* `refs/lane-backup/<branch>` is anchored **immediately before** the delete — one
+* `refs/lane-backup/<branch>` is anchored **immediately before** the remove — one
   ref write, taken at the moment of deletion, so it cannot go stale the way an
   anchor laid down at lane start does;
-* `git merge-base --is-ancestor` is re-asked **at delete time**, not trusted from an
+* `git merge-base --is-ancestor` is re-asked **at remove time**, not trusted from an
   earlier scan;
 * deletion goes through **`git branch -d`, never `-D`**, so git re-decides
-  reachability under its own ref lock, atomically with the delete. Correctness comes
-  from git's refusal, not from our scan agreeing with itself.
+  reachability under its own ref lock, atomically with the remove. Correctness comes
+  from git's refusal, not from this repository's scan agreeing with itself.
 * occupancy is read from the lane protocol (merge in progress, uncommitted work, a
   live lease), and `merged` requires `behind > 0` — a worktree sitting exactly at
   base is the **start** of a lane, not the end of one, and is classified `active`.
@@ -464,7 +464,7 @@ not "merge deploys"; it is worse:
 
 At one merge a day that is survivable. At a hundred agents merging continuously it
 is not, and it is why a finished fix currently sits blocked on an operator decision:
-merging it would also ship it.
+merging it will also ship it.
 
 **The decoupling.** Point `au-src` at a checkout of `refs/heads/deployed` instead of
 the canonical `main` tree:
@@ -514,12 +514,12 @@ competent actors with the rule in front of them.** These are structural.
 
 | Previously a documented rule | Now |
 |---|---|
-| "resolve conflicts on your branch, never against the shared `main` tree" | **No code path checks a candidate out in the canonical tree.** The merge is built from objects; `land()` is `--ff-only`. There is nothing to resolve there. |
+| "resolve conflicts on the operator's branch, never against the shared `main` tree" | **No code path checks a candidate out in the canonical tree.** The merge is built from objects; `land()` is `--ff-only`. There is nothing to resolve there. |
 | "don't leave a reconciliation on a detached HEAD" | **There is no detached HEAD.** Trial commits are objects reachable from their branch until `main` fast-forwards; a crash strands nothing. |
-| "run the tests before you merge" | The tests run **in a worktree checked out at the merge commit**. The branch tree is never the thing tested — you cannot accidentally test the wrong tree. |
+| "run the tests before the operator merge" | The tests run **in a worktree checked out at the merge commit**. The branch tree is never the thing tested — the operator cannot accidentally test the wrong tree. |
 | "only one merge into `main` at a time" | The `reconciliation-merge` lease. A second runner gets **exit 75**. |
 | "don't clobber another lane's queue entry" | Two lanes write **two different files**. There is no shared mutable queue file to clobber. |
-| "never `git branch -D` a lane's branch" | Prune delegates to `branch -d` + an anchor ref taken at delete time. `-D` is not reachable from this path. |
+| "never `git branch -D` a lane's branch" | Prune delegates to `branch -d` + an anchor ref taken at remove time. `-D` is not reachable from this path. |
 | "don't merge into a dirty canonical tree" | `guarded_tree_mutation` refuses, the candidates stay queued, and the runner defers. |
 
 **Still discouraged, not impossible — stated plainly:**
@@ -552,9 +552,9 @@ agent-utilities merge-queue promotion          # how far `deployed` lags `main`
 
 Exit codes match `lane lease`: **75** = the lease is held, defer and do not proceed;
 **1** = a candidate was rejected, with the failing checks in the JSON. Enqueue is
-deliberately non-blocking and verifies **nothing** — verification happens once, at
-the head of the queue, against the `main` that actually exists then. Verifying at
-enqueue time would re-create the stale-premise problem the whole design exists to
+deliberately non-blocking and checks **nothing** — verification happens once, at
+the head of the queue, against the `main` that actually exists then. Checking at
+enqueue time will re-create the stale-premise problem the whole design exists to
 kill.
 
 ## Source liveness and unresolved expiry
@@ -564,7 +564,7 @@ commit's alternate index. The native push adapter checks every outgoing ref from
 release tags already reachable on the remote, before delegating unchanged to
 pre-commit. Bootstrap installs this adapter into pre-commit's generated hook;
 re-run normal bootstrap to update an existing installation. The queue checks the materialized merged commit.
-Each invokes `scripts/check_liveness_source.py` against freshly verified remote
+Each invokes `scripts/check_liveness_source.py` against freshly checked remote
 `main`; missing objects, missing push metadata, analyzer failure, a moving main,
 or a date rollover fail closed. Fetch and rebase before retrying stale evidence.
 

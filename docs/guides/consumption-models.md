@@ -2,20 +2,20 @@
 
 agent-utilities can be consumed four ways. They all reach the same GraphOS
 execution surface and authoritative `epistemic-graph` engine, so capabilities
-are identical — you're choosing the client transport and process boundary. The
+are identical — the operator're choosing the client transport and process boundary. The
 Rust engine remains out of process over its authenticated local or remote wire
 transport; none of these modes embeds it in Python.
 
 | Model | Entry point | Process boundary | Best for | Trade-off |
 |---|---|---|---|---|
-| **Library** | `from agent_utilities import create_agent` | In-process (yours) | Building a standalone agent/app in Python | You own the process lifecycle |
+| **Library** | `from agent_utilities import create_agent` | In-process (the operator's) | Building a standalone agent/app in Python | The operator own the process lifecycle |
 | **MCP — stdio** | `graph-os` | Subprocess of the client | Claude Code, Cursor, IDE agents (single-user, spawns its own graph-os) | One client per process; subprocess overhead |
-| **MCP — streamable-http** | `graph-os --transport streamable-http` | Standalone server | Remote/containerized agents; many clients | Network + auth to manage |
+| **MCP — streamable-http** | `graph-os --transport streamable-http` | Standalone server | Remote/containerized agents; multiple clients | Network + auth to manage |
 | **REST gateway** | `python -m agent_utilities` (`PORT`, default `:9000`) | Standalone server | UIs, scripts, non-MCP HTTP clients; one shared KG host | HTTP API rather than MCP discovery; remote binds require identity and TLS |
 
 ## 1. Library (standalone agent)
 
-Direct, lowest-latency, full graph access. You manage the process.
+Direct, lowest-latency, full graph access. The operator manage the process.
 
 ```python
 from agent_utilities import create_agent
@@ -25,11 +25,11 @@ result = await agent.run("Summarize the latest changes in the codebase")
 print(result.content)
 ```
 
-When to use: you're writing the agent/app yourself and want direct calls.
+When to use: the operator're writing the agent/app the operator and want direct calls.
 
 ## 2. MCP over stdio
 
-Give an *existing* agent (Claude Code, Cursor, your own MCP client) the full KG
+Give an *existing* agent (Claude Code, Cursor, the operator's own MCP client) the full KG
 tool surface. The client spawns `graph-os` as a subprocess.
 
 ```json
@@ -82,7 +82,7 @@ non-loopback address. See [Day-0](day0.md).
 A FastAPI gateway exposing every tool as a REST route (`/api/graph/*`,
 `/api/sessions`, `/api/goals`, `/api/ontology/*`, `/api/fleet/*`,
 `/api/dashboard/*`, plus Prometheus `/metrics`). It also runs the single
-consolidated KG host daemon, so many `KG_DAEMON_ROLE=client` processes share
+consolidated KG host daemon, so multiple `KG_DAEMON_ROLE=client` processes share
 one engine without file-lock contention. (`graph-os-daemon` is a separate
 headless console script — it holds the host lock and drains the task queue but
 serves **no** HTTP.)
@@ -119,7 +119,7 @@ second fleet-gateway process.
 The two MCP transports above are just two ways onto the **one** graph-os:
 
 - **Shared instance (streamable-http):** `https://graph-os.example.test/mcp` — one
-  long-lived, JWT-gated gateway that many deployed clients share.
+  long-lived, JWT-gated gateway that multiple deployed clients share.
 - **Single-user (stdio):** each interactive client (Claude Code, opencode, an
   agent) spawns its **own** local `graph-os` process. This is the standard for
   interactive tools. A tiny packaged-local instance uses the neutral ephemeral

@@ -32,7 +32,7 @@ and what remains open.
 | 3 | `fix/green-slice-7` | Write-time per-call-site registration: explicit `classify_node(INTERNAL, data_owner=...)` in `_persist_goal`, and a `_classify_mcp_node()` helper (`PUBLIC`) in `ingest_mcp_server`. Its own deferred item (D-GS27-5) flags this as narrow and not swept. | Not yet on `main`. |
 | 4 | `fix/green-slice-3`'s D-GS3-2 | Names a second split-store variant: nodes whose write only reaches `_upsert_node` (backend) and never `graph_compute` (`delete_memory`, `ingest_mcp_server`, `ingest_a2a_agent_card`, `ingest_agent_skill`). | Resolved as a side effect of #2 (see below) — the read side no longer depends on `graph_compute` having a copy at all. |
 
-**Verifying claim #2 vs #1**: they are complementary, not competing, and the
+**Checking claim #2 vs #1**: they are complementary, not competing, and the
 branch author's framing is correct. #2 fixes "an ACL exists but the hydrator
 read the wrong store to find it" (a node the write path already wrote
 `external_access`/`classification` onto, in the durable backend, was
@@ -64,7 +64,7 @@ This is deliberately **not** a single-layer fix:
   entire agent_utilities production tree... A systemic fix belongs in
   BrainGuardedBackend's write guard... or IntelligenceGraphEngine.add_node
   itself."* Per-call-site classification remains the *right* tool for the
-  handful of cases where the call site has semantic knowledge a bare node
+  a small number of cases where the call site has semantic knowledge a bare node
   label cannot express (see Classification Policy below) — but as the
   *primary* mechanism it is the wrong shape.
 - **Read-time-only** (à la slice-3's original `_hydrate_missing_acls`
@@ -170,7 +170,7 @@ respect whatever the write-time stamp actually recorded:
    (`sync_access`).
 2. No `external_access`, but a durable `classification`/`_owner_id` (now added
    to the `_durable_access_rows` projection) → classification `PUBLIC`
-   registers regardless of owner; otherwise an owner-present node registers a
+   registers in either case of owner; otherwise an owner-present node registers a
    `NodeACL` with the stamped classification (falling back to `CONFIDENTIAL`
    for legacy data written before this fix, matching slice-3's original,
    narrower intent) and `data_owner=<owner_id>`.
@@ -220,10 +220,10 @@ special-cased classification is `PUBLIC` (unconditional read allow); every
 other classification (`INTERNAL`/`CONFIDENTIAL`/`RESTRICTED`) is functionally
 identical in the current implementation (owner/actor/role gated) except for
 `RESTRICTED`'s `audit_on_access` flag and `inherit_inferred_acl`'s strictness
-ordering. Given that, blanket-assigning `PUBLIC` to fix the defect would be a
+ordering. Given that, blanket-assigning `PUBLIC` to fix the defect will be a
 straightforward tenant-isolation-preserving-but-actor-isolation-breaking data
-exposure vulnerability (every actor in the tenant could read every node), and
-is exactly what the task's "line you must not cross" forbids.
+exposure vulnerability (every actor in the tenant can read every node), and
+is exactly what the task's "line the operator must not cross" forbids.
 
 ## What this does **not** touch (explicitly out of scope)
 
@@ -249,7 +249,7 @@ is exactly what the task's "line you must not cross" forbids.
   `ingest_graph_slice` for the whole connector fleet) stamps `stamp_source`
   (provenance) but neither `stamp_ownership` nor `stamp_classification`.
   Connector-sourced entities largely carry their own `external_access`
-  descriptor stamped at the connector layer (verified: `rest.py`, `ard.py`,
+  descriptor stamped at the connector layer (checked: `rest.py`, `ard.py`,
   `web.py`, `filesystem.py`, `database.py`, `mcp_tool.py`, … all stamp
   `external_access=`), which is the pre-existing, already-working branch of
   `_hydrate_missing_acls` — but `write_batch`'s own docstring says internal,
@@ -266,7 +266,7 @@ is exactly what the task's "line you must not cross" forbids.
 The fallback is gated by the pre-existing tenant check in
 `_hydrate_missing_acls` (`if str(properties.get("tenant_id") or "") !=
 actor.tenant_id: continue`) — unchanged. A node stamped with a different
-tenant's id is never even considered for ACL synthesis, regardless of
+tenant's id is never even considered for ACL synthesis, in either case of
 `classification`/`_owner_id`. See
 `tests/unit/knowledge_graph/test_secured_reads.py::test_owner_fallback_widens_only_the_owner_not_other_tenant_or_other_actor`
 for the proof: the owner gains read access; a same-tenant non-owner and a

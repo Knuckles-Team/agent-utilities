@@ -102,7 +102,7 @@ All synthesis and extraction tasks overlap, bounded by 4 concurrent LLM slots.
 
 | Variable | Default | Description |
 |:---------|:--------|:------------|
-| `KG_LLM_CONCURRENCY` | `4` | Max concurrent LLM calls. Set to match your inference endpoint capacity. |
+| `KG_LLM_CONCURRENCY` | `4` | Max concurrent LLM calls. Set to match the operator's inference endpoint capacity. |
 
 **Note**: All LLM routing (endpoints, credential references, model IDs) is
 validated through AgentConfig. Durable values live in the XDG `config.json`;

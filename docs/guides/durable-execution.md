@@ -109,13 +109,13 @@ The tested MCP v2 gateway is that dual-stack adapter. Its public requests remain
 stateless, and each downstream operation uses a fresh short-lived legacy GraphOS
 MCP session. Discovery and listing use one downstream session. A normal tool call
 uses one session for its authorization-filtered catalog and another for the call.
-A durable dispatch uses three: catalog, dispatch, and the status poll that verifies
+A durable dispatch uses three: catalog, dispatch, and the status poll that checks
 the WorkItem before returning its task handle.
 
 Every session that advertises or calls `graph_jobs` activates exactly that gated
 tool with `load_tools(tools=["graph_jobs"], auto_unload=True)` and confirms it in a
 second `tools/list` on the same session. Calls auto-retract the tool after use;
-list-only and error paths perform an idempotent `unload_tools` before terminating
+list-only and error paths perform an idempotent `unload_tools` before stop
 the session. Empty multiplexer visibility records are pruned, so concurrent
 short-lived sessions neither share visibility nor accumulate process-global state.
 A failed activation or confirmation remains fail-closed: Tasks are not advertised

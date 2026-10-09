@@ -8,7 +8,7 @@
 The framework can fine-tune its own open-weight models end-to-end without leaving
 the ecosystem. The substrate is layered so that everything except the GPU
 fine-tune *runs* is deterministic, CPU-testable, and shippable today; the actual
-runs (Wave D) execute on a deployment-selected accelerator. The design split is
+runs (Wave D) run on a deployment-selected accelerator. The design split is
 "build now, run later".
 
 ```mermaid

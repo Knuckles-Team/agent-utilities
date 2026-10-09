@@ -31,8 +31,8 @@ an idle continuity state.
 | `api_gateway` | request rate, in-flight, p95 latency, error rate | CPU, memory, session slots | stateless or externalized continuity |
 | `query_reader` | request rate, in-flight, p95 latency, error rate | CPU, memory, read-admission slots, engine bytes, fsync IOPS | saturated engine blocks reader growth |
 | `connector_pool` | queue depth, lag, request rate, provider in-flight, p95 latency, errors | CPU, memory, upstream rate | provider-global quota |
-| `media_pool` | queue depth, request rate, GPU utilization, p95 latency | CPU, memory, GPU count, GPU memory | truthful GPU capacity |
-| `rlm_pool` | queue depth, request rate, GPU utilization, active sessions | CPU, memory, GPU count, GPU memory | truthful GPU capacity |
+| `media_pool` | queue depth, request rate, GPU use, p95 latency | CPU, memory, GPU count, GPU memory | truthful GPU capacity |
+| `rlm_pool` | queue depth, request rate, GPU use, active sessions | CPU, memory, GPU count, GPU memory | truthful GPU capacity |
 
 Profiles constrain the vocabulary. A contract may add a bounded local signal or
 capacity axis only when the profile already permits it; it cannot silently use

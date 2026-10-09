@@ -30,7 +30,7 @@ tenant  →  named graph  →  HRW (rendezvous hash)  →  shard endpoint
 
 | Flag (on `AgentConfig`) | Default | Meaning |
 |---|---|---|
-| `GRAPH_SERVICE_ENDPOINTS` | unset | Comma-separated or JSON list of authenticated coordinator/bootstrap contacts (`unix://` / `tcp://` / `tls://`). Unset or one entry = today's single-engine behaviour (zero-infra preserved); 2+ entries enable sharding. Contacts are not placed-group authority: authenticated `ClusterMembers` supplies the current group endpoint, leader, epoch, and certificate metadata. |
+| `GRAPH_SERVICE_ENDPOINTS` | unset | Comma-separated or JSON list of authenticated coordinator/bootstrap contacts (`unix://` / `tcp://` / `tls://`). Unset or one entry = today's single-engine behaviour (zero-infra preserved); 2+ entries enable sharding. Contacts are not placed-group authority: authenticated `ClusterMembers` provides the current group endpoint, leader, epoch, and certificate metadata. |
 | `GRAPH_CLUSTER_ID` | unset | Optional pinned `sha256:<digest>` cluster identity. When unset, the first authenticated `ClusterMembers` response binds the process-local cache; a restart must rediscover. |
 | `GRAPH_CLUSTER_DISCOVERY_MAX_AGE_S` / `GRAPH_CLUSTER_DISCOVERY_CLOCK_SKEW_S` | `30` / `5` | Bounds for last-good member discovery and certificate validity. Expired, stale, or context-incompatible snapshots fail closed. |
 | `GRAPH_DRAIN_TIMEOUT_S` | `15` | Bounded wait for active GraphOS/MCP calls during process or pod drain; timeout never claims continuity. |
@@ -57,7 +57,7 @@ remains parseable only for migration and configuration audit.
   mode an unreachable remote (`tcp://`) shard is a **fail-loud `ConnectionError`**
   naming the shard, the graph it owns, and the remediation — the same
   hard-contract convention as the CONCEPT:AU-KG.backend.selectable-queue-backend task queue. Auto-starting a
-  local stand-in would silently split that shard's graphs into invisible
+  local stand-in will silently split that shard's graphs into invisible
   islands.
 - **The flock host role is per-host.** `host_lock.py` elects ONE daemon owner
   per host for the *local* engine; remote shards are reported by the status
@@ -98,7 +98,7 @@ today's behavior.
 
 HRW keeps key movement minimal when a shard is added or removed (~1/N of
 graphs change owner), but **no data moves automatically**. A graph whose HRW
-winner changed re-creates **empty** on its new shard until you migrate it
+winner changed re-creates **empty** on its new shard until the operator migrate it
 manually with the existing snapshot tooling:
 
 1. quiesce writers for that graph;
@@ -106,7 +106,7 @@ manually with the existing snapshot tooling:
    `GraphComputeEngine.to_msgpack()`, or copy its `--persist-dir` checkpoint);
 3. import on the new shard (`from_msgpack`) **after** the endpoint list
    changed everywhere;
-4. delete the stale copy from the old shard.
+4. remove the stale copy from the old shard.
 
 Durable mirrors (e.g. pg-age) are unaffected — they are not partitioned by this
 mechanism.
@@ -128,7 +128,7 @@ mechanism.
     split per shard;
   - the existing `agent_utilities_gateway_engine_breaker_state{endpoint}` is
     already per-endpoint, so each shard gets its own circuit breaker for free.
-- Each engine process can additionally expose its own native metrics with
+- Each engine process can also expose its own native metrics with
   `--metrics-addr` (`epistemic_graph_*` series, one scrape target per shard).
 
 ## Worked example — 3 shards on one host
@@ -150,7 +150,7 @@ done
 export GRAPH_SERVICE_ENDPOINTS="tcp://127.0.0.1:9101,tcp://127.0.0.1:9102,tcp://127.0.0.1:9103"
 ```
 
-Multi-host is the same picture with one engine (or a few, on big hosts) per
+Multi-host is the same picture with one engine (or a small number of, on big hosts) per
 machine and hostnames in the endpoint list. Capacity planning for shard
 counts lives in [`docs/scaling/capacity_model.md`](../scaling/capacity_model.md)
 (`RESIDENTS_PER_ENGINE_SHARD`).

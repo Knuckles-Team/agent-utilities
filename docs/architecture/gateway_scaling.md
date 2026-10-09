@@ -24,14 +24,14 @@ GATEWAY_WORKERS=N   (N>1)      pre-forked worker pool on ONE shared listen socke
 ```
 
 With `GATEWAY_WORKERS>1`, `_run_agent_server` binds the listen socket once,
-then forks **before building the app**, so every worker constructs its own
+then forks **before building the app**, so every worker builds its own
 FastAPI app, engine client connections and daemon role. The parent is worker 0
 and reaps the children when its server exits. (uvicorn's own `workers=` flag
 requires an import-string app, which the dynamically-built gateway app cannot
 provide — hence the explicit pre-fork.) The flag is ignored under pytest and
 with the terminal UI.
 
-You can equally scale with **N container replicas** (each `GATEWAY_WORKERS=1`)
+The operator can equally scale with **N container replicas** (each `GATEWAY_WORKERS=1`)
 behind a load balancer — every statement below about "per-process" state
 applies the same way.
 

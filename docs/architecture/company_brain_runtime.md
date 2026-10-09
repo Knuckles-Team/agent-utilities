@@ -15,7 +15,7 @@ runtime activates all of it as a mandatory graph contract.
 ## The enforcement boundary
 
 Trust, permission, tenant enforcement, provenance, and conflict logging are
-always active. A graph operation without verified actor/session authority, a
+always active. A graph operation without checked actor/session authority, a
 tenant, an explicit ACL, or its authorization infrastructure fails closed.
 
 | Concern | Current contract |
@@ -23,7 +23,7 @@ tenant, an explicit ACL, or its authorization infrastructure fails closed.
 | `create_backend()` | wrapped in `BrainGuardedBackend` |
 | Writes | provenance + source-authority arbitration |
 | Reads (`facade.designate`/`query`) | ACL filter + tenant scope + mandatory audit |
-| Identity | verified per-call `ActorContext` and immutable `GraphSession` |
+| Identity | checked per-call `ActorContext` and immutable `GraphSession` |
 
 ## Components
 
@@ -80,7 +80,7 @@ implemented on the epistemic-graph engine authority, also used by the fanout bac
 each attribute is kept from its highest-authority writer, so a low-authority
 source can still contribute *new* attributes without clobbering a high-authority
 source's fields. The full reconciled record is written back, so the result is
-correct regardless of the backend's merge-vs-replace semantics.
+correct in either case of the backend's merge-vs-replace semantics.
 
 **Durable, restart-proof provenance.** Each node carries its own per-attribute
 provenance as a reserved `_field_prov` property — a JSON map
@@ -104,7 +104,7 @@ via `KG_TRUST_HIERARCHY` / `config.json`.
 mandatory for RESTRICTED). `owl_bridge` propagates the **most-restrictive** parent
 classification onto inferred facts so reasoning can't leak a RESTRICTED node.
 MCP and REST callers inherit identity, tenant, scopes, audience, and policy
-revision from the verified ambient `GraphSession`; payload authority fields are
+revision from the checked ambient `GraphSession`; payload authority fields are
 rejected.
 
 ### Layer 5/6 — Feedback → rule → eval
@@ -170,4 +170,4 @@ export KG_TRUST_HIERARCHY='[...]'  # optional: override source authority (JSON)
 ```
 Callers authenticate with a Bearer token (or the stdio process token). Tool
 access remains governed by Eunomia; the Company Brain adds **data** access
-control on top of the same verified session.
+control on top of the same checked session.

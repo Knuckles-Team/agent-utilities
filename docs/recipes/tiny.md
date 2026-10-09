@@ -12,8 +12,8 @@ is packaged with the installation and supervised by GraphOS as an
 **out-of-process child** over a private local transport. The reference-counted
 engine is shared by local clients and stops after the last client has been idle
 for the configured interval. There are **no mirror databases** (Postgres/pg-age, Neo4j,
-FalkorDB, Ladybug are optional write-only fan-out targets you do not configure
-here). The only thing you need is a model provider configured with a runtime
+FalkorDB, Ladybug are optional write-only fan-out targets the operator do not configure
+here). The only thing the operator need is a model provider configured with a runtime
 credential reference or an approved local inference endpoint.
 
 > **Topology:** genesis names this shape `engine_topology: unified-in-process` — the
@@ -105,13 +105,13 @@ setup-config codex
 The IDE launches exactly the stdio boundary certified above. Standalone library,
 daemon, REST, and network MCP processes are outside that exception and require
 external process authority. Run `agent-utilities-doctor` after launch; `--live`
-additionally performs bounded Langfuse and native optimizer probes when those
+also performs bounded Langfuse and native optimizer probes when those
 capabilities are configured.
 
 ## When to graduate
 
 The packaged engine is already durable across restarts of *its own process*. The
-moment you want the engine to run independently of any one agent process, or to
+moment the operator want the engine to run independently of any one agent process, or to
 share it across containers/hosts, move to
 [Single-node prod](single-node-prod.md) — there the same engine runs as its own
 container; [enterprise](enterprise.md) points everything at a shared/remote

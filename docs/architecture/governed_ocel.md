@@ -10,7 +10,7 @@ the format page's five scalar types and its numeric minimal example (the
 published schema currently describes attribute values as strings).
 The existing MCP tool and its `POST /api/mining/process` REST twin share the
 same action core. `ocel_mode="validate"` validates and normalizes a document
-and never writes. The default `mine` mode additionally requires a disclosed
+and never writes. The default `mine` mode also requires a disclosed
 [`ProcessPerspective`](#classical-flattening-is-always-a-disclosed-perspective),
 projects that case notion into the native process-mining engine, and **commits
 the OCEL source truth PLUS that perspective as one tenant-scoped `ChangeEnvelope`**

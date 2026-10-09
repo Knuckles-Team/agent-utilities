@@ -1,6 +1,6 @@
 # LeanIX ⇄ Knowledge Graph Integration (CONCEPT:AU-KG.ingest.enterprise-source-extractor)
 
-Mirror SAP LeanIX (your Enterprise Architecture system-of-record) **natively** into
+Mirror SAP LeanIX (the operator's Enterprise Architecture system-of-record) **natively** into
 the agent-utilities OWL/RDF knowledge graph, keep it in sync with bite-sized deltas,
 and backfeed KG-derived knowledge back into LeanIX.
 
@@ -12,7 +12,7 @@ duplicating it.
 
 ---
 
-## What you get
+## What the operator get
 
 | Capability | How | Surface |
 |---|---|---|
@@ -42,7 +42,7 @@ value into the supervised process:
 LEANIX_TOKEN="$(secret-controller read leanix/primary-token)" graph-os
 ```
 
-- `LEANIX_URL` — your LeanIX base (the token is exchanged for a bearer at
+- `LEANIX_URL` — the operator's LeanIX base (the token is exchanged for a bearer at
   `/services/mtm/v1/oauth2/token`).
 - `LEANIX_TOKEN` (alias `LEANIX_API_TOKEN`) — a runtime-only LeanIX
   **technical-user API token**; AgentConfig rejects it from durable JSON.
@@ -50,7 +50,7 @@ LEANIX_TOKEN="$(secret-controller read leanix/primary-token)" graph-os
 - `LEANIX_ENABLE_WRITE` — **fail-closed gate for backfeed**. Leave `false`; live
   write-back refuses unless it is `true`.
 
-Verify resolution:
+Check resolution:
 
 ```python
 from agent_utilities.ecosystem.ea_clients import get_leanix_client
@@ -156,7 +156,7 @@ graph-os call graph_writeback '{"target": "leanix", "inferences_json": "[...]", 
 |---|---|---|
 | `get_leanix_client()` returns `None` | `LEANIX_URL`/`LEANIX_TOKEN` unset | Persist the URL in AgentConfig and inject the token at process start; confirm with §1. |
 | `ontology_leanix_sync` → `{"status":"skipped","reason":"empty LeanIX metamodel..."}` | unreachable host / bad token / TLS trust | Check `LEANIX_URL` reachability; re-mint the API token; install the complete CA chain and point `REQUESTS_CA_BUNDLE`/`SSL_CERT_FILE` at its PEM bundle. Keep verification enabled. |
-| `source_sync source=leanix` returns 0 nodes | token lacks read scope, or empty watermark mismatch | Run `mode=full` once; verify the technical user can read fact sheets in LeanIX. |
+| `source_sync source=leanix` returns 0 nodes | token lacks read scope, or empty watermark mismatch | Run `mode=full` once; check the technical user can read fact sheets in LeanIX. |
 | Generated types not reasoned over | `ontology_leanix_sync` never applied (still the 4-class bootstrap), or owl_bridge built before sync | Run `ontology_leanix_sync dry_run=false`; restart the engine/daemon so a fresh `OWLBridge` picks up the dynamic promotable set. |
 | Relations missing in the KG | relation fields not in the metamodel, or unusual envelope | Confirm the relation appears in `client.meta_model()`; the extractor walks every `rel*` field tolerantly — file the envelope shape if a custom one is dropped. |
 | Delta keeps re-pulling everything | LeanIX `updatedAt` not monotonic, or watermark node not persisted | Check the `LeanixSyncState` node exists and `backend.execute` works; LeanIX has no reliable server-side time filter, so the watermark filters client-side — a missing `updatedAt` field on fact sheets disables it (falls back to full pulls, still correct). |

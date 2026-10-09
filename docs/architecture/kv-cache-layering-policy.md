@@ -124,7 +124,7 @@ env-sprawl):
 This page covers the **store-side, per-request** decision (write this request's
 KV blocks into LMCache, or don't). Two related capabilities build on the SAME
 underlying `EpistemicGraphKVBackend`/engine KV surface but answer a different
-question — not "should I store", but "can several branches/agents **share** what
+question — not "should I store", but "can multiple branches/agents **share** what
 was already stored" and "can I **snapshot and later reload** a KV state":
 
 - **Default-on zero-copy fork for branch fan-out** — `CrossModalForkFanout.fan_out`

@@ -3,7 +3,7 @@
 `CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation` · W2.1 / ADR-4
 
 Every delegated or spawned agent used to run as **one fixed service account** — the graph
-could not tell which human or service ultimately caused a write, and a spawn inherited far more
+can not tell which human or service ultimately caused a write, and a spawn inherited far more
 authority than its caller. Three delegation primitives already existed but were **disconnected**:
 
 1. **RFC 8693 token exchange** (`agent_utilities/mcp/delegated_auth.py`) — never invoked for spawns.
@@ -63,9 +63,9 @@ flips `warn` → `on` after a clean soak with no code change.
 | `warn` | legacy (empty) | **logged, not enforced** | ephemeral OK (never fails startup) | logged, still renews | stamped |
 | `on` | `[principal,…,agent]` | **enforced (fail-closed)** | **required — startup fails without it** | **enforced (renewal fails on expiry)** | stamped |
 
-`warn` computes the whole pipeline and logs every decision that *would* change — denied tools, the
-chain, a would-be-failed renewal — while legacy identity stays in force. Every identity decision
-(including a `warn`-mode "would deny") is a first-class log line.
+`warn` computes the whole pipeline and logs every decision that *will* change — denied tools, the
+chain, a will-be-failed renewal — while legacy identity stays in force. Every identity decision
+(including a `warn`-mode "will deny") is a first-class log line.
 
 ## Configuration
 

@@ -1,6 +1,6 @@
 # Universal Enterprise Entities (CONCEPT:AU-KG.research.research-pipeline-runner)
 
-> The entities that **every** 100,000+ employee enterprise needs, regardless of sector. These form the cross-domain foundation of the Company Brain.
+> The entities that **every** 100,000+ employee enterprise needs, in either case of sector. These form the cross-domain foundation of the Company Brain.
 
 ---
 
@@ -10,7 +10,7 @@ While the Knowledge Graph already models agents, tools, skills, and domain-speci
 
 All entities align to the **BFO upper ontology (ISO 21838-2)** and map to established industry standards.
 
-> **Implementation status (verify against code):** Section 1 (Human Capital & Workforce)
+> **Implementation status (check against code):** Section 1 (Human Capital & Workforce)
 > is implemented in `agent_utilities/knowledge_graph/ontology_hr.ttl` (the `:Employee`,
 > `:Department`, `:PositionRole`, `:Competency`, `:Credential`, `:PerformanceReview`,
 > `:CompensationBand`, `:OKR`, `:HiringPipeline` classes and the `reportsTo`,

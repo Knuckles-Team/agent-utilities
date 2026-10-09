@@ -76,7 +76,7 @@ versioned-artifact contract this repo already uses for skills and specs
 engine-optional pattern `TopologyEngine` already uses for team-composition topologies (an
 `add_node` at registration, an EMA `reward` update after each run) — reused, not duplicated.
 Checkpoint (memento) semantics are uniform across all six: `ReasoningState.to_memento()` /
-`from_memento()` serializes the whole run, so a budget-halted run resumes exactly where it
+`from_memento()` serializes the whole run, so a budget-stopped run resumes exactly where it
 stopped rather than losing partial progress.
 
 ## RAP: real backpropagation, not an approximation

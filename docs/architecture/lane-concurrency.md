@@ -1,12 +1,12 @@
 # Lane concurrency — four arbitration classes
 
-Many agent sessions and many humans work these repos at the same time. A **lane**
-is one worker in one git worktree on one branch. Every collision we have actually
+Multiple agent sessions and multiple humans work these repos at the same time. A **lane**
+is one worker in one git worktree on one branch. Every collision this repository have actually
 suffered has one shape:
 
 > **A background or global actor mutates state a lane assumed it owned.**
 
-Every rule that would have prevented those collisions was already written down
+Every rule that will have prevented those collisions was already written down
 when it was broken — **eleven documented violations in a single day**, by
 competent, honest actors who had the rule in front of them. So this design does not add
 rules. It classifies each shared resource into one of four classes and gives each
@@ -47,9 +47,9 @@ directory is the only location that is simultaneously:
    clobbered, and `git status` never reports it.
 
 Resources that no single repository owns — the shared `.venv` and `uv.lock`,
-contended by ~26 worktrees across several repos — declare `scope: workspace` and
-arbitrate in a host-wide state directory instead. A per-repo lease would simply
-fail to exclude the actor that collides with you.
+contended by ~26 worktrees across multiple repos — declare `scope: workspace` and
+arbitrate in a host-wide state directory instead. A per-repo lease will simply
+fail to exclude the actor that collides with the operator.
 
 ## The classification
 
@@ -59,22 +59,22 @@ fail to exclude the actor that collides with you.
 | pytest tmp | PARTITION | repo | ~28 concurrent pytest runs skewed a baseline into a near-false regression; bounded-fanout `tmp_path` avoids quadratic directory enumeration |
 | `refs/stash` | PARTITION | repo | One ref shared by 38 worktrees; six collisions + four reflexive violations in a day |
 | lane scratch | PARTITION | repo | Lanes overwrote each other's intermediate state |
-| concept reservations | APPEND-ONLY | repo | A mutable shared ledger rewritten whole-file by many sessions |
+| concept reservations | APPEND-ONLY | repo | A mutable shared ledger rewritten whole-file by multiple sessions |
 | deferred register | APPEND-ONLY | repo | 63 lane files + 3 program docs, no single authority |
-| `.venv` / `uv.lock` | LEASE | **workspace** | A bare `uv sync` would uninstall all 555 packages; 10 days of silent rot |
+| `.venv` / `uv.lock` | LEASE | **workspace** | A bare `uv sync` will uninstall all 555 packages; 10 days of silent rot |
 | `pre-commit --all-files` | LEASE | repo | Can destroy unstaged work (D-OB-12) |
 | reconciliation merge | LEASE | repo | 26 commits stranded on a detached HEAD with no ref |
 | canonical mutation | LEASE | repo | `git checkout` on a dirty canonical tree, no guard at all |
 | epistemic-graph daemon | LEASE | **workspace** | 1,234 `ConnectionRefusedError`s in one lane's log while 3 other runs hammered the same shared engine |
 | `light-check` | LEASE | **workspace/host** | Preserve 32 logical light lanes while heavy work is admitted separately |
-| `cpu-heavy` | LEASE | **workspace/host** | Unknown native capacity could let concurrent CPU-heavy builds overcommit a host |
-| `memory-heavy` | LEASE | **workspace/host** | Stale memory evidence could let concurrent jobs push a host into pressure/OOM |
+| `cpu-heavy` | LEASE | **workspace/host** | Unknown native capacity can let concurrent CPU-heavy builds overcommit a host |
+| `memory-heavy` | LEASE | **workspace/host** | Stale memory evidence can let concurrent jobs push a host into pressure/OOM |
 | `gpu-heavy` | LEASE | **workspace/host** | GPU work must be exclusive and disabled while health is unknown/unhealthy |
 | `global-scanner-build` | LEASE | **workspace/host** | A host-wide scanner/build must not race another global scanner/build |
 | canonical checkout | READ-ONLY | repo | A background actor reset one mid-pre-commit; ~20 minutes lost |
 
 Read it live with `agent-utilities lane classify`. An unregistered resource is a
-hard error, not a default — you must classify a resource before contending for it.
+hard error, not a default — the operator must classify a resource before contending for it.
 
 ### R26 host-scoped admission — bounded leases, not a scheduler
 
@@ -90,7 +90,7 @@ runtime role may carry a measured upper bound, but only one heavy lane is
 enabled initially; a preflight may authorize a higher bound only after durable
 reservations and current PSI/disk evidence exist. A `light-only` role never
 receives heavy admission. A `gpu-guarded` role keeps every heavy class disabled
-until both reboot and NVML verification are supplied. The GPU class additionally
+until both reboot and NVML verification are provided. The GPU class also
 requires host health exactly `healthy`, so an unhealthy or unknown health report
 fails closed. No stale or invented disk capacity is used.
 
@@ -99,7 +99,7 @@ the operator's runtime inventory. The `AGENT_UTILITIES_HOST_INVENTORY`
 environment setting is a JSON object mapping canonical identity keys to abstract
 roles (`heavy`, `light-only`, or `gpu-guarded`), for example
 `{"compute-primary":["heavy"],"gpu-node":["gpu-guarded"]}`. An
-operator-supplied `host_id` must use that same exact allowlist; unknown labels
+operator-provided `host_id` must use that same exact allowlist; unknown labels
 and suffixed names fail closed instead of sharing an `unknown` bucket. New
 leases require a positive TTL no larger than 86,400 seconds. Missing or
 malformed expiry/host evidence is also fail-closed when checking an existing
@@ -161,7 +161,7 @@ agent-utilities lane lease \
 The lease and the wrapper solve **different** problems, and both are required.
 The lease serialises lanes; the wrapper protects unstaged work from the hooks.
 
-Under the hood, `pre-commit run --config .config/pre-commit.yaml --all-files` `git stash`es every **unstaged** change
+Internally, `pre-commit run --config .config/pre-commit.yaml --all-files` `git stash`es every **unstaged** change
 before running hooks and restores it after. When a **file-rewriting** hook
 (`ruff-format`, `turtle-format`, `guardrail-docs-contract --write`, …) touches a path
 that also had unstaged edits, the restore can **silently drop those edits instead of
@@ -172,15 +172,15 @@ the fastmcp-4 migration. It is acutely dangerous here because
 careless `--all-files` run can destroy another session's in-flight reservations.
 
 `python3 scripts/safe_precommit_all_files.py`
-(CONCEPT:AU-OS.governance.precommit-all-files-safety) backs up your full unstaged diff
-before the run, warns if a known shared-ledger file is unstaged going in, and verifies
-afterward that your unstaged changes still apply — pointing at the backup and the exact
+(CONCEPT:AU-OS.governance.precommit-all-files-safety) backs up the operator's full unstaged diff
+before the run, warns if a known shared-ledger file is unstaged going in, and checks
+afterward that the operator's unstaged changes still apply — pointing at the backup and the exact
 `git apply --3way` recovery command if a hook altered or dropped them. A **targeted**
 `pre-commit run --config .config/pre-commit.yaml <hook> --files <paths>` does not carry
-this risk the same way; prefer that narrower form whenever you do not need every hook
+this risk the same way; prefer that narrower form whenever the operator do not need every hook
 re-run.
 
-## PARTITION — supply the affordance, don't just ban the verb
+## PARTITION — provide the affordance, don't just ban the verb
 
 ### Bounded pytest fixture allocation
 
@@ -240,7 +240,7 @@ all:
 * **"Show me the pristine file while mine is dirty"** — the common case. Answer:
   `git show <ref>:<path>`. It mutates nothing and works on a dirty tree. This is
   the first thing to reach for.
-* **"Park my work briefly"** — answer: a scratch commit on your own branch, or
+* **"Park my work briefly"** — answer: a scratch commit on the operator's own branch, or
   `lane park`.
 
 So `lane park` **is** the substitute for the second case. `git stash create` builds exactly the same
@@ -291,7 +291,7 @@ not the same strength:
   isolated target dir automatically, with **no per-lane content, no env var, no
   action after checkout**. A bare `cargo build`/`check`/`test` run from inside any
   worktree simply cannot land in a shared directory — the affordance from
-  *PARTITION — supply the affordance, don't just ban the verb* above, applied to
+  *PARTITION — provide the affordance, don't just ban the verb* above, applied to
   a build tool instead of a git verb. Never clobbers unrelated existing cargo
   config (e.g. a repo's `target-cpu` notes) — refuses unless `--force`, which
   appends rather than overwrites.
@@ -345,7 +345,7 @@ into the calling repo's own environment.
 
 * **`agent-utilities`** — the origin; unaffected (same script, same behavior,
   cwd already equals `REPO` there).
-* **`epistemic-graph` (Rust — a Python-only answer would not fit it otherwise).**
+* **`epistemic-graph` (Rust — a Python-only answer will not fit it otherwise).**
   Wired via the hook above (its `.pre-commit-config.yaml` already resolves
   `AGENT_UTILITIES_ROOT` the same way for `check_stubs.py`/`check_sprawl.py`, so
   this is not a new pattern for that repo) **plus** the cargo PARTITION binding
@@ -373,7 +373,7 @@ produce two different files, which git merges without a conflict and which no
 whole-file rewrite can clobber. Status changes are **new appended records**, not
 edits, so a lane can reconcile a claim another lane wrote without touching that
 lane's file. Folding the existing 51-record ledger immediately collapsed a
-duplicate line that had previously needed hand-verified repair.
+duplicate line that had previously needed hand-checked repair.
 
 Readers are unaffected: they read the same one file they always did. `lane-guard`
 refuses a staged view that is not the fold of the fragments, so hand-editing the
@@ -411,7 +411,7 @@ explicit; the CLI exits **75** so a shell `&&` chain actually stops.
 > and index-mtime instrumentation across every sibling worktree during that
 > attempt found only one correlated change, independently explained by that
 > worktree's own concurrent, legitimate commit — so isolating the hook alone
-> is not sufficient to reproduce; the full multi-hook chain (or a timing
+> is not enough to reproduce; the full multi-hook chain (or a timing
 > window only present there) appears to matter. Do not assume this is
 > D-CDOC-2/D-CDOC-3 until the resolution is proven empirically, not reasoned
 > from a hook's own comments (three unrelated confident hypotheses were
@@ -427,14 +427,14 @@ same single shared local engine daemon (the `GRAPH_SERVICE_ENDPOINTS`
 externally-provided branch of `tests/conftest.py`'s session-engine fixture,
 which reuses a running daemon verbatim instead of spinning an ephemeral one).
 Ten of the eighteen test files that lane had edited showed as failures despite
-having been verified green individually minutes earlier; two other lanes
+having been checked green individually minutes earlier; two other lanes
 independently reported phantom failure counts (167 and 503) that reproduced
 identically against unmodified base code under the same contention. This is
 **not** a PARTITION case like the cargo target dir: `engine_resolver`'s
 share-running-local/autostart-shared-supervised precedence deliberately hands
 ONE daemon to every entrypoint on the host — across every repo's worktrees, not
 just one repo's lanes, the same shape as the shared `.venv` — so splitting it
-per lane would defeat the sharing it exists for. It is classified LEASE,
+per lane will defeat the sharing it exists for. It is classified LEASE,
 `scope: workspace`, and wired into the session-engine fixture itself
 (`_acquire_engine_daemon_lease` in `tests/conftest.py`): the externally-provided
 branch takes the `epistemic-graph-daemon` lease before reusing the daemon and
@@ -467,7 +467,7 @@ set, and every flag-shaped rule here was bypassed:
 
 A sibling lane finished a fix for exactly this hazard and then **declined to merge
 it**, because the canonical checkout held unrelated uncommitted changes and
-merging into a dirty canonical tree would have been the very hazard it fixed. It
+merging into a dirty canonical tree will have been the very hazard it fixed. It
 recorded the deferral instead. That is the protocol working before it was
 ratified — and it is what "defer rather than proceed" looks like in practice.
 

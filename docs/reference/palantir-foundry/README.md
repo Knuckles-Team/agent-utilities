@@ -31,7 +31,7 @@ the implemented system architecture is at
 | [object-backend-overview.md](object-backend-overview.md) | OSv2 storage; Object Data Funnel; Object Set Service (static/dynamic/temp/permanent); search-around; OMS; MDOs. | <https://www.palantir.com/docs/foundry/object-backend/overview/> |
 | [object-permissioning-overview.md](object-permissioning-overview.md) | Two-level authz (schema resources vs object/link data); RV-backed row/col controls; security policies. | <https://www.palantir.com/docs/foundry/object-permissioning/overview/> |
 | [object-indexing-overview.md](object-indexing-overview.md) | Batch vs streaming pipelines; Object Data Funnel; data restrictions; freshness/reindex lifecycle. | <https://www.palantir.com/docs/foundry/object-indexing/overview/> |
-| [object-edits-overview.md](object-edits-overview.md) | Edit = property-set / link add-remove / object create-delete via an Action; landing page (stub) + reconstructed model. | <https://www.palantir.com/docs/foundry/object-edits/overview/> |
+| [object-edits-overview.md](object-edits-overview.md) | Edit = property-set / link add-remove / object create-remove via an Action; landing page (stub) + reconstructed model. | <https://www.palantir.com/docs/foundry/object-edits/overview/> |
 
 ## Capture note
 

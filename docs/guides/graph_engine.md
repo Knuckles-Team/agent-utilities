@@ -122,7 +122,7 @@ For a detailed walkthrough, compose files, and connection examples, see the
 
 Omit both projection settings for the authoritative-engine-only default. The connection
 profile is resolved only when the mirror connects and may contain the endpoint,
-database selector, identity, verified TLS policy, and credentials. AgentConfig and
+database selector, identity, checked TLS policy, and credentials. AgentConfig and
 documentation retain only the neutral alias and reference. Use
 `agent-utilities-doctor` to validate reference resolution, reachability, role, and
 TLS before enabling fan-out.
@@ -139,7 +139,7 @@ references. See [Universal External Graph Connectors](../architecture/universal-
 
 ## Why the engine does it all
 
-A separate storage layer plus a separate compute layer would mean:
+A separate storage layer plus a separate compute layer will mean:
 1. Re-implementing persistence, ACID, vector indexing, and backup outside the engine.
 2. A dual-write / mirror-on-the-hot-path bottleneck that OOMs at enterprise scale.
 3. Read-path dependence on a second system that can be down or stale.

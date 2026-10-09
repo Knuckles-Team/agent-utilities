@@ -43,7 +43,7 @@ runtime receives one fixed argv sequence and writes its archive bytes directly
 to a caller-owned descriptor. Runtime stdout cannot become a second status
 channel, and runtime stderr is never retained or reflected.
 
-Before publication, the exporter verifies all of the following:
+Before publication, the exporter checks all of the following:
 
 - the outer archive contains only canonical directories and regular OCI files;
 - `oci-layout` is version 1.0.0 and `index.json` has exactly one root descriptor;
@@ -68,7 +68,7 @@ container executable, command diagnostics, or filesystem locations.
 
 ## Component evidence input
 
-Pass the verified archive unchanged to the component evidence generator along
+Pass the checked archive unchanged to the component evidence generator along
 with the closed wheelhouse used for the exact image build:
 
 ```sh
@@ -87,7 +87,7 @@ generate-graphos-component-evidence \
   --verify-signature
 ```
 
-The exporter verifies the transport archive and privacy-safe OCI metadata. It
+The exporter checks the transport archive and privacy-safe OCI metadata. It
 is not a replacement for the controlled `agent-local` build, layer-content
 policy, closed-wheelhouse comparison, component signature verification, or
 release assembly. `generate_component_evidence.py` independently reopens the

@@ -86,7 +86,7 @@ flowchart TD
 
 A reader sees: **own** (`_owner_id == me`) ∪ **org/commons-shared**
 (`_shared_scope ∈ {org, commons}`) ∪ **unowned** (legacy/system) ∪ the **commons
-graph**. A verified `admin` is unrestricted by owner/scope visibility, while
+graph**. A checked `admin` is unrestricted by owner/scope visibility, while
 tenant, session, and ACL boundaries remain mandatory.
 
 Verbs (MCP tool `graph_share` / `POST /graph/share`):
@@ -111,13 +111,13 @@ decision rather than a client-lifecycle side effect.
 | Flag | Default | Purpose |
 |---|---|---|
 | `AUTH_JWT_JWKS_URI` / `_ISSUER` / `_AUDIENCE` | — | OIDC identity; **required** for every network transport |
-| `KG_POLICY_VERSION` | — | required immutable policy revision for verified sessions |
-| *(baked-in, no flag)* graph authority | mandatory | verified session + tenant scope + explicit ACL + owner/scope filtering; missing policy infrastructure fails closed |
+| `KG_POLICY_VERSION` | — | required immutable policy revision for checked sessions |
+| *(baked-in, no flag)* graph authority | mandatory | checked session + tenant scope + explicit ACL + owner/scope filtering; missing policy infrastructure fails closed |
 | `KG_AUTH_TOKEN_REF` / `KG_IDENTITY_OAUTH2` | — | exactly one stdio identity source: provisioned-token reference or OAuth2 client credentials |
 | `KG_DEFAULT_GRAPH` | `__bus__` | the commons graph; tenants route to `tenant__<slug>__<this>` |
-| `GRAPH_SERVICE_ENDPOINTS` | one socket | stable authenticated engine coordinator/bootstrap contact; placement is resolved from the engine catalog and verified `ClusterMembers` snapshot |
+| `GRAPH_SERVICE_ENDPOINTS` | one socket | stable authenticated engine coordinator/bootstrap contact; placement is resolved from the engine catalog and checked `ClusterMembers` snapshot |
 | `GRAPH_CLUSTER_ID` / discovery bounds | unset / `30s` / `5s` | optional pinned cluster identity plus last-good/certificate freshness bounds; stale or wrong-context discovery fails closed |
-| `GRAPH_RAFT_GROUP_ENDPOINTS` | `{}` | compatibility/configuration-audit input only; live placed-group routing ignores this map and requires verified `ClusterMembers` authority |
+| `GRAPH_RAFT_GROUP_ENDPOINTS` | `{}` | compatibility/configuration-audit input only; live placed-group routing ignores this map and requires checked `ClusterMembers` authority |
 | `GRAPH_DB_CONNECTION_PROFILE_REF` / `STATE_DB_URI` | — | Secret-backed pg-age mirror profile (apply RLS) / central session, fleet, and queue-delivery support store |
 | `KG_ENGINE_POOL_SIZE` | `8` | bounded LRU warm set for retained graph views; it does not create per-tenant transports |
 | `KG_ENGINE_POOL_DROP_ON_EVICT` | off | unload the tenant graph from the engine on eviction (needs a pg-age mirror) |
@@ -136,5 +136,5 @@ Unit + integration: `tests/unit/knowledge_graph/test_tenant_sharing.py`,
 `test_tenant_engine_pool.py`, `test_tenant_request_isolation.py`,
 `test_fleet_supervisory.py`, `test_postgresql_backend.py`,
 `tests/unit/core/test_request_identity.py`. Live: per-tenant named-graph isolation
-verified against a running engine; Postgres RLS (isolation + commons + admin-bypass
-+ `WITH CHECK`) verified against Postgres 16 with `deploy/postgres/tenant_rls.sql`.
+checked against a running engine; Postgres RLS (isolation + commons + admin-bypass
++ `WITH CHECK`) checked against Postgres 16 with `deploy/postgres/tenant_rls.sql`.

@@ -211,7 +211,7 @@ graph TD
 | KG-2.21 | Working Set Manager | LRU-evicting subgraph cache for the Rust engine authority with 50K node cap |
 | KG-2.22 | Data Science Primitives | Rust-backed OLS / K-means / PCA / estimators (ridge/lasso/RF/GB/SVR) replacing scikit-learn on the hot path, parity-validated |
 | KG-2.7 | Single Company Brain | Extensible operational state layer encompassing Ontology Bridges, Enterprise Architecture Repositories, and Entailment-Aware Permissions |
-| AU-KG.ontology.populated-at-import-real-3 | Remote VCS Enumeration | Enterprise-scale ingestion: enumerate every repository across a GitHub org/user or GitLab instance/groups (keyset / affiliation pagination) into a manifest for bulk workspace onboarding (repository-manager `vcs_enumerator`) |
+| AU-KG.ontology.populated-at-import-real-3 | Remote VCS Enumeration | Enterprise-scale ingestion: list every repository across a GitHub org/user or GitLab instance/groups (keyset / affiliation pagination) into a manifest for bulk workspace onboarding (repository-manager `vcs_enumerator`) |
 | AU-KG.ontology.descriptive-process-world-gains | BPMN Process Lift | Step-level shape for the descriptive process world (Camunda extractor + `owl_bridge`) |
 | AU-KG.ingest.cross-host-safe-kg | Cross-Host Task Queue | Atomic SKIP LOCKED claims + visibility-timeout recovery on the shared Postgres state store |
 | KG-2.55 | Fail-Loud Queue Backend Selection | `TASK_QUEUE_BACKEND=sqlite\|postgres\|kafka`; explicit backends fail loud at startup instead of silently degrading |
@@ -244,7 +244,7 @@ graph TD
 | AU-AHE.optimization.performance-anomaly-consumer | Performance Anomaly Consumer | Turns persisted `PerformanceAnomaly` nodes into evolution topics (`adaptation/anomaly_consumer.py`) |
 | AU-AHE.harness.promotion-governance-validator | Promotion Governance Validator | Governed validation gate every promoted proposal must pass (`research/promotion_governance.py`) |
 | AHE-3.21 | Evolution-to-Branch Bridge | Change synthesis + RLM-sandbox validation + ActionPolicy-gated `ChangePublisher` publishing promoted proposals as reviewable local git branches |
-| AU-AHE.harness.per-task-adaptation-speed | Adaptation-Speed Metric | SAI primary measure — per-task time-to-target + sample-complexity + learning-AUC over a verified-reward curve (`harness/adaptation_speed.py`) |
+| AU-AHE.harness.per-task-adaptation-speed | Adaptation-Speed Metric | SAI primary measure — per-task time-to-target + sample-complexity + learning-AUC over a checked-reward curve (`harness/adaptation_speed.py`) |
 | AU-AHE.harness.sai-task | Specialization Task + Verifier Contract | The `(task, verifier, target, human-baseline)` contract + machine-verifiable `Verifier` protocol every specialization track shares (`harness/sai_task.py`) |
 | AU-AHE.harness.sai-controller | SAI Factory Controller | Closed scaffolding+weights specialization loop steered by adaptation speed, ratchet-gated promotion (`research/sai_factory.py`) |
 | AHE-3.28 | GPU/Compute-Kernel SAI Specialization Verifier | The first concrete machine-verifiable specialization domain — runs untrusted candidate compute-kernel source in a sandboxed separate process against a correctness+speed verifier (`data-science-mcp/kernels/`) |

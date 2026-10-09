@@ -162,11 +162,11 @@ single reachable "service" a `url` + `token` widget can poll:
 | `archimate-mcp` | Local ArchiMate model-authoring engine (no remote API — "Archi has no remote API" per the package's own `api_client.py` docstring); no running service to report status for. |
 | `sql-mcp` | Generic multi-connection SQL client keyed by named connections defined in its own connection registry, not a single `url`/`token` target — no single "service" to dashboard without a config-shape change. |
 | `objectstore-mcp` | Multi-backend abstraction (filesystem/S3/GCS/Azure) selected via backend-specific fields (`endpoint`/`profile`/`region`/`connection_string`/`project`) rather than a single `url`+`token`; the cloud backends also need their own optional SDKs (`boto3`, `google-cloud-storage`, `azure-storage-blob`) that are not `agent-utilities` dependencies. |
-| `salesforce-agent` | Multi-flow OAuth2 (`client_credentials`/`refresh_token`/`jwt_bearer`/`access_token`) resolved through the package's own `SalesforceConfig.from_env()`, not the gateway's `url`+`token` model — would need its own credential-resolution path in `BaseWidget` to do safely. |
+| `salesforce-agent` | Multi-flow OAuth2 (`client_credentials`/`refresh_token`/`jwt_bearer`/`access_token`) resolved through the package's own `SalesforceConfig.from_env()`, not the gateway's `url`+`token` model — will need its own credential-resolution path in `BaseWidget` to do safely. |
 
-All four are legitimate future work, not oversights — each would need either
+All four are legitimate future work, not oversights — each will need either
 a dashboard config-model change (named multi-connection/backend targets) or
-a bespoke credential-resolution path before a widget could report an honest
+a bespoke credential-resolution path before a widget can report an honest
 status.
 
 ## Configuration

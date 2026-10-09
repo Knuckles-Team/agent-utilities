@@ -5,7 +5,7 @@
 
 ## Pipeline stages
 
-1. **Media import & reference extraction** — PDFs uploaded as media sets; a "Get Media References" board retrieves references from media-set datasets, producing structured media-reference objects.
+1. **Media import & reference extraction** — PDFs uploaded as media sets. A "Get Media References" board retrieves references from media-set datasets, producing structured media-reference objects.
 2. **Text extraction** — a "Text Extraction" board converts document content to raw text, enabling semantic operations on previously inaccessible unstructured content.
 
 ## Chunking strategy

@@ -1,6 +1,6 @@
 # Queue-Driven Agent Dispatch
 
-Agent execution is queue-only. A gateway never executes a goal or orchestrator
+Agent execution is queue-only. A gateway never runs a goal or orchestrator
 turn inline and there is no dispatch-backend selector.
 
 ## Authority model
@@ -70,7 +70,7 @@ priority, least-recently-served tenant, least-recently-served fairness group,
 deadline, enqueue time, and id. The schema is current-only; there is no FIFO
 fallback or alternate legacy claim query. Its acknowledgement receipt includes
 the opaque claim owner and timestamp, so a worker whose visibility claim was
-reassigned cannot delete the newer worker's row. Fairness history is pruned when
+reassigned cannot remove the newer worker's row. Fairness history is pruned when
 its tenant/group has no remaining queued work.
 
 ## Delivery invariants
@@ -78,7 +78,7 @@ its tenant/group has no remaining queued work.
 - Queue acknowledgement occurs only after a durable fenced WorkItem commit.
 - Redelivery is expected; deterministic WorkItem/idempotency identifiers make it
   safe.
-- Workers renew leases periodically while executing and synchronously before
+- Workers renew leases periodically while running and synchronously before
   each bounded side effect. Executors receive a `WorkItemLeaseGuard` and must
   route mutations through `lease_guard.side_effect(...)`. A stale worker cannot
   commit after a newer lease epoch has been issued, and a fenced queue delivery
@@ -94,7 +94,7 @@ its tenant/group has no remaining queued work.
 
 - Worker: `agent-dispatch-worker`
 - Enqueue implementation: `agent_utilities/orchestration/agent_dispatch.py`
-- Claim/execute/commit implementation:
+- Claim/run/commit implementation:
   `agent_utilities/orchestration/agent_dispatch_worker.py`
 - Work authority: `agent_utilities/knowledge_graph/core/work_durability.py`
 - Job projection/cancellation: `graph_jobs(action=status|cancel)` and

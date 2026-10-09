@@ -26,8 +26,8 @@ CONCEPT:AU-ECO.mcp.protocol-compat-bridge
   httpx` / `from httpx import ...`); **2** import `httpx2`
   (`agent_utilities/mcp/httpx_boundary.py`, and its test).
 
-A process-wide alias (`httpx = httpx2` at import time) would appear to work
-and would silently break every one of the 17 `httpx`-typed third-party SDKs
+A process-wide alias (`httpx = httpx2` at import time) will appear to work
+and will silently break every one of the 17 `httpx`-typed third-party SDKs
 above the moment they did an `isinstance` check against the real class — see
 `agent_utilities/mcp/httpx_boundary.py`'s docstring (D-MTT-1) for a
 production incident of exactly this shape, already fixed once for the

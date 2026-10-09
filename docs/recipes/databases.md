@@ -8,7 +8,7 @@ engine's own authoritative store.
 > **The short version:** almost all of this already exists in the framework. This
 > recipe wires it together from AgentConfig, runtime secret references, and
 > `graph_configure` calls — there is no separate provisioning CLI: a Postgres
-> instance is stood up by hand (docker compose, or a managed instance you
+> instance is stood up by hand (docker compose, or a managed instance the operator
 > already have), then registered as a mirror connection and reconciled.
 
 External SPARQL triplestore federation (publishing/querying a triplestore like
@@ -17,7 +17,7 @@ Agent Utilities does not push ontologies to an external triplestore.
 
 ---
 
-## The loop you're building
+## The loop the operator're building
 
 ```
 agent-utilities graph ──promote──▶ ontology (OWL/RDF, KG-2.6)
@@ -35,8 +35,8 @@ agent-utilities graph ──promote──▶ ontology (OWL/RDF, KG-2.6)
 ### "Am I backfilling into pg-age today?"
 
 Probably **not yet**. The zero-infra default is the engine alone — the one
-authority (compute + cache + semantic + durable persistence), no mirrors. You
-start projecting into AGE once you set `GRAPH_MIRROR_TARGETS` and `GRAPH_DB_CONNECTION_PROFILE_REF` +
+authority (compute + cache + semantic + durable persistence), no mirrors. The operator
+start projecting into AGE once the operator set `GRAPH_MIRROR_TARGETS` and `GRAPH_DB_CONNECTION_PROFILE_REF` +
 `GRAPH_PG_AGE=1`. **This recipe flips that on.**
 
 ---
@@ -76,9 +76,9 @@ agent-utilities-doctor --only secrets graph_connections transport_security
 
 ## Step 1 — Postgres: AGE + pgvector + pg_search
 
-You have two modes; **you can use both** across environments.
+The operator have two modes; **the operator can use both** across environments.
 
-### Mode 1 — A Postgres we control (combined image)
+### Mode 1 — A Postgres this repository control (combined image)
 
 The `services/pg-age/compose.yml` stack references a combined image with all three
 extensions. The matching local build is **`docker/pg-age-full`**:
@@ -102,7 +102,7 @@ Lightweight alternative (AGE + pgvector, **no** BM25): `docker/pg-age.compose.ym
 
 ### Mode 2 — An existing / managed Postgres (connect-only)
 
-If you can't replace the image (e.g. a managed RDS), point at it and let
+If the operator can't replace the image (e.g. a managed RDS), point at it and let
 `graph_configure(action="add_connection")` register it; `CREATE EXTENSION` runs
 for whatever the instance permits.
 
@@ -165,8 +165,8 @@ SELECT * FROM cypher('agent_graph', $$ MATCH (n)-[r]->(m) RETURN n,r,m LIMIT 5 $
 
 ## Optional — publish the ontology to an external SPARQL endpoint
 
-You already serve SPARQL locally — the gateway mounts `GET/POST /api/sparql`
-(`SPARQLEndpoint`, KG-2.6), materialized from your live graph + OWL bridge with
+The operator already serve SPARQL locally — the gateway mounts `GET/POST /api/sparql`
+(`SPARQLEndpoint`, KG-2.6), materialized from the operator's live graph + OWL bridge with
 **zero extra infrastructure**:
 
 ```bash
@@ -192,4 +192,4 @@ epistemic-graph engine, not this repository.
 - OWL/RDF + SPARQL: [docs/architecture/owl_rdf_layer.md](../architecture/owl_rdf_layer.md)
 - KG-as-ETL hub (connectors, `graph_etl`, lineage): [docs/architecture/kg_etl_hub.md](../architecture/kg_etl_hub.md)
 - Other recipes: [tiny](tiny.md) · [single-node-prod](single-node-prod.md) · [enterprise](enterprise.md)
-- **Next:** [Delta-based ingestion via the backends](delta-ingestion.md) — turn the backend you just wired into an incremental, content-hash-deduped, background-swept ingestion store.
+- **Next:** [Delta-based ingestion via the backends](delta-ingestion.md) — turn the backend the operator just wired into an incremental, content-hash-deduped, background-swept ingestion store.

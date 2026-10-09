@@ -136,8 +136,8 @@ MCP action / `POST /graph/configure` REST surface.
 ## Annotated template
 
 A minimal, valid starting point lives at
-[`docs/examples/workspace.yml`](../examples/workspace.yml). Copy it to your
-workspace root and edit it for your repos:
+[`docs/examples/workspace.yml`](../examples/workspace.yml). Copy it to the operator's
+workspace root and edit it for the operator's repos:
 
 ```yaml
 name: "My Agent Workspace"

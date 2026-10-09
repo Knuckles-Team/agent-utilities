@@ -74,7 +74,7 @@ it's storing, this method:
 
 **No second resolver, no new engine write endpoint.** The generic
 `AddNode`/`AddEdge` RPCs (`client.nodes.add`/`client.edges.add`) the rest of
-`MediaStore` already uses are sufficient to produce the exact property/edge
+`MediaStore` already uses are enough to produce the exact property/edge
 shape the engine's real decoder expects — reading citations back always goes
 through epistemic-graph's own `Method::ExplainEvidence`, never a second,
 AU-side implementation of the same resolution logic.
@@ -158,17 +158,17 @@ exactly like `store_document_page_evidence` — nothing about `store_media`/
 
 | Locus (`eg_modality::EvidenceAddress`) | `MediaStore` method | Producer wiring |
 |---|---|---|
-| `PageBox` | `store_document_page_evidence` | **Wired 2026-07-22 (pass 2)** — `readers_office.read_pptx` (`agent_utilities/knowledge_graph/extraction/readers_office.py`), one locus per slide, boxed to the deck's real `slide_width`/`slide_height`. The PDF text path (`extraction/pdf.py`) was surveyed and genuinely has no computed-and-discarded per-page box to wire: it deliberately isolates parsing in a killable, engine-less subprocess and joins ALL pages into one flat string, by design, for security isolation — no page boundary or box survives the pipe, so wiring it would require new computation, not just plumbing. **W4.6 (2026-07-24) adds a SECOND, sidecar-delegated PDF producer** — `agent_utilities/media/pdf_sidecar.py::ingest_pdf_via_sidecar` hands the PDF to a governed fleet OCR sidecar (default `stirlingpdf-mcp`; see `agent_utilities/media/sidecar_contract.py`) and writes one `PageBox` locus per returned page — a DIFFERENT, additive producer from `extraction/pdf.py`'s deliberately page-boundary-free subprocess, reached via the new `graph_media_sidecar` MCP tool rather than the passive ingestion funnel. |
+| `PageBox` | `store_document_page_evidence` | **Wired 2026-07-22 (pass 2)** — `readers_office.read_pptx` (`agent_utilities/knowledge_graph/extraction/readers_office.py`), one locus per slide, boxed to the deck's real `slide_width`/`slide_height`. The PDF text path (`extraction/pdf.py`) was surveyed and genuinely has no computed-and-discarded per-page box to wire: it deliberately isolates parsing in a killable, engine-less subprocess and joins ALL pages into one flat string, by design, for security isolation — no page boundary or box survives the pipe, so wiring it will require new computation, not just plumbing. **W4.6 (2026-07-24) adds a SECOND, sidecar-delegated PDF producer** — `agent_utilities/media/pdf_sidecar.py::ingest_pdf_via_sidecar` hands the PDF to a governed fleet OCR sidecar (default `stirlingpdf-mcp`; see `agent_utilities/media/sidecar_contract.py`) and writes one `PageBox` locus per returned page — a DIFFERENT, additive producer from `extraction/pdf.py`'s deliberately page-boundary-free subprocess, reached via the new `graph_media_sidecar` MCP tool rather than the passive ingestion funnel. |
 | `DocumentSpan` | `store_document_span_evidence` | Wired (pass 1, 2026-07-22) — `IngestionEngine._extract_facts_into_graph` (`agent_utilities/knowledge_graph/ingestion/engine.py`), one locus per persisted fact whose `evidence_span` is a real substring of the window it was extracted from. **W4.6 (2026-07-24) adds a second producer**: `pdf_sidecar.py`, one locus per page covering that page's full sidecar-extracted text (the same "whole known extent" volume discipline `TableCellRange`/`PageBox` already use, not per-line/per-fact). |
 | `TableCellRange` | `store_table_cell_evidence` | Wired (pass 1, 2026-07-22) — `readers_office.read_xlsx` (`agent_utilities/knowledge_graph/extraction/readers_office.py`), one locus per worksheet covering its full used range. |
 | `ImageRegion` | `store_image_region_evidence` | Wired (pass 1, 2026-07-22), RapidOCR branch only — `readers_media._ocr_with_rapidocr` (`agent_utilities/knowledge_graph/extraction/readers_media.py`). The `pytesseract` branch (`_ocr_with_pytesseract`) never computes a box at all (`image_to_string` has no box output), so there is nothing to wire there without adding new computation — left unwired by design. **W4.6 (2026-07-24) adds two more producers**, both sidecar-delegated (`agent_utilities/media/`, CONCEPT:AU-KG.ingest.media-sidecar-delegation): `pdf_sidecar.py` writes one locus per OCR word/line box a PDF sidecar returns (`image_id="<document_id>:page<n>"`, mirroring RapidOCR's own per-line granularity); `image_sidecar.py` writes one locus per detected region in a JPEG (a NEW modality — JPEG decode never had an AU producer before this wave). Both are fail-closed gated by the sidecar's declared `SidecarCapability.produces` (`sidecar_contract.assert_capable`) — a provider not declared for `ImageRegion` (e.g. the `pdf_documents`/paperless-ngx-mcp alternate) writes none, never a guess. |
 | `AudioSegment` | `store_audio_segment_evidence` | Wired (pre-existing, confirmed 2026-07-21) — `messaging/router.py`. **GOC-07 adds a second producer**: `agent_utilities/media/audio_sidecar.py::ingest_audio_via_sidecar` hands the recording to a governed fleet transcription sidecar (default `audio-transcriber-mcp`) and writes one locus per returned segment. |
 | `MetricWindow` | `store_metric_window_evidence` | **Wired 2026-07-22 (pass 2)** — new `observability/gateway_health.py`, driven from `GatewayMetricsMiddleware`'s already-computed per-request `duration` (`observability/gateway_metrics.py`). Bounded/claim-driven-equivalent by design: request durations distill into ONE `HealthTrendBuffer` window (5 min), and a write fires only when `health.detect_anomaly` actually flags that window against the gateway's own rolling baseline — never per request. This SAME wiring is also the first live caller anywhere in AU of `observability.health`'s anomaly kernel + `health_ingest.ingest_health_anomaly`, which pass 1 found was itself a fully-built, unwired kernel. |
-| `CodeSymbol` | `store_code_symbol_evidence` | **Wired 2026-07-22 (pass 2)** — `research/candidate_insight.py`'s `register_claim_materialization` (the ONE shared seam every real, floor-cleared `:Claim` from every finding family already passes through), via new `_persist_code_symbol_evidence`. Bounded/claim-driven: fires only when a claim's own `source_ids` resolve to a real, engine-stored `:Code`/`:Test` node — never per AST symbol on ingestion. `data` is the real text of the symbol's known start line, read back from the source file on disk (no fabricated `end_line` — the stored node doesn't carry one, and recovering it would need a second, language-specific re-parse this module deliberately avoids). |
+| `CodeSymbol` | `store_code_symbol_evidence` | **Wired 2026-07-22 (pass 2)** — `research/candidate_insight.py`'s `register_claim_materialization` (the ONE shared seam every real, floor-cleared `:Claim` from every finding family already passes through), via new `_persist_code_symbol_evidence`. Bounded/claim-driven: fires only when a claim's own `source_ids` resolve to a real, engine-stored `:Code`/`:Test` node — never per AST symbol on ingestion. `data` is the real text of the symbol's known start line, read back from the source file on disk (no fabricated `end_line` — the stored node doesn't carry one, and recovering it will need a second, language-specific re-parse this module deliberately avoids). |
 | `TraceSpan` | `store_trace_span_evidence` | **Wired 2026-07-22 (pass 2)** — same `register_claim_materialization` seam, via new `_persist_trace_span_evidence`. Bounded/claim-driven: fires only when a claim's `source_ids` resolve to a real, engine-stored span/generation node (the shape an ops-causal root-cause finding's causal path produces, since it runs from an ingested Trace/Generation through agent/tool/model/service/deploy) — never per span/generation event on `KGTraceBackend.record_event`'s hot path. `data` is the node's own already-stored properties, serialized. |
 | `RowVersion` | `store_row_version_evidence` | **Wired 2026-07-22 (pass 2), opt-in** — `DatabaseConnector.poll()` (`protocols/source_connectors/connectors/database.py`), via new `_persist_row_version_evidence`. Requires TWO real, non-fabricated facts: a new optional `table` config field (the connector wraps an arbitrary `SELECT`, so this is NEVER inferred from the query text — only written when the operator who authored the query explicitly configures it) AND `updated_field`'s value parsing as a genuine integer (a real incrementing-id/revision watermark; an ISO-timestamp watermark, the other documented `updated_field` use case, cleanly no-ops — no version is invented). With `table` unset (the default) or a non-numeric watermark, this locus stays unwired for that source, honestly, rather than guessing. |
-| `VideoShot` | `store_video_shot_evidence` | Unwired 2026-07-22 through W4.6 (see "What would be required" below — no in-AU video-decode capability existed). **GOC-07 (2026-08-16) wires it via the sidecar-delegate path** (not an in-AU decode capability — that gap is unchanged): `agent_utilities/media/video_sidecar.py::ingest_video_via_sidecar` hands the video to a governed fleet sidecar (default `data-science-mcp`) and writes one locus per returned shot boundary. |
-| `VideoFrameRange` | `store_video_frame_range_evidence` | Unwired 2026-07-22 through W4.6 (see "What would be required" below — no in-AU video-decode capability existed). **GOC-07 (2026-08-16) wires it via the same sidecar-delegate path**: one locus per returned keyframe (a decoded-frame index range, kept distinct from `VideoShot`'s wall-clock range). |
+| `VideoShot` | `store_video_shot_evidence` | Unwired 2026-07-22 through W4.6 (see "What will be required" below — no in-AU video-decode capability existed). **GOC-07 (2026-08-16) wires it via the sidecar-delegate path** (not an in-AU decode capability — that gap is unchanged): `agent_utilities/media/video_sidecar.py::ingest_video_via_sidecar` hands the video to a governed fleet sidecar (default `data-science-mcp`) and writes one locus per returned shot boundary. |
+| `VideoFrameRange` | `store_video_frame_range_evidence` | Unwired 2026-07-22 through W4.6 (see "What will be required" below — no in-AU video-decode capability existed). **GOC-07 (2026-08-16) wires it via the same sidecar-delegate path**: one locus per returned keyframe (a decoded-frame index range, kept distinct from `VideoShot`'s wall-clock range). |
 
 **Proof:** `tests/unit/knowledge_graph/test_media_store_evidence_spine.py`'s
 `test_store_locus_evidence_writes_the_full_identity_chain` /
@@ -202,7 +202,7 @@ use, so no new context plumbing was needed to reach a bound `MediaStore`):
 * **`TableCellRange`** — `readers_office.read_xlsx` now writes ONE locus per
   worksheet spanning its real used range (`row_end`/`col_end` from the same
   row/column extent `_format_rows` was already iterating over) rather than one
-  per cell/row — a large sheet would otherwise mean thousands of writes for a
+  per cell/row — a large sheet will otherwise mean thousands of writes for a
   single ingest pass, an unreasonable multiple of the sheet's own read. The
   `.csv`/`.tsv` reader (owned by `extraction/readers.py`, not
   `readers_office.py`) was left unwired this pass — same shape, not yet done.
@@ -212,7 +212,7 @@ use, so no new context plumbing was needed to reach a bound `MediaStore`):
   same points, no new detection). Scoped to the RapidOCR branch only —
   `_ocr_with_pytesseract`'s `image_to_string` call never computes a box at
   all, so there is nothing to wire there without adding new computation
-  (fabricating one would violate this seam's own "no invented data" charter).
+  (fabricating one will violate this seam's own "no invented data" charter).
 
 ### Producer wiring — 2026-07-22 pass 2 (five more closed; 10/11 total)
 
@@ -303,7 +303,7 @@ Still not wired, re-surveyed this pass:
   generator for the training harness's ephemeral program-example rows
   (`{"start_frame": 0, "end_frame": 0}` unconditionally) — not a real
   extractor, and not something to repurpose as one. **What building this
-  would actually require:** a new video-decode dependency (`opencv-python`/
+  will actually require:** a new video-decode dependency (`opencv-python`/
   `PyAV`/`ffmpeg` subprocess) plus either a shot-boundary-detection algorithm
   (histogram/perceptual-hash frame-diffing, or a vendored detector like
   `PySceneDetect`) for `VideoShot`, or exact frame-accurate seeking for
@@ -370,8 +370,8 @@ Governance closes the loop the same way the page-box seam above does — no
 second resolver, no new engine write endpoint: `delegate_extract` records
 ONE PROV-O `:PROVENANCE_ACTIVITY` node per fleet call
 (`lineage.record_media_sidecar_activity`), the adapter records ONE
-directly-verified `:Claim` per artifact processed
-(`lineage.record_media_sidecar_claim` — confidence=1.0/is_verified=True,
+directly-checked `:Claim` per artifact processed
+(`lineage.record_media_sidecar_claim` — confidence=1.0/is_checked=True,
 following `record_connector_sync_claim`'s established convention, NOT the
 governed mining-flywheel lifecycle reserved for inferred findings), and
 every per-locus `store_<locus>_evidence` write-back links that claim via

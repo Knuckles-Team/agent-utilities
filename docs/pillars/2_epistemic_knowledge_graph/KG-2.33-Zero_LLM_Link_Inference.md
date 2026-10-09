@@ -8,7 +8,7 @@ Deterministic, **zero-LLM** typed-edge extraction on write. The active Schema Pa
 declares `LinkInferenceRule`s (regex → edge-type + source/target slot); on every
 document write these run over the content to materialise domain edges — for the
 `research-state` pack: `supports`, `weakens`, `cites`, `uses dataset`. Mirrors
-gbrain's `link-inference.ts`, but our edges are first-class graph relationships that
+gbrain's `link-inference.ts`, but this repository's edges are first-class graph relationships that
 the OWL reasoner (KG-2.36) then closes transitively.
 
 ## Why

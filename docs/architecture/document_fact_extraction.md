@@ -8,13 +8,13 @@ LLM emits atomic `(subject) --[predicate]--> (object)` facts — each carrying a
 title, description, verbatim evidence span, confidence, and tags — which stream
 live onto a force-directed graph, dedup semantically, and persist as engine
 edges. The capability was assimilated from the open-source
-`knowledge-graph-extractor` and re-grounded on our own embedder, engine edge
+`knowledge-graph-extractor` and re-grounded on this repository's own embedder, engine edge
 model, durable queue, and three frontends — **no new always-on service**.
 
 ## Why it exists
 
-We already had claim/entity extraction (`kb/`), multi-backend graph storage,
-OWL/RDF, and an ontology layer. What we lacked was the *extraction craft* that
+This repository already had claim/entity extraction (`kb/`), multi-backend graph storage,
+OWL/RDF, and an ontology layer. What this repository lacked was the *extraction craft* that
 makes a graph **connect**: a prompt that forces short canonical entity/value
 nodes (so the same entity comes out identical every time and edges join instead
 of becoming prose dead-ends), per-fact evidence + confidence, live streaming, and
@@ -57,7 +57,7 @@ stream, so what a user watches stream in is exactly what lands in the graph.
 
 ## The extraction contract
 
-Each fact is wire-compatible with the upstream `facts.jsonl` schema so our export
+Each fact is wire-compatible with the upstream `facts.jsonl` schema so this repository's export
 is byte-comparable:
 
 | Field | Meaning |
@@ -68,7 +68,7 @@ is byte-comparable:
 | `evidence_span` | verbatim substring of the source (provenance/grounding) |
 | `confidence` | 0–100 (persisted as 0–1 on the edge) |
 | `tags` | lowercase topic/entity/year tags |
-| `is_duplicate` / `source_file` | our streaming + multi-file provenance |
+| `is_duplicate` / `source_file` | this repository's streaming + multi-file provenance |
 
 Node identity uses `ExtractedFact.normalize_key` (NFKC + lowercase + punctuation
 strip) so `"The Jina AI team"` and `"jina ai"` collapse to one node — in the
@@ -196,7 +196,7 @@ per-file submit (`process_watched_file` → `engine.submit_task(task_type=
 **New / modified / unchanged** are handled by the content-hash `DeltaManifest`
 (`knowledge_graph/ingestion/manifest.py`): a **new** file is ingested, a
 **modified** file (new hash) is re-ingested, and an **unchanged** file is
-delta-skipped — validated at ~0.15s/file for a 150 MB PDF. So you can drop or
+delta-skipped — validated at ~0.15s/file for a 150 MB PDF. So the operator can drop or
 edit files in the directory and the KG converges on the next tick.
 
 **Configure it** (deployment) via `config.json`:
@@ -209,7 +209,7 @@ or env `KG_WATCH_DIRS=~/Documents` (JSON array or `os.pathsep`/comma list for
 multiple). Supported file types: `.pdf .docx .doc .txt .md` — PDFs use the single
 bounded pypdf path in a killable spawned worker. File, page, extracted-character, and
 IPC limits are enforced; Unix workers also receive CPU/address-space limits, while every
-platform enforces a wall deadline and terminates the worker on expiry. See
+platform enforces a wall deadline and stop the worker on expiry. See
 `docs/architecture/configuration.md` (`KG_WATCH_DIRS`).
 
 ## Entry points
@@ -233,12 +233,12 @@ platform enforces a wall deadline and terminates the worker on expiry. See
   persists as a propose-only `:BeliefRevisionProposal`). See the
   `second-brain-sync` universal-skill for the full workflow.
 
-## Design choices (and what we deliberately did not copy)
+## Design choices (and what this repository deliberately did not copy)
 
 - **Reuse the existing embedder** for dedup — no second model in memory.
 - **Recursive separator chunker** (`ontology/document_processing.py`) already
-  exists; we did not port the upstream backoff chunker.
-- **vLLM**, not llama.cpp — we assimilate the serving *knowledge*, not the runtime.
+  exists; this repository did not port the upstream backoff chunker.
+- **vLLM**, not llama.cpp — this repository assimilate the serving *knowledge*, not the runtime.
 - **Sigma.js** stays the webui engine; geniusbot uses a native `QGraphicsView`
   force layout (no QWebEngine dependency) whose math is a pure, unit-tested
   `relax_layout`.

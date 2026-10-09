@@ -1,6 +1,6 @@
 # Autonomous Governance & Zero-Trust Consensus
 
-The ecosystem enforces **Zero-Trust** security across all operations utilizing the `PermissionsKernel` alongside a specialized background actor, the `GraphGovernanceAgent`.
+The ecosystem enforces **Zero-Trust** security across all operations use the `PermissionsKernel` alongside a specialized background actor, the `GraphGovernanceAgent`.
 
 ## 1. Zero-Trust C4 Diagram
 

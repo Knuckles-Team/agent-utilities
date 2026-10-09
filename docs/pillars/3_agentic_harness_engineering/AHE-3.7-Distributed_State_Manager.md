@@ -21,7 +21,7 @@ graph TD
 
 ### 1. State Branching & Forking
 State branches are lightweight replicas keyed as `base_key:branch:branch_name`.
-* **Fast & Decoupled**: Staged state avoids physical filesystem delays by utilizing local memory or high-speed Redis hash caches.
+* **Fast & Decoupled**: Staged state avoids physical filesystem delays by use local memory or high-speed Redis hash caches.
 * **Traceability**: Each fork stores `base_version` (the fork origin ancestor) enabling strict convergence detection.
 
 ### 2. Convergence Merging Mechanisms
@@ -30,7 +30,7 @@ When merging a branch back to the base state:
 * **Three-Way Recursive Merge**: If the base state has mutated concurrently, the locker attempts a nested key-level recursive merge:
   * If a key was changed in branch but untouched in base, the branch change is adopted.
   * If a key was changed in base but untouched in branch, the base change is kept.
-  * If both changed, it resolves utilizing a custom arbitrating callback (`resolver`) or last-writer-wins (branch preference).
+  * If both changed, it resolves use a custom arbitrating callback (`resolver`) or last-writer-wins (branch preference).
 
 ## Implementation Details
 * **Source Code Path**: [distributed_state_manager.py](https://github.com/Knuckles-Team/agent-utilities/blob/main/agent_utilities/harness/distributed_state_manager.py)

@@ -114,7 +114,7 @@ The LLM gate, for one generator model:
 It also passes the vLLM request `priority` field (lower = sooner, matching the
 rank) via `extra_body`, so a server started with `--scheduling-policy priority`
 honours it server-side too. The client-side gate is the always-on enforcement
-regardless of server config.
+in either case of server config.
 
 ### The admission arithmetic (the testable core)
 
@@ -243,7 +243,7 @@ configuration to work. Every knob below is an override, not a requirement.
 |---|---|---|
 | `KG_LLM_PRIORITY_RESERVE` (env) | unset → auto | Absolute number of permits reserved for high-priority calls. When set, wins over the fraction; clamped to `[0, capacity-1]`. |
 | `KG_LLM_PRIORITY_RESERVE_FRACTION` (env) | `0.34` | Auto-size fraction: `reserve = max(1, min(round(capacity × fraction), capacity-1))`. A single-permit gate (`capacity ≤ 1`) reserves `0`. |
-| `HYDRATION_TASK_TYPES` (module constant) | `{"skill_workflows"}` | Task types forced to `HYDRATION` (HIGH) regardless of their ingestion lane — the foundational-bootstrap exception. |
+| `HYDRATION_TASK_TYPES` (module constant) | `{"skill_workflows"}` | Task types forced to `HYDRATION` (HIGH) in either case of their ingestion lane — the foundational-bootstrap exception. |
 | `MODEL_MAX_CONCURRENCY` (env) | `512` | Adaptive ramp ceiling. The gate's `capacity` is the model's resolved capacity (`resolve_capacity`), itself clamped at `server_ceiling` (ORCH-1.102). |
 
 `reserve` is **not** a separate config surface from capacity: the gate is cached per
@@ -268,14 +268,14 @@ check these in order:
    Confirm the entry point wraps the work in `priority_scope(PriorityClass.INTERACTIVE
    / ORCHESTRATION)`. The carrier rides the `x-resource-priority` header
    (`observability/correlation.py`) across process and engine hops, so a spawned child
-   agent inherits the class — verify it is present on the outbound call.
+   agent inherits the class — check it is present on the outbound call.
 2. **Is the slowness the LLM gate or somewhere else?** The gate only governs the
    **shared qwen generator**. If the wait is on an engine read it is the EG-KG.coordination.reserved-read-lane reserved
    read lane; if it is on a worker slot it is the host `AdmissionPolicy` (AU-KG.compute.interactive-lane-floor).
    All three key off the same `PriorityClass`, so a misclassified call starves all
    three — fix the class, not the individual lane.
 3. **Is `reserve` too small for the interactive burst?** `reserve` guarantees that
-   many high calls can land *immediately*; a burst larger than `reserve` still drains
+   multiple high calls can land *immediately*; a burst larger than `reserve` still drains
    ahead of background (rule 3a refuses background while any high call waits), but the
    excess high calls queue behind each other for a permit. If a steady interactive
    burst exceeds the reserve, raise `KG_LLM_PRIORITY_RESERVE` or the model's
@@ -293,7 +293,7 @@ and the engine access via a context-var carrier — there is no parallel system:
 - **Entry point → class.** `priority_scope(PriorityClass.X)` binds the ambient
   priority for a `with` block:
   - an MCP/REST interactive call → `INTERACTIVE`
-  - `graph_orchestrate` execute → `ORCHESTRATION`
+  - `graph_orchestrate` run → `ORCHESTRATION`
   - a codebase/document ingest task → `BACKGROUND_INGESTION`
   - the skill/MCP hydration path → `HYDRATION`
 - **Worker task body.** `_execute_claimed_task` tags each task's whole execution

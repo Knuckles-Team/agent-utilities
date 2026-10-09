@@ -109,7 +109,7 @@ This ensures SHACL validators can verify that every `Agent` node with more than 
 
 ## Integration Points
 
-- **Cognitive Scheduler (OS-5.2)**: After preempting and completing many processes, schedule periodic compaction
+- **Cognitive Scheduler (OS-5.2)**: After preempting and completing multiple processes, schedule periodic compaction
 - **Telemetry Engine (OS-5.6)**: Compaction events are logged for observability dashboards
 - **Memory Tiers (KG-2.6)**: Compaction operates on the episodic tier, preserving semantic and procedural memories
 

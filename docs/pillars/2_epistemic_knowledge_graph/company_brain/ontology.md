@@ -10,7 +10,7 @@ The committed EG GraphSchema defines the **company-specific perspective** that t
 
 ### Standards Alignment
 
-| Standard | Purpose | How We Use It |
+| Standard | Purpose | How This repository Use It |
 |:---------|:--------|:--------------|
 | **BFO** (Basic Formal Ontology) | Upper ontology for foundational categories | Root classes for Entity, Process, Quality |
 | **PROV-O** (W3C Provenance) | Attribution and derivation tracking | `wasGeneratedBy`, `wasDerivedFrom`, `wasAttributedTo` edges |
@@ -81,7 +81,7 @@ The same underlying data can be viewed through different ontological perspective
 
 ## Company-Specific Extension
 
-To add your own domain concepts, extend `ontology.ttl`:
+To add the operator's own domain concepts, extend `ontology.ttl`:
 
 ```turtle
 :CustomerSegment rdfs:subClassOf bfo:GenericallyDependentContinuant ;

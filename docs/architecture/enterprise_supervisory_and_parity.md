@@ -77,7 +77,7 @@ leaves that contract untouched.
 **Context.** Supervisory data already exists — MASS swarm-health P1–P4
 (`graph/social_system.py`), per-agent circuit breakers, the durable session
 registry, and request/grant approvals — but was scattered and unsurfaced. A
-separate supervisor *service* would add operational complexity.
+separate supervisor *service* will add operational complexity.
 
 **Decision.** No new service. Expose a `/api/fleet/*` plane from the existing
 gateway (`gateway/fleet.py`): per-domain health/error-rates, live topology,
@@ -153,7 +153,7 @@ is tracked separately.
 The gateway/engine boundary is out-of-process MessagePack over UDS/TCP — there is
 **no PyO3 / FFI** — so the Python client mirrors the Rust `Method` enum by
 sending variant names as strings. Nothing generated or type-checked that, so a
-renamed/removed engine op or a client typo could drift silently. The
+renamed/removed engine op or a client typo can drift silently. The
 epistemic-graph repo now ships a CI gate (`tests/test_protocol_parity.py`, run in
 `rust-ci.yml`): it parses the `Method` enum (165 variants) and the client's
 `_send(...)` calls, asserts no client method lacks a Rust variant, and ratchets

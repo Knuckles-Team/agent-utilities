@@ -1,7 +1,7 @@
 # Content-Aware Ingestion (ArchiveBox · crawl4ai · scholarx)
 
 **CONCEPT:AU-KG.query.vendor-agnostic-traversal** — extends the unified Ingestion Engine so that *fetching* a web
-page is pluggable and *what we do with it* depends on the content. Throw a
+page is pluggable and *what this repository do with it* depends on the content. Throw a
 document, a URL, a PDF, or a research-roundup blog at the engine and it ingests,
 enriches, vectorizes — and for a page that points at research papers it also
 downloads and ingests those papers automatically.

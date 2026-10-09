@@ -1,9 +1,9 @@
 # The Agent-Operator Program — closing the loops
 
-> How an agent (with local LLMs) runs an enterprise on agent-utilities, and how we
+> How an agent (with local LLMs) runs an enterprise on agent-utilities, and how this repository
 > make agent-utilities easy for that agent to evolve. The capabilities exist; the
 > work is **closing two loops** — the *operating* loop (sense → decide → act →
-> **verify → learn**) and the *build* loop (build → **deploy → observe → improve**).
+> **check → learn**) and the *build* loop (build → **deploy → observe → improve**).
 > Almost every item is an instance of two abstractions: **synthesize-from-KG
 > context** (`context(domain, intent)`) and **measured outcomes** (`record_action_
 > outcome`). Build those keystones and the rest are small plug-ins.
@@ -35,14 +35,14 @@ Status legend: ✅ shipped · 🔧 designed (next phase) · 🔭 future.
 ## Phase 2 — finish the operating loop (✅ shipped)
 
 ### 2.1 `deployment_status` provider — "where does this run / is my change live?"
-**Problem:** the #1 build-loop papercut — which code actually executes (worktree vs
+**Problem:** the #1 build-loop papercut — which code actually runs (worktree vs
 canonical vs editable-install vs `/au` mount vs served container), and is my merge
 live. Today: `ps | grep` and guess.
 **Design:** a `deploy` context provider that synthesizes from git (canonical HEAD +
 dirty), the `MOUNT_ALIASES` map, the worktree list, and the KG `serves`/`servedBy`
 routes; plus a small addition to `system_doctor`/health that makes graph-os **report
 its loaded git rev at startup**, so the provider can say "served rev R₀ vs canonical
-R₁ → your change is/ isn't live; restart to guarantee." Surface: `graph_analyze
+R₁ → the operator's change is/ isn't live; restart to guarantee." Surface: `graph_analyze
 action=explain target=deploy:status`.
 
 ### 2.2 Per-connector coverage + freshness (generalize AU-OS.deployment.flagging-repos)
@@ -63,13 +63,13 @@ system pursues it, escalating only on a boundary. `graph_goals` + `schedule_engi
 workflow/agent that pursues it), `escalation` (policy condition → notify via
 `graph_reach`), and `outcome` (fed by `record_action_outcome`). A maintenance tick
 evaluates open goals against their SLA, runs the playbook, escalates on breach, and
-records the outcome — closing sense→act→verify→learn for goals.
+records the outcome — closing sense→act→check→learn for goals.
 
 ### 2.4 Autonomy ramp — earned ActionPolicy scope
 **Problem:** I shouldn't get full autonomy on day one, and shouldn't ask forever.
 **Design:** wire the capability reward-EMA (already maintained by
 `record_action_outcome`) into `ActionPolicy.classify`: a per-(actor, action-class)
-trust score; when verified-success EMA over N outcomes clears a threshold, the action
+trust score; when checked-success EMA over N outcomes clears a threshold, the action
 class graduates from `ask` → `allow` for that actor (with an audit trail and a
 one-way ratchet the operator can reset). "200 P3s closed correctly → close P3s
 without approval."
@@ -84,7 +84,7 @@ local compute needs cheapest-model-that-clears-the-bar with a fallback ladder.
 **Design:** a router over `SamplingProfile` + lane `model_role` + the capability
 reward-EMA: route each task to the cheapest local model whose measured success-EMA
 for that task-class clears a floor; on low self-reported confidence or a failed
-verify, escalate one rung up the ladder (local-small → local-large → frontier).
+check, escalate one rung up the ladder (local-small → local-large → frontier).
 Every routing decision is an `action_outcome`, so the router *learns* the cheapest
 model that works per task-class. Measure: cost/task and escalation rate.
 

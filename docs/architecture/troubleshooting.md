@@ -147,7 +147,7 @@ provider's per-layer tool.
 - **This is the exception-resolution loop, made native.** When a delegated run
   (`graph_orchestrate execute_agent`) fails or returns an ungrounded answer, pass its
   `run_id` to `target="troubleshoot:run"` — the app-trace layer pulls the exact
-  `:ToolCall` chain (tool, status, and opaque payload digests) so you find **why**, fix the gap
+  `:ToolCall` chain (tool, status, and opaque payload digests) so the operator find **why**, fix the gap
   (a missing skill, an unbound tool, a prompt, missing ingestion), and re-delegate.
 - **Trace every layer until grounded — don't stop at the first.** The provider always
   returns the full ladder for exactly this reason: a `502` at the app layer is grounded

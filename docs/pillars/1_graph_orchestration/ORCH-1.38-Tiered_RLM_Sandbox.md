@@ -2,7 +2,7 @@
 
 ## Overview
 
-The RLM REPL (ORCH-1.1) executes LLM-generated Python glue code to decompose long contexts
+The RLM REPL (ORCH-1.1) runs LLM-generated Python glue code to decompose long contexts
 through a uniform **`Sandbox` contract** and four backends behind a
 deterministic **capability router** that picks the cheapest backend a snippet can run on and
 **escalates on rejection**. The keystone is **monty** (Pydantic's pure-Rust Python interpreter):

@@ -5,8 +5,8 @@ a golden-loop proposal that cleared promotion governance (CONCEPT:AU-AHE.harness
 published as a **local, never-pushed git branch** through the
 `graph_evolution action=publish_proposal` surface — gated by the OS-5.24
 ActionPolicy's `merge_promotion` tier, which by default queues a human
-approval. You see the enable flags, the approval round-trip, the exact publish
-report, and what the produced branch contains. Deep dive:
+approval. The operator see the enable flags, the approval round-trip, the exact publish
+report, and what the produced branch contains. Detailed review:
 [Autonomous evolution](../guides/autonomous-evolution.md).
 
 **Prerequisites (ladder rung).** Single-host rung of
@@ -21,7 +21,7 @@ being a git checkout. The evolution daemon ticks are opt-in flags; the one-shot
 ## 1. Enable the evolution flags
 
 All typed on `AgentConfig` (`agent_utilities/core/config.py`), all off by
-default — the platform is propose-only until you opt in:
+default — the platform is propose-only until the operator opt in:
 
 The notation below names AgentConfig aliases. Put non-secret values in the XDG
 `config.json`; this is not a repository dotenv file.

@@ -24,7 +24,7 @@ FIBO-aligned KG primitives for the full trading lifecycle: Signal → Order → 
 
 ## Overview
 Advanced quantitative logic for automated trading systems, now offloaded to the **Rust `epistemic-graph` compute engine** for high-performance, stateless execution.
-- **AlphaCombinationEngine**: 11-step regression methodology for statistically independent signal weighting (Information Ratio optimization).
+- **AlphaCombinationEngine**: 11-step regression method for statistically independent signal weighting (Information Ratio optimization).
 - **EmpiricalKellyOptimizer**: Uncertainty-adjusted position sizing using Monte Carlo simulations.
 - **FractionalKellyOptimizer**: Position sizing scaling factor for high-variance environments.
 - **CircuitBreaker**: Risk management hard stop drawdown limit.

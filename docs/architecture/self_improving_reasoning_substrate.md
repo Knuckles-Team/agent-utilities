@@ -116,7 +116,7 @@ sequenceDiagram
 
 ## Engineering around the weaknesses
 
-The paper's recurring thesis — *for every friction, you need a countermeasure or a way to
+The paper's recurring thesis — *for every friction, the operator need a countermeasure or a way to
 measure whether it binds* — is the design rule here:
 
 - **Paradigms don't unify** → unify at the routing layer, not the implementation.

@@ -69,7 +69,7 @@ as `solving_cost`, `answer_hit_time`, `prior_shortcut_rate`, bundled by
   unchanged. The gradient step is GPU-gated (torch/PEFT); the deterministic data
   path and `Trainer.plan()` handoff run on CPU.
 
-## How we surpass FORT
+## How this repository surpass FORT
 
 1. **Live provenance** — co-coverage is an exact `source_document_id` test, not a
    page-scrape heuristic.

@@ -52,7 +52,7 @@ Search the Knowledge Graph using multiple strategies.
 ```
 
 **Example 2: Concept ID Lookup**
-Retrieve the exact topological subgraph for a known concept.
+Fetch the exact topological subgraph for a known concept.
 ```json
 {
   "mode": "concept",
@@ -73,7 +73,7 @@ Search episodic or procedural memory for past agent actions.
 
 ## 3. `mcp_graph-os_graph_query`
 
-Execute read-only Cypher queries directly against the graph backend.
+Run read-only Cypher queries directly against the graph backend.
 
 **Example 1: Fetch all capabilities**
 ```json
@@ -94,7 +94,7 @@ Execute read-only Cypher queries directly against the graph backend.
 
 ## 4. `mcp_graph-os_graph_analyze`
 
-Execute complex synthesis or comparative analysis across the Knowledge Graph.
+Run complex synthesis or comparative analysis across the Knowledge Graph.
 
 **Example 1: Blast Radius Calculation**
 Determine the impact of changing a specific component.

@@ -1,7 +1,7 @@
 # Legal Automation Roadmap: Trust & LLC Creation
 ## Point A to Point B Engineering Blueprint for `agent-utilities`
 
-This document defines the comprehensive, high-fidelity engineering roadmap for extending `agent-utilities` into a domain expert system capable of autonomously researching, drafting, validating, and managing the legal formation of **Limited Liability Companies (LLCs)** and **Legal Trusts**.
+This document defines the complete, high-fidelity engineering roadmap for extending `agent-utilities` into a domain expert system capable of autonomously researching, drafting, validating, and managing the legal formation of **Limited Liability Companies (LLCs)** and **Legal Trusts**.
 
 ---
 
@@ -39,8 +39,8 @@ graph TD
 | Dimension | Point A (Current State) | Point B (Target State) |
 | :--- | :--- | :--- |
 | **Data Models** | Standard `CompanyProfile` with simple `entity_type` string literal. Zero representation of Trust structures, Grantors, Trustees, or Beneficiaries. | Rich `LegalTrustNode`, `LLCFormationFiling`, and relationship graphs mapped directly to standard legal schemas (LKIF-Core, Akoma Ntoso, and SALI/CLNR). |
-| **Ontologies** | `ontology_legal.ttl` defines standard entities (`RegulatoryFiling`, `CorporateGovernanceDoc`, `FederalStatute`), but lacks Trust roles, spendthrift structures, and state-level LLC filing statuses. | Expanded `ontology_legal.ttl` containing comprehensive assertions for Trusts, registered agents, operating agreement clauses, and statutory validation constraints. |
-| **Agent Coalitions** | Single `legal_compliance_coordinator` executing standard contract clause risk scoring and compliance tracking. | Dedicated **Legal Entity Creator Coalition** featuring a lead coordinator, jurisdictional researcher, legal drafting specialist, compliance validator, and filing integrator. |
+| **Ontologies** | `ontology_legal.ttl` defines standard entities (`RegulatoryFiling`, `CorporateGovernanceDoc`, `FederalStatute`), but lacks Trust roles, spendthrift structures, and state-level LLC filing statuses. | Expanded `ontology_legal.ttl` containing complete assertions for Trusts, registered agents, operating agreement clauses, and statutory validation constraints. |
+| **Agent Coalitions** | Single `legal_compliance_coordinator` running standard contract clause risk scoring and compliance tracking. | Dedicated **Legal Entity Creator Coalition** featuring a lead coordinator, jurisdictional researcher, legal drafting specialist, compliance validator, and filing integrator. |
 | **Workflows** | Generic contract review and compliance checks. | High-fidelity, multi-phase `llc_formation` and `trust_creation` skill workflows with automated document compilers, SHACL validations, and human-in-the-loop gates. |
 | **Integration** | File parsing via local utilities (`document-tools`, `StirlingPDF`). | Real-world API simulators/scrapers interacting with state secretary of state registries, IRS EIN registration, and banking APIs for funding. |
 
@@ -48,7 +48,7 @@ graph TD
 
 ## 2. Code Reuse & Integration (No Wheel Reinvention)
 
-To maintain a clean and robust codebase, we strictly leverage and extend existing abstractions within `agent-utilities` rather than writing redundant systems.
+To maintain a clean and robust codebase, this repository strictly use and extend existing abstractions within `agent-utilities` rather than writing redundant systems.
 
 ```mermaid
 graph TD
@@ -72,18 +72,18 @@ graph TD
 end
 ```
 
-### Existing Wirings Utilized:
+### Existing Wirings Use:
 1. **Pydantic Model Extensions**:
-   - We reuse the existing `CorporateGovernanceDoc` and `RegulatoryFiling` classes in `agent_utilities/models/company.py` to represent LLC Operating Agreements, Articles of Organization, and IRS filing records.
-   - We extend `agent_utilities/domains/law/models.py` by adding our new `LegalTrustNode` subclass directly alongside `CaseLawNode`, `StatuteNode`, `ContractClauseNode`, and `LegalMatterNode`.
+   - This repository reuse the existing `CorporateGovernanceDoc` and `RegulatoryFiling` classes in `agent_utilities/models/company.py` to represent LLC Operating Agreements, Articles of Organization, and IRS filing records.
+   - This repository extend `agent_utilities/domains/law/models.py` by adding this repository's new `LegalTrustNode` subclass directly alongside `CaseLawNode`, `StatuteNode`, `ContractClauseNode`, and `LegalMatterNode`.
 2. **Knowledge Graph Transactions**:
    - All serialization, node storage, and edge creation pass through the unified `KnowledgeGraph` facade and `GraphComputeEngine` into the authoritative `epistemic-graph` transaction boundary. Optional external stores remain governed interoperability mirrors rather than alternate authorities.
 3. **High-Fidelity Document Generation**:
-   - Instead of writing bespoke PDF generation wrappers, we reuse the existing `document-tools` skill and the `stirlingpdf-agent` Docker service for professional, legal-grade PDF formatting (margins, signatures, notarial blocks).
+   - Instead of writing bespoke PDF generation wrappers, this repository reuse the existing `document-tools` skill and the `stirlingpdf-agent` Docker service for professional, legal-grade PDF formatting (margins, signatures, notarial blocks).
 4. **Sandboxed Operations**:
-   - The system utilizes the existing `agent_utilities.core.wasm_runner.WasmAgentRunner` micro-agent sandbox (which features a robust fallback emulation mode) to safely execute template rendering, local calculations, and untrusted document parsing scripts, ensuring zero host vulnerabilities.
+   - The system use the existing `agent_utilities.core.wasm_runner.WasmAgentRunner` micro-agent sandbox (which features a robust fallback emulation mode) to safely run template rendering, local calculations, and untrusted document parsing scripts, ensuring zero host vulnerabilities.
 5. **PII Guardrails**:
-   - We hook our custom `PiiSanitizer` class into the existing `agent_utilities.security.guardrails` framework to inspect, sanitize, and redact sensitive personal identifiers before any logging, telemetry, or Knowledge Graph writes occur.
+   - This repository hook this repository's custom `PiiSanitizer` class into the existing `agent_utilities.security.guardrails` framework to inspect, sanitize, and redact sensitive personal identifiers before any logging, telemetry, or Knowledge Graph writes occur.
 
 ---
 
@@ -92,7 +92,7 @@ end
 To preserve the architectural integrity of `agent-utilities`, the legal automation system is designed across the **5 Core Pillars**.
 
 ### Pillar 2: Epistemic Knowledge Graph (Ontology & Schema Extensions)
-To support Trusts and LLCs, we must extend the active knowledge graph schemas and OWL ontologies.
+To support Trusts and LLCs, this repository must extend the active knowledge graph schemas and OWL ontologies.
 
 ```mermaid
 classDiagram
@@ -134,7 +134,7 @@ classDiagram
 ```
 
 #### A. OWL Legal Ontology Extensions (`knowledge_graph/ontology_legal.ttl`)
-We introduce new OWL classes and object/datatype properties to represent legal Trust and LLC structures:
+This repository introduce new OWL classes and object/datatype properties to represent legal Trust and LLC structures:
 
 ```turtle
 # New OWL Classes in ontology_legal.ttl
@@ -250,15 +250,15 @@ graph TD
   3. Draft standard Spendthrift Trust Agreement.
   4. Generate Certificate of Trust.
   5. Prepare Schedule A Asset Assignment.
-  6. Execute SHACL validation.
+  6. Run SHACL validation.
   7. Route to Human-in-the-Loop approval gate.
   8. Finalize funding transfers under secure ledger rules.
-- **Specialist Routing & Department Orchestration (`ORCH-1.2` & `AU-ORCH.execution.autonomous-department-orchestration`)**: Allocate roles to specific specialized agents using `TeamConfigNode` under a dynamic legal department, leveraging the unified `legal_compliance_coordinator.json` structure.
+- **Specialist Routing & Department Orchestration (`ORCH-1.2` & `AU-ORCH.execution.autonomous-department-orchestration`)**: Allocate roles to specific specialized agents using `TeamConfigNode` under a dynamic legal department, use the unified `legal_compliance_coordinator.json` structure.
 
 ---
 
 ### Pillar 3: Agentic Harness (SHACL Validation & Quality Evals)
-To guarantee legal and logical soundness before any documents are presented to the user, we employ strict automated validation checks.
+To guarantee legal and logical soundness before any documents are presented to the user, this repository employ strict automated validation checks.
 
 > [!IMPORTANT]
 > **Zero-Error Statutory Compliance Guarantee**: No legal document generated by the agent may proceed to human review without scoring `1.0` on structural validations.
@@ -285,7 +285,7 @@ flowchart LR
 ```
 
 #### A. Gap Analysis & Sourcing Strategy
-We have audited the existing `agent-packages/agents` workspace and identified **three critical tooling gaps** required for full autonomous operation. Rather than creating disjointed standalone utilities, we will construct these tools as unified MCP interfaces, sourcing accurate data from public legal records and containerized browser controllers.
+This repository have audited the existing `agent-packages/agents` workspace and identified **three critical tooling gaps** required for full autonomous operation. Rather than creating disjointed standalone utilities, this repository will build these tools as unified MCP interfaces, sourcing accurate data from public legal records and containerized browser controllers.
 
 | Tooling Gap | Description of Gap | Sourcing Strategy & Data Providers |
 | :--- | :--- | :--- |
@@ -319,31 +319,31 @@ graph TD
     FilingSubmit --> Scrub
 ```
 
-#### A. Comprehensive PII Sanitation & Ephemeral Cleanup
+#### A. Complete PII Sanitation & Ephemeral Cleanup
 1. **PII Sanitizer Utility (`security/guardrails.py`)**:
    - The robust `PiiSanitizer` class (already implemented in `agent_utilities/security/guardrails.py`) intercepts transaction payloads before they enter the pipeline.
    - It performs automated Regex and Named Entity Recognition (NER) scans for SSNs (`^\d{3}-\d{2}-\d{4}$`), EINs (`^\d{2}-\d{7}$`), bank routing numbers, and residential addresses.
 2. **Ephemeral RAM-Only Lifecycles**:
    - SSNs and sensitive personal identifiers are strictly prohibited from being written to disk, outputted to logs, or serialized into the Knowledge Graph database.
-   - They reside exclusively in transient memory (`thread_local` context or ephemeral Python dictionaries) for the absolute minimum time needed to execute the API call or headless browser filing submission.
-   - Immediately following the execution of the API call, a **Scrubbing Hook** executes:
+   - They reside exclusively in transient memory (`thread_local` context or ephemeral Python dictionaries) for the absolute minimum time needed to run the API call or headless browser filing submission.
+   - Immediately following the execution of the API call, a **Scrubbing Hook** runs:
      - The sensitive variables are overwritten in-place with zero-bytes (`b"\x00"`).
      - Ephemeral data contexts are popped and garbage-collected (`gc.collect()`).
 3. **Log & Telemetry Interceptor (`observability/audit_logger.py`)**:
    - A global logging filter intercepts stdout, stderr, and any trace payloads destined for Langfuse, replacing any detected PII strings with `[REDACTED_SSN]` or `[REDACTED_TAX_ID]`.
 
 #### B. Sandboxed Template Compilation (`OS-5.5`)
-- Drafting scripts, template compilation, and local state integrations are executed inside our **existing** `agent_utilities.core.wasm_runner.WasmAgentRunner` micro-agent sandbox.
+- Drafting scripts, template compilation, and local state integrations are executed inside this repository's **existing** `agent_utilities.core.wasm_runner.WasmAgentRunner` micro-agent sandbox.
 - Standard memory bounds (`limit_memory_pages: int = 16`) are enforced to completely isolate third-party legal data and prevent any prompt-injection exploits from compromising the host system.
 
 #### C. Budget Guardrails (`AU-OS.governance.reactive-multi-axis-budget`)
-- State filing fees represent real-world financial transactions. The `budget_guardrail` enforces a strict threshold—agents can never execute credit card transactions or filing fee payments; they must compile the filing payload and hand it off as a **Pending Payment Action** to a human operator.
+- State filing fees represent real-world financial transactions. The `budget_guardrail` enforces a strict threshold—agents can never run credit card transactions or filing fee payments; they must compile the filing payload and hand it off as a **Pending Payment Action** to a human operator.
 
 ---
 
 ## 4. High-Fidelity Skill Workflows
 
-We define the step-by-step sequential workflows that will live in `/skills/llc_formation/` and `/skills/trust_creation/`.
+This repository define the step-by-step sequential workflows that will live in `/skills/llc_formation/` and `/skills/trust_creation/`.
 
 ### Workflow A: Limited Liability Company (LLC) Formation
 
@@ -420,7 +420,7 @@ sequenceDiagram
 
 ## 5. Phase-by-Phase Execution Plan (From Point A to Point B)
 
-To successfully implement this, we lay out a **4-Phase Spec-Driven Development Plan** in alignment with `CONCEPT:AU-ORCH.planning.legal-automation-roadmap` (DSTDD Pipeline).
+To successfully implement this, this repository lay out a **4-Phase Spec-Driven Development Plan** in alignment with `CONCEPT:AU-ORCH.planning.legal-automation-roadmap` (DSTDD Pipeline).
 
 ```
 Phase 1: Ontological Core (Week 1)
@@ -447,7 +447,7 @@ Phase 4: Real-World Integrations & Pilot (Week 4)
 ### Phase 1: Ontological Core & Schema Definitions
 - Extend `ontology_legal.ttl` with detailed properties for Trusts and LLCs.
 - Register new Pydantic nodes in `agent_utilities/models/company.py` and `agent_utilities/domains/law/models.py`.
-- Run active reasoner tests using the OWL bridge (`knowledge_graph/core/owl_bridge.py`, `CONCEPT:AU-KG.domains.legal-automation` Rust-accelerated reasoning with a Python RDFS+ fallback) to verify transitive inheritance (e.g. ensuring `LegalTrust` correctly inherits from BFO concepts).
+- Run active reasoner tests using the OWL bridge (`knowledge_graph/core/owl_bridge.py`, `CONCEPT:AU-KG.domains.legal-automation` Rust-accelerated reasoning with a Python RDFS+ fallback) to check transitive inheritance (e.g. ensuring `LegalTrust` correctly inherits from BFO concepts).
 
 ### Phase 2: Agent Scaffolding
 - Deploy the specialized legal agents by creating their prompt JSON descriptors in `agent_utilities/prompts/`.
@@ -457,18 +457,18 @@ Phase 4: Real-World Integrations & Pilot (Week 4)
 ### Phase 3: Universal Skill Development
 - Write the Python orchestrators for `llc_formation` and `trust_creation`.
 - Create premium HTML/Markdown template libraries for state Articles of Organization and standard Living Trust Agreements.
-- Implement the SHACL validator wrapper to verify nodes dynamically prior to graph-write.
+- Implement the SHACL validator wrapper to check nodes dynamically before graph-write.
 
 ### Phase 4: Integration & Validation
 - Develop a mock environment simulating the IRS EIN Assistant portal and a state corporate registry to support rigorous automated testing (`AU-AHE.harness.evolution-checkpoint: Backtest & Curriculum`).
-- Conduct a complete, E2E sandbox trial run: generate a full LLC formation filing, verify that the active database registers the correct graph-edges, and hand off the print-ready filing package to the console.
+- Conduct a complete, E2E sandbox trial run: generate a full LLC formation filing, check that the active database registers the correct graph-edges, and hand off the print-ready filing package to the console.
 - Output an execution report and update the project's `walkthrough.md`.
 
 ---
 
 ## 6. Vision: The Autonomous Enterprise Lifecycle
 
-When `agent-utilities` reaches **Point B**, it unlocks a highly cohesive corporate governance lifecycle where health, productivity, infrastructure, finance, and law seamlessly communicate through the Epistemic Knowledge Graph.
+When `agent-utilities` reaches **Point B**, it unlocks a highly cohesive corporate governance lifecycle where health, productivity, infrastructure, finance, and law smoothly communicate through the Epistemic Knowledge Graph.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐

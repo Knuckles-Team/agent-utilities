@@ -1,7 +1,7 @@
 # Cross-Pillar Synergy Engine (CONCEPT:AU-KG.compute.cross-pillar-synergy)
 
 ## Overview
-Discovers non-obvious functional synergies between the 5 Unified Pillars by analyzing concept bridges, computing pillar coupling metrics, and suggesting missing relationships. Leverages the Analogy Engine (KG-2.7), SKOS taxonomy, and transitive OWL properties. OWL property: `hasSynergyWith` (symmetric, defined in `ontology_quant.ttl`).
+Discovers non-obvious functional synergies between the 5 Unified Pillars by analyzing concept bridges, computing pillar coupling metrics, and suggesting missing relationships. Use the Analogy Engine (KG-2.7), SKOS taxonomy, and transitive OWL properties. OWL property: `hasSynergyWith` (symmetric, defined in `ontology_quant.ttl`).
 
 ## Implementation Details
 - **Source Code**: ``agent_utilities/knowledge_graph/core/synergy_engine.py``

@@ -3,7 +3,7 @@
 This is the **audit catalog** for what `agent-utilities` (AU) actually shipped in the
 "Epistemic OS Hardening" program — the AU half of a coordinated two-repo release with
 `epistemic-graph` (EG). It exists so a future static audit does not have to re-derive
-"what changed" from commit archaeology: every capability below is verified directly
+"what changed" from commit archaeology: every capability below is checked directly
 against `agent_utilities/` source at the commit this doc was written against
 (`89da1265` + the AU-owned pre-commit-gate closeout commits `93270411`/`071f6d86` —
 the version bump itself is the one remaining release step, so `pyproject.toml` still
@@ -23,7 +23,7 @@ the tree).
   that follow this program).
 
 **Scope discipline (read this before trusting any claim below).** The original
-13-workstream plan attributed several Phase-3/exceed items to AU that actually landed
+13-workstream plan attributed multiple Phase-3/exceed items to AU that actually landed
 **on the `epistemic-graph` side** (the Rust `eg-epistemic` crate): calibrated causal
 inference (do-calculus intervene/counterfactual), proof redaction
 (`explain_belief_redacted`), and bitemporal epistemic-status ops. **Those are EG's
@@ -157,7 +157,7 @@ per-`(agent,topic)` cursor) and federation relay are unaffected — they sit on 
 whichever delivery backend is active.
 
 **Default posture.** Backend resolution is automatic/best-available — no env flag
-required to opt in; `graph` is what you get with nothing configured (byte-identical
+required to opt in; `graph` is what the operator get with nothing configured (byte-identical
 to pre-AU-P1-2 behavior).
 
 **Two surfaces.** MCP tool `graph_bus` (`mcp/tools/bus_tools.py::register_bus_tools`)
@@ -222,12 +222,12 @@ ACID txn writes the node + its blob-ref + the occurrence edge together (a reader
 never sees a half-written occurrence).
 
 **Two surfaces.** `graph_ingest action=ingest`/`document_process` are the entry
-points that call `store_media` under the hood (`/graph/ingest`); there is no
+points that call `store_media` internally (`/graph/ingest`); there is no
 standalone `graph_media` tool — media identity is infrastructure behind the ingest
 path, same posture as the capability index above.
 
 **Honest gap (accepted, not silent — L30):** an async OCR/ASR/embedding worker that
-would call `record_extraction`/`store_rendition` off the hot path is a **stated
+will call `record_extraction`/`store_rendition` off the hot path is a **stated
 ACCEPT**, not shipped — the seam exists (`store_rendition`), the worker itself is a
 Codex-boundary "heavy-model plugin/remote" concern, deliberately out of scope for a
 small-footprint framework.
@@ -263,7 +263,7 @@ resumed connector can trust `False` to mean "retry this envelope."
 migrated onto `ingest_envelope`. **7 handlers are a documented ACCEPT, not a silent
 gap** (L32): `gitlab`/`archivebox`/`freshrss`/`rss`/`confluence`/`fleet_connectors`/
 `fleet` use chunk/embed/gate pipelines where `ingest_envelope`'s one-node-per-call
-model would **regress** their multi-node chunking — migrating them would make things
+model will **regress** their multi-node chunking — migrating them will make things
 worse, so they stay on the legacy path by design. `source_sync.py`'s own module
 docstring enumerates which handlers are which.
 
@@ -277,7 +277,7 @@ action=sync`, REST via `source_connector` → `/connector/source`).
 whose `provenance.integrity.hash` is a **real HMAC-SHA256 signature**
 (`knowledge_graph/ontology/ontology_integrity.py::canonical_hash`/`sign`, keyed off
 the same signing secret `security/run_token.py` already resolves — not a second crypto
-stack), re-verified before every sync. `connector_manifest_gate.py` wires this into
+stack), re-checked before every sync. `connector_manifest_gate.py` wires this into
 `source_sync` as a **fail-closed** precheck.
 
 **The 12 (`MANDATORY_NAMED_CONNECTOR_SOURCES`, `knowledge_graph/ontology/
@@ -303,7 +303,7 @@ dispatchable `source_sync` code path — the 5 that previously had none
 **Honest scope note.** The manifest **files themselves** are committed in each
 connector's *own* repo (`agents/<pkg>/connector_manifest.yml`), not in
 `agent-utilities` — this repo only ships the **gate** that discovers, compiles, and
-verifies them (`resolve_agents_root`/`find_connector_manifest`/`check_manifest_bytes`).
+checks them (`resolve_agents_root`/`find_connector_manifest`/`check_manifest_bytes`).
 A deployment whose `AGENTS_ROOT`/`WORKSPACE_PATH` doesn't resolve to a real fleet
 checkout will not find any manifest, and (per the fail-closed policy) that means
 these 12 sources refuse to sync rather than silently proceeding unverified.
@@ -332,7 +332,7 @@ HRW-preference order (the catalog is cluster-wide, any endpoint can answer); (3)
 **Superseded — corrected 2026-07-31 (D-WD-1, D-WD-2 in
 `reports/deferred/lane-webui-dataplane.md`):** the paragraph below described the
 *original design intent* when it was written; it no longer matches the deployed
-engine. The engine **now exposes a wire `PlacementRoute` RPC** (verified live
+engine. The engine **now exposes a wire `PlacementRoute` RPC** (checked live
 against the cluster), so "no wire Method yet, therefore always HRW" is false, and
 there is no callable static-HRW-ring function to fall back to in this repository
 (`shard_topology.shard_endpoint_for` does not exist — repository grep, 2026-07-31).
@@ -359,8 +359,8 @@ skips the real network round-trip straight to HRW.
 
 **Two surfaces.** Wired into the *one* engine resolver
 (`engine_resolver.resolve_engine`), so every entrypoint gets it "for free" — there is
-no dedicated placement tool to call; you observe its effect (or, today, its
-no-effect) through whichever graph operation you already run.
+no dedicated placement tool to call; the operator observe its effect (or, today, its
+no-effect) through whichever graph operation the operator already run.
 
 ### 3.2 Analytics feature/model/experiment registries (L41/INT-P2-1b)
 
@@ -378,7 +378,7 @@ rebuildable, same authority split as the capability-index cache above.
 (`refresh_from_engine`, `features()`/`models()`/`experiments()` — three views over
 one `AlgoVersionLineage` grouping key). Deliberately **not** folded into
 `models.model_registry.ModelRegistry` (the LLM-routing registry) — a different
-domain (a trained analytics artifact vs. a chat-model routing entry) that would
+domain (a trained analytics artifact vs. a chat-model routing entry) that will
 conflate two unrelated concepts under one name if merged.
 
 **Two surfaces: none — and this is the officially accepted posture, not an
@@ -513,7 +513,7 @@ note below).* `ClaimFlywheel` had no standalone `graph_claim_flywheel` tool — 
 was invoked only internally by `knowledge_graph/research/loop_controller.py`
 (`_run_insight_validation`/`_run_trace_mining`), which is itself reached through
 the loop engine (`graph_loops`, MCP+REST) or `graph_orchestrate
-action=execute_workflow`'s loop-cycle path. A caller could not directly call
+action=run_workflow`'s loop-cycle path. A caller could not directly call
 `flywheel.propose()`/`.accept()` through either surface — only *trigger a mining
 pass* that exercised the whole state machine internally. This module was **not**
 listed in `scripts/surface_parity_baseline.txt`, but that was because the static
@@ -536,7 +536,7 @@ direct, single-claim entry point this section originally found missing.
 **What it is.** Extends AU-P1-3's engine-native filtered ANN with **ontology
 subsumption**: a tool/agent declaring a *narrower* capability now satisfies a request
 for the *broader* one (`rdfs:subClassOf`-aware), a versioned `CapabilityDescriptor`
-(typed I/O schema, side effects, cost/latency/locality, policy/approval class), and
+(typed `I/O` schema, side effects, cost/latency/locality, policy/approval class), and
 full eligibility explainability.
 
 **Code anchor.**
@@ -592,7 +592,7 @@ mine (associate/anomaly/sequence over trace co-occurrence)
        no second placement authority, no new engine RPC)
 ```
 
-**Honest limitation, verified by grep, not assumed.** `run_placement_mining_cycle`
+**Honest limitation, checked by grep, not assumed.** `run_placement_mining_cycle`
 is exercised by its own unit test suite
 (`tests/unit/knowledge_graph/test_placement_mining.py`) and referenced by
 `action_policy.py` (for the `apply_placement_change` policy kind), but **nothing in
@@ -655,7 +655,7 @@ renders the bundle as a byte-stable prefix for vLLM's own automatic prefix cache
 and `context_compiler_serving.py` is the governed wire that sends it. W3.7 went
 further and made this the **default context-assembly path for every delegated run**
 (`core/contextual_model.py::create_context_agent`/`wrap_model_with_context` — every
-Pydantic AI agent the orchestration graph constructs), with a
+Pydantic AI agent the orchestration graph builds), with a
 `MODEL_CONTEXT_COMPILER_ENABLED` deployment-level escape hatch, and added the
 missing Seam-6 measurement: the `agent_utilities_context_compiler_kv_cache_
 requests_total` hit/miss counter and the `agent_utilities_context_compiler_ttft_
@@ -695,7 +695,7 @@ for any reference to `agent_digital_twin`, `capture_twin`, `AgentDigitalTwin`,
 and its own test file.** The pre-existing `graph_runvcs` MCP tool
 (`mcp/tools/state_tools.py::graph_runvcs`, action `replay`) called the
 **generic** `run_vcs.replay.replay_run` directly — it did **not** go through
-`agent_digital_twin.replay_twin`/`counterfactual_replay`, so a caller could not
+`agent_digital_twin.replay_twin`/`counterfactual_replay`, so a caller can not
 reach the twin's version-pinning, counterfactual-swap, or incident-step-through
 behavior from either the MCP or REST surface. The only way to exercise X-8 was a
 direct Python import (or by querying a `persist_twin()`-written
@@ -721,7 +721,7 @@ the gate scans for unreachable modules) does **not** include
 `agent_utilities/orchestration/` at all — only `knowledge_graph/*`,
 `protocols/source_connectors/`, `harness/`, `rlm/`, `workflows/`, and `domains/`.
 `agent_digital_twin.py` lives in `orchestration/`, so the gate structurally cannot
-flag it, whether or not it has a surface. This is a real, verified coverage gap in
+flag it, whether or not it has a surface. This is a real, checked coverage gap in
 the audit tooling itself, worth surfacing to whoever owns the surface-parity gate
 next — not just a missing baseline entry.
 
@@ -776,7 +776,7 @@ next — not just a missing baseline entry.
 ## 7. Other Phase-1 reliability fixes (named for completeness)
 
 Smaller but real fixes shipped alongside the headline items above, from the
-CHANGELOG's `### Fixed` section — verified, briefly noted rather than given a full
+CHANGELOG's `### Fixed` section — checked, briefly noted rather than given a full
 section since they are not new *capabilities*:
 
 - **`_fence_still_valid` fails closed on the engine-native claim path (L15)** — see
@@ -804,5 +804,5 @@ section since they are not new *capabilities*:
 `docs/au-catalog` worktree at commit `89da1265` + `93270411` + `071f6d86`, cross-
 checked against `CHANGELOG.md`, `docs/capabilities.md`,
 `scripts/surface_parity_baseline.txt`, and `scripts/check_surface_parity.py`. Where
-a claim could not be verified in code, it is either omitted or explicitly flagged as
+a claim can not be checked in code, it is either omitted or explicitly flagged as
 unverified/absent above — see §6.*

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Makes RLM **structured I/O end-to-end**. The root agent already ran under a Pydantic signature
+Makes RLM **structured `I/O` end-to-end**. The root agent already ran under a Pydantic signature
 (`InputField`/`OutputField`) validated on `FINAL`. This extends the same guarantee to the **subagent
 fan-out**: an RLM can force each sub-call to return a *schema-constrained, typed* value (a boolean
 relevance flag, a Pydantic model, a `list[...]`) instead of free-form prose.

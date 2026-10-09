@@ -20,7 +20,7 @@
 
 A harness is a first-class value `H = (M, C)`: a model configuration `M` (which model
 serves which role) and a harness configuration `C = (P, S)` — a hook-indexed pipeline
-of typed **processors** `P` plus shared **slots** `S`. We model that value, its typed
+of typed **processors** `P` plus shared **slots** `S`. This repository model that value, its typed
 **edits**, the isolated **variants** an edit may fork, the nine behavioural
 **dimensions** an edit can target, and the RL **pathologies** evolution can fall into,
 all as OWL classes. Evolution then becomes *inference over the edit graph* with formal
@@ -31,7 +31,7 @@ guarantees, not heuristic editing.
 Every harness edit targets exactly one dimension; the SHACL concentration gate counts
 edits per dimension to catch sub-threshold coupling.
 
-| Dim | Name | Backs onto (our existing knobs) |
+| Dim | Name | Backs onto (this repository's existing knobs) |
 |----|------|---------------------------------|
 | D1 | Model | `agent/sampling_profile.py` (role/model routing) |
 | D2 | Context | prompt/context processors |
@@ -101,7 +101,7 @@ existing machinery rather than rebuilding it.
 
 ## 3. Layer 1 — Operational ontology + substitution algebra (AU-KG.ontology.harness-ontology, AU-KG.ontology.harness-gate)
 
-The paper enforces composition safety with a runtime type system; we make the same
+The paper enforces composition safety with a runtime type system; this repository make the same
 guarantees a **reasoned** check so they hold over data the KG already stores.
 
 **Classes** (`ontology_harness.ttl`): `Harness`, `Processor`, `HarnessHook`,
@@ -137,7 +137,7 @@ shapes turn the paper's runtime type-safety into reasoned gates:
 
 ## 4. Layer 2 — AEGIS adaptation loop (AU-AHE.harness.run-aegis-loop-over, AU-AHE.harness.per-dimension-ship-outcome, AU-AHE.harness.manifest-verify)
 
-`AegisLoop` wires our existing machinery into HarnessX's Digester → Planner → Evolver
+`AegisLoop` wires this repository's existing machinery into HarnessX's Digester → Planner → Evolver
 → Critic shape, dependency-injected so it runs offline with no LLM or engine.
 
 ### Selective invocation + patience (AU-AHE.harness.per-dimension-ship-outcome)
@@ -171,7 +171,7 @@ flowchart TB
     SHACL -->|conforms| Ship["Ship: append edit, update variant, record ledger"]
 ```
 
-The first failing check halts; LLM judgement never overrides the deterministic gate.
+The first failing check stops; LLM judgement never overrides the deterministic gate.
 Config-normalization prevents a re-proposed identical edit from masquerading as fresh
 progress (and from double-counting toward concentration); the smoke test confirms the
 edited processor actually instantiates and runs before it can reach the gate.
@@ -185,7 +185,7 @@ facts and validates it against five shapes in `harness.shapes.ttl`:
 
 | Shape | Blocks | Why it surpasses HarnessX |
 |------|--------|---------------------------|
-| `HarnessConcentrationShape` | ≥3 shipped edits on one dimension within a 5-round window | **The headline.** Detects *sub-threshold coupling* before the tipping point — the τ³-Bench failure the paper's per-edit pass@2 gate could not see. |
+| `HarnessConcentrationShape` | ≥3 shipped edits on one dimension within a 5-round window | **The headline.** Detects *sub-threshold coupling* before the tipping point — the τ³-Bench failure the paper's per-edit pass@2 gate can not see. |
 | `HarnessNoRegressionShape` | an accepted variant applying an edit that regresses a previously-passing task | The formal seesaw, evaluated **per variant** over its cluster (Layer 4). |
 | `HarnessRewardHackingShape` | a shipped edit grounded only in verifier/format evidence | Pathology detected *structurally*, not from trace symptoms. |
 | `HarnessHookContractShape` | an edit modifying a read-only hook | Type-safety as reasoning (AU-KG.ontology.harness-gate). |
@@ -265,7 +265,7 @@ Harness evolution is grounded in the whole fleet, not one benchmark verifier. A
 `harness-runs` `mcp_tool` preset + `source_sync` delta handler feed harness-run traces
 and verifier outcomes from any MCP server. Each `HarnessVariant` is an ARA-style
 artifact whose `grounded_in` edges point at the connector traces / test-results /
-metric-reports that substantiate it; OWL transitivity materialises the full provenance
+metric-reports that support it; OWL transitivity materialises the full provenance
 chain, and Seal L1/L2/L3 certify it by strength. Each harness dimension links to the
 live `ecosystem_topology` service it touches, so reasoning can chain
 harness-edit → dimension → service → node.
@@ -287,7 +287,7 @@ diversifies it — the code graph feeds the Loop, and the Loop drives the next e
 `harness_foundry_benchmark.py` is deterministic, CPU-only, and offline. It reproduces
 **5/5** surpass claims:
 
-| Case | HarnessX | Ours | What it proves |
+| Case | HarnessX | This repository's | What it proves |
 |------|----------|------|----------------|
 | `concentration_tau3` | ships 6 same-dim edits | ships 2 | concentration gate blocks the coupling tipping point |
 | `held_out_overfit_guard` | promotes overfit | rejects | held-out bootstrap-CI gate |

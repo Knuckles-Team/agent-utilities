@@ -36,14 +36,14 @@ Two additive, non-breaking changes in `epistemic-graph`:
    `score`, `confidence`, `valid_time`, `tx_time`, `policy_labels` — straight field
    copies off the `KnowledgeRow` the handler already builds
    (`src/server/handlers/query.rs`'s `explain_provenance_result`). `score`/
-   `confidence`/`valid_time`/`tx_time` are populated regardless of the `epistemic`
+   `confidence`/`valid_time`/`tx_time` are populated in either case of the `epistemic`
    cargo feature; `source_refs`/`policy_labels`/`evidence_spans` stay empty (never
    fabricated) when `epistemic` is off, exactly as `resolved: false` already
    documented.
 2. **`Method::ExplainProvenanceByIds { ids: Vec<String> }`** — a new, ID-seeded
    sibling of `Method::ExplainProvenance`. A caller that already has a set of node
    ids from ANY other read path (a Cypher `MATCH`, a SQL `SELECT`, a prior
-   `UnifiedQuery`) does not need to hand-build an `Op` plan just to fetch the
+   `UnifiedQuery`) does not must hand-build an `Op` plan just to fetch the
    epistemic envelope for those exact ids — it builds the `KnowledgeSet` straight
    from `RowSet::from_ids(ids)` and resolves the IDENTICAL row shape
    `ExplainProvenance` does. This is the primitive AU's facade calls.
@@ -78,7 +78,7 @@ kg.query(cypher, include_epistemic=True)
      `GraphComputeEngine.explain_provenance_by_ids` (`Method::ExplainProvenanceByIds`);
   4. returns `list[EpistemicRow]` — each one the engine's envelope zipped back with
      the plain row's own properties, so opting in never loses information a plain
-     `dict` row would have carried.
+     `dict` row will have carried.
 
 `EpistemicRow` (`agent_utilities/knowledge_graph/core/epistemic_row.py`) is the typed
 carrier: `id`, `kind`, `score`, `confidence`, `evidence_refs`, `source_refs`,
@@ -151,8 +151,8 @@ read surface that returned bare rows:
 Everything above is the HEAVY, opt-in, type-changing path (`include_epistemic=True`
 → `list[EpistemicRow]`) — correct for a caller that wants the full typed envelope,
 but it stayed off by default because flipping a facade's return type from
-`list[dict]` to `list[EpistemicRow]` for every existing caller would be a breaking
-change, and a naive default flip would silently empty results on every backend
+`list[dict]` to `list[EpistemicRow]` for every existing caller will be a breaking
+change, and a naive default flip will silently empty results on every backend
 except `EpistemicGraphBackend` (the documented "degrades to `[]`" contract above).
 
 `agent_utilities/knowledge_graph/core/epistemic_row.py`'s
@@ -223,7 +223,7 @@ One documented gap remains — the Arrow/columnar surface:
   - **What shipping this for real needs** (EG-side, not a Python-only change): (1) a
     new `Method::ExplainProvenanceBatch{ByIds}`-shaped variant + `eg-types` wire DTO
     carrying raw Arrow IPC-stream bytes (`Vec<u8>`), gated behind `knowledge-batch`
-    (which the facade's `Cargo.toml` would need to additionally forward into `full`
+    (which the facade's `Cargo.toml` will must also forward into `full`
     or a new opt-in server feature); (2) a dispatch/handler arm that resolves a
     `KnowledgeSet` (the SAME `RowSet::from_ids` primitive `ExplainProvenanceByIds`
     already uses) and encodes it via `ChunkedKnowledgeCursor::to_arrow_ipc_stream`

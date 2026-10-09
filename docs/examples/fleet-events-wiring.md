@@ -9,13 +9,13 @@ Knowledge Graph (`FleetEvent` nodes), and how critical events flow into the
 AU-OS.host.remediation-playbooks remediation playbooks (`service_down` / `service_flapping` /
 `resource_pressure`) with a step-by-step `remediation_log` audit trail.
 
-Deep dive: [fleet_autonomy.md](../architecture/fleet_autonomy.md) and
+Detailed review: [fleet_autonomy.md](../architecture/fleet_autonomy.md) and
 [event_backbone_architecture.md](../architecture/event_backbone_architecture.md).
 
 ## Prerequisites (ladder rung)
 
 This sits on the "gateway + host daemon" rung of the deployment ladder — see
-[deployment configurations](../guides/deployment-configurations.md). You need:
+[deployment configurations](../guides/deployment-configurations.md). The operator need:
 
 - the API gateway running with the graph routes mounted (the fleet routes are
   mounted alongside them under the same prefix, default `/api`);
@@ -224,7 +224,7 @@ and are granted via `POST /api/fleet/approvals/grant` — see the
 
 Note: with the shipped conservative default policy, `restart_service` is
 `approval_required`, so the `service_down` playbook will queue rather than
-restart until you load a posture that allows it.
+restart until the operator load a posture that allows it.
 
 ## Verification
 

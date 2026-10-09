@@ -78,7 +78,7 @@ python -m agent_utilities
 
 GraphOS supervises the packaged Rust engine as an out-of-process child when
 `GRAPH_SERVICE_ENDPOINTS` is absent. When endpoints are configured, it is connect-only
-and never creates a local substitute. Non-loopback bindings require verified JWT/OIDC
+and never creates a local substitute. Non-loopback bindings require checked JWT/OIDC
 identity and trusted TLS termination.
 
 The only identity exception is `graph-os --transport stdio` with

@@ -2,7 +2,7 @@
 
 > A single `source_sync(source=X, mode="full")` on a **large** corpus is no longer a
 > long blocking call. It is normalized into a self-continuing stream of paginated,
-> capacity-guarded background batch-tasks ("waves"), and you watch it finish with the
+> capacity-guarded background batch-tasks ("waves"), and the operator watch it finish with the
 > `source_drain` status tool. Concepts: **CONCEPT:AU-KG.ontology.single-source-full-drain** (chunked async drain) and
 > **CONCEPT:AU-KG.compute.connector-declared-page-drainer** (connector-declared page drainer). Source of truth:
 > `agent_utilities/knowledge_graph/core/chunked_drain.py`.
@@ -30,7 +30,7 @@ That has two failure modes:
    (CONCEPT:AU-ORCH.scheduling.resource-priority-edict/1.99) is supposed to protect.
 
 The fix makes a full re-ingest **cooperative and non-blocking**: the one call
-becomes many small, bounded, background page-tasks, each subject to the same
+becomes multiple small, bounded, background page-tasks, each subject to the same
 priority edict and the shared-accelerator server-capacity guard (CONCEPT:AU-ORCH.dispatch.embedding-fanout/1.103) as
 every other ingest unit — so it can neither time out the request nor OOM the box.
 
@@ -88,8 +88,8 @@ metadata, then calls `run_drain_page`. That function (in `chunked_drain.py`):
 4. **Self-continues:** while the returned checkpoint reports `has_more` (and the page
    isn't empty and the page backstop isn't hit), it enqueues the **next**
    `connector_drain` page-task carrying the advanced checkpoint. The corpus drains
-   across many tasks until the cursor is exhausted.
-5. **On verified exhaustion**, commits a terminal `SourceReviewCheckpoint` and the
+   across multiple tasks until the cursor is exhausted.
+5. **On checked exhaustion**, commits a terminal `SourceReviewCheckpoint` and the
    typed source cursor in one engine-native `ApplyChangeEnvelope`, then marks the
    drain `completed`. A failed page, empty `has_more` page, or page backstop retains
    the prior cursor; it cannot skip uncommitted records on the next delta run.
@@ -149,7 +149,7 @@ tags `graph-os` / `ingestion`) is how an operator or agent watches it:
 `drain_status(engine, drain_id)` in `chunked_drain.py` is the core: it reads the
 `:SourceDrain` node and groups authoritative ingestion WorkItems whose metadata
 references that drain. One call therefore shows both the cumulative tally and
-how many page WorkItems remain in flight.
+how multiple page WorkItems remain in flight.
 
 > **Surface note.** The *start* of a drain rides `source_sync`, which is exposed on
 > both the MCP surface and the REST gateway (per *Two surfaces by default*). The
@@ -179,7 +179,7 @@ request or one worker pinned for the whole drain.
 
 ## Config knobs
 
-All are governed by *Configuration discipline* — auto-sized/defaulted; you rarely
+All are governed by *Configuration discipline* — auto-sized/defaulted; the operator rarely
 touch them. They are read through `config.setting(...)`, so they are `config.json`-driven.
 
 | Knob | Default | Meaning |
@@ -202,7 +202,7 @@ Source-specific knobs still apply to the page ingest — e.g. FreshRSS's
    `{drain_id, page_size, first_task, watch:{…}}`.
 2. Watch it drain: `source_drain(action="status", drain_id="freshrss-1a2b3c4d")`.
    `pages_done` / `items_seen` / `items_ingested` climb as page-tasks complete, and
-   the `tasks` breakdown shows how many `connector_drain` tasks are still
+   the `tasks` breakdown shows how multiple `connector_drain` tasks are still
    `pending` / `running`. When `status` flips to `completed`, the whole backlog is
    ingested and the watermark has advanced.
 3. List what supports it: `source_drain(action="list")`.

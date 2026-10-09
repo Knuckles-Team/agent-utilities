@@ -3,9 +3,9 @@
 **What this demonstrates.** CONCEPT:AU-OS.identity.authenticated-identity-enforcement, authenticated identity
 enforcement: with `KG_AUTH_REQUIRED=1` the gateway mints the request's
 `ActorContext` (actor / roles / tenant) **server-side** from a validated JWT —
-caller-supplied `_actor`/`_roles`/`_tenant` kwargs are ignored — and requests
+caller-provided `_actor`/`_roles`/`_tenant` kwargs are ignored — and requests
 without a valid Bearer token are rejected 401, fail-closed, with only health
-probes and `/metrics` exempt. You mint a token, call the gateway with it, and
+probes and `/metrics` exempt. The operator mint a token, call the gateway with it, and
 see every failure mode. Deep dives:
 [Autonomous governance and zero trust](../architecture/autonomous_governance_and_zero_trust.md),
 [Configuration](../architecture/configuration.md).
@@ -112,7 +112,7 @@ print(resp.status_code, resp.json())
 ```
 
 (In production the IdP mints the token — client-credentials grant for service
-actors — and you never hold the private key yourself.)
+actors — and the operator never hold the private key the operator.)
 
 **Expected actor** minted server-side from this token (captured from the smoke
 run):
@@ -128,7 +128,7 @@ run):
 Every KG read/write in the request is scoped to that actor: ontology
 permissioning rows, audit attribution, and (with `KG_BRAIN_ENFORCE` on) the
 fail-closed ACL gate all see it. Under `KG_AUTH_REQUIRED=1`, any
-`_actor`/`_roles`/`_tenant` tool kwargs a caller supplies are ignored entirely.
+`_actor`/`_roles`/`_tenant` tool kwargs a caller provides are ignored entirely.
 
 ## 3. The same call with curl
 
@@ -158,7 +158,7 @@ All captured by driving `ActorIdentityMiddleware` directly in the smoke run
 | `KG_AUTH_REQUIRED=1` but `AUTH_JWT_JWKS_URI` unset, no token | `401` | `{"error": "Authentication required (KG_AUTH_REQUIRED=1): provide a valid JWT Bearer token (server misconfigured: AUTH_JWT_JWKS_URI unset)"}` |
 
 All 401 responses carry a `WWW-Authenticate: Bearer` header. Note that this
-identity layer answers in `401` terms (who are you); resource-level **denials**
+identity layer answers in `401` terms (who are the operator); resource-level **denials**
 for an authenticated actor surface from the ontology permissioning gate as
 `PermissionError` inside the tool/endpoint result (e.g. the AU-ORCH.execution.ontology-validation-execution-path workflow
 permission gate — see the

@@ -33,11 +33,11 @@ The cockpit is partitioned into seven distinct, highly optimized architectural l
 ### 1. Desktop Cockpit Orchestrator (CONCEPT:AU-GBOT.cockpit.through-gbot)
 *   **Module Path**: `geniusbot/geniusbot.py`
 *   **Behavior**: Orchestrates the main Qt Application loop, managing asynchronous threading bridges (`QThread`, `QObject`) that allow the GUI to interact non-blockingly with the `agent-utilities` Python core API and the `graph-os` server.
-*   **Aesthetics**: Sleek dark-mode interface utilizing a premium glassmorphic stylesheet (curated slate HSL colors, `#0f172a` body background, `#1e293b` card panels, smooth hover gradients, and subtle Outfit typography).
+*   **Aesthetics**: Sleek dark-mode interface use a premium glassmorphic stylesheet (curated slate HSL colors, `#0f172a` body background, `#1e293b` card panels, smooth hover gradients, and subtle Outfit typography).
 
 ### 2. Ecosystem Dynamic Tab Matrix (CONCEPT:AU-GBOT.cockpit.pillar-overview)
 *   **Module Path**: `geniusbot/plugins/`
-*   **Behavior**: Swappable plugin matrix allowing developers to load multi-tenant tabs on the fly. Each plugin registers a standard JSON interface defining its visual layout, required system permissions, and context bindings.
+*   **Behavior**: Swappable plugin matrix allowing developers to load multi-tenant tabs while running. Each plugin registers a standard JSON interface defining its visual layout, required system permissions, and context bindings.
 *   **UX**: Fully customizable drag-and-drop workspace tiles with smooth transitions and animated resizing constraints.
 
 ### 3. Embedded Terminal Sandbox (CONCEPT:AU-GBOT.cockpit.concept-2)
@@ -52,7 +52,7 @@ The cockpit is partitioned into seven distinct, highly optimized architectural l
 
 ### 5. Topological Cockpit Memory (CONCEPT:AU-GBOT.cockpit.concept-4)
 *   **Module Path**: `geniusbot/utils/agent_bridge.py`
-*   **Behavior**: Dynamic visualizer that renders active Virtual Context Blocks (VCBs) and topological Knowledge Graph associations in real-time. Leverages hardware-accelerated QtGraphicsViews to plot active memory nodes, decay status, and high-density hub associations as force-directed layouts.
+*   **Behavior**: Dynamic visualizer that renders active Virtual Context Blocks (VCBs) and topological Knowledge Graph associations in real-time. Use hardware-accelerated QtGraphicsViews to plot active memory nodes, decay status, and high-density hub associations as force-directed layouts.
 
 ### 6. Multi-Tenant Daemon & Tray (CONCEPT:AU-GBOT.cockpit.concept-5)
 *   **Module Path**: `geniusbot/utils/daemon.py`
@@ -63,7 +63,7 @@ The cockpit is partitioned into seven distinct, highly optimized architectural l
 *   **Behavior**: Accelerated market-data rendering engine built using `QtCharts` and `QWebEngineView`. Renders beautiful, snappy candlestick series, moving averages, and trading signals directly sourced from **emerald-exchange**.
 *   **Quant Features**:
     *   Walk-forward trade visualizer mapping entries/exits to historical price charts.
-    *   Interactive sliders for custom **Kelly Criterion** position sizing and leverage adjustments.
+    *   Interactive sliders for custom **Kelly Criterion** position sizing and use adjustments.
     *   Kolmogorov-Smirnov regime shift indicators overlay.
     *   Snappy WebSocket client streaming price updates directly into chart buffers without GIL-induced UI freezing.
 
@@ -104,5 +104,5 @@ sequenceDiagram
 To guarantee robust visual performance, the finance cockpit incorporates the following hardware optimizations:
 
 1.  **Fast Path Buffering**: Trades and price ticks are buffered in an optimized Python deque before being dispatched via Qt signals (`pyqtSignal` / `Signal`) to the Qt C++ rendering thread in batches, avoiding main-thread overhead.
-2.  **OpenGL Canvas**: All charts leverage `QGraphicsVideoItem` or OpenGL-enabled `QtCharts` to achieve a 60fps refresh rate even when rendering 100,000+ historical ticks.
+2.  **OpenGL Canvas**: All charts use `QGraphicsVideoItem` or OpenGL-enabled `QtCharts` to achieve a 60fps refresh rate even when rendering 100,000+ historical ticks.
 3.  **Local Sandboxing**: Database connections use LadybugDB transaction caching to allow instantaneous switching between historical backtests.

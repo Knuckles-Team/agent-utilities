@@ -7,7 +7,7 @@
 The Knowledge Graph uses a **Capability/Tool Separation** pattern to model
 infrastructure and enterprise services.  Instead of encoding specific platform
 names (e.g., "ServiceNow", "EAR", "WireGuard") into the ontology as
-first-class classes, we define **abstract capability classes** as ontological
+first-class classes, this repository define **abstract capability classes** as ontological
 anchors and let concrete tools declare which capabilities they provide.
 
 This enables:
@@ -278,14 +278,14 @@ subsumption path) attached to every candidate.
 | Component | File |
 |-----------|------|
 | Digest-bound `rdfs:subClassOf` projection from committed EG GraphSchema | `knowledge_graph/retrieval/capability_projection.py` |
-| Versioned capability descriptor (typed I/O, side effects, cost/latency/locality, policy/approval class, calibrated reliability) | `knowledge_graph/retrieval/capability_descriptor.py` |
+| Versioned capability descriptor (typed `I/O`, side effects, cost/latency/locality, policy/approval class, calibrated reliability) | `knowledge_graph/retrieval/capability_descriptor.py` |
 | Subsumption-aware `CapabilityIndex` filtering + shared `compute_eligibility()` | `knowledge_graph/retrieval/capability_index.py` |
 | Subsumption-aware engine push-down/post-filter | `knowledge_graph/retrieval/engine_capability_search.py` |
 | Top-level routing entry point (`route_capability_request`, `explain_routing_eligibility`) | `graph/routing/enrichers/capability_routing.py` |
 
 Every routing request that needs subsumption obtains one request-scoped
 projection from EG `OwlReason`: `direct_subclasses` preserves explanation
-paths, `subclasses` supplies the closure, and `schema_digests` pins both to the
+paths, `subclasses` provides the closure, and `schema_digests` pins both to the
 committed composed schema. Missing or inconsistent receipts fail closed; AU has
 no bundled-TTL or process-cache fallback.
 

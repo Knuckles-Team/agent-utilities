@@ -45,7 +45,7 @@ flowchart TD
 
 ## Native defaults (GAP 3)
 
-1. **Instruction.** `AGENTS.md` → *"Query the code KG before you grep"* tells every
+1. **Instruction.** `AGENTS.md` → *"Query the code KG before the operator grep"* tells every
    session to reach for `code_context` first.
 2. **Task-start prime.** `run_agent` primes the KG's synthesized view of the task's
    code area into the run context the way mementos prime a chat turn

@@ -91,7 +91,7 @@ never fails the code ingest. Opt out per-ingest with `metadata["classify"]=False
 ## Commit-history graph + `code_evolution` (CONCEPT:AU-KG.ingest.normal-codebase-ingest-also / AU-KG.enrichment.query-ingested-commit-history)
 
 **What.** A repo's commit history *is* a graph (commits → authors → files, over
-time). Tools like Gource / SourceTree only *render* that evolution; we **ingest** it
+time). Tools like Gource / SourceTree only *render* that evolution; this repository **ingest** it
 as first-class graph data so codebase evolution becomes a free native KG query.
 
 **How.** `knowledge_graph/enrichment/git_history.py`:
@@ -220,7 +220,7 @@ retry→backoff→dead_letter (AU-KG.ingest.hardened-priority-scheduled-task). I
 external synchronous call cannot cooperate, it remains quarantined in that bounded
 worker with its renewable lease and throttle slot until it returns. The system never
 starts a duplicate attempt or leaves a per-attempt daemon mutating as zombie work.
-External clients must still carry their own I/O timeout; Python cannot safely kill an
+External clients must still carry their own `I/O` timeout; Python cannot safely kill an
 arbitrary running thread.
 **No env knob** — the bound is a deterministic function of the lane, with the reaper's
 absolute cap as the backstop.
@@ -284,7 +284,7 @@ instead of N independent per-file ingestion pipelines.
 
 ---
 
-## Operating notes — verifying ingestion is healthy
+## Operating notes — checking ingestion is healthy
 
 - **Per-hop / tail profile:** `graph_ingest action=profile` — read `parallelism_factor`
   (it should climb after the embedding batch/concurrent fix), `stages_ms`
@@ -292,7 +292,7 @@ instead of N independent per-file ingestion pipelines.
   to spot a specific outlier, and `dead_letter` per group.
 - **Coverage:** `agent-utilities-doctor`'s `ingestion_coverage` check
   (`deployment/doctor.py`) plus the `DeltaManifest` freshness SLA — confirms repos are
-  actually ingested (and surfaces uningested areas before you fall back to grep).
+  actually ingested (and surfaces uningested areas before the operator fall back to grep).
 - **Lane health:** the lane metrics / admission decisions in `worker_scheduler.py`
   show whether the interactive floor (AU-KG.compute.interactive-lane-floor) is holding and whether the best-effort
   maint cap (AU-ORCH.scheduling.low-value-high-volume) is keeping the throughput lanes clear.

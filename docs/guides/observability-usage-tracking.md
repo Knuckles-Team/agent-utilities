@@ -1,7 +1,7 @@
 # Usage, Cost & Observability
 
 Track token usage, cost, model/tool/skill/db-call metrics, and Langfuse traces
-across **every AI coding agent you run** — and across our own agent runtime —
+across **every AI coding agent the operator run** — and across this repository's own agent runtime —
 through one gateway API and native views in all three frontends (agent-webui,
 agent-terminal-ui, geniusbot).
 
@@ -11,7 +11,7 @@ backend-abstracted analytics store, and a REST + MCP surface.
 
 > **TL;DR — usage collection is configure-by-default.** After the platform identity
 > and secret references are configured, start the REST gateway. Installed agents are
-> auto-detected, their logs are parsed and priced on a schedule, your own runs
+> auto-detected, their logs are parsed and priced on a schedule, the operator's own runs
 > are recorded automatically, and the UIs light up. No additional source inventory
 > is required for the local single-host case.
 
@@ -24,12 +24,12 @@ backend-abstracted analytics store, and a REST + MCP surface.
 | Pricing catalog | Operator-owned versioned rates + optional remote refresh | ECO-4.40 |
 | UsageStore | Backend-abstracted fact store (SQLite/Postgres/DuckDB) | AU-OS.observability.usage-analytics-store |
 | Agent-source registry | Auto-detects + parses 36 agents' session logs | AU-ECO.connector.agent-source-ingestion |
-| Runtime instrumentation | Records our own graph runs + tool/skill/db calls | AU-OS.observability.persist-this-graph-run |
+| Runtime instrumentation | Records this repository's own graph runs + tool/skill/db calls | AU-OS.observability.persist-this-graph-run |
 | Gateway API + MCP tools | `/api/observability/*` + `usage_query`/`ingest_sessions` | AU-ECO.mcp.usage-cost-observability-surface |
 | Remote ingest transport | Client-parses, server-sinks (no server FS access) | AU-ECO.mcp.client-side-chat-session |
 
 **Two data planes, one privacy boundary.** Plane A = ingested *external* agent
-facts (historical). Plane B = our *own* runtime telemetry (live). Both pass
+facts (historical). Plane B = this repository's *own* runtime telemetry (live). Both pass
 through the same persistence boundary and land in the same store keyed by an
 `origin` column. Tenant, run, correlation, parent, tool-use, file, and dedup
 identities are stored as tenant-qualified opaque references. Host names and
@@ -73,7 +73,7 @@ Python, call `ensure_parsers_loaded()` and then list the `agent_type` values fro
 
 ### What "auto-config" means here
 
-You do **not** list which agents you use, where their logs live, which models
+The operator do **not** list which agents the operator use, where their logs live, which models
 cost what, or where to store data. The system:
 
 - **Auto-detects agents** through each registered source adapter's platform-aware
@@ -82,8 +82,8 @@ cost what, or where to store data. The system:
 - **Auto-prices** every model from the bundled offline table (no network, no keys)
   and refreshes from LiteLLM when online.
 - **Auto-selects storage**: per-host SQLite+FTS5 by default (no external deps).
-- **Auto-records our own runs**: every graph run is recorded beside the existing
-  Langfuse export — no instrumentation calls in your code.
+- **Auto-records this repository's own runs**: every graph run is recorded beside the existing
+  Langfuse export — no instrumentation calls in the operator's code.
 - **Auto-registers** the sync + pricing daemon jobs.
 
 ---
@@ -122,7 +122,7 @@ scope, and a usage administrator must name a different tenant explicitly.
 ## Remote / central knowledge graph
 
 When the engine/knowledge-graph is hosted on a **different** machine than where
-your agent logs live, the logs are not on the server. agent-utilities closes this
+the operator's agent logs live, the logs are not on the server. agent-utilities closes this
 gap with a **client-parses, server-sinks** model — the parser runs where the
 files are, and only metadata-retained, privacy-normalized rows travel to the
 server. Source paths, host names, raw identities, and transcript/tool content do
@@ -144,7 +144,7 @@ Tenant scope comes from the verified request identity. Do not persist a personal
 environment-specific tenant label in source control.
 
 Then either let the daemon tick handle it, run `POST /api/observability/sync`, or
-from an agent call `ingest_sessions(action="collect")`. Under the hood each batch
+from an agent call `ingest_sessions(action="collect")`. Internally each batch
 is POSTed to `/api/observability/sessions/upload` (or sent via the
 `ingest_sessions(action="upload")` MCP tool) — the server never reads the
 client's filesystem.
@@ -257,7 +257,7 @@ read/write integration and proposal workflow.
 | `USAGE_GATEWAY_URL` | — | Central gateway for remote push |
 | `USAGE_TENANT_ID` | — | Runtime-only collector scope; served requests derive tenant scope from verified identity |
 | `PERSISTENCE_IDENTITY_HMAC_KEY_REF` | — | Secret reference for stable opaque durable identities; required in production |
-| `ENABLE_OTEL` | `false` | Enable metadata-only OpenTelemetry; GraphOS activates it at startup, and production supplies an OTLP endpoint or a canonical Langfuse credential-reference pair from which one is derived |
+| `ENABLE_OTEL` | `false` | Enable metadata-only OpenTelemetry; GraphOS enables it at startup, and production supplies an OTLP endpoint or a canonical Langfuse credential-reference pair from which one is derived |
 | `TRACE_EXPORT_ENABLED` | `false` | Explicitly authorize trace export; credentials alone do not enable emission |
 | `LANGFUSE_MCP_ENABLED` | `auto` | Lazy Langfuse MCP child auto-enables when both credentials are ready; explicit `false` opts out |
 | `LANGFUSE_CAPTURE_CONTENT` | `false` | Opt in to sanitized trace content across sinks; production remains metadata-only |
@@ -270,7 +270,7 @@ read/write integration and proposal workflow.
 
 Every flag has a sensible local-development default. Production requires the
 shared Postgres backend, usage tracking, and an enabled OTLP exporter with its
-endpoint injected at runtime. It additionally requires metadata-only content
+endpoint injected at runtime. It also requires metadata-only content
 retention and a secret-backed identity HMAC key reference.
 
 ---

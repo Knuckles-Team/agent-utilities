@@ -2,7 +2,7 @@
 
 ## Model Registry
 
-`agent-utilities` ships a first-class multi-model registry so a single agent deployment can fan out work across several LLM providers (a fast local LM Studio, a cloud `gpt-4o-mini`, a reasoning `claude-3-opus`, etc.) without any code changes.
+`agent-utilities` ships a first-class multi-model registry so a single agent deployment can fan out work across multiple LLM providers (a fast local LM Studio, a cloud `gpt-4o-mini`, a reasoning `claude-3-opus`, etc.) without any code changes.
 
 **Data model** (`agent_utilities/models/schema_definition.py` & `agent_utilities/core/config.py`)
 
@@ -44,7 +44,7 @@
 ## Direct Graph Execution
 
 When a `graph_bundle` is present at startup, the AG-UI endpoint (`/ag-ui`)
-executes it through the protocol-agnostic graph authority. This removes an outer
+runs it through the protocol-agnostic graph authority. This removes an outer
 LLM inference round-trip: the protocol adapter invokes graph execution directly.
 
 ### How It Works
@@ -62,7 +62,7 @@ async for event in execute_graph_iter(graph, config, query):
 
 | Event Type | Description |
 |-----------|-------------|
-| `node_transition` | A graph node has started executing (includes active node IDs) |
+| `node_transition` | A graph node has started running (includes active node IDs) |
 | `sideband` | Graph lifecycle events (specialist routing, tool calls) |
 | `elicitation` | The graph is pausing for human approval |
 | `graph_complete` | Execution finished (includes final output) |
@@ -109,14 +109,14 @@ The `agent-utilities` ecosystem implements a high-fidelity orchestration pipelin
 1. **Project Start**: The **Planner** triggers `constitution-generator` to establish `constitution.md` (governance rules, tech stack).
 2. **Feature Definition**: The **Planner** triggers `spec-generator` to produce `spec.md` (user stories, acceptance criteria, requirements).
 3. **Technical Approach**: The **Planner** triggers `task-planner` to generate `plan.md` (technical approach) and `tasks.md` (inter-dependent graph of tasks).
-4. **Baseline Testing**: Before implementation, the **Planner** triggers `first_run_tests` to establish a verified baseline of the current workspace state.
+4. **Baseline Testing**: Before implementation, the **Planner** triggers `first_run_tests` to establish a checked baseline of the current workspace state.
 
 ### Phase 2: Parallel Execution
 The **Dispatcher** reads the `tasks.md` and routes sub-tasks to specialized agents.
 - **Dependency Tracking**: Tasks are executed in parallel if they have no unmet dependencies.
 - **Context Isolation**: Each specialist receives only relevant context for its assigned task.
 - **`[P]` Markers**: The `Task.parallel: bool` field and `[P]` markdown markers enable explicit parallel-wave control.
-- **Agentic Manual Testing**: Specialists can trigger `run_manual_test` to verify behaviors that are difficult to automate (e.g. CLI output, UI state).
+- **Agentic Manual Testing**: Specialists can trigger `run_manual_test` to check behaviors that are difficult to automate (e.g. CLI output, UI state).
 
 ### Phase 3: Continuous Verification
 1. **Quality Gate**: After execution, the **Verifier** node uses `spec-verifier` to evaluate the results against the original `spec.md`.
@@ -126,7 +126,7 @@ The **Dispatcher** reads the `tasks.md` and routes sub-tasks to specialized agen
 ### Phase 4: Long-Term Memory Evolution
 1. **Interactive Explanations**: For complex logic, the agent generates `interactive-explain` artifacts (HTML/JS) to aid human understanding.
 2. **Memory Capture**: The `sync_feature_to_memory` tool is invoked to summarize the `Spec`, `ImplementationPlan`, and execution results.
-3. **Historical Reference**: Future planning sessions can search the Knowledge Graph to retrieve technical context from previous related work.
+3. **Historical Reference**: Future planning sessions can search the Knowledge Graph to fetch technical context from previous related work.
 
 ### SDD Skills Reference
 | Skill | Group | Purpose | Bound To |
@@ -135,7 +135,7 @@ The **Dispatcher** reads the `tasks.md` and routes sub-tasks to specialized agen
 | `spec-generator` | sdd | Create feature-level specifications. | Planner, Architect, Project Manager |
 | `task-planner` | sdd | Generate technical implementation plans with `[P]` markers. | Planner, Coordinator |
 | `spec-verifier` | sdd | Evaluate results against specifications. | Verifier, QA Expert, Critique |
-| `sdd-implementer` | sdd | Execute tasks from the generated plan. | Specialist Programmers |
+| `sdd-implementer` | sdd | Run tasks from the generated plan. | Specialist Programmers |
 | `workspace-manager` | sdd | Bootstrap and manage `.specify/` directory layout. | Planner |
 | `manual-testing-enhanced` | sdd | Exploratory testing and manual verification. | QA Expert, Verifier |
 | `code-walkthrough` | docs | Generates linear codebase documentation. | Document Specialist |
@@ -152,10 +152,10 @@ Any tool matching specific "danger" patterns (e.g., `delete_*`, `write_*`, `exec
 
 **Key Features:**
 - **Zero Config**: Protections are applied automatically based on tool names via `apply_tool_guard_approvals()`.
-- **True Pause-and-Resume**: The graph does NOT terminate on approval requests. It suspends via `asyncio.Future` and resumes when the user responds.
+- **True Pause-and-Resume**: The graph does NOT stop on approval requests. It suspends via `asyncio.Future` and resumes when the user responds.
 - **Protocol-Agnostic**: Works identically across AG-UI (web UI), terminal UI, ACP, and SSE protocols.
 - **Persistent Choices**: When using ACP, users can select "Always Allow" / "Always Deny" for specific tools.
-- **Configurable, never disabled**: `TOOL_GUARD_MODE=on` uses the configured sensitivity patterns; `strict` requires approval for every non-read-only function tool. MCP tools always require a verified identity policy.
+- **Configurable, never disabled**: `TOOL_GUARD_MODE=on` uses the configured sensitivity patterns; `strict` requires approval for every non-read-only function tool. MCP tools always require a checked identity policy.
 
 **Sensitive Patterns:**
 `delete`, `write`, `execute`, `rm_`, `rmdir`, `drop`, `truncate`, `update`, `patch`, `post`, `put`, `create`, `add`, `upload`, `set`, `reset`, `clear`, `revert`, `replace`, `rename`, `move`, `start`, `stop`, `restart`, `kill`, `terminate`, `reboot`, `shutdown`, `git_*`.
@@ -314,13 +314,13 @@ Always-on attention mechanism that scores specialist outputs by relevance, confi
 
 ## First Principles Architecture (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation through CONCEPT:AU-ECO.messaging.native-backend-abstraction)
 
-The First Principles Architecture rewires the routing, dispatch, and feedback layers from basic primitives to solve scalability and intelligence bottlenecks. See [first-principles.md](first-principles.md) for the complete deep-dive.
+The First Principles Architecture rewires the routing, dispatch, and feedback layers from basic primitives to solve scalability and intelligence bottlenecks. See [first-principles.md](first-principles.md) for the complete detailed review.
 
 ### 10. Registry Hot Cache (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
 Session-scoped `_RegistryCache` singleton providing O(1) specialist lookups with event-driven invalidation. Reduces prompt bloat from 50+ specialist descriptions to only the top-7 relevant per query.
 - **Module**: `agent_utilities/core/config.py`
 - **Features**: Query-keyed caching, 4 invalidation triggers (MCP reload, pipeline, Self-Model, TeamConfig), no TTL risk
-- **Deep-Dive**: [registry-cache.md](registry-cache.md)
+- **Detailed review**: [registry-cache.md](registry-cache.md)
 
 ### 11. TeamConfig Promotion (CONCEPT:AU-AHE.evaluation.interpretability-tests)
 Proven specialist coalitions are persisted as reusable `TeamConfigNode` templates in the Knowledge Graph. Enables 3-stage hybrid routing: TeamConfig match → Self-Model bias → LLM planning fallback.
@@ -328,7 +328,7 @@ Proven specialist coalitions are persisted as reusable `TeamConfigNode` template
 - **Features**: Coalition promotion, domain-pattern matching, EMA-based success rate tracking, RLM + TeamConfig synergy
 
 ### 12. AgentCapability Type System (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)
-First-class KG capability nodes with auto-activation, trigger conditions, and dynamic handler binding. Capabilities like RLM, critic, and summarizer activate automatically based on input constraints.
+First-class KG capability nodes with auto-activation, trigger conditions, and dynamic handler binding. Capabilities like RLM, critic, and summarizer enable automatically based on input constraints.
 - **Module**: `agent_utilities/models/knowledge_graph.py`, `agent_utilities/graph/executor.py`
 - **Features**: Trigger conditions (input_size_gt, domain, has_images), HAS_CAPABILITY edges, priority ordering
 
@@ -385,7 +385,7 @@ files. It supports encrypted engine storage (`engine`) and `vault`
 
 ### Setting Up the Backend
 
-To configure your agent to use Vault or OpenBao, export these environment variables:
+To configure the operator's agent to use Vault or OpenBao, export these environment variables:
 
 **For HashiCorp Vault & OpenBao:**
 ```bash
@@ -402,7 +402,7 @@ files and sibling encryption keys are not runtime inputs.
 
 ### Using Secrets in Agent Code
 
-During graph execution, the agent can resolve secrets natively via the `GraphDeps` context, so your code doesn't need to depend on `os.environ` or python-dotenv:
+During graph execution, the agent can resolve secrets natively via the `GraphDeps` context, so the operator's code doesn't must depend on `os.environ` or python-dotenv:
 
 ```python
 from agent_utilities.security.secrets_client import create_secrets_client
@@ -415,7 +415,7 @@ if ctx.deps.secrets_client:
 
 ### Using URI Schemes for Configuration
 
-If you're mapping secrets into an MCP configuration (`mcp_config.json`) or
+If the operator're mapping secrets into an MCP configuration (`mcp_config.json`) or
 reading strings elsewhere, use a `vault://`, `secret://`, or `env://` runtime
 reference. Literal values and storage-path references are rejected:
 
@@ -430,9 +430,9 @@ token = client.resolve_ref("env://GITLAB_TOKEN")
 ```
 
 
-## Comprehensive Feature List
+## Complete Feature List
 
-- **Multi-Domain Architectural Pattern**: Transitioned `agent-utilities` to a Multi-Domain Expert System supporting modular expansion into `finance`, `medical`, `law`, and `science`. Domain integrations leverage Vectorized Topological Memory and the core Knowledge Graph, with heavy domain-specific dependencies optionally loaded via tags (e.g., `agent-utilities[finance]`).
+- **Multi-Domain Architectural Pattern**: Transitioned `agent-utilities` to a Multi-Domain Expert System supporting modular expansion into `finance`, `medical`, `law`, and `science`. Domain integrations use Vectorized Topological Memory and the core Knowledge Graph, with heavy domain-specific dependencies optionally loaded via tags (e.g., `agent-utilities[finance]`).
 - **Quantitative Finance Framework**: Production-grade, KG-native financial framework designed for global asset classes (Crypto, Equities, Forex, Derivatives, Prediction Markets). Includes Stationary Feature Engineering (ADF tests), Topological TradingLSTM (sequence processing + networkx regimes), Laplace Ensemble Fusion (for Open-Meteo probability conversion), Cost-Aware Threshold Filtering (for Polymarket/Kalshi arbitrage), Walk-Forward Validation, Quarter-Kelly Risk Optimization, and Kolmogorov-Smirnov shift detection. Orchestrated entirely via a **single, omnipotent `quant` MCP Tool**, dynamically routing across intelligence, data, execution, and portfolio risk domains to minimize LLM token bloat.
 - **Background Concept Research Daemon (CONCEPT:AU-KG.research.research-pipeline-runner)**: Native, persistent background intelligence integration. Selects high-degree concepts and queues them for deep analysis using the configured inference model (configured via `model_registry_path` and `KG_INFERENCE_MODEL`).
 - **API Client Standardization**: Unified `api_client.py` file naming convention across the entire ecosystem, simplifying downstream imports and skill tooling.
@@ -441,7 +441,7 @@ token = client.resolve_ref("env://GITLAB_TOKEN")
 - **Dynamic MCP Tool Distribution (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: Load an `mcp_config.json` and the system automatically connects to each MCP server, extracts and tags every tool, partitions them into focused specialist agents (~10-20 tools each), and registers them as graph nodes at runtime. This keeps context windows light — "GitLab Projects" specialist only sees 10 project tools.
 - **Registry Hot Cache (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)**: Session-scoped O(1) specialist lookups with event-driven invalidation. Filters 50+ specialists down to the top-7 relevant per query, reducing prompt bloat by ~7x. Invalidates on MCP reload, pipeline completion, Self-Model updates, and TeamConfig promotions.
 - **TeamConfig Promotion (CONCEPT:AU-AHE.evaluation.interpretability-tests)**: Proven specialist coalitions are automatically persisted as reusable templates in the Knowledge Graph. Enables 3-stage hybrid routing: TeamConfig match → Self-Model bias → LLM planning fallback. Includes RLM + TeamConfig synergy for automatic recursive decomposition on large inputs.
-- **AgentCapability Auto-Activation (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)**: First-class KG capability nodes with trigger conditions and handler modules. Capabilities like RLM, critic, and summarizer auto-activate based on input constraints (e.g., input size, domain, tool count).
+- **AgentCapability Auto-Activation (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)**: First-class KG capability nodes with trigger conditions and handler modules. Capabilities like RLM, critic, and summarizer auto-enable based on input constraints (e.g., input size, domain, tool count).
 - **A2A-Native Graph Execution (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: `PlannerGraphSkill` provides a direct A2A entry point that bypasses LLM orchestration overhead. When a graph is present, A2A requests route directly through the graph planner.
 - **A2A Config File (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: File-based external A2A agent discovery via `a2a_config.json`. Supports `secret://`, `env://`, and `vault://` auth token resolution. Includes soft-fail startup and periodic background re-fetch of remote agent cards.
 - **Unified Specialist Model (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)**: Collapses the `prompt`/`mcp` agent type distinction into a single `specialist` type. Any specialist can host any combination of MCP tools and/or agent skills. A2A agents remain their own execution protocol.
@@ -465,10 +465,10 @@ token = client.resolve_ref("env://GITLAB_TOKEN")
 - **Unified Memory Architecture**: Features Memento Context Management, Multi-Timescale dynamics, and Cross-Agent Observational Bridges. See [Memory Architecture](../pillars/memory_architecture.md) for full details.
 - **Graph Database Abstraction (CONCEPT:AU-KG.query.object-graph-mapper)**: Single `GraphBackend` interface (`knowledge_graph/backends/`) fronting the **one database** — the Rust **epistemic-graph** engine (`epistemic_graph_backend.py`), the authority for all reads and writes. Declared mirrors receive committed writes asynchronously and losslessly (durable outbox, replay-on-reconnect) for interop/BI/DR — **pg-age/PostgreSQL** (`postgresql_backend.py`), **LadybugDB**, **FalkorDB**, **Neo4j** — none can become the authority or enter the read path.
 - **Automated Graph Maintenance (CONCEPT:AU-KG.query.object-graph-mapper)**: A single consolidated `_maintenance_scheduler_loop` (`knowledge_graph/core/engine_tasks.py`) runs the former analysis/compaction/evolution/enrichment daemons as `_tick_*` jobs behind one background-throttle gate. Handles vector embedding enrichment, scheduled log pruning, intelligent chat summarization, and **Concept Merging/Pruning** to ensure sustainable long-term memory. Supports **Hub Node Protection** for critical foundational knowledge.
-- **Confidence-Gated & Adaptive Model Routing (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)**: Adaptive model tier selection using runtime confidence signals from specialist consensus, plus fast-path model routing (`gpt-4o-mini`) for simple queries. High-confidence groups route to cheaper models; low-confidence groups escalate. Also leverages ACO pheromone trails to actively down-weight specialists with historically low success rates.
+- **Confidence-Gated & Adaptive Model Routing (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)**: Adaptive model tier selection using runtime confidence signals from specialist consensus, plus fast-path model routing (`gpt-4o-mini`) for simple queries. High-confidence groups route to cheaper models; low-confidence groups escalate. Also use ACO pheromone trails to actively down-weight specialists with historically low success rates.
 - **Evolutionary Aggregation (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)**: Group-level diversity scoring with three-tier aggregation (majority vote / light synthesis / deep aggregation). Convergence-aware early stopping prevents diversity collapse in multi-loop specialist tasks.
 - **Schema Packs (CONCEPT:AU-KG.ingest.engineering-rules)**: Domain-configurable KG profiles with dual ADDITIVE/EXCLUSIVE modes. Scopes active node types, edge types, retrieval boosts, and OWL extensions to a specific domain. Pre-built packs: `core`, `research-state`, `biomedical`, `finance`.
-- **Backlink-Density Retrieval Boost (CONCEPT:AU-KG.ingest.engineering-rules)**: Logarithmic in-degree retrieval weighting in `HybridRetriever`. Hub entities with many inbound edges are boosted proportionally. Pack-configurable strategy: `global`, `context_only`, or `disabled`.
+- **Backlink-Density Retrieval Boost (CONCEPT:AU-KG.ingest.engineering-rules)**: Logarithmic in-degree retrieval weighting in `HybridRetriever`. Hub entities with multiple inbound edges are boosted proportionally. Pack-configurable strategy: `global`, `context_only`, or `disabled`.
 - **KG Eval Capture (CONCEPT:AU-KG.ingest.engineering-rules)**: Lightweight regression testing harness recording query-result pairs to a separate SQLite database. Enables Jaccard@k replay and top-1 stability tracking after KG changes.
 - **Conductor Workflow Specification (CONCEPT:AU-ORCH.planning.recursion-nesting-depth)**: Refined natural-language subtask instructions per specialist step. The planner crafts focused sub-goals tailored to each specialist's strengths instead of forwarding the raw user query. Inspired by the RL Conductor (Nielsen et al., ICLR 2026).
 - **Multi-Level Abstraction Layering (CONCEPT:AU-ORCH.execution.execution-budget-caps)**: Planners emit coarse-grained abstraction steps and delegate fine-grained execution to specialist nodes, reducing upfront planning token overhead.
@@ -501,7 +501,7 @@ token = client.resolve_ref("env://GITLAB_TOKEN")
 - **Research Intelligence Pipeline (CONCEPT:AU-KG.research.research-pipeline-runner)**: Automated end-to-end research ingestion: ScholarX Discovery → 9-domain Relevance Scoring → Tiered Ingestion (native Article + Document/Chunk graph slices for relevant papers ≥3.0, native abstract-only Article slices for marginal ≥1.0) → OWL Enrichment → Digest Generation. Paper/source/author edges commit atomically through `ChangeEnvelope`; author identities are non-reversible references and local PDF paths are not persisted. Supports arXiv papers via ScholarX, local files (PDF/HTML/Markdown), and web URLs. KG-backed watchlists via PolicyNodes.
 - **KG Source Resolver (CONCEPT:AU-KG.research.research-pipeline-runner)**: Bridges the KG indexing layer to the comparative-analysis skill by materializing stored documents to filesystem paths with metadata enrichment. Enables `--kg-query` flag in `discover_projects.py` for KG-backed source resolution. Optional — gracefully returns empty when no KG is available.
 - **Cross-Session Chat Recall (CONCEPT:AU-KG.memory.tiered-memory-caching)**: Keyword-based search across stored chat sessions using the KG Cypher backend. Adapted from Goose's `ChatHistorySearch`. Provides `search_chat_history()` with relevance scoring and date filtering.
-- **Topological Analogy Engine (CONCEPT:AU-KG.compute.spectral-cluster-navigator)**: Leverages exact subgraph isomorphism (networkx VF2) and vectorized embeddings (`EncPI`) to find analogous subgraphs across different domains, enabling structural pattern matching and cross-domain innovation extraction.
+- **Topological Analogy Engine (CONCEPT:AU-KG.compute.spectral-cluster-navigator)**: Use exact subgraph isomorphism (networkx VF2) and vectorized embeddings (`EncPI`) to find analogous subgraphs across different domains, enabling structural pattern matching and cross-domain innovation extraction.
 - **OWL-Driven Semantic Subsumption (CONCEPT:AU-KG.ingest.engineering-rules)**: Hierarchy-aware zero-shot ontology alignment. Automatically computes topological embedding cosine similarity against OWL class prototypes to infer and inject new concepts directly into the correct class lineage.
 - **JSON-as-Code Prompting & Governance (CONCEPT:AU-OS.config.secrets-authentication)**: Standardized Pydantic models for structured prompting. Moves away from free-form Markdown to robust, versioned JSON blueprints for high-precision task specification. Engineering rule books have been migrated to the `agent_utilities/policies/` directory with versioned YAML frontmatter, and prompt-based governance uses an explicit `rules` key.
 - **Topological Vulnerability Scanner (CONCEPT:AU-OS.config.secrets-authentication)**: Enhances security by moving beyond text-based pattern-matching. Scans execution graphs for structural vulnerabilities (e.g., untrusted data flows, circular dependency deadlocks) by matching them against known risk subgraphs in the KG.
@@ -517,7 +517,7 @@ token = client.resolve_ref("env://GITLAB_TOKEN")
 - **Topological Graph Visualization (CONCEPT:AU-KG.research.research-pipeline-runner)**: Scalable WebGL-based Knowledge Graph visualization engine using Sigma.js and ForceAtlas2 physics for the `agent-webui`. Implements intelligent mass assignment and radial clustering for high-mass structural nodes to prevent graph spaghetti at 100K+ scale. Provides full interactive CRUD capabilities via React overlay UIs.
 - **Model Display Optimization (CONCEPT:AU-KG.research.research-pipeline-runner)**: Display-predict decoupling engine optimizing model `__str__()` for agent consumption independently of `predict()` logic. 5 strategies: linear_collapse, piecewise_table, symbolic_equation, coefficient_summary, and adaptive (SmartAdditive pattern). Bounded complexity budgets and per-feature R² gating. Based on arXiv:2605.03808.
 - **Learned Agent Routing (CONCEPT:AU-ORCH.adapter.kg-graph-materialization)**: Jointly optimizes decomposition depth, worker choice, and inference budget from execution traces. Three policies: RuleBasedPolicy, TraceLearnedPolicy (softmax scoring from historical traces with EMA quality tracking), CostAwareRouter (Pareto-optimal cost/accuracy filtering). Derived from Uno-Orchestra research (arXiv:2605.05007v1).
-- **Elastic Context Operators (CONCEPT:AU-KG.ingest.engineering-rules)**: 5 atomic operators (Skip, Compress, Rollback, Snippet, Delete) for elastic context orchestration with checkpoint/rollback support. Derived from LongSeeker (arXiv:2605.05191v1).
+- **Elastic Context Operators (CONCEPT:AU-KG.ingest.engineering-rules)**: 5 atomic operators (Skip, Compress, Rollback, Snippet, Remove) for elastic context orchestration with checkpoint/rollback support. Derived from LongSeeker (arXiv:2605.05191v1).
 - **Versioned KG Mutations (CONCEPT:AU-KG.memory.auto-similarity-memory-graph)**: Git-like transactional mutation semantics: KGTransaction, KGCommit, KGVersionEngine (commit/rollback/diff), KGDiff. Derived from Evolving Idea Graphs (arXiv:2605.04922v1).
 - **Dynamic Skill Evolution (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: On-the-fly skill creation and synthesis: SkillNeologismDetector, SkillFactory, SkillMerger. Derived from Skill Neologisms (arXiv:2605.04970v1).
 - **Jailbreak Robustness Hardening (CONCEPT:AU-OS.config.secrets-authentication)**: 4-category SoK jailbreak taxonomy (template/optimization/LLM/manual) with 12 new threat patterns. Derived from SoK: Robustness against Jailbreak (arXiv:2605.05058v1).
@@ -536,10 +536,10 @@ token = client.resolve_ref("env://GITLAB_TOKEN")
 - **Adaptive Tool Provisioning (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: Real-time provisioning of MCP tools, APIs, and native functions into an execution context strictly driven by KG capabilities.
 - **Graph-Native Team Evolution (CONCEPT:AU-AHE.evaluation.backtest-harness)**: Analyzes historical execution traces to autonomously propose architectural topological mutations and capability expansions.
 - **Native Innovation Discovery Engine (CONCEPT:AU-KG.query.object-graph-mapper)**: Backend-native biomimicry and technology signal extraction via `discover_innovations()`. Performs vector search + keyword-driven signal enrichment (14 biomimicry, 28 tech keywords) with zero LLM calls. Exposed through the `graph_search(mode='discover')` MCP tool for instant innovation cross-referencing across all ingested research papers and codebases.
-- **Native LLM Analysis via FastMCP Sampling (CONCEPT:AU-KG.query.object-graph-mapper)**: `graph_analyze` MCP tool leveraging FastMCP's `ctx.sample()` for server-side LLM processing. Its pipeline combines native vector discovery, LLM synthesis, and deep extraction (algorithms, patterns, integration blueprints). All processing happens inside the MCP server — skills consume enriched results.
+- **Native LLM Analysis via FastMCP Sampling (CONCEPT:AU-KG.query.object-graph-mapper)**: `graph_analyze` MCP tool use FastMCP's `ctx.sample()` for server-side LLM processing. Its pipeline combines native vector discovery, LLM synthesis, and deep extraction (algorithms, patterns, integration blueprints). All processing happens inside the MCP server — skills consume enriched results.
 - **Background Concept Research Daemon (CONCEPT:AU-KG.research.research-pipeline-runner)**: An automated deep-analysis loop within the `SQLiteTaskQueue`. Triggered via `graph_analyze(action="background_research")`, this persistent worker natively extracts features, infers `ANALOGOUS_TO` relationships, and recursively researches new concepts down to `KG_ANALYSIS_MAX_DEPTH` without blocking the main agent workflow. Configurable via `KG_INFERENCE_MODEL` and `KG_LLM_CONCURRENCY`.
 - **Multi-IDE Conversation Log Ingestion (CONCEPT:AU-KG.memory.tiered-memory-caching)**: Native ingestion pipeline for external IDE/agent conversation logs from Antigravity, Windsurf, Claude Code, and Codex. Creates `Thread`/`Message` nodes with temporal metadata and source provenance. Triggered via `graph_ingest(target_path='conversations')` or filtered with `graph_ingest(target_path='conversations:antigravity,windsurf')`.
 - **Disk-Aware DB Backup (CONCEPT:AU-KG.query.object-graph-mapper)**: Self-healing database management with disk-space-aware backups (skips if <1GB free), non-destructive WAL corruption recovery (preserves main DB, only cleans transient WAL/journal files), and configurable backup retention via `DEFAULT_KG_BACKUPS`.
 - **Super-Assimilation Evolution Pipeline (CONCEPT:AU-KG.query.object-graph-mapper + AHE-3.2)**: Autonomous, KG-driven feature assimilation from external codebases and research papers. Ingests 60+ repositories via the graph-os MCP native ingestion, preserves each codebase's `constitution.md` as KG PolicyNodes, and runs parallelized comparative analysis across all 5 pillars (ORCH, KG, AHE, ECO, OS) with 34-concept cross-referencing. Enforces the **Wire or Discard** heuristic: every assimilated feature MUST connect to an existing hot path within ≤3 hops, extend existing concepts (not duplicate), and produce zero dead code. Constitution rules from ingested codebases inform integration constraints during SDD plan generation.
-- **Tool-Agnostic Pre-Edit Safety Hooks (CONCEPT:AU-OS.safety.tool-agnostic-file-safety)**: Automatically protects workspace files from destructive AI edits across any connected agent environment. Files are backed up to the XDG standard directory (`~/.local/share/agent-utilities/backups/`) prior to modification.
+- **Tool-Agnostic Pre-Edit Safety Hooks (CONCEPT:AU-OS.safety.tool-agnostic-file-safety)**: Automatically protects workspace files from destructive AI edits across any connected agent environment. Files are backed up to the XDG standard directory (`~/.local/share/agent-utilities/backups/`) before modification.
 - **Nested Subfolder Instructions (CONCEPT:AU-OS.context.nested-instructions)**: Allows agents to dynamically inherit specific rules when operating within subdirectories. Recursively aggregates `AGENTS.md` and `INSTRUCTIONS.md` context from the target directory up to the workspace root, enabling subfolder-level overriding.

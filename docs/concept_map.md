@@ -100,7 +100,7 @@ Key modules: `graph/builder.py`, `graph/nodes.py`, `graph/planning/` (unified `P
 > **Schema-Pack 2.0 (KG-2.22–AU-KG.research.research-state-domain-pack)** turns the domain Schema Pack from a
 > type-selection profile into a full domain retrieval+extraction+reasoning profile,
 > closing gbrain-class gaps (recency decay, source-trust, zero-LLM typed-edge
-> extraction, relational recall, autocut, candidate auditing) while leveraging our
+> extraction, relational recall, autocut, candidate auditing) while use this repository's
 > OWL reasoner and bi-temporal store for closure and `as_of` literature state that a
 > flat brain layer cannot provide. See `models/schema_pack.py`,
 > `models/schema_pack_loader.py`, `models/schema_pack_audit.py`,
@@ -242,7 +242,7 @@ New Feature Request
 > is prompt personas + the `train_model` workflow (no in-code `CONCEPT:` markers, so it
 > does not appear in `concepts.yaml`). Canonical registry:
 > [`data-science-mcp/docs/concepts.md`](https://github.com/Knuckles-Team/data-science-mcp/blob/main/docs/concepts.md);
-> design: `.specify/specs/llm-model-trainer/`; deep dive:
+> design: `.specify/specs/llm-model-trainer/`; detailed review:
 > [`architecture/in_house_training_substrate.md`](architecture/in_house_training_substrate.md).
 
 | ID | Canonical Name | Home repo |

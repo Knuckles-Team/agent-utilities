@@ -16,14 +16,14 @@ neighborhood). Cost grows with the *delta*, not the *corpus*.
 ## The graph
 
 Sources (`Article`/`Source`/`Document`/`Requirement`/`Decision`), capabilities
-(`SDDFeature`/`Capability`), and our `Concept`s, linked by:
-`SIMILAR_TO` (dedup) · `SUPERSEDES` (duplicate/older) · `SATISFIED_BY` (a feature our
+(`SDDFeature`/`Capability`), and this repository's `Concept`s, linked by:
+`SIMILAR_TO` (dedup) · `SUPERSEDES` (duplicate/older) · `SATISFIED_BY` (a feature this repository's
 code already provides) · `HAS_SYNERGY_WITH` (cross-pillar bundle) ·
 `DERIVED_FROM_RESEARCH` / `ASSIMILATED_INTO` (provenance close-out) ·
 `ADDRESSED_BY` (an in-flight plan). Edges carry a `_rel` property marker so the
 lifecycle read path is backend-portable (`out_edges`/`in_edges` expose properties,
 not the relationship label). Type matching is **case-insensitive** (the live graph
-stores capitalized labels like `Article`; our enum values are lowercase).
+stores capitalized labels like `Article`; this repository's enum values are lowercase).
 
 ## Pipeline (all graph compute except where noted)
 
@@ -41,7 +41,7 @@ flowchart LR
 |---|---|---|
 | ingest | `ingest.py`, `breadth_ingest.py` | docs→`Requirement`, chat→`Decision`, codebases via `IngestionEngine`; `canonical_source_id` collapses arxiv/DOI/URL/path dupes; `content_fingerprint` per-item skip |
 | dedup | `dedup.py` | embedding all-pairs (engine `compute_similarity_edges` fast path / local fallback) → `SIMILAR_TO`; cluster → `SUPERSEDES` survivor→dup |
-| gap | `gap_analysis.py` | match features↔our concepts → `SATISFIED_BY`; **`open_features`** = no closing edge/status (the "stop rediscovering" filter) |
+| gap | `gap_analysis.py` | match features↔this repository's concepts → `SATISFIED_BY`; **`open_features`** = no closing edge/status (the "stop rediscovering" filter) |
 | synergy + rank | `synergy.py` | Louvain communities (engine / components fallback) → cross-pillar `HAS_SYNERGY_WITH`; `rank_features` = `source_count × (1+centrality)` (PageRank / degree fallback) |
 | plan synthesis | `plan_synthesis.py` | `hydrate_feature` neighborhood → SDD plan (planner role; grounded-template fallback) → propose + flip feature to `proposed` |
 | ledger / close-out | `ledger.py` | `record_feature`/`set_status`; on implement `close_out` writes provenance edges + status → permanently excluded |

@@ -8,7 +8,7 @@ World Models"* (Mirage). Mirage keeps a persistent cache **directly in the model
 latent space** instead of round-tripping through a reconstructed surface
 representation, lifts latent tokens into a *structured* cache via a geometric prior,
 and synthesizes new views by **warping the stored latents** rather than recomputing
-them. We already store embeddings latent-natively at rest (the
+them. This repository already store embeddings latent-natively at rest (the
 `EpistemicGraphBackend`/HNSW path), so the transferable gaps were two *flows* that
 still discarded or ignored the latent structure, plus the missing measurement.
 
@@ -71,4 +71,4 @@ flowchart TD
   tests/test_ahe_3_48_latent_efficiency_live_path.py`
 - MCP/REST: `graph_analyze action="world_model_rollout"` (steps + drift, persists a
   rollout node) and `graph_analyze action="latent_efficiency_benchmark"`
-  (baseline/ours/lift + markdown).
+  (baseline/this repository's/lift + markdown).

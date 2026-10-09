@@ -3,7 +3,7 @@
 Redeploy graph-os when a new MCP action, REST route, registry entry, or runtime
 dependency must become visible to a running service. An "unknown action" response
 from a valid action commonly means the served artifact predates the checked-out
-code; verify the published capability catalog before assuming the action is wired.
+code; check the published capability catalog before assuming the action is wired.
 
 This runbook is deployment-neutral. It discovers the checkout at runtime, keeps
 configuration under XDG, resolves credentials through the configured secret store,
@@ -26,7 +26,7 @@ replace, delete, or relocate engine state. A deployment that couples gateway and
 engine lifecycle must checkpoint the engine before rollout and prove recovery in
 its environment-specific playbook.
 
-## 1. Discover and verify the source
+## 1. Discover and check the source
 
 Run from anywhere inside the checkout:
 
@@ -73,7 +73,7 @@ orchestrator perform its normal health-gated rollout. Do not use process-name ki
 background `nohup` commands, or a copied environment dump; those bypass lifecycle,
 audit, and rollback controls.
 
-## 4. Verify the served revision
+## 4. Check the served revision
 
 Probe the configured health URL without embedding it in the repository:
 
@@ -82,7 +82,7 @@ curl --fail --silent --show-error "${GRAPH_OS_HEALTH_URL:?configure health URL}/
 uv --directory "$REPO_ROOT" run agent-utilities-doctor
 ```
 
-Then verify the action through the same authenticated MCP or REST entrypoint used by
+Then check the action through the same authenticated MCP or REST entrypoint used by
 clients. Compare the result with the generated
 [Capability & Action Catalog](../capabilities-power.md); the tool/action pair must
 exist there before deployment.

@@ -15,7 +15,7 @@ How the reactive replica autoscaler (CONCEPT:AU-OS.scaling.reactive-replica-auto
 `scale_service` proposal — with the exact target-tracking math, the
 cooldown/flap guard, and what lands in the KG.
 
-Deep dive: [fleet_autonomy.md](../architecture/fleet_autonomy.md) and
+Detailed review: [fleet_autonomy.md](../architecture/fleet_autonomy.md) and
 [gateway_scaling.md](../architecture/gateway_scaling.md).
 
 ## Prerequisites (ladder rung)
@@ -45,7 +45,7 @@ and `target` are required (no implicit ceiling, no implicit metric), and any
 invalid block is dropped with a warning rather than guessed at
 (`parse_scaling_spec` in `orchestration/fleet_reconciler.py`).
 
-Schema (verified against `ScalingSpec` / `parse_scaling_spec`):
+Schema (checked against `ScalingSpec` / `parse_scaling_spec`):
 
 ```yaml
 scaling:
@@ -161,9 +161,9 @@ desired      = step-cap: at most +scale_up_step / -scale_down_step vs current
 
 Note the fleet-total case algebraically collapses to
 `desired = ceil(value / target)` — independent of current replicas — which is
-exactly what you want for a shared backlog.
+exactly what the operator want for a shared backlog.
 
-Worked numbers (verified by executing the real function — Block A spec:
+Worked numbers (checked by running the real function — Block A spec:
 min=1, max=5 for this table, target=200, up_step=2, down_step=1):
 
 | Signal value | Current | per_replica | Raw `ceil` | After clamp [1,5] | After step cap | Outcome |
@@ -218,7 +218,7 @@ default policy `scale_service` is `approval_required` — the autoscaler then
 *files an approval* instead of scaling; the
 [scoped-autonomous posture](action-policy-postures.md) shows the
 `auto_notify` rule (with rate/blast caps) that lets it act. Allowed
-proposals execute through the FleetActuator seam (`FLEET_ACTUATOR=dryrun`
+proposals run through the FleetActuator seam (`FLEET_ACTUATOR=dryrun`
 default records intent only; `docker` uses the Docker CLI; `k8s`/`kubernetes`
 uses the optional `kubectl` Deployment actuator when available), and successful
 scale-**ups** schedule an AU-OS.config.health-gated-deploy-rollback deploy watch — scale-downs too when the

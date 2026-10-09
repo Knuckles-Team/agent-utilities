@@ -16,7 +16,7 @@ A **Loop** is one long-running objective, stored as a develop/skill/research
 goals, research topics, failure gaps, and skill executions. The **`LoopController`**
 advances active Loops: research loops acquire sources → reason (OWL/RDF over the
 whole ecosystem) → assimilate → distill → synthesize (propose-only); `develop`
-loops run act→validate (`validation_cmd`, done on exit 0); `skill` loops execute
+loops run act→validate (`validation_cmd`, done on exit 0); `skill` loops run
 their skill / skill-workflow. Goal state and the durable iteration record live on
 the Loop node itself — there is no separate `goals` table and no separate
 goal-runner. There is **one entrypoint**: the `graph_loops` MCP tool (and its REST
@@ -24,7 +24,7 @@ twin).
 
 ## Trigger it — pick the surface
 
-| You want to… | Surface | Call |
+| The operator want to… | Surface | Call |
 |---|---|---|
 | Advance all active Loops one cycle (the classic "golden loop" run) | **MCP** | `graph_loops(action="run", max_topics=5)` |
 | Advance all loops once | **MCP** | `graph_loops(action="run", max_topics=5)` |
@@ -63,7 +63,7 @@ graph_loops(action="drive", loop_id="loop:develop:make-ci-green")
   `skill_ref`.
 - **`list`** — the active Loops (intake view; in-flight `running` loops are
   excluded so a goal is never double-driven).
-- **`cancel`** — terminate a Loop by `loop_id`.
+- **`cancel`** — stop a Loop by `loop_id`.
 - **`gaps`** / **`submit_gap`** / **`gap`** — the unified Gap→SDD→Implement→Promote→Close
   lifecycle (CONCEPT:AU-AHE.harness.canonical-gap-lifecycle, Wave 6) every discovery
   track (production-failure, research/OSS, skill-coverage, code-audit) files findings

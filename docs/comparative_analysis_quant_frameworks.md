@@ -8,7 +8,7 @@ Comparison of three open-source quant agentic frameworks against the
 - **`CONCEPT:AU-KG.domains.agent-calibration-reputation-tracking`** — Agent calibration / reputation tracking
 - **`CONCEPT:AU-KG.domains.persona-decision-heuristic-enrichment`** — Persona decision-heuristic enrichment
 
-The thesis: each borrowed capability is made **stronger** by our OWL/KG /
+The thesis: each borrowed capability is made **stronger** by this repository's OWL/KG /
 graph-native / self-evolution substrate — the borrowed feature stops being a
 one-shot report and becomes a **reasoned-over, provenance-bearing, calibrated
 fact** the rest of the system can cite.
@@ -36,7 +36,7 @@ A deliberately **thin** autonomous loop (`autohedge/`): a fixed
 JSON output, risk-first sizing, on-chain (Solana/Jupiter) execution. Strength:
 clean risk-first pipeline ergonomics. Weakness: no memory of which agent was
 *right* before, no behavioural feedback, single-venue, no graph substrate. Its
-role taxonomy already maps onto our `SwarmRole`.
+role taxonomy already maps onto this repository's `SwarmRole`.
 
 ### FinceptTerminal — Bloomberg-class terminal
 A desktop terminal (`fincept-qt/`) wrapping **100+ data sources** (yfinance,
@@ -65,40 +65,40 @@ executable, queryable graph facts.
 | **Shadow account (trader profile as signal)** | ✅ (report) | — | — | ❌ | ✅ **KG-2.26** |
 | **Agent calibration / reputation feedback** | — | — | — | ❌ | ✅ **AU-KG.domains.agent-calibration-reputation-tracking** (Brier → swarm weights) |
 | **Executable, queryable persona heuristics** | — | — | prose + weights | partial (voice only) | ✅ **AU-KG.domains.persona-decision-heuristic-enrichment** (OWL + evaluator) |
-| 100+ data sources / many brokers | some | 1 venue | ✅ | partial | (out of scope) |
+| 100+ data sources / multiple brokers | some | 1 venue | ✅ | partial | (out of scope) |
 | Graph-native provenance / OWL reasoning | — | — | — | ✅ epistemic-graph + OWL | ✅ |
 
 The three gaps closed here are the ones that are **both** absent from us **and**
-multiplied by our substrate — not the breadth gaps (data-source/broker count),
+multiplied by this repository's substrate — not the breadth gaps (data-source/broker count),
 which are integration surface rather than capability.
 
 ---
 
-## 3. Hidden value-adds — where our substrate makes a borrowed capability stronger
+## 3. Hidden value-adds — where this repository's substrate makes a borrowed capability stronger
 
-The three frameworks treat these features as terminal outputs. Because we have an
+The three frameworks treat these features as terminal outputs. Because this repository have an
 **epistemic graph + OWL ontology + calibration-feedback loop**, the same feature
 becomes an input to further reasoning:
 
 - **Trade-journal audit → learning signal (KG-2.26).** Vibe-Trading produces a
-  PDF-shaped report. We persist the profile + each bias as `:TraderProfile` and
+  PDF-shaped report. This repository persist the profile + each bias as `:TraderProfile` and
   `:BehavioralBias` nodes (`EXHIBITED_BY`), so a *future* Bull/Bear debate or the
   risk officer can **cite** them: "this account exhibits a HIGH disposition
   effect → weight the bear's stop-loss discipline up." The audit becomes a fact
   reasoned over, with provenance, not a one-shot artifact.
 - **Calibration feedback (AU-KG.domains.agent-calibration-reputation-tracking).** Palantir AIP and Fincept have personas but
-  no memory of who was *right*. We record each persona's directional calls vs
+  no memory of who was *right*. This repository record each persona's directional calls vs
   outcomes, score them with the engine's **`brier_score`** kernel, and feed the
   calibration back into the **weighted `SwarmConsensus`** so historically-accurate
   voices outvote the rest. Each score is an `:AgentCalibration` node
   (`CALIBRATION_OF` the agent) — a queryable reputation, e.g. "which persona has
   the best Brier on tech shorts?"
 - **Persona heuristics as OWL facts (AU-KG.domains.persona-decision-heuristic-enrichment).** Fincept's frameworks live in
-  prose + weights. We make them `:DecisionHeuristic` OWL individuals
+  prose + weights. This repository make them `:DecisionHeuristic` OWL individuals
   (`HEURISTIC_OF` a persona `:Agent`) with a deterministic evaluator, so the
   graph can answer "which personas' value criteria does ACME pass?" and a Buffett
   bull cites the **exact** passing/failing rule. The engine's forensic kernels
-  feed Burry's short triggers directly — borrowed structure, grounded in our
+  feed Burry's short triggers directly — borrowed structure, grounded in this repository's
   reasoned-over numbers.
 
 In every case the differentiator is the same: **reasoned-over facts + KG

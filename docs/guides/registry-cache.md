@@ -2,7 +2,7 @@
 
 > **CONCEPT:AU-ORCH.adapter.hot-cache-invalidation** — Session-Scoped Registry Optimization
 
-This document provides a focused deep-dive into the Registry Hot Cache layer, the performance architecture that eliminates redundant specialist lookups and reduces prompt bloat.
+This document provides a focused detailed review into the Registry Hot Cache layer, the performance architecture that eliminates redundant specialist lookups and reduces prompt bloat.
 
 ## Motivation
 
@@ -90,8 +90,8 @@ graph TD
 TTL (time-to-live) caching is inappropriate here because:
 
 1. **Low write frequency**: The registry changes only on server restart, MCP reload, or pipeline runs — not on every request
-2. **Consistency requirement**: A stale cache could route queries to wrong specialists
-3. **Event sources are known**: All mutation points are within our codebase and can emit invalidation signals
+2. **Consistency requirement**: A stale cache can route queries to wrong specialists
+3. **Event sources are known**: All mutation points are within this repository's codebase and can emit invalidation signals
 
 ### Why Not a NetworkX Hot Layer?
 

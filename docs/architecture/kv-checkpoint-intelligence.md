@@ -18,10 +18,10 @@
 
 A KV cache is the LLM's warm context. Rebuilding one is expensive — it is the tokens,
 the tool calls, the retrievals and the wall time that assembled the context in the first
-place. So we want to freeze it at the moments where it is *most valuable*: when the run
+place. So this repository want to freeze it at the moments where it is *most valuable*: when the run
 has actually understood something and the context has stopped moving.
 
-"Most valuable" is not one heuristic, and it is not something a single team can enumerate
+"Most valuable" is not one heuristic, and it is not something a single team can list
 once. So the deliverable here is a **scoring framework with a default signal set**, not a
 rule.
 
@@ -84,7 +84,7 @@ Three rules make the set extensible without touching anything downstream:
    contributes **nothing** — it does not drag the aggregate toward zero — and is listed by
    name on the recommendation. *A scorer that guesses is worse than one that abstains.*
 3. **A veto is available.** `CheckpointSignal.veto` forces `CheckpointTier.NONE`
-   regardless of the aggregate, for the state where the context is demonstrably *not*
+   in either case of the aggregate, for the state where the context is demonstrably *not*
    good.
 
 Adding a signal is `registry.register(MyScorer())`; removing a default is
@@ -135,7 +135,7 @@ so the boundary lives in both.
 
 **Disk requires a materially higher bar plus authority.** `DiskPromotionRule` encodes the
 rule literally — high rebuild cost **AND** high predicted reuse **AND** stability, plus an
-aggregate floor — and an **abstention fails a requirement**: "we don't know" is not "it's
+aggregate floor — and an **abstention fails a requirement**: "this repository don't know" is not "it's
 high". Even a satisfied rule persists nothing until the eligibility gate permits it.
 
 **RAM never implies disk consent.** `promote()` runs the full eligibility check on every
@@ -170,7 +170,7 @@ things the platform already carries:
 
 | Half | Read from | Composition |
 |---|---|---|
-| **Authority** | the verified `GraphSession` (`actor` / `tenant` / `scopes` / `policy_version`) ∩ the active `SpawnDelegation.ceiling` | intersection — a delegate never exceeds its delegator |
+| **Authority** | the checked `GraphSession` (`actor` / `tenant` / `scopes` / `policy_version`) ∩ the active `SpawnDelegation.ceiling` | intersection — a delegate never exceeds its delegator |
 | **Labels** | each contributing source's classification, residency regions, retention limit and mandatory markings | classification = **max**, residency = **set intersection**, retention = **min**, markings = **union** |
 
 ```mermaid
@@ -191,7 +191,7 @@ flowchart TD
   delegation hop can only *reduce* authority.
 * **The delegation ceiling is intersected unconditionally** — deliberately *not* through
   `security.delegation.enforce_ceiling`, which is a no-op in the shipped
-  `ENABLE_DELEGATED_IDENTITY=warn` posture. Letting a spawn keep tools it would lose under
+  `ENABLE_DELEGATED_IDENTITY=warn` posture. Letting a spawn keep tools it will lose under
   enforcement is a reasonable soak trade for tool scope and an unacceptable one for
   data-at-rest. An **unresolvable** ceiling denies (it is an absent label).
 * **The trigger is provenance, not authority.** All three checkpoint paths are gated
@@ -199,7 +199,7 @@ flowchart TD
   when the authority it is acting under already covers the material — so the
   agent-authorized case is *enforced* rather than asserted, and claiming
   `trigger="user"` buys nothing.
-* **Absence denies, on every axis.** No verified session, no declared sources, a source
+* **Absence denies, on every axis.** No checked session, no declared sources, a source
   missing any label, an empty residency intersection, an unknown durable-store region
   where a source restricts residency, or an unresolvable delegation ceiling — each refuses
   and *names itself*. A `SourceLabelResolver` that cannot read a source MUST return it

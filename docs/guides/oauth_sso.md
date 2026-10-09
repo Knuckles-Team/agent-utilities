@@ -101,7 +101,7 @@ is executed.
 
 - Configured via `--auth-type oidc-proxy` on the MCP CLI
 - Uses FastMCP's built-in `OIDCProxy` / `OAuthProxy` / `JWTVerifier`
-- `UserTokenMiddleware` binds the verified Bearer token and claims to
+- `UserTokenMiddleware` binds the checked Bearer token and claims to
   request-scoped context variables
 
 ### Layer 2: Downstream API Delegation (this module)
@@ -172,7 +172,7 @@ curl -X POST http://localhost:8000/mcp/tools/call \
 |----------|----------|---------|-------------|
 | `AUTH_TYPE` | No | `none` | Auth type: `none`, `oidc-proxy`, `oauth-proxy`, `jwt`, `remote` |
 | `OIDC_CONFIG_URL` | For OIDC | — | OIDC discovery URL (`.well-known/openid-configuration`) |
-| `OIDC_CLIENT_ID` | For OIDC | — | OAuth 2.0 client ID from your IdP |
+| `OIDC_CLIENT_ID` | For OIDC | — | OAuth 2.0 client ID from the operator's IdP |
 | `OIDC_CLIENT_SECRET_REF` | For OIDC | — | `env://`, `vault://`, or `secret://` reference resolved only at runtime |
 | `ENABLE_DELEGATION` | No | `False` | Enable RFC 8693 token exchange for downstream APIs |
 | `AUDIENCE` | For delegation | — | Target audience for the delegated token |
@@ -339,7 +339,7 @@ async def get_client():
 
 **Cause**: The OIDC discovery URL wasn't resolved at startup.
 
-**Fix**: Set `OIDC_CONFIG_URL` to your IdP's well-known endpoint:
+**Fix**: Set `OIDC_CONFIG_URL` to the operator's IdP's well-known endpoint:
 ```bash
 export OIDC_CONFIG_URL=https://your-idp.example.com/.well-known/openid-configuration
 ```
@@ -348,10 +348,10 @@ export OIDC_CONFIG_URL=https://your-idp.example.com/.well-known/openid-configura
 
 **Cause**: The IdP rejected the token exchange request.
 
-**Fix**: Verify:
+**Fix**: Check:
 1. `OIDC_CLIENT_ID` is correct and `OIDC_CLIENT_SECRET_REF` resolves at runtime
-2. The client is authorized for the `token-exchange` grant type in your IdP
-3. The `AUDIENCE` matches the service registered in your IdP
+2. The client is authorized for the `token-exchange` grant type in the operator's IdP
+3. The `AUDIENCE` matches the service registered in the operator's IdP
 4. The `DELEGATED_SCOPES` are valid for the target service
 
 ### "OIDC delegation failed"
@@ -403,7 +403,7 @@ sequenceDiagram
 
 ### Config ↔ Path Mapping
 
-The `VaultBackend` constructs full secret paths from three components:
+The `VaultBackend` builds full secret paths from three components:
 
 ```
 vault_mount:        secret          ← KV v2 secrets engine mount point
@@ -542,7 +542,7 @@ All Vault settings can be persisted in the XDG config file:
 
 ## 🔗 Generalized Authentication & Credentials Topology
 
-The following diagram provides a comprehensive system-wide visualization of the unified authentication flows across the entire `agent-packages` and `agent-utilities` ecosystem, illustrating the OIDC Proxy verification layer, RFC 8693 Token Delegation, Hybrid MSAL auth, Vault/OpenBao dynamic credential extraction, and the remote loopback port-forwarding flow:
+The following diagram provides a complete system-wide visualization of the unified authentication flows across the entire `agent-packages` and `agent-utilities` ecosystem, illustrating the OIDC Proxy verification layer, RFC 8693 Token Delegation, Hybrid MSAL auth, Vault/OpenBao dynamic credential extraction, and the remote loopback port-forwarding flow:
 
 ```mermaid
 graph TD

@@ -13,7 +13,7 @@ Environment variables for `LLM_BASE_URL`, `LLM_MODEL_ID`, etc., are **deprecated
 
 The **epistemic-graph engine is the one database — the authority, unconditionally**.
 There is no engine-mode selector: it serves all reads and is where every write
-commits first. Setting `GRAPH_MIRROR_TARGETS` additionally fans committed writes
+commits first. Setting `GRAPH_MIRROR_TARGETS` also fans committed writes
 out asynchronously and losslessly to the **mirrors** it names (Postgres/pg-age,
 Neo4j, FalkorDB, Ladybug) for interop/BI/DR — mirrors are never the authority and
 never on the read path.
@@ -94,7 +94,7 @@ JWT validation on server endpoints.
 | `LANGFUSE_PUBLIC_KEY` | *None* | Langfuse integration key |
 | `LANGFUSE_SECRET_KEY` | *None* | Langfuse integration secret |
 | `LOGFIRE_TOKEN` | *None* | Pydantic Logfire token |
-| `AGENT_UTILITIES_SELF_INGEST` | `False` | **Opt-in** — ship our own logs + RunTrace/ToolCall into the epistemic-graph engine obs store (AU-KG.ingest.attaching-this-root-logger, dogfooding). Requires `EPISTEMIC_GRAPH_OBS_ADDR`. |
+| `AGENT_UTILITIES_SELF_INGEST` | `False` | **Opt-in** — ship this repository's own logs + RunTrace/ToolCall into the epistemic-graph engine obs store (AU-KG.ingest.attaching-this-root-logger, dogfooding). Requires `EPISTEMIC_GRAPH_OBS_ADDR`. |
 | `EPISTEMIC_GRAPH_OBS_ADDR` | *None* | Engine OTLP/HTTP log endpoint base address (engine AU-KG.ingest.self-ingest). Empty ⇒ self-ingest disabled. |
 | `AGENT_UTILITIES_SELF_INGEST_MODE` | `otlp` | `otlp` → `POST /v1/logs`; `bulk` → `POST /_bulk` |
 | `AGENT_UTILITIES_SELF_INGEST_SERVICE` | `agent-utilities` | OTLP `service.name` stamped on records |
@@ -297,7 +297,7 @@ Environment variables are no longer part of the LLM configuration chain. API key
 }
 ```
 
-> **Note:** JSON does not support comments. The `//` annotations above are for documentation purposes only. Your actual `config.json` must not include comments.
+> **Note:** JSON does not support comments. The `//` annotations above are for documentation purposes only. The operator's actual `config.json` must not include comments.
 
 #### Chat Model Fields
 
@@ -331,7 +331,7 @@ Environment variables are no longer part of the LLM configuration chain. API key
 #### Per-Model Provider Routing
 
 The registry supports per-model `base_url` and `api_key` overrides, enabling configurations like:
-- **LM Studio local**: `base_url: "http://vllm.example.test/v1"` (your GPU server)
+- **LM Studio local**: `base_url: "http://vllm.example.test/v1"` (the operator's GPU server)
 - **Official OpenAI**: `api_key: "sk-..."` (no `base_url` needed, hits api.openai.com)
 - **Ollama**: `base_url: "http://localhost:11434/v1"`, `api_key: "ollama"`
 - **Azure OpenAI**: `base_url: "https://my-resource.openai.azure.com"`, `api_key: "..."`

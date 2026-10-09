@@ -44,7 +44,7 @@ Stored in the KG with:
 2. **Sort**: Topologically sorts templates by DEPENDS_ON edges
 3. **Resolve**: Resolves prompts from linked PromptNode entities
 4. **Bind**: Attaches required MCP toolsets
-5. **Build**: Constructs a pydantic-graph with proper step routing
+5. **Build**: Builds a pydantic-graph with proper step routing
 
 ### AgentTemplate CRUD (`core/registry/kg_adapter.py`)
 - `get_agent_templates()` — retrieves AgentTemplate nodes from the KG (filtered by role/name)

@@ -5,7 +5,7 @@
 > `engine-sql-graph-program`). This page is DE8's deliverable: state the
 > unified plane, name every restate mechanism's disposition, and record what
 > is landed vs. still a tracked gap — honestly, not as a closure fabrication
-> (`AGENTS.md` → *Stand your evidence up before you act on it*).
+> (`AGENTS.md` → *Stand the operator's evidence up before the operator act on it*).
 
 ## The headline finding
 
@@ -21,7 +21,7 @@ names, in four subsystems built independently for other reasons:
 | `agent_utilities.orchestration.durable_execution` (`DurableExecutionManager`/`DurableRun`) | Python-side named-step checkpoint-and-resume, SQLite/Postgres-backed | Yes |
 
 **The gap was never a missing durability mechanism.** It was that these four
-surfaces were not modeled as ONE KG-queryable concept family, so nobody could
+surfaces were not modeled as ONE KG-queryable concept family, so nobody can
 ask *"what is durably in flight, waiting on what"* across all of them. That
 unification — not a faster journal — is what "superior and synergized" means
 here, and it is exactly the kind of gap this workspace's ontology-driven KG
@@ -178,7 +178,7 @@ for `eg-jobs`/`eg-statechart` (`epistemic-graph` merge `24874de`) and
 
 **Genuine finding, tracked as `D-DE7-2` (still open):** `eg-statechart`'s
 `instantiate`/`send_event` read the real wall clock internally with no
-caller-supplied override, unlike `eg-jobs`'s fenced transition methods (which
+caller-provided override, unlike `eg-jobs`'s fenced transition methods (which
 all take an explicit `now_ms: i64`). Concrete consequence: two wall-clock-
 separated deliveries of the identical event can never be recognized as the
 same batch by `eg-mutation-store`'s idempotent-replay path — `eg-jobs` gets
@@ -205,14 +205,14 @@ the already-open `engine-sql-graph-program`'s multi-Raft groups landing.
 | 3 | Durable RPC + idempotency | **Not a gap.** `MutationBatch.idempotency_key` ledger + `eg-jobs::AnalyticsJob::result_ref()`. |
 | 4 | Journaling/replay for exactly-once effects | **Matched, narrower.** `eg-mutation-store` group-commit journal; scoped to declared mutation/job/statechart types, not an arbitrary "wrap any closure" primitive uniformly exposed to Python callers. |
 | 5 | Suspend/resume of long-running handlers | **Matched, ergonomics gap narrowed (DE3).** Explicit step/checkpoint design vs. restate's zero-design-cost automatic suspend/resume. |
-| 6 | Saga/compensation | **We are ahead.** `eg-mutation-store::prepare_saga`/`commit_saga` — restate ships none. |
+| 6 | Saga/compensation | **This repository are ahead.** `eg-mutation-store::prepare_saga`/`commit_saga` — restate ships none. |
 | 7 | Timers (durable, log-committed firing) | **Matched for `DurableRun` (DE6), narrower for `eg-jobs`.** Poll-based single-execution binding vs. restate's push-based wake. |
 | 8 | Per-keyed-object state store, journaled mutations | **Not a gap** beyond #2's cross-cluster item. |
 | 9 | Deployment/version pinning for replay determinism | **Closed for `DurableRun` (DE5). Open for `eg-statechart`/`eg-jobs`** — schema-reserved, not enforced. |
 | 10 | Two consensus protocols split by access pattern | **Not a gap for this program** — `engine-sql-graph-program` territory. |
-| 11 | Backup/PITR, message broker, OTel tracing | **We are ahead.** `src/server/persistence/backup.rs` (online MVCC snapshot), native broker (AMQP/MQTT/STOMP), `EPISTEMIC_GRAPH_OTLP_ENDPOINT` — restate has none of these as durability-story features. |
-| 12 | Polyglot durable-RPC control plane for arbitrary external microservices | **Deliberately out of scope, named honestly.** Not our thesis — we are the durable substrate for our own agents/tools/statecharts/jobs, governed by one ontology. |
-| 13 | Execution provenance / observability tied to durability state | **We are ahead in kind, unification in progress.** `RunTrace.graph_checkpoint_ids`/`graph_resume_supported` already bind traces to checkpoint state; DE1's `:produced`/`:producedBy` completes the reverse edge for `DurableRun`; the other three backends' reverse edges await their own KG writers. |
+| 11 | Backup/PITR, message broker, OTel tracing | **This repository are ahead.** `src/server/persistence/backup.rs` (online MVCC snapshot), native broker (AMQP/MQTT/STOMP), `EPISTEMIC_GRAPH_OTLP_ENDPOINT` — restate has none of these as durability-story features. |
+| 12 | Polyglot durable-RPC control plane for arbitrary external microservices | **Deliberately out of scope, named honestly.** Not this repository's thesis — this repository are the durable substrate for this repository's own agents/tools/statecharts/jobs, governed by one ontology. |
+| 13 | Execution provenance / observability tied to durability state | **This repository are ahead in kind, unification in progress.** `RunTrace.graph_checkpoint_ids`/`graph_resume_supported` already bind traces to checkpoint state; DE1's `:produced`/`:producedBy` completes the reverse edge for `DurableRun`; the other three backends' reverse edges await their own KG writers. |
 
 ### What is still genuinely missing (stated plainly, not narrowed away)
 
@@ -235,7 +235,7 @@ the already-open `engine-sql-graph-program`'s multi-Raft groups landing.
 
 `graph_durable`'s REST twin (`POST /api/graph/durable`) is already live —
 registered into `ACTION_TOOL_ROUTES` exactly like `graph_jobs`, so this is
-NOT a gap; verified via `scripts/check_surface_parity.py`'s tool<->route
+NOT a gap; checked via `scripts/check_surface_parity.py`'s tool<->route
 drift check (zero new violations) and the generated `_graphos_action_manifest.py`
 carrying all six `graph_durable_*` verbose ops.
 

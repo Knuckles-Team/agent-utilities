@@ -34,7 +34,7 @@ within the same host/repository arbitration scope. Session and design values
 are persisted only as non-reversible references. It must not be used when
 separate clones or hosts need one global winner.
 
-For a central reservation, construct a privacy-safe request and inject the
+For a central reservation, build a privacy-safe request and inject the
 native authority into the lifecycle service:
 
 ```python

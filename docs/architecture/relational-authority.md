@@ -30,12 +30,12 @@ flowchart LR
   `mcp_servers`, `mcp_server_discovery`, `mcp_tools`, `mcp_prompts`,
   `mcp_resources`, and `skills`. Desired server registration remains
   tenant-scoped and separate. Every observed/derived row carries an explicit
-  `discovery_authority_kind`: OAuth-gated rows carry the server-verified
+  `discovery_authority_kind`: OAuth-gated rows carry the server-checked
   discovery subject and a stable authorization-grant digest; non-OAuth/local
   rows carry the process-owned `tenant_local` visibility contract with empty
   principal/grant fields. The OAuth digest is minted by the process-owned
   `RemoteOAuthBroker` only after exact token resolution and covers tenant,
-  verified subject, provider, protected resource/audience, normalized granted
+  checked subject, provider, protected resource/audience, normalized granted
   scopes, broker key version, and a broker-owned grant revision. Session
   roles/scopes/policy and caller payload fields are never substituted for this
   identity, and bearer/refresh material is never persisted in catalog rows or
@@ -65,12 +65,12 @@ flowchart LR
 ## Registry read contract
 
 `GET /api/registry/{servers,discoveries,tools,prompts,resources,skills}` is a typed,
-read-only surface over the engine catalog. A verified `GraphSession` with
+read-only surface over the engine catalog. A checked `GraphSession` with
 `kg:read`, an authenticated principal, and a non-empty tenant is required.
 The tenant plus disjoint visibility predicate is established while reading the
 catalog before caller `q` filters, ranking, cursor application, totals, or
-response shaping: tenant-local rows are visible only within the verified
-tenant, while OAuth rows additionally require the verified principal and one
+response shaping: tenant-local rows are visible only within the checked
+tenant, while OAuth rows also require the checked principal and one
 of the process-owned broker's current grant fingerprints. All currently
 authorized broker grant fingerprints are bound into cursors, so a
 refresh/re-consent rotation or grant removal cannot reuse an older page token;

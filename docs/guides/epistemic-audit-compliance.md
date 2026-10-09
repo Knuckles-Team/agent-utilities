@@ -1,13 +1,13 @@
 # Epistemic Audit & Compliance (CONCEPT:AU-KG.enrichment.compliance-posture-rollup)
 
 **Persona:** internal audit, SOC2/compliance officer, or anyone building
-regulated decision support on top of the knowledge graph — "what did we
+regulated decision support on top of the knowledge graph — "what did this repository
 believe, on what evidence, as of what date, and can I prove the record
 hasn't been tampered with."
 
 This guide is a walkthrough for a specific narrow question a plain
 `graph_query` Cypher result can't answer on its own: not just *what is in the
-graph*, but *why do we believe it, who could see it, and is the trail
+graph*, but *why do this repository believe it, who can see it, and is the trail
 provably intact*. Everything below wraps existing primitives — no new
 compliance or redaction logic was added to write this guide; the tools it
 documents (`graph_audit`, `graph_compliance`, `graph_epistemic`) are thin
@@ -16,22 +16,22 @@ machinery (`agent_utilities/mcp/tools/audit_tools.py`,
 `agent_utilities/mcp/tools/compliance_tools.py`,
 `agent_utilities/mcp/tools/epistemic_tools.py`).
 
-## What you get
+## What the operator get
 
 | Question | Tool / action | Backing primitive |
 |---|---|---|
 | "Has the audit log been tampered with?" | `graph_audit(action="verify")` | Rust SHA-256 hash-chained mutation log (`epistemic-graph/src/audit.rs`, redb `AUDIT` table) |
 | "What happened to this entity, in order?" | `graph_audit(action="for_target", target_id=...)` | KG's own `:ToolCall` provenance, reverse-indexed |
-| "What's our overall compliance posture right now?" | `graph_compliance(action="posture")` | audit-chain `verify()` + node-count/status rollup of the governance labels the CISO Assistant extractor + TRM engine already ingest |
+| "What's this repository's overall compliance posture right now?" | `graph_compliance(action="posture")` | audit-chain `verify()` + node-count/status rollup of the governance labels the CISO Assistant extractor + TRM engine already ingest |
 | "Export this subgraph for an auditor, with redaction applied" | `graph_compliance(action="export")` | bulk `explain_belief(node_id, disclosure_level)` over an id list or Cypher selection |
-| "Why do we believe this claim?" | `graph_epistemic(action="why", node_id=...)` | `explain_belief` justification tree (`Asserted` / `DerivedSupport` / `DerivedContradiction` / `BayesianUpdate`) |
-| "Do we still believe it, since when, and what would flip it?" | `graph_epistemic(action="status", node_id=...)` | `epistemic_status` acceptance capstone (opt-in `epistemic-tms` engine feature) |
-| "Why DON'T we believe this claim?" | `graph_epistemic(action="why_not", node_id=...)` | `epistemic_status`'s own `why_not` field, projected: `Unknown` / `InsufficientConfidence` / `Contradicted` (names the blockers) / `Undecided` (names the competing claims) — opt-in `epistemic-tms` |
-| "What single piece of evidence would flip our belief?" | `graph_epistemic(action="what_would_invalidate", node_id=...)` | `epistemic_status`'s own `what_would_invalidate` field, projected: the minimal evidence-id set whose retraction would change the verdict — opt-in `epistemic-tms` |
+| "Why do this repository believe this claim?" | `graph_epistemic(action="why", node_id=...)` | `explain_belief` justification tree (`Asserted` / `DerivedSupport` / `DerivedContradiction` / `BayesianUpdate`) |
+| "Do this repository still believe it, since when, and what will flip it?" | `graph_epistemic(action="status", node_id=...)` | `epistemic_status` acceptance capstone (opt-in `epistemic-tms` engine feature) |
+| "Why DON'T this repository believe this claim?" | `graph_epistemic(action="why_not", node_id=...)` | `epistemic_status`'s own `why_not` field, projected: `Unknown` / `InsufficientConfidence` / `Contradicted` (names the blockers) / `Undecided` (names the competing claims) — opt-in `epistemic-tms` |
+| "What single piece of evidence will flip this repository's belief?" | `graph_epistemic(action="what_would_invalidate", node_id=...)` | `epistemic_status`'s own `what_would_invalidate` field, projected: the minimal evidence-id set whose retraction will change the verdict — opt-in `epistemic-tms` |
 | "What changed between two audit periods?" | `graph_epistemic(action="what_changed", tx_from=..., tx_to=...)` | whole-graph bitemporal diff (opt-in `epistemic-tms`) |
 | "As of last quarter-end, what did the graph say?" | `graph_query(query=..., as_of="2026-03-31T00:00:00Z")` | bitemporal `as_of` cutoff on the read path |
 
-All of these are also plain MCP tools you can call from any client that
+All of these are also plain MCP tools the operator can call from any client that
 speaks MCP, and each has a REST twin (`POST /audit`, `POST /compliance`,
 `POST /epistemic` on the graph-os gateway — the generic REST-twin factory in
 `kg_server._build_server` mounts one for every entry in `ACTION_TOOL_ROUTES`
@@ -39,7 +39,7 @@ without a bespoke handler).
 
 ---
 
-## 1. Verify the audit ledger hasn't been tampered with
+## 1. Check the audit ledger hasn't been tampered with
 
 Every durable mutation to the graph already chains into a per-graph SHA-256
 hash chain (`epistemic-graph/src/audit.rs`): each entry binds the previous
@@ -83,19 +83,19 @@ redb persist dir configured (`GRAPH_SERVICE_PERSIST_DIR` /
 }
 ```
 
-If you're building toward an audit-defensible deployment, confirm this
+If the operator're building toward an audit-defensible deployment, confirm this
 returns `available: true` before relying on the chain for anything — the
 [Enterprise](../recipes/enterprise.md) and [Single-node prod](../recipes/single-node-prod.md)
 recipes both configure a durable persist dir; the zero-infra
-[Tiny](../recipes/tiny.md) recipe may not, depending on your `.env`.
+[Tiny](../recipes/tiny.md) recipe may not, depending on the operator's `.env`.
 
 ## 2. Reconstruct "what happened to entity X"
 
 `graph_audit(action="for_target", target_id="...")` is the entity-anchored
 half of the same primitive: every `:ToolCall` that acted on a given entity
 id, in call order, reverse-indexed off the KG's own tool-call provenance
-(`Orchestrator.get_tool_calls_for_target`), plus a best-effort chain-verify
-snapshot alongside it — so you get both "what touched this record" and "is
+(`Orchestrator.get_tool_calls_for_target`), plus a best-effort chain-check
+snapshot alongside it — so the operator get both "what touched this record" and "is
 the ledger recording it still intact" in one call.
 
 ```jsonc
@@ -134,7 +134,7 @@ graph_compliance(action="posture")
 ```
 
 A read failure on any one label degrades that label's count to `0` rather
-than failing the whole rollup — a partial governance mirror still gives you
+than failing the whole rollup — a partial governance mirror still gives the operator
 a usable posture view.
 
 ## 4. Redaction-compliant bulk export, as-of a date
@@ -186,11 +186,11 @@ justification tree looks like to the recipient of this export:
 - **`ExistenceOnly`** — the recipient learns a supporting/contradicting node
   exists at all, nothing about its content.
 
-This is the mechanism you want when handing a subgraph to an external
+This is the mechanism the operator want when handing a subgraph to an external
 auditor who should see that a control claim is supported, without seeing
 the (possibly sensitive) evidence text itself.
 
-## 5. Explainable decision logs — why do we believe this
+## 5. Explainable decision logs — why do this repository believe this
 
 For a single claim rather than a bulk export, `graph_epistemic` is the
 purpose-named wrapper (SKILL: graph-os's own `graph-query-and-explanation`, "Epistemic
@@ -213,8 +213,8 @@ graph_epistemic(action="why", node_id="claim:mine:abc123")
 `BayesianUpdate` — the actual proof-tree vocabulary the engine uses
 (`eg-epistemic::model::JustRule`), not a paraphrase.
 
-The **acceptance capstone** goes one step further — "do we still believe
-this, since when, on what evidence, and what would flip it" — via
+The **acceptance capstone** goes one step further — "do this repository still believe
+this, since when, on what evidence, and what will flip it" — via
 `epistemic_status` (opt-in engine feature `epistemic-tms`, **not** in the
 default `full` build; check for a clean `{"error": ...}` degrade before
 assuming it ran):
@@ -248,7 +248,7 @@ graph_epistemic(action="what_changed", tx_from=1748736000, tx_to=1751328000)
 
 Every read that goes through `graph_query`/`graph_ask` accepts an `as_of`
 ISO-8601 instant — a bitemporal cutoff (`valid_from <= as_of < valid_to`) —
-so you can reconstruct exactly what the graph asserted on a given date,
+so the operator can reconstruct exactly what the graph asserted on a given date,
 independent of what's been written since:
 
 ```jsonc
@@ -267,16 +267,16 @@ call, instead of a bare row plus a second `explain_belief` round-trip.
 ## Putting it together: a SOC2 evidence-collection pass
 
 1. **Confirm the ledger is trustworthy first.** `graph_audit(action="verify")`
-   → `ok: true`. If this returns `available: false`, your engine build/config
+   → `ok: true`. If this returns `available: false`, the operator's engine build/config
    doesn't carry a durable audit trail yet — treat that as a finding, not a
    tool bug.
 2. **Pull the posture rollup.** `graph_compliance(action="posture")` for the
    control-coverage/status snapshot to attach to the audit narrative.
 3. **Export the in-scope control evidence, redacted, as of period-end.**
    `graph_compliance(action="export", cypher=..., disclosure_level="Skeleton", as_of=<period-end>)`.
-4. **Deep-dive any control an auditor flags.** `graph_epistemic(action="why", node_id=...)`
+4. **Detailed review any control an auditor flags.** `graph_epistemic(action="why", node_id=...)`
    for the justification tree; `action="status"` for the acceptance capstone
-   if your engine build has `epistemic-tms`.
+   if the operator's engine build has `epistemic-tms`.
 5. **Answer "what changed since last audit."** `graph_epistemic(action="what_changed", tx_from=<last_audit_tx>, tx_to=<now>)`.
 
 ## Honest limitations
@@ -290,7 +290,7 @@ call, instead of a bare row plus a second `explain_belief` round-trip.
   `explain_belief` still runs but does not mask.
 - `graph_audit(action="verify")` needs the `security` cargo feature
   (default `full` build carries it) **and** a durable redb persist dir —
-  an in-memory-only engine has no chain to verify.
+  an in-memory-only engine has no chain to check.
 - These are read-only diagnostics over what was already written. They
   explain and export existing belief/audit structure; they do not create
   compliance controls or remediate findings themselves — see

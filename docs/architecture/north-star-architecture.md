@@ -5,12 +5,12 @@
 > that **saturates the hardware it runs on, never blocks itself, and runs as much work as
 > possible on the local LLM + graph-os while a human/harness orchestrates and resolves
 > exceptions.** Each capability has its own deep page; this overview ties them into one
-> coherent story and links out. Read this first, then drill into the page for the part you
+> coherent story and links out. Read this first, then drill into the page for the part the operator
 > care about.
 
 The program has **five pillars**. They are not independent features — they reinforce each
 other into one property: *the platform ingests, reasons, and acts continuously, at full
-hardware utilization, without any one workload starving another, and with every delegated
+hardware use, without any one workload starving another, and with every delegated
 action fully visible.*
 
 ```mermaid
@@ -44,7 +44,7 @@ engineered to use *all* the cores/RAM of whatever it runs on, from a Raspberry P
   read-through-safe eviction, and back-pressure (never drop). An acked write survives a
   `kill -9`. (`CONCEPT:AU-KG.backend.backend-modes/2.187/2.191`)
 - **Parallel durable writes.** The **K-way sharded durable writer** (`CONCEPT:EG-KG.backend.sharded-k-way-durable`) runs
-  K independent `graph-<n>.redb` files / writer threads so a many-core box commits on K
+  K independent `graph-<n>.redb` files / writer threads so a multiple-core box commits on K
   cores in parallel instead of serializing every tenant onto one core. The **per-graph write
   coalescer** (`CONCEPT:EG-KG.sharding.per-graph-write-coalescer`) collapses N concurrent single-op writes to one hot graph
   into ⌈N/batch⌉ lock acquisitions, and **adaptive group-commit micro-linger**
@@ -189,6 +189,6 @@ the expert so the autonomous system handles more next time. The trajectory is to
 ## See also
 
 - The canonical working discipline: agent-utilities `AGENTS.md` → *"Delegate to the KG +
-  graph-os"* and *"Query the code KG before you grep"*.
+  graph-os"* and *"Query the code KG before the operator grep"*.
 - Engine internals: the epistemic-graph repo `AGENTS.md` (Durability model) +
   [`scaling-program.md`](https://knuckles-team.github.io/epistemic-graph/architecture/scaling-program/).

@@ -2,7 +2,7 @@
 
 This lesson is the first stop in **Ontology School** — a short, practical tour
 of the ontology model that underpins the whole Knowledge Graph. By the end
-you'll be able to read (and reason about) the platform's own schema.
+the operator'll can read (and reason about) the platform's own schema.
 
 ## Why an ontology model at all?
 
@@ -29,7 +29,7 @@ examples ship at import (`register_builtin_interfaces`):
   similar audit properties.
 - `Locatable` — anything that has a physical or logical location.
 
-Interfaces can **extend** other interfaces (an interface may have several
+Interfaces can **extend** other interfaces (an interface may have multiple
 parents), so a sub-interface inherits its parents' required properties and
 link constraints automatically.
 
@@ -50,7 +50,7 @@ record the claim — it **validates** it, collecting any missing required
 property or unsatisfied link constraint into an `ImplementationReport`. There
 is no silent, unchecked "trust me, I implement this" path.
 
-Note the asymmetry with a typical demo ontology tool: many such tools treat
+Note the asymmetry with a typical demo ontology tool: multiple such tools treat
 every entity as directly concrete (no interface/implementation split). This
 platform keeps the two concepts distinct on purpose — it's the same
 abstract-contract-plus-concrete-implementer split used by large-scale
@@ -72,12 +72,12 @@ two object types. Three things make a link type more than "just an edge":
    can render the whole schema (interfaces + object types + their links) as
    one interactive node/edge graph — see the **Schema View** in the web UI.
 
-## Junction link types: many-to-many with their own data
+## Junction link types: multiple-to-multiple with their own data
 
 A plain `MANY_TO_MANY` link connects two object types, but sometimes the
 relationship itself carries data — an `Employee` ↔ `Project` link that also
 needs a `role` and an `allocation` percentage. Modeling that as a bare edge
-loses the data; modeling it as two separate one-to-many links loses the
+loses the data; modeling it as two separate one-to-multiple links loses the
 relationship's identity.
 
 The fix is **reification**: a `JunctionLinkType` declares an intermediary
@@ -91,7 +91,7 @@ stub, real provenance stamped on the junction node. `endpoints_of()`,
 its endpoints, so the reified relationship is navigable in both directions,
 just like a plain link.
 
-## Try it yourself
+## Try it the operator
 
 Everything in this lesson is live in the running platform, not just
 documentation:
@@ -107,5 +107,5 @@ documentation:
 - `ontology_interface(action='lint')` — naming-convention and typo checks
   against the live interface registry.
 
-Next lesson: **[Querying with UQL](../querying-with-uql/01-your-first-uql-pipeline.md)** —
-now that you can read the shape of the graph, learn to ask it questions.
+Next lesson: **[Querying with UQL](../querying-with-uql/01-the operator's-first-uql-pipeline.md)** —
+now that the operator can read the shape of the graph, learn to ask it questions.

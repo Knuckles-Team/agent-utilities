@@ -1,9 +1,9 @@
 # Ontological Guardrail Engine (CONCEPT:AU-OS.safety.ontological-guardrail)
 
 ## Overview
-High-risk tools (such as local command execution, database updates, or financial transactions) must be verified before execution to prevent prompt injection and compliance drift.
+High-risk tools (such as local command execution, database updates, or financial transactions) must be checked before execution to prevent prompt injection and compliance drift.
 
-The **Ontological Guardrail Engine** intercepts incoming tool definitions and argument schemas, translating the transient request into a semantic concept. It resolves the arguments against active OWL policy constraints in the Knowledge Graph to verify compliance mathematically using subsumption reasoning.
+The **Ontological Guardrail Engine** intercepts incoming tool definitions and argument schemas, translating the transient request into a semantic concept. It resolves the arguments against active OWL policy constraints in the Knowledge Graph to check compliance mathematically using subsumption reasoning.
 
 ## Architecture
 
@@ -136,7 +136,7 @@ This creates a **defense-in-depth** stack:
 
 ## OWL Integration
 
-When the OWL Bridge (KG-2.2) is active, the guardrail engine can leverage formal ontological reasoning:
+When the OWL Bridge (KG-2.2) is active, the guardrail engine can use formal ontological reasoning:
 
 ```turtle
 :ForbiddenSystemDirectory a owl:Class ;

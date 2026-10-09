@@ -723,7 +723,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 
 ## Runtime-only call-site inputs
 
-These keys are discovered from literal `config.setting(...)` calls but are not durable AgentConfig fields. This includes secret values materialized only inside a child process for an upstream SDK. Persisted configuration must use the corresponding `*_REF` field; an ordinary durable setting belongs in AgentConfig and will then move into the typed tables above.
+These keys are discovered from literal `config.setting(...)` calls but are not durable AgentConfig fields. This includes secret values materialized only inside a child process for an upstream SDK. Persisted configuration must use the corresponding `*_REF` field. An ordinary durable setting belongs in AgentConfig and will then move into the typed tables above.
 
 | Environment key | Read sites |
 |---|---:|

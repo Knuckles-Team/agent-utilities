@@ -81,7 +81,7 @@ independent desired states for one unit.
 
 ## Safety invariants
 
-The authority rejects records that would violate any of these bounds:
+The authority rejects records that will violate any of these bounds:
 
 - `min_replicas <= desired_replicas <= max_replicas`;
 - unit and workload quotas cover their floors and do not exceed pool capacity
@@ -136,7 +136,7 @@ than one mutation per sample.
 
 ## Follow-on boundaries
 
-This AU slice supplies the common typed authority and deterministic contract
+This AU slice provides the common typed authority and deterministic contract
 fixtures.  It does not change Kubernetes manifests, HPA/KEDA resources,
 epistemic-graph production code, metric backends, or live fleet controllers.
 Follow-on work must preserve the one-writer rule and the four cadence

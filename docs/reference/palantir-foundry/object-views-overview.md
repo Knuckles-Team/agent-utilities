@@ -17,7 +17,7 @@
 
 Both standard and configured views support two presentation modes:
 
-- **Full object views** — comprehensive, in-depth overview (e.g. complete patient history: demographics, vitals, procedures, prescriptions, diagnoses, trends).
+- **Full object views** — complete, in-depth overview (e.g. complete patient history: demographics, vitals, procedures, prescriptions, diagnoses, trends).
 - **Panel object views** — integration-focused, critical data only, optimized for embedding in other applications (e.g. demographics + vitals summary).
 
 ## Data components

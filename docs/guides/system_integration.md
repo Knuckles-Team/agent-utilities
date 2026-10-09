@@ -4,7 +4,7 @@
 
 ## Problem: 75% of Modules Were Orphaned
 
-A first-principles audit revealed that **53 of 71 concept modules existed as working code but had no import path from the orchestration pipeline**. The KG-driven graph agents could not execute any of these capabilities because there was no wiring between the runner/router/builder and the actual modules.
+A first-principles audit revealed that **53 of 71 concept modules existed as working code but had no import path from the orchestration pipeline**. The KG-driven graph agents can not run any of these capabilities because there was no wiring between the runner/router/builder and the actual modules.
 
 ## Root Cause
 

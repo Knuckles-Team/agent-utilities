@@ -160,7 +160,7 @@ To achieve maximum system stability and clean 1:1:1 traceability, the legacy con
   * `ORCH-1.15` & `ORCH-1.16` -> Merged into `ORCH-1.1` (HTN Planning Pipeline).
   * `ORCH-1.18`, `ORCH-1.19`, `AU-ORCH.execution.service-registry-initialization` -> Merged into `ORCH-1.4` (Capability Wiring Engine).
 * **Legacy KG Consolidation**:
-  * `KG-2.7` (External Graph Federation) -> Eliminated due to collision with multi-domain structure.
+  * `KG-2.7` (External Graph Federation) -> Eliminated because collision with multi-domain structure.
   * `KG-2.3` (Dynamic AR-Graph) -> Merged into `KG-2.2` (Ontology & Epistemics).
   * `KG-2.6` (Time-Series Weighted Graph) -> Merged into `KG-2.6` (Domain: Finance).
 * **Legacy AHE Consolidation**:

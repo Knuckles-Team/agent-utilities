@@ -1,12 +1,12 @@
 # Multi-Model Registry & Configuration
 
-The `agent-utilities` ecosystem supports a dynamic **multi-model registry**. Instead of hardcoding a single LLM, you can configure a suite of models with different routing tiers (`light`, `medium`, `heavy`, `reasoning`) and capability tags (`vision`, `code`, `fast`).
+The `agent-utilities` ecosystem supports a dynamic **multi-model registry**. Instead of hardcoding a single LLM, the operator can configure a suite of models with different routing tiers (`light`, `medium`, `heavy`, `reasoning`) and capability tags (`vision`, `code`, `fast`).
 
 When the graph orchestrator dispatches tasks to specialist agents, it uses `pick_for_task()` to autonomously select the right model based on the task's required complexity and capabilities.
 
 ## The `config.json` File
 
-Define your models directly in the unified `config.json` file located in the XDG-compliant path: `~/.config/agent-utilities/config.json`.
+Define the operator's models directly in the unified `config.json` file located in the XDG-compliant path: `~/.config/agent-utilities/config.json`.
 
 ### Example `config.json`
 
@@ -65,7 +65,7 @@ Define your models directly in the unified `config.json` file located in the XDG
 
 ## Autonomous Routing
 
-In your code, you don't need to specify model strings. Two complementary
+In the operator's code, the operator don't must specify model strings. Two complementary
 selection surfaces exist:
 
 **1. `config` registry helpers** — pick a model by `intelligence_level`
@@ -100,4 +100,4 @@ model = registry.pick_for_task(complexity="heavy", required_tags=["vision"])
 1. **Tag Filtering**: Only models carrying every `required_tag` are considered (AND semantics).
 2. **Tier Matching**: An exact match on the requested tier is preferred.
 3. **Graceful Fallback**: If an exact tier isn't available, a tier-specific fallback order applies — heavier tiers fall back to reasoning, lighter tiers fall back through medium/heavy.
-4. **Safety Net**: If tag filtering eliminates every candidate, it re-tries without tags; as a last resort it returns the registry default.
+4. **Safety Net**: If tag filtering eliminates every candidate, it re-tries without tags. As a last resort it returns the registry default.

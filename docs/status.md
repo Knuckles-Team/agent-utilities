@@ -53,7 +53,7 @@ Structural ownership — which doc subtree and which CI/pre-commit gate is autho
 | **EG-ORCH** | `docs/architecture/ (epistemic-graph engine integration)` | `scripts/check_concepts.py` (marker registration) + epistemic-graph's `scripts/check_documentation_contract.py` |
 | **EG-OS** | `docs/architecture/ (epistemic-graph engine integration)` | `scripts/check_concepts.py` (marker registration) + epistemic-graph's `scripts/check_documentation_contract.py` |
 
-`EG-*` pillar concepts are markers found in *this* repo's code that tag a capability of the `epistemic-graph` engine this repo drives (cross-repo concept federation, see `docs/concept_coordination.md`); the engine's own implementation and its `EG-P0-1` generated ledger are owned by the `epistemic-graph` repo, whose `docs/status.md` is the authoritative status page for that side.
+`EG-*` pillar concepts are markers found in *this* repo's code that tag a capability of the `epistemic-graph` engine this repo drives (cross-repo concept federation, see `docs/concept_coordination.md`). The engine's own implementation and its `EG-P0-1` generated ledger are owned by the `epistemic-graph` repo, whose `docs/status.md` is the authoritative status page for that side.
 
 ## How this page stays honest
 

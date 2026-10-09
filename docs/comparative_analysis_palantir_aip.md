@@ -12,7 +12,7 @@
 > property/value types, interfaces, functions, derived properties, actions, edits,
 > indexing, the object-set service, permissioning, document processing, and the
 > explorer/views/vertex operator surfaces. Because the substrate is a formal
-> OWL2+SHACL knowledge graph over a Rust epistemic engine, several capabilities
+> OWL2+SHACL knowledge graph over a Rust epistemic engine, multiple capabilities
 > Foundry charges for fall out **structurally** (reasoned ACLs, validation,
 > embedding/Cypher/SPARQL-backed derived properties, bitemporal history).
 >
@@ -30,7 +30,7 @@ hallucinating and lets them act on real operational state under the same governa
 as humans (see [`why-ontology.md`](reference/palantir-foundry/why-ontology.md)).
 That is precisely the agent-utilities thesis (the Epistemic Knowledge Graph,
 Pillar 2). So the comparison is apples-to-apples. The interesting questions: where
-do we match each ontology primitive, and what do we get that a closed commercial
+do this repository match each ontology primitive, and what do this repository get that a closed commercial
 platform structurally cannot?
 
 ## 2. How the ontology layer is composed
@@ -56,9 +56,9 @@ implemented core with a scoped backlog. Each row cites the concrete module +
 | **Object types** (entity schema, properties, user edits) | type-reference, ontologies-overview | Object types are KG node types; properties typed/coerced via `ontology/property_types.py` (`PropertyType`, `KG-2.47`); edits via the ledger (`KG-2.43`). | **FULL** |
 | **Property types** (base + composite vocabulary) | type-reference | `ontology/property_types.py` (`KG-2.47`): scalars, `decimal`, `date`/`timestamp`, geo (`geohash`/`geoshape`/`geo_point`), `timeseries`/`geotimeseries`, `struct`, `attachment`, `media_reference`, `marking`, `bytes`, `array<…>`, `vector<dim>`/`embedding`. `column_type_for()` bridges to node-table DDL; `coerce_value`/`validate_value` gate the write path. | **FULL+** (vector/embedding native) |
 | **Value types** (constrained semantic wrappers) | type-reference | `ontology/value_types.py` (`KG-2.39`): `ValueType`+`ValueConstraints` compiling to **SHACL `PropertyShape` + OWL `rdfs:Datatype`**; built-ins `EmailAddress`, `URL`, `ISOCurrencyCode`, `Percentage`, … ; gates writes via the SHACL validator. | **FULL+** (OWL/SHACL-backed) |
-| **Link types** (typed relationships) + many-to-many | type-reference | `ontology/links.py` (`KG-2.26`): `LinkType` (cardinality), `JunctionLinkType` reifying M:N links as first-class junction **objects** + role-keyed edges; reverse traversal (`endpoints_of`, `junctions_for`, `neighbors_via`). | **FULL+** (reified junction = first-class) |
+| **Link types** (typed relationships) + multiple-to-multiple | type-reference | `ontology/links.py` (`KG-2.26`): `LinkType` (cardinality), `JunctionLinkType` reifying M:N links as first-class junction **objects** + role-keyed edges; reverse traversal (`endpoints_of`, `junctions_for`, `neighbors_via`). | **FULL+** (reified junction = first-class) |
 | **Interfaces** (shared shape, polymorphism, inheritance) | interface-overview | `ontology/interfaces.py` (`KG-2.38`): `Interface` w/ shared properties + link constraints, multi-level inheritance, conformance check, `resolve_target()` programmatic targeting, **OWL `rdfs:subClassOf` + `sh:node` projection**. | **FULL+** (reasoning-aware targeting) |
-| **Functions** (code-authored ontology logic) | functions-overview | `ontology/functions/` (`AU-KG.ontology.default-runtime-bound-import`): `FunctionSpec`/`FunctionParameter`, three Foundry kinds (`PLAIN \| ON_OBJECTS \| QUERY`), `ObjectFunctionContext` (Functions-on-Objects graph reads), single audited `FunctionRuntime` w/ typed I/O validation + versioned release. | **FULL** |
+| **Functions** (code-authored ontology logic) | functions-overview | `ontology/functions/` (`AU-KG.ontology.default-runtime-bound-import`): `FunctionSpec`/`FunctionParameter`, three Foundry kinds (`PLAIN \| ON_OBJECTS \| QUERY`), `ObjectFunctionContext` (Functions-on-Objects graph reads), single audited `FunctionRuntime` w/ typed `I/O` validation + versioned release. | **FULL** |
 | **Derived properties** (computed attributes) | ontologies-overview | `ontology/derived_properties.py` (`KG-2.40`): `DerivedBacking` = `FUNCTION` **+ `CYPHER` + `SPARQL` + `EMBEDDING`** (Foundry has FUNCTION only); read-time compute + audit via the bound engine. | **FULL+** (graph/semantic/vector backings) |
 | **Action types** (transactional verbs) | action-types-overview | `knowledge_graph/actions/` (`KG-2.25` core + `KG-2.42` action-type extension): `OntologyAction` w/ typed parameters, submission criteria, function-backing, side effects (notification/webhook), batched + permission-gated + audited + KG-persisted execution. | **FULL+** (reasoned eligibility) |
 | **Object edits** (property-set / link / create-delete, history, revert) | object-edits-overview (stub), action-types | `ontology/edits/` (`KG-2.43`): `Edit`+`EditLedger` as durable `object_edit` nodes with before/after snapshots, per-object `history()`, point-in-time `as_of()`, inverse `revert_edit`, and `WriteBackRouter`/`JsonlEditSink` writeback. | **FULL+** (bitemporal, durable) |
@@ -71,14 +71,14 @@ implemented core with a scoped backlog. Each row cites the concrete module +
 | **Vertex** (graph viz, expand, scenarios) | vertex-overview | webui `VertexView.tsx` over `…/object-set/search-around` + object/link reads. | **PARTIAL** (graph viz + traversal; what-if scenarios are backlog) |
 | **Object backend / OMS** (schema service) | object-backend | Ontology Metadata role played by the import-populated registries + the KG node/link-type catalog; OSS role by `object_set.py`; funnel by `indexing/`. | **FULL** |
 
-## 4. Unique value-adds — what we get *for free* that Foundry structurally cannot
+## 4. Unique value-adds — what this repository get *for free* that Foundry structurally cannot
 
 These are emergent advantages of the substrate, not catch-up items.
 
 1. **OWL2 + SHACL behind the type system, not just typing.** Value types compile to
    SHACL `PropertyShape`s + OWL `rdfs:Datatype` (`value_types.py`) and interfaces
    project to `rdfs:subClassOf` + `sh:node` (`interfaces.py`). Foundry's value types
-   are validation metadata; ours are *reasoning + validation* — invalid nodes are
+   are validation metadata; this repository's are *reasoning + validation* — invalid nodes are
    quarantined by the SHACL gate before they persist, and interface conformance is a
    logical entailment, not a hand-maintained tag.
 2. **Reasoned, entailment-aware ACL marking propagation.** `permissioning.py`

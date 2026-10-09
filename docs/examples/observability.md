@@ -66,7 +66,7 @@ The full table, including labels and producers, lives in the
 [metrics reference](../reference/metrics.md). The ones most dashboards start
 with:
 
-| Series | Type | What it tells you |
+| Series | Type | What it tells the operator |
 |---|---|---|
 | `agent_utilities_gateway_requests_total{route,method,status}` | counter | Traffic + error ratio per route template |
 | `agent_utilities_gateway_request_duration_seconds{route}` | histogram | Latency distribution per route |

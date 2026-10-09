@@ -45,7 +45,7 @@ Distillation is only faithful if the KG actually retains document text. Previous
 | Manual | `DistillationEngine.ingest_text` | verbatim `IdeaBlock` | ✅ but unreachable via the tool |
 
 This was consolidated (strangler-then-delete) into **one** verbatim contract — the same
-regardless of file / directory / URL:
+in either case of file / directory / URL:
 
 ```mermaid
 flowchart LR
@@ -132,7 +132,7 @@ The KG's `Procedure`/`Playbook`/`Policy` nodes and `PRECEDES` edges map directly
 workflow step-DAG. `SkillGraphDistiller.distill_workflow` (or `graph_ingest action="distill",
 content_type="workflow"`) emits a `SKILL.md` whose `### Step N: <token> [depends_on: Step k]`
 ordering is a topological sort over `PRECEDES` — validatable by `skill-workflow-builder`'s
-`build_workflow.py validate`. From one subgraph you can therefore distill a **pair**: the
+`build_workflow.py validate`. From one subgraph the operator can therefore distill a **pair**: the
 docs (skill-graph) *and* the how-to-act (skill-workflow), versioned together.
 
 ---
@@ -198,8 +198,8 @@ a Claude-executable `## Execution` section (run independent steps in parallel,
 dependents after), and a standard delegation footer:
 
 > If graph-os is reachable, offload the whole DAG via `graph_workflows
-> action=execute` (or graph-os's own `graph-orchestration-and-automation` skill); otherwise
-> execute steps natively in dependency order.
+> action=run` (or graph-os's own `graph-orchestration-and-automation` skill); otherwise
+> run steps natively in dependency order.
 
 **Wiring (default-ON, propose-only).** The distiller runs as the `distill_skills`
 stage of `LoopController.run_one_cycle` (best-effort, alongside reason/standardize/
@@ -229,7 +229,7 @@ agent-utilities, routing is a **process-boundary shell-out** to the ingest CLI �
 ## 6. Batched `GetSubgraph` (engine optimization)
 
 Distillation reads a node's properties **and** the edges among the selection. Doing that
-per-node would be N socket round-trips against the out-of-process engine (plus a full edge
+per-node will be N socket round-trips against the out-of-process engine (plus a full edge
 scan). The engine's `GetSubgraph` returns the induced subgraph — decoded node properties +
 in-set edges — in **one** round-trip:
 

@@ -1,6 +1,6 @@
 # Pillar Reference
 
-The 5-pillar architecture (see the table on [the homepage](../index.md)) each has a summary document plus a folder of numbered concept docs (`ORCH-1.x`, `KG-2.x`, `AHE-3.x`, `ECO-4.x`, `OS-5.x`) — one file per concept, cross-referenced to code via `CONCEPT:` markers and to [`docs/concepts.yaml`](../concepts.yaml) (the single source of truth for the concept registry; see [Concept Registry](../concept_map.md)). Start with a pillar's summary page, then drop into its concept docs for implementation detail — parallel in structure to how [architecture/index.md](../architecture/index.md) organizes the cross-cutting subsystem docs.
+The 5-pillar architecture (see the table on [the homepage](../index.md)) each has a summary document plus a folder of numbered concept docs (`ORCH-1.x`, `KG-2.x`, `AHE-3.x`, `ECO-4.x`, `OS-5.x`) — one file per concept, cross-referenced to code via `CONCEPT:` markers and to [`docs/concepts.yaml`](../concepts.yaml) (the single source of truth for the concept registry. See [Concept Registry](../concept_map.md)). Start with a pillar's summary page, then drop into its concept docs for implementation detail — parallel in structure to how [architecture/index.md](../architecture/index.md) organizes the cross-cutting subsystem docs.
 
 ## Cross-pillar overviews
 
@@ -36,7 +36,7 @@ Routing, planning, execution, and state management via directed acyclic graphs. 
 
 ## Pillar 2 — Epistemic Knowledge Graph
 
-The Single Company Brain: memory, ontology, retrieval, and structural reasoning. The largest pillar (39 concept docs) — includes the dedicated Company Brain deep-dive subfolder below.
+The Single Company Brain: memory, ontology, retrieval, and structural reasoning. The largest pillar (39 concept docs) — includes the dedicated Company Brain detailed review subfolder below.
 
 - [Epistemic Knowledge Graph](2_epistemic_knowledge_graph.md)
 - [Token-Aware Context Compaction](2_epistemic_knowledge_graph/KG-2.1-Tiered_Memory_And_Context.md)
@@ -68,7 +68,7 @@ The Single Company Brain: memory, ontology, retrieval, and structural reasoning.
 - [Contextual-Retrieval Enrichment](2_epistemic_knowledge_graph/KG-2.50-Contextual_Retrieval_Enrichment.md)
 - [MCP Tool Source Connector](2_epistemic_knowledge_graph/KG-2.59-MCP_Tool_Source_Connector.md)
 
-## Pillar 2 deep-dive — Company Brain
+## Pillar 2 detailed review — Company Brain
 
 The operational state layer that turns the epistemic graph into a multi-writer, multi-reader, multi-tenant organizational memory — architecture, ontology, permissions, provenance, and concurrency.
 
@@ -140,8 +140,8 @@ The desktop cockpit frontend for AI agents.
 
 ## Documentation standards for this tree
 
-We employ a strict Concept ID Registry to ensure 1:1:1 traceability between
-**Code** (docstrings), **Tests**, and **Documentation**. If you are contributing
+This repository employ a strict Concept ID Registry to ensure 1:1:1 traceability between
+**Code** (docstrings), **Tests**, and **Documentation**. If the operator are contributing
 a concept doc, follow the standard file naming conventions:
 
 - Pillar summary: `{N}_{pillar_name}.md`
