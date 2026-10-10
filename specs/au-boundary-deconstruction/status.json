@@ -137,11 +137,13 @@
       "title": "Ship AU's F-J connector import-census gate",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "105559f760c3",
         "5a00da215c55",
         "fe5ca4e239ec"
       ],
       "verified_by": [
-        "tests/gates/test_connector_sdk_import_census_gate.py:34"
+        "tests/gates/test_connector_sdk_import_census_gate.py:35",
+        "tests/gates/test_connector_sdk_import_census_gate.py:55"
       ]
     },
     {
@@ -180,7 +182,7 @@
         "5a00da215c55"
       ],
       "verified_by": [
-        "tests/gates/test_connector_sdk_import_census_gate.py:44"
+        "tests/gates/test_connector_sdk_import_census_gate.py:45"
       ]
     },
     {
