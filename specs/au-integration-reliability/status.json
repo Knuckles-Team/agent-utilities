@@ -66,11 +66,14 @@
     {
       "id": "AU-INTEGRATION-R004",
       "title": "Remove the unintended nltk dependency from AU's lock",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "5061f520d040",
         "eabd68d558c0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/release/test_lock_no_nltk.py:11"
+      ]
     },
     {
       "id": "AU-INTEGRATION-R005",

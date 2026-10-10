@@ -225,7 +225,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "148ef73124d2",
-        "c049e325e91d"
+        "c049e325e91d",
+        "f764531c7dd3"
       ],
       "verified_by": [
         "tests/gates/test_topology_authority_gate.py:25",
