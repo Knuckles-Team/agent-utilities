@@ -222,6 +222,38 @@ def test_labelled_fake_internal_hostname_passes() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Shared-fix regression: ``_MACHINE_HOST_ID_RE``'s lookbehind did not exclude
+# ``-``, so a hyphen-joined requirement ID (``AU-BOUNDARY-R016``) false-
+# positived as a machine host alias (``r016``/``host...``-shaped suffix).
+# Fixed by widening the lookbehind to ``(?<![a-z0-9-])`` -- the same
+# one-character fix as pipelines PR #41 (pipelines_hooks/privacy/patterns.py)
+# and epistemic-graph's local copy (D-EG-PRIVACY-R001-FALSEPOS). Both
+# directions must hold: the hyphenated requirement-ID citation is NOT
+# flagged, and a genuine bare host token still is.
+# --------------------------------------------------------------------------- #
+
+
+def test_hyphenated_requirement_id_is_not_flagged_as_host_id() -> None:
+    gate = _gate_module()
+    categories = gate.classify_line(
+        "see AU-BOUNDARY-R016 for the full requirement text",
+        identifiers=frozenset(),
+        deployment_doc=False,
+    )
+    assert "machine-specific host identifier" not in categories
+
+
+def test_bare_host_token_is_still_flagged_as_host_id() -> None:
+    gate = _gate_module()
+    categories = gate.classify_line(
+        "reported from " + "host" + "123",
+        identifiers=frozenset(),
+        deployment_doc=False,
+    )
+    assert "machine-specific host identifier" in categories
+
+
+# --------------------------------------------------------------------------- #
 # D-W12-AU-EXCEPTIONS-3: "someone" was a stray, undocumented entry in
 # ``_RESERVED_HOME_USERS`` (BUG-228, ``ee3814af7``) -- not one of that set's
 # own documented categories (generic role noun / "example" family /

@@ -9,6 +9,7 @@
     "AU-RETIRE-R003",
     "AU-RETIRE-R003.1",
     "AU-RETIRE-R003.2",
+    "AU-RETIRE-R003.3",
     "AU-RETIRE-R004",
     "AU-RETIRE-R005",
     "AU-RETIRE-R006",
@@ -44,7 +45,8 @@
       "verified_by": [],
       "rollup_of": [
         "AU-RETIRE-R003.1",
-        "AU-RETIRE-R003.2"
+        "AU-RETIRE-R003.2",
+        "AU-RETIRE-R003.3"
       ]
     },
     {
@@ -69,6 +71,15 @@
         "tests/unit/knowledge_graph/ontology/test_reference_term.py:40",
         "tests/unit/knowledge_graph/ontology/test_reference_term.py:51"
       ]
+    },
+    {
+      "id": "AU-RETIRE-R003.3",
+      "title": "Load the real OBO sources and aggregate taxonCapableOf / kg:Nutrient",
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "82c3c3016b15"
+      ],
+      "verified_by": []
     },
     {
       "id": "AU-RETIRE-R004",
