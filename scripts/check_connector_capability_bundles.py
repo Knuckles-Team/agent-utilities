@@ -35,6 +35,16 @@ from agent_utilities.security.persistence_privacy import (  # noqa: E402
 )
 
 _PROVIDER_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+_KG_NAMESPACE = "http://knuckles.team/kg#"
+_TARGET_CLASS = re.compile(
+    r"\bsh:targetClass\s+(?::([A-Za-z_][A-Za-z0-9_-]{0,127})"
+    r"|<" + re.escape(_KG_NAMESPACE) + r"([A-Za-z_][A-Za-z0-9_-]{0,127})>)"
+)
+
+
+def _shape_target_classes(shapes_text: str) -> set[str]:
+    """Return KG class names named by ``sh:targetClass`` (no rdflib graph)."""
+    return {a or b for a, b in _TARGET_CLASS.findall(shapes_text)}
 
 
 def _sha256(path: Path) -> str:
@@ -371,17 +381,14 @@ def check_one(
 
     shapes = module / "ontology" / "shapes" / "connector.shacl.ttl"
     try:
-        import rdflib
-
-        graph = rdflib.Graph()
-        graph.parse(str(shapes), format="turtle")
-        target_class = rdflib.URIRef("http://www.w3.org/ns/shacl#targetClass")
-        targets = {str(value) for value in graph.objects(predicate=target_class)}
+        targets = _shape_target_classes(shapes.read_text(encoding="utf-8"))
+        if not targets:
+            raise ValueError("no sh:targetClass declared")
         for resource in manifest.resources:
-            if f"http://knuckles.team/kg#{resource.name}" not in targets:
+            if resource.name not in targets:
                 violations.append("SHACL coverage is incomplete")
                 break
-    except Exception:  # noqa: BLE001
+    except (OSError, UnicodeError, ValueError):
         violations.append("SHACL artifact does not parse")
 
     mapping_path = module / "ontology" / "mappings" / "source.yaml"
