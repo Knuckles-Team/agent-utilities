@@ -48,3 +48,79 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R007.2:** Migrate `keycloak-agent`, `langfuse-agent`, `leanix-agent`, `microsoft-agent`, `opensearch-mcp` off the banned AU imports the census missed.
 - [ ] **AU-BOUNDARY-R008.1:** P-S connector import census (PR #150, `79dc21bab`) that moved R008 to LANDED; `status.json`'s `landed_in` SHA is wrong (points at the unrelated `AU-HARNESS-R005.1` merge, not a P-S connector change).
 - [ ] **AU-BOUNDARY-R008.2:** Migrate `paperless-ngx-mcp`, `pulselink-mcp`, `repository-manager`, `rom-manager`, `systems-manager` off the banned AU imports the census missed.
+- [ ] **AU-BOUNDARY-R001.1:** Record that PR #23 (`aa5eba73e0f7`) shipped only boundary gate scripts, not the gateway deletion; `status.json`'s LANDED is wrong.
+- [ ] **AU-BOUNDARY-R001.2:** Delete `agent_utilities/gateway/api.py`.
+- [ ] **AU-BOUNDARY-R001.3:** Delete `agent_utilities/gateway/artifacts_api.py`.
+- [ ] **AU-BOUNDARY-R001.4:** Delete `agent_utilities/gateway/registry_api.py`.
+- [ ] **AU-BOUNDARY-R001.5:** Delete `agent_utilities/gateway/registry.py`.
+- [ ] **AU-BOUNDARY-R001.6:** Delete `agent_utilities/gateway/schemas/graph_analyze.py`.
+- [ ] **AU-BOUNDARY-R001.7:** Delete `agent_utilities/gateway/widgets/genius_agent.py`.
+- [ ] **AU-BOUNDARY-R001.8:** Delete `agent_utilities/gateway/widgets/_optional_client.py`.
+- [ ] **AU-BOUNDARY-R002.1:** Record that PR #26 (`fca0c5ee42b3`) did not delete `backends.py`/`certification_oidc.py`; `status.json`'s LANDED is wrong.
+- [ ] **AU-BOUNDARY-R002.2:** Delete `agent_utilities/deployment/backends.py`.
+- [ ] **AU-BOUNDARY-R002.3:** Delete `agent_utilities/deployment/certification_oidc.py`.
+- [ ] **AU-BOUNDARY-R003.1:** Record that commit `2456745c1e4d` shipped only gate scripts, not the MCP host deletion; `status.json`'s LANDED is wrong.
+- [ ] **AU-BOUNDARY-R003.2:** Delete `agent_utilities/mcp/kg_server.py`.
+- [ ] **AU-BOUNDARY-R003.3:** Delete `agent_utilities/mcp/_graphos_action_manifest.py`.
+- [ ] **AU-BOUNDARY-R003.4:** Remove `_ingest_capabilities` from `agent_utilities/sdd/watcher.py`.
+- [ ] **AU-BOUNDARY-R003.2:** RETIRED: superseded by AU-BOUNDARY-R003.5...AU-BOUNDARY-R003.29.
+- [ ] **AU-BOUNDARY-R003.5:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.6:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.7:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.8:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.9:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.10:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.11:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.12:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.13:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.14:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.15:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.16:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.17:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.18:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.19:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.20:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.21:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.22:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.23:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.24:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.25:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.26:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.27:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.28:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.29:** see requirements.md.
+- [ ] **AU-BOUNDARY-R004.1:** Record that commit `2456745c1e4d` shipped only gate scripts, not the multiplexer deletion; `status.json`'s LANDED is wrong.
+- [ ] **AU-BOUNDARY-R004.2:** RETIRED: superseded by AU-BOUNDARY-R004.3...AU-BOUNDARY-R004.10.
+- [ ] **AU-BOUNDARY-R004.3:** see requirements.md.
+- [ ] **AU-BOUNDARY-R004.4:** see requirements.md.
+- [ ] **AU-BOUNDARY-R004.5:** see requirements.md.
+- [ ] **AU-BOUNDARY-R004.6:** see requirements.md.
+- [ ] **AU-BOUNDARY-R004.7:** see requirements.md.
+- [ ] **AU-BOUNDARY-R004.8:** see requirements.md.
+- [ ] **AU-BOUNDARY-R004.9:** see requirements.md.
+- [ ] **AU-BOUNDARY-R004.10:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.1:** Record that `status.json`'s `landed_in` (`2456745c1e4d`) did not delete the connector toolkit; LANDED is wrong.
+- [ ] **AU-BOUNDARY-R010.2:** RETIRED: superseded by AU-BOUNDARY-R010.3...AU-BOUNDARY-R010.25.
+- [ ] **AU-BOUNDARY-R010.3:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.4:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.5:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.6:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.7:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.8:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.9:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.10:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.11:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.12:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.13:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.14:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.15:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.16:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.17:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.18:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.19:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.20:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.21:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.22:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.23:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.24:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.25:** see requirements.md.
