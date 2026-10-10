@@ -17,7 +17,7 @@ already scales on (CONCEPT:AU-KG.backend.selectable-queue-backend/2.56/2.57):
   (``payload_ref`` points at the goal/WorkItem in the shared state store or
   graph); large bodies never ride the queue;
 * the partition key is the **session id** (see
-  :func:`~agent_utilities.knowledge_graph.core.kafka_queue_backend.partition_key_for`)
+  ``partition_key_for``)
   so all turns of one session land on one partition and execute serially —
   per-session ordering is a turn-coherence REQUIREMENT, stronger than the
   ingest plane's per-tenant ordering;
@@ -661,18 +661,6 @@ def create_dispatch_queue(config: Any = None) -> Any:
 
     choice = resolve_task_queue_backend(config)
     sqlite_db_path = _sqlite_queue_path()
-
-    if choice == "kafka":
-        from agent_utilities.knowledge_graph.core.kafka_queue_backend import (
-            KafkaQueueBackend,
-        )
-
-        return KafkaQueueBackend(
-            bootstrap_servers=getattr(config, "kafka_bootstrap_servers", None),
-            partitions=int(getattr(config, "agent_turns_partitions", 6) or 6),
-            tasks_topic=AGENT_TURNS_TOPIC,
-            consumer_group=DISPATCH_GROUP,
-        )
 
     if choice == "postgres":
         from agent_utilities.knowledge_graph.core.queue_backend import (

@@ -18,7 +18,6 @@ from agent_utilities.core import sessions as _sessions
 from agent_utilities.knowledge_graph.core import work_durability as _wi
 from agent_utilities.orchestration import agent_dispatch
 from agent_utilities.orchestration.agent_dispatch import (
-    AGENT_TURNS_TOPIC,
     KIND_GOAL_LOOP,
     KIND_ORCHESTRATOR_TASK,
     AgentTurnEnvelope,
@@ -92,16 +91,6 @@ def test_envelope_carries_references_not_bodies():
     assert env.to_item()["payload_ref"] == "goal-9"
 
 
-def test_session_partition_key_precedes_tenant() -> None:
-    from agent_utilities.knowledge_graph.core.kafka_queue_backend import (
-        partition_key_for,
-    )
-
-    first = AgentTurnEnvelope(session_id="session-ref", tenant="tenant-a").to_item()
-    second = AgentTurnEnvelope(session_id="session-ref", tenant="tenant-b").to_item()
-    assert partition_key_for(first) == partition_key_for(second)
-
-
 def test_sqlite_is_queue_transport_not_inline_execution(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         agent_dispatch, "_sqlite_queue_path", lambda: str(tmp_path / "dispatch.db")
@@ -115,31 +104,6 @@ def test_sqlite_is_queue_transport_not_inline_execution(tmp_path, monkeypatch) -
     )
     queue.put(AgentTurnEnvelope(session_id="session-ref").to_item())
     assert queue.get_queue_size() == 1
-
-
-def test_kafka_dispatch_uses_fixed_topic_and_group(monkeypatch) -> None:
-    captured: dict = {}
-
-    class FakeKafkaQueue:
-        def __init__(self, **kwargs):
-            captured.update(kwargs)
-
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.core.kafka_queue_backend.KafkaQueueBackend",
-        FakeKafkaQueue,
-    )
-    agent_dispatch.create_dispatch_queue(
-        SimpleNamespace(
-            task_queue_backend="kafka",
-            queue_backend="kafka",
-            state_db_uri=None,
-            kafka_bootstrap_servers="broker.invalid:9092",
-            agent_turns_partitions=8,
-        )
-    )
-    assert captured["tasks_topic"] == AGENT_TURNS_TOPIC
-    assert captured["consumer_group"] == "agent-dispatch"
-    assert captured["partitions"] == 8
 
 
 def test_worker_identity_is_opaque_and_process_stable() -> None:

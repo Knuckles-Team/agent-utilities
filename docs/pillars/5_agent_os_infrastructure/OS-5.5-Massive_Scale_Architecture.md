@@ -75,7 +75,6 @@ A developer can smoothly configure their system's scale width by changing a sing
 import asyncio
 from agent_utilities.knowledge_graph.core.queue_backend import QueueBackend
 from agent_utilities.knowledge_graph.core.nats_queue_backend import NatsQueueBackend
-from agent_utilities.knowledge_graph.core.kafka_queue_backend import KafkaQueueBackend
 
 async def run_system(scale: str):
     # Swap backend depending on scale demands

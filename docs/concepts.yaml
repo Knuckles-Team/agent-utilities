@@ -1173,7 +1173,6 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/event_backend.py
-  - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
   - agent_utilities/knowledge_graph/core/queue_backend.py
   doc: Pluggable Event Queue Backend
 - id: AU-ECO.bus.store-and-forward-log
@@ -2502,7 +2501,6 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/config.py
-  - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
   - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/messaging/bus_log.py
   doc: Keyed ingest partitions for per-tenant and per-repo ordering
@@ -2619,7 +2617,6 @@ concepts:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/__main__.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
-  - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
   - agent_utilities/knowledge_graph/core/queue_backend.py
   - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/orchestration/agent_dispatch.py
@@ -3860,7 +3857,6 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
-  - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
   - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/knowledge_graph/ingestion/batch_orchestrator.py
   - agent_utilities/observability/gateway_metrics.py
@@ -6998,7 +6994,6 @@ concepts:
   pillar: AU-ORCH
   status: live
   code_paths:
-  - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
   doc: the topic/group are parameters so the agent
 - id: AU-ORCH.dispatch.persistent-background-agents
   name: Persistent Background Agents
@@ -7991,7 +7986,6 @@ concepts:
   - agent_utilities/graph/reactive/__init__.py
   - agent_utilities/graph/reactive/ledger.py
   - agent_utilities/knowledge_graph/core/event_backend.py
-  - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
   - agent_utilities/knowledge_graph/core/queue_backend.py
   doc: Graph-Native Reactive Event Sourcing and OS Guardrails
 - id: AU-ORCH.reactive.runtime-events
@@ -8436,7 +8430,6 @@ concepts:
   code_paths:
   - agent_utilities/core/resource_priority.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
-  - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
   - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/mcp/kg_server.py

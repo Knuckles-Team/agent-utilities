@@ -319,7 +319,6 @@ Scaling to **100,000,000 concurrent agents** requires swapping out local memory 
     *   `agent_utilities/core/wasm_runner.py`
     *   `agent_utilities/knowledge_graph/core/queue_backend.py`
     *   `agent_utilities/knowledge_graph/core/nats_queue_backend.py`
-    *   `agent_utilities/knowledge_graph/core/kafka_queue_backend.py`
 
 ---
 

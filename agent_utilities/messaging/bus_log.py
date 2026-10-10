@@ -582,7 +582,7 @@ class KafkaBusLog(BusLogBackend):
 
     Test seams: ``producer``/``admin_client``/``consumer_factory`` accept
     pre-built fake confluent-kafka-shaped clients, same DI pattern as
-    :class:`~agent_utilities.knowledge_graph.core.kafka_queue_backend.KafkaQueueBackend`.
+    the former Kafka queue backend.
     """
 
     name = "kafka"

@@ -475,8 +475,7 @@ def _submit_kafka_notification(
     topic the reserved consumer subset polls first — see
     ``ingest_worker.py::start_ingest_consumer_pool``); everything else uses the
     ordinary ``put``. ``put_hydration`` only exists on the Kafka backend
-    (:class:`~agent_utilities.knowledge_graph.core.kafka_queue_backend.
-    KafkaQueueBackend`), so a queue without it (a test double, or a future
+    (the former Kafka queue backend), so a queue without it (a test double, or a future
     non-Kafka caller of this helper) transparently falls back to ``put`` —
     this function is only ever reached from the Kafka branch of
     :meth:`TaskManagerMixin.submit_task`.
@@ -2971,9 +2970,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
                 name="connector_sync_sweep",
                 payload={"kind": "connector_sync_sweep"},
                 trigger="interval",
-                interval_s=float(
-                    getattr(_cfg, "kg_connector_sync_interval", 1800.0)
-                ),
+                interval_s=float(getattr(_cfg, "kg_connector_sync_interval", 1800.0)),
                 prio_bucket=2,
                 enabled=bool(getattr(_cfg, "kg_connector_sync", True)),
             )
@@ -3559,7 +3556,6 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
         """
         try:
             from agent_utilities.observability.gateway_metrics import (
-                record_kg_ingest_consumer_lag_observation,
                 record_kg_ingest_queue_observation,
             )
 
@@ -3570,15 +3566,6 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
                 value=float(queue_size),
                 observed_at=observed_at,
             )
-            if backend_name == "kafka":
-                from .kafka_queue_backend import INGEST_GROUP, TASKS_TOPIC
-
-                record_kg_ingest_consumer_lag_observation(
-                    topic=TASKS_TOPIC,
-                    group=INGEST_GROUP,
-                    value=float(queue_size),
-                    observed_at=observed_at,
-                )
         except Exception:  # noqa: BLE001 — telemetry must never break the loop
             pass
 

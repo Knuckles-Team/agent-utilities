@@ -11,14 +11,13 @@ from typing import Any, Protocol
 logger = logging.getLogger(__name__)
 
 #: Values accepted by ``TASK_QUEUE_BACKEND``.
-TASK_QUEUE_BACKENDS = ("sqlite", "postgres", "kafka")
+TASK_QUEUE_BACKENDS = ("sqlite", "postgres")
 
 
 class TaskQueueUnavailable(RuntimeError):
     """The configured task-queue authority is unreachable at startup.
 
-    CONCEPT:AU-KG.backend.selectable-queue-backend — when an operator pins ``TASK_QUEUE_BACKEND=kafka`` (or
-    ``postgres``) the queue is a hard contract: silently degrading to the
+    CONCEPT:AU-KG.backend.selectable-queue-backend — when an operator pins ``TASK_QUEUE_BACKEND=postgres`` the queue is a hard contract: silently degrading to the
     per-host SQLite file would split the fleet's queue into invisible islands.
     Diagnostics never expose endpoint identities or silently select another store.
     """
@@ -53,23 +52,12 @@ def create_task_queue(config: Any, sqlite_db_path: str) -> tuple["QueueBackend",
     CONCEPT:AU-KG.backend.selectable-queue-backend — the ONE construction path for the durable ingest queue
     (engine startup and the ``--stage-to-queue`` CLI both use it):
 
-    * configured ``kafka``/``postgres`` → unreachable authority raises
+    * configured ``postgres`` → unreachable authority raises
       :class:`TaskQueueUnavailable`; authority never changes at runtime;
     * with no external state configured, SQLite is selected directly as the
       self-contained single-host authority.
     """
     choice = resolve_task_queue_backend(config)
-
-    if choice == "kafka":
-        from .kafka_queue_backend import KafkaQueueBackend
-
-        return (
-            KafkaQueueBackend(
-                bootstrap_servers=getattr(config, "kafka_bootstrap_servers", None),
-                partitions=int(getattr(config, "kg_tasks_partitions", 6) or 6),
-            ),
-            "kafka",
-        )
 
     if choice == "postgres":
         try:
@@ -135,11 +123,6 @@ class QueueBackend(Protocol):
         """Factory method to instantiate a pluggable queue backend."""
         if backend_type == "memory":
             return MemoryQueueBackend()
-        elif backend_type == "kafka":
-            from .kafka_queue_backend import KafkaQueueBackend
-
-            bootstrap_servers = kwargs.pop("bootstrap_servers", ["localhost:9092"])
-            return KafkaQueueBackend(bootstrap_servers=bootstrap_servers, **kwargs)
         else:
             raise ValueError(f"Unknown queue backend type: {backend_type}")
 
