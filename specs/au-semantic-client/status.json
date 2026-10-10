@@ -249,16 +249,26 @@
     {
       "id": "AU-SEMANTIC-R006.5.4",
       "title": "check_connector_capability_bundles.py submits typed payloads instead of an rdflib graph",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4463e2ba37cc"
+      ],
+      "verified_by": [
+        "tests/unit/scripts/test_check_connector_capability_bundles_no_rdflib.py:25",
+        "tests/unit/scripts/test_check_connector_capability_bundles_no_rdflib.py:35"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R006.5.5",
       "title": "generate_connector_capability_bundles.py submits typed payloads instead of an rdflib graph",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "fd044131b941"
+      ],
+      "verified_by": [
+        "tests/unit/scripts/test_generate_connector_capability_bundles_no_rdflib.py:19",
+        "tests/unit/scripts/test_generate_connector_capability_bundles_no_rdflib.py:29"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R006.6",
@@ -809,7 +819,7 @@
     {
       "id": "AU-SEMANTIC-R019.6.2",
       "title": "The `placement_control` stage and its setting are removed from the loop controller and config",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -831,8 +841,10 @@
     {
       "id": "AU-SEMANTIC-R019.6.2.2",
       "title": "The `placement_control_loop_enabled` setting is removed from config",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb4178637fc9"
+      ],
       "verified_by": [
         "tests/unit/core/test_config.py:20"
       ]
