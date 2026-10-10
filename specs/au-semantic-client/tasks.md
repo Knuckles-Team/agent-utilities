@@ -55,7 +55,7 @@ The task owner records a separate verdict per ID even when multiple IDs share a 
 - [ ] **AU-SEMANTIC-R008.1:** A typed topology decision-policy client contract fails closed while no served policy exists
 - [x] **AU-SEMANTIC-R008.2:** Topology selection consumes the served decision policy and the local outcome store is deleted
 - [ ] **AU-SEMANTIC-R008.2.1:** Factual record of what landed for R008.2
-- [ ] **AU-SEMANTIC-R008.2.2:** `topology.py` calls the served decision-policy client instead of the local EMA store
+- [ ] **AU-SEMANTIC-R008.2.2:** `topology.py` calls the served decision-policy client instead of the local EMA store (blocked on epistemic-graph: served `select_topology` op / `reasoning_policy.ReasoningPolicyClient` absent)
 - [ ] **AU-SEMANTIC-R008.2.3:** The local EMA outcome-store code is deleted from `topology.py`
 - [ ] **AU-SEMANTIC-R011.1:** Factual record of what landed for R011
 - [ ] **AU-SEMANTIC-R011.2:** Delete `knowledge_graph/core/queue_backend.py`
