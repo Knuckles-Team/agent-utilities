@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-BOUNDARY-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-BOUNDARY-R001",
     "AU-BOUNDARY-R002",
@@ -25,10 +25,20 @@
     "AU-BOUNDARY-R016.1",
     "AU-BOUNDARY-R017",
     "AU-BOUNDARY-R018",
+    "AU-BOUNDARY-R018.1",
+    "AU-BOUNDARY-R018.2",
     "AU-BOUNDARY-R019",
+    "AU-BOUNDARY-R019.1",
+    "AU-BOUNDARY-R019.2",
     "AU-BOUNDARY-R020",
+    "AU-BOUNDARY-R020.1",
+    "AU-BOUNDARY-R020.2",
     "AU-BOUNDARY-R021",
+    "AU-BOUNDARY-R021.1",
+    "AU-BOUNDARY-R021.2",
     "AU-BOUNDARY-R022",
+    "AU-BOUNDARY-R022.1",
+    "AU-BOUNDARY-R022.2",
     "AU-BOUNDARY-R023",
     "AU-BOUNDARY-R024",
     "AU-BOUNDARY-R025",
@@ -281,33 +291,106 @@
     {
       "id": "AU-BOUNDARY-R018",
       "title": "Replace the AU graph engine facade with the EG client",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "8b325ddf1818"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R018.1",
+        "AU-BOUNDARY-R018.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R018.1",
+      "title": "Ship a typed inventory of the AU-BOUNDARY-R018 facade modules",
       "delivery_state": "LANDED",
       "landed_in": [
         "8b325ddf1818"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R018.2",
+      "title": "Delete the AU-BOUNDARY-R018 facade modules",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R019",
       "title": "Replace AU's graph-compute and state facades with the EG client",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "8b325ddf1818"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R019.1",
+        "AU-BOUNDARY-R019.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R019.1",
+      "title": "Ship a typed inventory of the AU-BOUNDARY-R019 facade modules",
       "delivery_state": "LANDED",
       "landed_in": [
         "8b325ddf1818"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R019.2",
+      "title": "Delete the AU-BOUNDARY-R019 facade modules",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R020",
       "title": "Move durable work, queues, and state to EG",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "8b325ddf1818"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R020.1",
+        "AU-BOUNDARY-R020.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R020.1",
+      "title": "Ship a typed inventory of the AU-BOUNDARY-R020 durable-work modules",
       "delivery_state": "LANDED",
       "landed_in": [
         "8b325ddf1818"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R020.2",
+      "title": "Move the AU-BOUNDARY-R020 durable-work modules and drop their scripts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R021",
       "title": "Move graph tenancy, topology, and admission to EG",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "8b325ddf1818"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R021.1",
+        "AU-BOUNDARY-R021.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R021.1",
+      "title": "Ship a typed inventory of the AU-BOUNDARY-R021 tenancy/admission modules",
       "delivery_state": "LANDED",
       "landed_in": [
         "8b325ddf1818"
@@ -315,12 +398,39 @@
       "verified_by": []
     },
     {
+      "id": "AU-BOUNDARY-R021.2",
+      "title": "Delete the AU-BOUNDARY-R021 tenancy/admission modules",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "AU-BOUNDARY-R022",
       "title": "Retire AU's reasoning and graph-analytics duplicates",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "8b325ddf1818"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R022.1",
+        "AU-BOUNDARY-R022.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R022.1",
+      "title": "Ship a typed inventory of the AU-BOUNDARY-R022 reasoning/analytics modules",
       "delivery_state": "LANDED",
       "landed_in": [
         "8b325ddf1818"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R022.2",
+      "title": "Delete the AU-BOUNDARY-R022 reasoning/analytics modules",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
