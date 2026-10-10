@@ -159,6 +159,53 @@ def test_the_loop_swaps_the_generation_with_a_passing_receipt(cycle_env) -> None
     assert (again["activated"], again["stage"]) == (False, "active")
 
 
+def _transport_failing_receipt(pointer: list[str]) -> FakeTransport:
+    """Same as ``_transport`` but EG's stability/quality receipt reports
+    ``passed: False``, as a fault-injection case for AU-CONTEXT-R002: the
+    swap must not activate and the prior (base) generation must stay active."""
+    evaluated = {
+        "recorded": "generation",
+        "receipt_digest": "sha256:g",
+        "receipt": {"passed": False, "reason": "population-stability check failed"},
+    }
+
+    def answer(op: Mapping[str, Any]) -> Any:
+        key = _key(op)
+        if key == "move_pointer:activate":
+            pointer.append(op["write"]["movement"]["target"])
+            return {"recorded": "pointer", "key": "k", "active": {"target": SHADOW}}
+        return {"get": ENTRY, "evaluate_generation": evaluated}[key]
+
+    def query(text: str) -> Any:
+        if "decision_pointers" in text:
+            return {"columns": ["target"], "rows": [[p] for p in pointer[-1:]]}
+        return JUDGED
+
+    return FakeTransport(log_answer=answer, sql_answer=query)
+
+
+@pytest.mark.spec("AU-CONTEXT-R002")
+def test_a_failed_quality_receipt_rolls_back_and_keeps_the_prior_generation_active(
+    cycle_env,
+) -> None:
+    """AU-CONTEXT-R002: a fault-injected failing stability/quality receipt
+    must not activate the shadow ANN generation -- the pointer never moves,
+    and the base generation (the one queries were already embedding in)
+    stays active."""
+    pointer: list[str] = []
+    transport = _transport_failing_receipt(pointer)
+    decide.install_runner(runner(transport))
+    engine = _Engine(cycle_env)
+
+    report = _run_stage(engine)
+
+    assert not report["embedding_generation"]["activated"], report
+    assert pointer == [], "a failed receipt must never move the activation pointer"
+
+    tuned = generation_embedder(engine.hybrid_retriever)
+    assert tuned.model_name == "base-m", "the prior generation remains active"
+
+
 def test_the_stage_is_opt_in_and_needs_a_published_model(
     cycle_env, monkeypatch: pytest.MonkeyPatch
 ) -> None:

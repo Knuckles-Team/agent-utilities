@@ -87,11 +87,13 @@
     {
       "id": "AU-RETIRE-R004",
       "title": "Fix doubled node_type text in embedding composition",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "bc7bba33932d"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/knowledge_graph/enrichment/test_entity_text_bare_node_type.py:38"
+      ]
     },
     {
       "id": "AU-RETIRE-R005",
