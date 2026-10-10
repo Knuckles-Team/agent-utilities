@@ -959,9 +959,13 @@
     {
       "id": "AU-SEMANTIC-R019.6.3.1",
       "title": "The `placement_control` action and its parameters are removed from `graph_loops`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e21a74412b1b"
+      ],
+      "verified_by": [
+        "tests/unit/mcp/test_graph_loops_placement_removed.py:12"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R019.6.3.2",
