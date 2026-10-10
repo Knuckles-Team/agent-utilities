@@ -1385,7 +1385,10 @@
       "title": "Wire `agent_utilities/knowledge_graph/domain_packs/pack_loader.py` off the local manifest compiler",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/knowledge_graph/domain_packs/test_pack_loader_uses_sdk_pack.py:22",
+        "tests/unit/knowledge_graph/domain_packs/test_pack_loader_uses_sdk_pack.py:34"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R030.6",
