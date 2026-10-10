@@ -36,3 +36,23 @@ The task owner records a separate verdict per ID even when multiple IDs share a 
 - [ ] **AU-SEMANTIC-R009.2:** AU's engine-facade callers consume the shipped runnable_skill_derivation op
 - [ ] **AU-SEMANTIC-R015.2:** The SDK-hosted source-sync runner consumes the shipped workflow_derivation op
 - [x] **AU-SEMANTIC-R016.1:** The AU-SEMANTIC-R016 migration scope is a typed, validated manifest
+
+## Decomposition children (tracked)
+
+- [ ] **AU-SEMANTIC-R006:** AU removes rdflib and submits typed payloads to EG instead
+- [x] **AU-SEMANTIC-R006.1:** The harness gate submits a typed payload instead of an rdflib graph
+- [ ] **AU-SEMANTIC-R006.2:** The workflow gate submits a typed payload instead of an rdflib graph
+- [ ] **AU-SEMANTIC-R006.3:** The SHACL pipeline gate and pack loader submit typed payloads instead of rdflib graphs
+- [ ] **AU-SEMANTIC-R006.4:** The connector-certification gate submits a typed payload instead of an rdflib graph
+- [ ] **AU-SEMANTIC-R006.5:** The connector-manifest gate and generation scripts submit typed payloads instead of rdflib graphs
+- [ ] **AU-SEMANTIC-R006.6:** The team-sharing gate, remaining ontology modules and `rdflib` dependency removal close R006
+- [x] **AU-SEMANTIC-R008:** Reasoning-topology selection uses a served policy, not a local outcome store
+- [ ] **AU-SEMANTIC-R008.1:** A typed topology decision-policy client contract fails closed while no served policy exists
+- [x] **AU-SEMANTIC-R008.2:** Topology selection consumes the served decision policy and the local outcome store is deleted
+- [ ] **AU-SEMANTIC-R009.2.1:** `resolve_runnable_skill_derivation_client()` wires the real call when EG's op is present
+- [x] **AU-SEMANTIC-R009.2.2:** The local engine-facade modules are deleted once callers consume the wired client
+- [ ] **AU-SEMANTIC-R013:** Reasoning and analytics duplicates are deleted only with proven EG parity
+- [ ] **AU-SEMANTIC-R013.1:** The AU-SEMANTIC-R013 core-reasoning migration scope is a typed, validated manifest
+- [ ] **AU-SEMANTIC-R015.2.1:** The AU-SEMANTIC-R015.2 migration scope is a typed, validated manifest
+- [ ] **AU-SEMANTIC-R018.1:** The AU-SEMANTIC-R018 enrichment migration scope is a typed, validated manifest
+- [ ] **AU-SEMANTIC-R020.1:** The AU-SEMANTIC-R020 migration scope is a typed, validated manifest
