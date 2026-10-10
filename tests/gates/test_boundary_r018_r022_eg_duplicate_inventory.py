@@ -173,3 +173,16 @@ def test_inventory_covers_exactly_the_assigned_rows() -> None:
         "AU-BOUNDARY-R021",
         "AU-BOUNDARY-R022",
     }
+
+
+@pytest.mark.spec("AU-BOUNDARY-R019.1")
+@pytest.mark.parametrize("module_path", EG_DUPLICATE_INVENTORY["AU-BOUNDARY-R019"][1])
+def test_r019_facade_module_is_inventoried_and_present(module_path: str) -> None:
+    """Each R019 graph-compute/state-facade module exists and is recorded."""
+    assert (PACKAGE_ROOT / module_path).exists(), module_path
+
+
+@pytest.mark.spec("AU-BOUNDARY-R019.1")
+def test_r019_inventory_is_exactly_the_seven_named_modules() -> None:
+    """The R019 inventory names exactly the seven modules the row lists."""
+    assert len(EG_DUPLICATE_INVENTORY["AU-BOUNDARY-R019"][1]) == 7
