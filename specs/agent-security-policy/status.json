@@ -110,13 +110,16 @@
     {
       "id": "AU-SEC-R008",
       "title": "AU allowlist is generated from the canonical scope registry",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2acbf25f8bb2",
         "c7483960ebb0",
         "eba6b8e9a661"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/security/test_scope_registry.py:62",
+        "tests/unit/security/test_scope_registry.py:83"
+      ]
     },
     {
       "id": "AU-SEC-R009",
@@ -134,12 +137,14 @@
     {
       "id": "AU-SEC-R010",
       "title": "The shared tenant hierarchy reads as the service identity",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3fb99d2ff295",
         "e2b2152f1396"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/knowledge_graph/core/test_tenant_registry_control_graph.py:187"
+      ]
     }
   ]
 }

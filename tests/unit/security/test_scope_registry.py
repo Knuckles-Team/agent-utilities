@@ -17,7 +17,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from agent_utilities.security import scope_registry
-from agent_utilities.security.request_identity import actor_from_claims, mint_graph_session
+from agent_utilities.security.request_identity import (
+    actor_from_claims,
+    mint_graph_session,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -56,6 +59,7 @@ def test_the_generated_module_is_the_installed_eg_registry():
     ) == rendered
 
 
+@pytest.mark.spec("AU-SEC-R008")
 def test_registered_scopes_reach_the_session_and_nothing_else_does():
     session = _mint(
         "rbac:approve-elevation capacity:throttle finance:alerts fleet:events "
@@ -76,10 +80,14 @@ def test_the_kg_hierarchy_still_expands():
     assert _mint("kg:admin").scopes == frozenset({"kg:read", "kg:write", "kg:admin"})
 
 
+@pytest.mark.spec("AU-SEC-R008")
 def test_the_session_allowlist_is_exactly_the_registry():
     assert frozenset(scope_registry.SCOPE_CLASSES) == scope_registry.SESSION_SCOPES
     assert scope_registry.SCOPE_CLASSES["rbac:approve-elevation"] == "approver"
-    assert scope_registry.APPROVER_GROUPS["rbac:approve-elevation"] == "elevation-approvers"
+    assert (
+        scope_registry.APPROVER_GROUPS["rbac:approve-elevation"]
+        == "elevation-approvers"
+    )
 
 
 def test_the_generator_refuses_an_unknown_scope_class():
