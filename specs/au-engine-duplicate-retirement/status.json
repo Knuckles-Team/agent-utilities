@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-RETIRE-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "AU-RETIRE-R001",
     "AU-RETIRE-R002",
@@ -37,7 +37,7 @@
     {
       "id": "AU-RETIRE-R003",
       "title": "OBO ontology terms ingest as typed ReferenceTerm individuals",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "6a408267e403"
       ],
@@ -49,19 +49,26 @@
     },
     {
       "id": "AU-RETIRE-R003.1",
-      "title": "Remaining scope of AU-RETIRE-R003 (slice .1): OBO ontology terms ingest as typed ReferenceTerm individuals",
+      "title": "Typed ReferenceTerm model refuses an invalid CURIE",
       "delivery_state": "LANDED",
       "landed_in": [
+        "82c3c3016b15",
         "f25a287bac6c"
       ],
       "verified_by": []
     },
     {
       "id": "AU-RETIRE-R003.2",
-      "title": "Remaining scope of AU-RETIRE-R003 (slice .2): OBO ontology terms ingest as typed ReferenceTerm individuals",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "title": "Ingest raw OBO records into keyed, deduplicated ReferenceTerm individuals",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "82c3c3016b15"
+      ],
+      "verified_by": [
+        "tests/unit/knowledge_graph/ontology/test_reference_term.py:29",
+        "tests/unit/knowledge_graph/ontology/test_reference_term.py:40",
+        "tests/unit/knowledge_graph/ontology/test_reference_term.py:51"
+      ]
     },
     {
       "id": "AU-RETIRE-R004",

@@ -44,49 +44,67 @@
     {
       "id": "AU-CONTROL-R001",
       "title": "Layered agent execution stack from task mapping to harness run",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "c049e325e91d"
+        "c049e325e91d",
+        "e0420bc5ba59"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/layers/test_harness_port.py:115",
+        "tests/unit/layers/test_harness_port.py:123",
+        "tests/unit/layers/test_harness_port.py:498"
+      ]
     },
     {
       "id": "AU-CONTROL-R002",
       "title": "Component routing through one committed graph-engine decision",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4351f26b3d3b",
-        "c049e325e91d"
+        "c049e325e91d",
+        "e0420bc5ba59"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/decide/test_routing_consumers.py:47"
+      ]
     },
     {
       "id": "AU-CONTROL-R003",
       "title": "Agent graph composition via epistemic-graph assembly, not an LLM",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "c049e325e91d"
+        "c049e325e91d",
+        "e0420bc5ba59"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/decide/test_assembly_consumer.py:46"
+      ]
     },
     {
       "id": "AU-CONTROL-R004",
       "title": "Abstention escalations re-enter as labelled claims, not proofs",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "c049e325e91d"
+        "c049e325e91d",
+        "e0420bc5ba59"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/decide/test_runner.py:68"
+      ]
     },
     {
       "id": "AU-CONTROL-R005",
       "title": "Advisory pre-tool risk scoring",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "47a52e7442bd",
-        "c049e325e91d"
+        "c049e325e91d",
+        "e0420bc5ba59"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/decide/test_risk_consumer.py:11",
+        "tests/unit/decide/test_risk_consumer.py:24"
+      ]
     },
     {
       "id": "AU-CONTROL-R006",
@@ -94,6 +112,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "4351f26b3d3b",
+        "a1dd4111f04f",
         "c049e325e91d"
       ],
       "verified_by": []
@@ -101,41 +120,58 @@
     {
       "id": "AU-CONTROL-R007",
       "title": "Swarm topology selection routed through Decide",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "a1dd4111f04f",
         "c049e325e91d"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/decide/test_topology_consumer.py:145",
+        "tests/unit/decide/test_topology_consumer.py:156"
+      ]
     },
     {
       "id": "AU-CONTROL-R008",
       "title": "Free-text task mapping accepted only as a labelled claim",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "a1dd4111f04f",
         "c049e325e91d",
         "fdd333b5545a"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/test_task_classification.py:30",
+        "tests/unit/test_task_classification.py:37",
+        "tests/unit/test_task_classification.py:65"
+      ]
     },
     {
       "id": "AU-CONTROL-R009",
       "title": "Swarm topology ontology and schema publication",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "a1dd4111f04f",
         "c049e325e91d",
         "da99e968d6c7"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/decide/test_swarm_topology_schema.py:136",
+        "tests/unit/decide/test_swarm_topology_schema.py:94"
+      ]
     },
     {
       "id": "AU-CONTROL-R010",
       "title": "Reference swarm topology templates",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "a1dd4111f04f",
         "c049e325e91d",
         "da99e968d6c7"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/decide/test_swarm_topology_schema.py:164",
+        "tests/unit/decide/test_swarm_topology_schema.py:95"
+      ]
     },
     {
       "id": "AU-CONTROL-R011",

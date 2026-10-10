@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-BOUNDARY-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "AU-BOUNDARY-R001",
     "AU-BOUNDARY-R002",
@@ -10,9 +10,11 @@
     "AU-BOUNDARY-R004",
     "AU-BOUNDARY-R005",
     "AU-BOUNDARY-R006",
+    "AU-BOUNDARY-R006.1",
     "AU-BOUNDARY-R007",
     "AU-BOUNDARY-R008",
     "AU-BOUNDARY-R009",
+    "AU-BOUNDARY-R009.1",
     "AU-BOUNDARY-R010",
     "AU-BOUNDARY-R011",
     "AU-BOUNDARY-R012",
@@ -20,6 +22,7 @@
     "AU-BOUNDARY-R014",
     "AU-BOUNDARY-R015",
     "AU-BOUNDARY-R016",
+    "AU-BOUNDARY-R016.1",
     "AU-BOUNDARY-R017",
     "AU-BOUNDARY-R018",
     "AU-BOUNDARY-R019",
@@ -122,9 +125,24 @@
     {
       "id": "AU-BOUNDARY-R006",
       "title": "Migrate connector packages F-J onto the SDK",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R006.1"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R006.1",
+      "title": "Ship AU's F-J connector import-census gate",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5a00da215c55",
+        "fe5ca4e239ec"
+      ],
+      "verified_by": [
+        "tests/gates/test_connector_sdk_import_census_gate.py:34"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R007",
@@ -147,9 +165,23 @@
     {
       "id": "AU-BOUNDARY-R009",
       "title": "Migrate connector packages T-Z onto the SDK",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R009.1"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R009.1",
+      "title": "Ship AU's T-Z connector import-census gate",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5a00da215c55"
+      ],
+      "verified_by": [
+        "tests/gates/test_connector_sdk_import_census_gate.py:44"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R010",
@@ -213,9 +245,25 @@
     {
       "id": "AU-BOUNDARY-R016",
       "title": "Split AU's monolithic configuration module",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R016.1"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R016.1",
+      "title": "Gate AU's retained config.py against duplicate environment readers",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "5a00da215c55",
+        "fe5ca4e239ec"
+      ],
+      "verified_by": [
+        "tests/gates/test_config_duplicate_reader_gate.py:65",
+        "tests/gates/test_config_duplicate_reader_gate.py:71"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R017",
