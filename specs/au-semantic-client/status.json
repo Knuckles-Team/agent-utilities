@@ -79,6 +79,8 @@
     "AU-SEMANTIC-R019.6.2.1",
     "AU-SEMANTIC-R019.6.2.2",
     "AU-SEMANTIC-R019.6.3",
+    "AU-SEMANTIC-R019.6.3.1",
+    "AU-SEMANTIC-R019.6.3.2",
     "AU-SEMANTIC-R019.6.4",
     "AU-SEMANTIC-R020",
     "AU-SEMANTIC-R020.1",
@@ -852,6 +854,24 @@
     {
       "id": "AU-SEMANTIC-R019.6.3",
       "title": "The `graph_loops` `placement_control` action is removed",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R019.6.3.1",
+        "AU-SEMANTIC-R019.6.3.2"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R019.6.3.1",
+      "title": "The `placement_control` action and its parameters are removed from `graph_loops`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R019.6.3.2",
+      "title": "The generated manifests are regenerated without `placement_control`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
