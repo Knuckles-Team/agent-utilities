@@ -48,3 +48,22 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R007.2:** Migrate `keycloak-agent`, `langfuse-agent`, `leanix-agent`, `microsoft-agent`, `opensearch-mcp` off the banned AU imports the census missed.
 - [ ] **AU-BOUNDARY-R008.1:** P-S connector import census (PR #150, `79dc21bab`) that moved R008 to LANDED; `status.json`'s `landed_in` SHA is wrong (points at the unrelated `AU-HARNESS-R005.1` merge, not a P-S connector change).
 - [ ] **AU-BOUNDARY-R008.2:** Migrate `paperless-ngx-mcp`, `pulselink-mcp`, `repository-manager`, `rom-manager`, `systems-manager` off the banned AU imports the census missed.
+- [ ] **AU-BOUNDARY-R001.1:** Record that PR #23 (`aa5eba73e0f7`) shipped only boundary gate scripts, not the gateway deletion; `status.json`'s LANDED is wrong.
+- [ ] **AU-BOUNDARY-R001.2:** Delete `agent_utilities/gateway/api.py`.
+- [ ] **AU-BOUNDARY-R001.3:** Delete `agent_utilities/gateway/artifacts_api.py`.
+- [ ] **AU-BOUNDARY-R001.4:** Delete `agent_utilities/gateway/registry_api.py`.
+- [ ] **AU-BOUNDARY-R001.5:** Delete `agent_utilities/gateway/registry.py`.
+- [ ] **AU-BOUNDARY-R001.6:** Delete `agent_utilities/gateway/schemas/graph_analyze.py`.
+- [ ] **AU-BOUNDARY-R001.7:** Delete `agent_utilities/gateway/widgets/genius_agent.py`.
+- [ ] **AU-BOUNDARY-R001.8:** Delete `agent_utilities/gateway/widgets/_optional_client.py`.
+- [ ] **AU-BOUNDARY-R002.1:** Record that PR #26 (`fca0c5ee42b3`) did not delete `backends.py`/`certification_oidc.py`; `status.json`'s LANDED is wrong.
+- [ ] **AU-BOUNDARY-R002.2:** Delete `agent_utilities/deployment/backends.py`.
+- [ ] **AU-BOUNDARY-R002.3:** Delete `agent_utilities/deployment/certification_oidc.py`.
+- [ ] **AU-BOUNDARY-R003.1:** Record that commit `2456745c1e4d` shipped only gate scripts, not the MCP host deletion; `status.json`'s LANDED is wrong.
+- [ ] **AU-BOUNDARY-R003.2:** Delete `agent_utilities/mcp/kg_server.py`.
+- [ ] **AU-BOUNDARY-R003.3:** Delete `agent_utilities/mcp/_graphos_action_manifest.py`.
+- [ ] **AU-BOUNDARY-R003.4:** Remove `_ingest_capabilities` from `agent_utilities/sdd/watcher.py`.
+- [ ] **AU-BOUNDARY-R004.1:** Record that commit `2456745c1e4d` shipped only gate scripts, not the multiplexer deletion; `status.json`'s LANDED is wrong.
+- [ ] **AU-BOUNDARY-R004.2:** Delete `agent_utilities/mcp/multiplexer.py`.
+- [ ] **AU-BOUNDARY-R010.1:** Record that `status.json`'s `landed_in` (`2456745c1e4d`) did not delete the connector toolkit; LANDED is wrong.
+- [ ] **AU-BOUNDARY-R010.2:** Delete `agent_utilities/base_utilities.py`.

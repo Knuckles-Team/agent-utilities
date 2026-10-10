@@ -5,9 +5,26 @@
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-BOUNDARY-R001",
+    "AU-BOUNDARY-R001.1",
+    "AU-BOUNDARY-R001.2",
+    "AU-BOUNDARY-R001.3",
+    "AU-BOUNDARY-R001.4",
+    "AU-BOUNDARY-R001.5",
+    "AU-BOUNDARY-R001.6",
+    "AU-BOUNDARY-R001.7",
+    "AU-BOUNDARY-R001.8",
     "AU-BOUNDARY-R002",
+    "AU-BOUNDARY-R002.1",
+    "AU-BOUNDARY-R002.2",
+    "AU-BOUNDARY-R002.3",
     "AU-BOUNDARY-R003",
+    "AU-BOUNDARY-R003.1",
+    "AU-BOUNDARY-R003.2",
+    "AU-BOUNDARY-R003.3",
+    "AU-BOUNDARY-R003.4",
     "AU-BOUNDARY-R004",
+    "AU-BOUNDARY-R004.1",
+    "AU-BOUNDARY-R004.2",
     "AU-BOUNDARY-R005",
     "AU-BOUNDARY-R005.1",
     "AU-BOUNDARY-R005.2",
@@ -22,6 +39,8 @@
     "AU-BOUNDARY-R009",
     "AU-BOUNDARY-R009.1",
     "AU-BOUNDARY-R010",
+    "AU-BOUNDARY-R010.1",
+    "AU-BOUNDARY-R010.2",
     "AU-BOUNDARY-R011",
     "AU-BOUNDARY-R012",
     "AU-BOUNDARY-R013",
@@ -96,37 +115,181 @@
     {
       "id": "AU-BOUNDARY-R001",
       "title": "Retire AU's duplicated gateway module",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "aa5eba73e0f7"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R001.1",
+        "AU-BOUNDARY-R001.2",
+        "AU-BOUNDARY-R001.3",
+        "AU-BOUNDARY-R001.4",
+        "AU-BOUNDARY-R001.5",
+        "AU-BOUNDARY-R001.6",
+        "AU-BOUNDARY-R001.7",
+        "AU-BOUNDARY-R001.8"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R001.1",
+      "title": "Record what actually landed for the gateway retirement",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R001.2",
+      "title": "Delete `agent_utilities/gateway/api.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R001.3",
+      "title": "Delete `agent_utilities/gateway/artifacts_api.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R001.4",
+      "title": "Delete `agent_utilities/gateway/registry_api.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R001.5",
+      "title": "Delete `agent_utilities/gateway/registry.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R001.6",
+      "title": "Delete `agent_utilities/gateway/schemas/graph_analyze.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R001.7",
+      "title": "Delete `agent_utilities/gateway/widgets/genius_agent.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R001.8",
+      "title": "Delete `agent_utilities/gateway/widgets/_optional_client.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R002",
       "title": "Retire AU's deployment and skill-certification tooling",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "fca0c5ee42b3"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R002.1",
+        "AU-BOUNDARY-R002.2",
+        "AU-BOUNDARY-R002.3"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R002.1",
+      "title": "Record what actually landed for the deployment/skill-certification retirement",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R002.2",
+      "title": "Delete `agent_utilities/deployment/backends.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R002.3",
+      "title": "Delete `agent_utilities/deployment/certification_oidc.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R003",
       "title": "Retire AU's legacy MCP host and action manifest",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "2456745c1e4d"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R003.1",
+        "AU-BOUNDARY-R003.2",
+        "AU-BOUNDARY-R003.3",
+        "AU-BOUNDARY-R003.4"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R003.1",
+      "title": "Record what actually landed for the legacy MCP host retirement",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R003.2",
+      "title": "Delete `agent_utilities/mcp/kg_server.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R003.3",
+      "title": "Delete `agent_utilities/mcp/_graphos_action_manifest.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R003.4",
+      "title": "Remove `_ingest_capabilities` from `agent_utilities/sdd/watcher.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R004",
       "title": "Retire AU's multiplexer family duplicated in graph-os",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "2456745c1e4d"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R004.1",
+        "AU-BOUNDARY-R004.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R004.1",
+      "title": "Record what actually landed for the multiplexer-family retirement",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R004.2",
+      "title": "Delete `agent_utilities/mcp/multiplexer.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -258,10 +421,28 @@
     {
       "id": "AU-BOUNDARY-R010",
       "title": "Delete AU's SDK-duplicated connector toolkit",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "2456745c1e4d"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R010.1",
+        "AU-BOUNDARY-R010.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R010.1",
+      "title": "Record what actually landed for the connector-toolkit deletion",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R010.2",
+      "title": "Delete `agent_utilities/base_utilities.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
