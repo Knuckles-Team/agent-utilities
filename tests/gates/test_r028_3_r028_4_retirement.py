@@ -15,30 +15,13 @@ imports the third); this test pins exactly that blocked state.
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 import pytest
 
+from tests.gates._deletion_support import imports_any as _imports_any
+
 PACKAGE_ROOT = Path(__file__).resolve().parents[2] / "agent_utilities"
-
-
-def _imports_any(path: Path, needle_substrings: tuple[str, ...]) -> bool:
-    try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-    except (SyntaxError, UnicodeDecodeError):
-        return False
-    for node in ast.walk(tree):
-        names: list[str] = []
-        if isinstance(node, ast.Import):
-            names = [alias.name for alias in node.names]
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            names = [node.module]
-        else:
-            continue
-        if any(any(sub in name for sub in needle_substrings) for name in names):
-            return True
-    return False
 
 
 @pytest.mark.spec("AU-BOUNDARY-R028.3")

@@ -7,13 +7,17 @@ through the SDK's typed, source-agnostic pack compiler instead
 
 from __future__ import annotations
 
-import ast
 import importlib.util
 from pathlib import Path
 
 import pytest
 from agent_connector_sdk.manifest.model import ConnectorManifest as SDKConnectorManifest
 from agent_connector_sdk.manifest.ontology_pack import compile_manifest_ontology
+
+from tests.unit.knowledge_graph.ontology._sdk_pack_support import (
+    imported_modules,
+    parse_script,
+)
 
 _SCRIPT_PATH = (
     Path(__file__).resolve().parents[4] / "scripts" / "generate_connector_manifests.py"
@@ -27,21 +31,9 @@ assert _SPEC.loader is not None
 _SPEC.loader.exec_module(gen)
 
 
-def _imported_module_names() -> set[str]:
-    tree = ast.parse(_SCRIPT_PATH.read_text(encoding="utf-8"))
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            names.add(node.module)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                names.add(alias.name)
-    return names
-
-
 @pytest.mark.spec("AU-BOUNDARY-R030.2")
 def test_generate_connector_manifests_uses_sdk_pack() -> None:
-    imported = _imported_module_names()
+    imported = imported_modules(parse_script(_SCRIPT_PATH))
 
     # No importer of the local emitter module remains in this script.
     assert "agent_utilities.knowledge_graph.ontology.manifest_compiler" not in imported
