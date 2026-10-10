@@ -41,6 +41,18 @@ assert _GATE_SPEC.loader is not None
 _GATE_SPEC.loader.exec_module(gate)
 
 
+@pytest.fixture(autouse=True)
+def _engine_shacl(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Shapes validation is engine-owned (R006.5.5); stub the engine call."""
+    from agent_utilities.knowledge_graph.integrations import connector_certification
+
+    monkeypatch.setattr(
+        connector_certification,
+        "_validate_native_shacl",
+        lambda data, shapes: "epistemic-graph",
+    )
+
+
 @pytest.fixture
 def signer(monkeypatch: pytest.MonkeyPatch) -> ontology_integrity.ReleaseSigner:
     key = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
