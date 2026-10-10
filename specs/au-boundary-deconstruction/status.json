@@ -294,10 +294,11 @@
     },
     {
       "id": "AU-BOUNDARY-R011.1",
-      "title": "Record that AU-BOUNDARY-R011 has not started",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: nothing landed; the remaining scope lives in the sibling rows",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "nothing landed; the remaining scope lives in the sibling rows"
     },
     {
       "id": "AU-BOUNDARY-R011.2",
@@ -365,10 +366,11 @@
     },
     {
       "id": "AU-BOUNDARY-R014.1",
-      "title": "Record that AU-BOUNDARY-R014 has not started",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: nothing landed; the remaining scope lives in the sibling rows",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "nothing landed; the remaining scope lives in the sibling rows"
     },
     {
       "id": "AU-BOUNDARY-R014.2",
@@ -392,10 +394,11 @@
     },
     {
       "id": "AU-BOUNDARY-R015.1",
-      "title": "Record that AU-BOUNDARY-R015 has not started",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: nothing landed; the remaining scope lives in the sibling rows",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "nothing landed; the remaining scope lives in the sibling rows"
     },
     {
       "id": "AU-BOUNDARY-R015.2",
@@ -608,10 +611,11 @@
     },
     {
       "id": "AU-BOUNDARY-R024.1",
-      "title": "Record that AU-BOUNDARY-R024 has not started",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: nothing landed; the remaining scope lives in the sibling rows",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "nothing landed; the remaining scope lives in the sibling rows"
     },
     {
       "id": "AU-BOUNDARY-R024.2",
