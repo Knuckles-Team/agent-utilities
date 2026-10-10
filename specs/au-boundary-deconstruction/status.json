@@ -100,6 +100,11 @@
     "AU-BOUNDARY-R011",
     "AU-BOUNDARY-R011.1",
     "AU-BOUNDARY-R011.2",
+    "AU-BOUNDARY-R011.2.1",
+    "AU-BOUNDARY-R011.2.2",
+    "AU-BOUNDARY-R011.2.3",
+    "AU-BOUNDARY-R011.2.4",
+    "AU-BOUNDARY-R011.2.5",
     "AU-BOUNDARY-R011.3",
     "AU-BOUNDARY-R011.4",
     "AU-BOUNDARY-R011.5",
@@ -316,11 +321,13 @@
     {
       "id": "AU-BOUNDARY-R002.2",
       "title": "Delete `agent_utilities/deployment/backends.py`",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "db29b2da626e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_r002_2_backends_deleted.py:34"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R002.3",
@@ -1037,6 +1044,48 @@
     },
     {
       "id": "AU-BOUNDARY-R011.2",
+      "title": "ROLLUP: superseded by AU-BOUNDARY-R011.2.1...AU-BOUNDARY-R011.2.5",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R011.2.1",
+        "AU-BOUNDARY-R011.2.2",
+        "AU-BOUNDARY-R011.2.3",
+        "AU-BOUNDARY-R011.2.4",
+        "AU-BOUNDARY-R011.2.5"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R011.2.1",
+      "title": "Add the read-only multi-database connector (SQL and MongoDB: `read`, `health_check`, `introspect`) to `agent-connector-sdk`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R011.2.2",
+      "title": "Repoint `protocols/source_connectors/connectors/database.py` to the SDK database connector",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R011.2.3",
+      "title": "Repoint `tools/db_tools.py` to the SDK database connector",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R011.2.4",
+      "title": "Repoint `tests/unit/protocols/test_database_connector_connection_profile.py` and `tests/unit/test_db_tools.py` to the SDK connector, and delete `tests/unit/protocols/test_universal_connector.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R011.2.5",
       "title": "Delete `protocols/universal_connector.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -1472,7 +1521,7 @@
         "4a5540dd2e3d"
       ],
       "verified_by": [
-        "tests/gates/test_r028x_module_census.py:152"
+        "tests/gates/test_r028x_module_census.py:125"
       ]
     },
     {
@@ -1484,7 +1533,7 @@
         "8edddc8b0a00"
       ],
       "verified_by": [
-        "tests/gates/test_r028_3_r028_4_retirement.py:44"
+        "tests/gates/test_r028_3_r028_4_retirement.py:27"
       ]
     },
     {
@@ -1497,7 +1546,7 @@
         "9fec85433f51"
       ],
       "verified_by": [
-        "tests/gates/test_r028_3_r028_4_retirement.py:74"
+        "tests/gates/test_r028_3_r028_4_retirement.py:57"
       ]
     },
     {
@@ -1531,7 +1580,7 @@
         "4a5540dd2e3d"
       ],
       "verified_by": [
-        "tests/gates/test_r028x_module_census.py:163"
+        "tests/gates/test_r028x_module_census.py:136"
       ]
     },
     {
@@ -1556,7 +1605,7 @@
         "4a5540dd2e3d"
       ],
       "verified_by": [
-        "tests/gates/test_r028x_module_census.py:186"
+        "tests/gates/test_r028x_module_census.py:159"
       ]
     },
     {
@@ -1582,7 +1631,7 @@
         "4a5540dd2e3d"
       ],
       "verified_by": [
-        "tests/gates/test_r028x_module_census.py:198"
+        "tests/gates/test_r028x_module_census.py:171"
       ]
     },
     {
@@ -1636,7 +1685,7 @@
         "6825115f4ac3"
       ],
       "verified_by": [
-        "tests/unit/knowledge_graph/ontology/test_generate_connector_manifests_uses_sdk_pack.py:42"
+        "tests/unit/knowledge_graph/ontology/test_generate_connector_manifests_uses_sdk_pack.py:34"
       ]
     },
     {
@@ -1647,8 +1696,8 @@
         "62e0b302ed8e"
       ],
       "verified_by": [
-        "tests/unit/knowledge_graph/ontology/test_update_ontology_lock_uses_sdk_pack.py:38",
-        "tests/unit/knowledge_graph/ontology/test_update_ontology_lock_uses_sdk_pack.py:54"
+        "tests/unit/knowledge_graph/ontology/test_update_ontology_lock_uses_sdk_pack.py:24",
+        "tests/unit/knowledge_graph/ontology/test_update_ontology_lock_uses_sdk_pack.py:29"
       ]
     },
     {
@@ -1659,8 +1708,8 @@
         "c5d1bf3f8286"
       ],
       "verified_by": [
-        "tests/unit/knowledge_graph/ontology/test_generate_native_connector_manifest_uses_sdk_pack.py:42",
-        "tests/unit/knowledge_graph/ontology/test_generate_native_connector_manifest_uses_sdk_pack.py:58"
+        "tests/unit/knowledge_graph/ontology/test_generate_native_connector_manifest_uses_sdk_pack.py:28",
+        "tests/unit/knowledge_graph/ontology/test_generate_native_connector_manifest_uses_sdk_pack.py:33"
       ]
     },
     {
