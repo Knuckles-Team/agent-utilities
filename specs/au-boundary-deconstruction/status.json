@@ -1909,9 +1909,14 @@
     {
       "id": "AU-BOUNDARY-R030.9.1",
       "title": "Reconcile the `scripts/scaffold_ontology_leg.py` retirement tripwire",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0d867526c28b"
+      ],
+      "verified_by": [
+        "tests/unit/scripts/test_check_current_only_contract.py:10",
+        "tests/unit/scripts/test_check_current_only_contract.py:15"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R030.9.2",
