@@ -133,3 +133,19 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R010.23:** see requirements.md.
 - [ ] **AU-BOUNDARY-R010.24:** see requirements.md.
 - [ ] **AU-BOUNDARY-R010.25:** see requirements.md.
+
+## Decomposition children (tracked)
+
+- [ ] **AU-BOUNDARY-R006.1:** Ship AU's F-J connector import-census gate
+- [ ] **AU-BOUNDARY-R009.1:** Ship AU's T-Z connector import-census gate
+- [ ] **AU-BOUNDARY-R016.1:** Gate AU's retained config.py against duplicate environment readers
+- [x] **AU-BOUNDARY-R018.1:** Ship a typed inventory of the AU-BOUNDARY-R018 facade modules
+- [ ] **AU-BOUNDARY-R018.2:** Delete the AU-BOUNDARY-R018 facade modules
+- [x] **AU-BOUNDARY-R019.1:** Ship a typed inventory of the AU-BOUNDARY-R019 facade modules
+- [ ] **AU-BOUNDARY-R019.2:** Delete the AU-BOUNDARY-R019 facade modules
+- [x] **AU-BOUNDARY-R020.1:** Ship a typed inventory of the AU-BOUNDARY-R020 durable-work modules
+- [ ] **AU-BOUNDARY-R020.2:** Move the AU-BOUNDARY-R020 durable-work modules and drop their scripts
+- [x] **AU-BOUNDARY-R021.1:** Ship a typed inventory of the AU-BOUNDARY-R021 tenancy/admission modules
+- [ ] **AU-BOUNDARY-R021.2:** Delete the AU-BOUNDARY-R021 tenancy/admission modules
+- [x] **AU-BOUNDARY-R022.1:** Ship a typed inventory of the AU-BOUNDARY-R022 reasoning/analytics modules
+- [ ] **AU-BOUNDARY-R022.2:** Delete the AU-BOUNDARY-R022 reasoning/analytics modules

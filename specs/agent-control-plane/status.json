@@ -55,7 +55,7 @@
       "verified_by": [
         "tests/unit/layers/test_harness_port.py:115",
         "tests/unit/layers/test_harness_port.py:124",
-        "tests/unit/layers/test_harness_port.py:501"
+        "tests/unit/layers/test_harness_port.py:504"
       ]
     },
     {
@@ -252,22 +252,31 @@
     {
       "id": "AU-CONTROL-R017",
       "title": "Single re-decision on capacity denial for topology admission",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "4a5540dd2e3d",
         "6d8865040871",
         "e78a5cf3de4e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/decide/test_topology_consumer.py:209",
+        "tests/unit/decide/test_topology_consumer.py:223"
+      ]
     },
     {
       "id": "AU-CONTROL-R018",
       "title": "Subagent allowance negotiated into the run specification",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "4a5540dd2e3d",
         "bd37ae7764a6",
         "d008da7e66d1"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/layers/test_harness_port.py:199",
+        "tests/unit/layers/test_harness_port.py:246",
+        "tests/unit/layers/test_harness_port.py:258"
+      ]
     },
     {
       "id": "AU-CONTROL-R019",

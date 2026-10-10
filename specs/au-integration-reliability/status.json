@@ -37,7 +37,6 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "34481f825411",
-        "42f6dada3749",
         "daa321626142"
       ],
       "verified_by": [
@@ -232,7 +231,6 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "003679966f78",
-        "42f6dada3749",
         "f94a3c109517"
       ],
       "verified_by": [
@@ -246,7 +244,6 @@
       "title": "Outbound chat text never carries the run envelope",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "42f6dada3749",
         "6778d5dfd79b",
         "b1fd0469c010"
       ],

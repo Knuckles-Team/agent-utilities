@@ -206,6 +206,7 @@ def _ask(**over: Any) -> TopologyAsk:
     return TopologyAsk(task_classes=(INDEPENDENT_SUBTASKS,), max_width=8, **over)
 
 
+@pytest.mark.spec("AU-CONTROL-R017")
 def test_capacity_denial_gets_exactly_one_narrower_redecision() -> None:
     graphs = _SequencedGraphs([CAPACITY_DENIED_RESULT, SOLVED])
     assembler = Assembler(graphs, "tenant-t")
@@ -219,6 +220,7 @@ def test_capacity_denial_gets_exactly_one_narrower_redecision() -> None:
     assert second_caps["max_width"] == 4, "the re-decision asks narrower, never wider"
 
 
+@pytest.mark.spec("AU-CONTROL-R017")
 def test_a_second_capacity_denial_is_not_re_decided_again() -> None:
     graphs = _SequencedGraphs([CAPACITY_DENIED_RESULT, CAPACITY_DENIED_RESULT])
     assembler = Assembler(graphs, "tenant-t")

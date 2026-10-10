@@ -22,6 +22,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = REPO_ROOT / "agent_utilities"
 
@@ -145,6 +147,7 @@ PINNED_PLACEMENT_MINING_IMPORTERS: frozenset[str] = frozenset(
 )
 
 
+@pytest.mark.spec("AU-BOUNDARY-R028.2.1")
 def test_r028_2_1_infra_importer_set_has_not_grown() -> None:
     found = _modules_importing(
         ("knowledge_graph.infra", "knowledge_graph import infra"),
@@ -155,6 +158,7 @@ def test_r028_2_1_infra_importer_set_has_not_grown() -> None:
     )
 
 
+@pytest.mark.spec("AU-BOUNDARY-R028.6.1")
 def test_r028_6_1_observability_triad_importer_set_has_not_grown() -> None:
     found = _modules_importing(
         (
@@ -177,6 +181,7 @@ def test_r028_6_1_observability_triad_importer_set_has_not_grown() -> None:
     )
 
 
+@pytest.mark.spec("AU-BOUNDARY-R028.7.1")
 def test_r028_7_1_relational_authority_importer_set_has_not_grown() -> None:
     found = _modules_importing(
         ("governance.relational_authority", "governance import relational_authority"),
@@ -188,6 +193,7 @@ def test_r028_7_1_relational_authority_importer_set_has_not_grown() -> None:
     )
 
 
+@pytest.mark.spec("AU-BOUNDARY-R028.8.1")
 def test_r028_8_1_placement_mining_importer_set_has_not_grown() -> None:
     found = _modules_importing(
         ("research.placement_mining", "research import placement_mining"),

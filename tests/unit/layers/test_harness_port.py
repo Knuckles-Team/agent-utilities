@@ -196,6 +196,7 @@ def test_max_subagents_rejects_negative() -> None:
         HarnessRequest(agent_name="a", task="t", max_subagents=-1)
 
 
+@pytest.mark.spec("AU-CONTROL-R018")
 async def test_native_refuses_nonzero_subagent_allowance() -> None:
     # AU-CONTROL-R018: native has no sub-agent tool to grant the allowance
     # through, so it fails closed instead of silently running with fewer.
@@ -242,6 +243,7 @@ async def test_claude_pinned_argv_cwd_and_stdin(
     assert Path(seen["cwd"]).resolve() == workspace.resolve()
 
 
+@pytest.mark.spec("AU-CONTROL-R018")
 def test_claude_argv_disables_subagent_tool_with_no_allowance(
     tmp_path: Path, mcp_config: Path
 ) -> None:
@@ -253,6 +255,7 @@ def test_claude_argv_disables_subagent_tool_with_no_allowance(
     assert argv[argv.index("--disallowedTools") + 1] == SUBAGENT_TOOL
 
 
+@pytest.mark.spec("AU-CONTROL-R018")
 def test_claude_argv_grants_subagent_tool_with_allowance(
     tmp_path: Path, mcp_config: Path
 ) -> None:
