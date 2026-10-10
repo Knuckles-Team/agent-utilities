@@ -43,9 +43,11 @@ from agent_utilities.knowledge_graph.ontology.connector_manifest_gate import (  
     native_activation_contract,
     native_activation_fingerprints,
 )
-from agent_utilities.knowledge_graph.ontology.manifest_compiler import (  # noqa: E402
-    compile_manifest,
-    export_manifest_ttl,
+from agent_connector_sdk.manifest.model import (  # noqa: E402
+    ConnectorManifest as SDKConnectorManifest,
+)
+from agent_connector_sdk.manifest.ontology_pack import (  # noqa: E402
+    compile_manifest_ontology,
 )
 
 CONNECTOR = "native-source-connectors"
@@ -151,8 +153,14 @@ def build_manifest(
 
     fingerprints = source_fingerprints()
     placeholder = _placeholder(fingerprints)
-    spec = compile_manifest(placeholder)
-    ttl = export_manifest_ttl(spec, source=placeholder.resolved_ontology_source)
+    # AU-BOUNDARY-R030.4: compile through the SDK's source-agnostic pack
+    # compiler instead of the local hand-written Turtle emitter -- re-validate
+    # against the SDK's own ConnectorManifest first, matching the pattern
+    # already used by connector_manifest_gate._compiled_manifest_graph.
+    sdk_placeholder = SDKConnectorManifest.model_validate(
+        placeholder.model_dump(mode="python")
+    )
+    ttl = compile_manifest_ontology(sdk_placeholder)
 
     import rdflib
 
