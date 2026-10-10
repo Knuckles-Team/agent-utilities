@@ -290,8 +290,8 @@ RETIRED_IDENTIFIERS: tuple[str, ...] = (
     # AU-SEMANTIC-R021.2: extraction/schema_discovery.py and the 'discover_extensions'/
     # 'generate' ontology_derive actions it backed are deleted outright.
     # Connector-manifest-to-ontology compilation (and this LLM proposal path)
-    # runs as EG pack compilation instead, same convention as the
-    # pack-compilation-backed scaffold script (AU-BOUNDARY-R030.9).
+    # runs as EG pack compilation instead, same convention as the sibling
+    # AU-SEMANTIC-R021.4 (scaffold_ontology_leg.py) removal.
     "ontology_derive_discover_" + "extensions",
     "ontology_derive_" + "generate",
     "discover_schema_" + "extensions",
@@ -320,6 +320,12 @@ RETIRED_PATHS: tuple[str, ...] = (
     "agent_utilities/mcp/kg_" + "coordinator.py",
     "scripts/apply_concept_" + "migration.py",
     "scripts/autocurate_" + "repo.py",
+    # AU-SEMANTIC-R021.4: the hand-written-ontology-emitter scaffolder is
+    # deleted outright (no live caller; connector-manifest-to-ontology
+    # compilation now runs as EG pack compilation, not a locally-scaffolded
+    # OWL/RDF stub). A plain tripwire against it reappearing, same as every
+    # other RETIRED_PATHS entry.
+    "scripts/scaffold_ontology_" + "leg.py",
     # AU-SEMANTIC-R021.2: the hand-written LLM schema-discovery emitter is
     # deleted outright (no live caller after the 'discover_extensions'/
     # 'generate' ontology_derive actions it backed were removed too;
