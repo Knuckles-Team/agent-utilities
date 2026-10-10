@@ -27,32 +27,7 @@ from agent_utilities.knowledge_graph.ontology.connector_manifest import (
     ResourceSpec,
     SchemaMapping,
 )
-from agent_utilities.knowledge_graph.ontology.leanix_metamodel import (
-    compile_leanix_metamodel,
-    export_leanix_ttl,
-)
-from agent_utilities.knowledge_graph.ontology.manifest_compiler import (
-    compile_manifest,
-    export_manifest_ttl,
-    manifest_from_leanix_spec,
-)
-
-# A LeanIX slice reused by the golden test (mirrors test_leanix_metamodel.META_MODEL).
-META_MODEL = {
-    "factSheets": {
-        "Application": {
-            "fields": {
-                "displayName": {"type": "STRING"},
-                "businessCriticality": {"type": "SINGLE_SELECT"},
-            },
-            "relations": {
-                "relApplicationToITComponent": {"targetFactSheetType": "ITComponent"},
-            },
-        },
-        "ITComponent": {"fields": {"release": {"type": "STRING"}}, "relations": {}},
-        "DataCenter": {"fields": {"region": {"type": "STRING"}}, "relations": {}},
-    }
-}
+from tests.unit._sdk_manifest_ttl import sdk_manifest_ttl
 
 
 @pytest.fixture(autouse=True)
@@ -88,8 +63,7 @@ def _signed_manifest(connector: str = "servicenow") -> ConnectorManifest:
         schema_mappings=schema_mappings,
         provenance=ProvenanceSpec(integrity=IntegrityInfo(hash="0" * 64)),
     )
-    spec = compile_manifest(base)
-    ttl = export_manifest_ttl(spec, source=base.resolved_ontology_source)
+    ttl = sdk_manifest_ttl(base)
     g = rdflib.Graph()
     g.parse(data=ttl, format="turtle")
     digest, n = oi.canonical_hash(g)
@@ -222,73 +196,6 @@ def test_release_signer_refuses_missing_or_malformed_runtime_key(monkeypatch):
     )
     with pytest.raises(oi.ReleaseSigningError):
         oi.ReleaseSigner.from_runtime()
-
-
-# ── compiler ───────────────────────────────────────────────────────────────────
-
-
-def test_compile_manifest_projects_classes_relations_fields():
-    base = ConnectorManifest(
-        connector="acme",
-        resources=[
-            ResourceSpec(
-                name="Order",
-                relations=[ResourceRelation(name="placedBy", target="Person")],
-            ),
-            ResourceSpec(name="Person"),
-        ],
-        schema_mappings={
-            "Order": SchemaMapping(
-                ontology_class="BusinessObject", fields={"total": "xsd:decimal"}
-            ),
-        },
-        provenance=ProvenanceSpec(integrity=IntegrityInfo(hash="0" * 64)),
-    )
-    spec = compile_manifest(base)
-    classes = {c.local: c for c in spec.classes}
-    assert set(classes) == {"Order", "Person"}
-    assert classes["Order"].parent == "BusinessObject"
-    op = {p.local: p for p in spec.object_properties}
-    assert op["placedBy"].domain == "Order"
-    assert op["placedBy"].range == "Person"
-    assert op["placedBy"].lpg_rel_type == "PLACED_BY"
-    dtp = {d.local: d for d in spec.datatype_properties}
-    assert dtp["total"].range == "xsd:decimal"
-
-
-# ── golden-file LeanIX regression (LeanIX = first caller of the generalized compiler) ──
-
-
-def test_generalized_compiler_reproduces_leanix_ontology_losslessly():
-    """The generalized manifest compiler reproduces the OWL graph the existing
-    ``leanix_metamodel`` produces — same classes, subClassOf, object-property
-    domain/range, and datatype-property ranges (labels/comments are cosmetic)."""
-    lx_spec = compile_leanix_metamodel(META_MODEL)
-    golden_ttl = export_leanix_ttl(lx_spec)
-
-    manifest = manifest_from_leanix_spec(lx_spec)
-    gen_ttl = export_manifest_ttl(compile_manifest(manifest), source="leanix")
-
-    def _structural(ttl: str) -> rdflib.Graph:
-        g = rdflib.Graph()
-        g.parse(data=ttl, format="turtle")
-        ont_subjects = set(
-            g.subjects(
-                predicate=rdflib.RDF.type,
-                object=rdflib.URIRef("http://www.w3.org/2002/07/owl#Ontology"),
-            )
-        )
-        out = rdflib.Graph()
-        for s, p, o in g:
-            if s in ont_subjects or p in (rdflib.RDFS.comment, rdflib.RDFS.label):
-                continue
-            out.add((s, p, o))
-        return out
-
-    h_gold, n_gold = oi.canonical_hash(_structural(golden_ttl))
-    h_gen, n_gen = oi.canonical_hash(_structural(gen_ttl))
-    assert n_gold == n_gen and n_gold > 0
-    assert h_gold == h_gen, "generalized compiler diverged from leanix_metamodel output"
 
 
 # ── ontology.lock ──────────────────────────────────────────────────────────────
