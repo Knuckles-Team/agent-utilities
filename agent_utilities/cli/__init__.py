@@ -336,32 +336,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="passthrough flags for graph-os, e.g. --transport stdio",
     )
 
-    # Multi-backend deployment planner (CONCEPT: project the same self-composing
-    # entrypoint onto in_process/container/kubernetes/native_shell) — see
-    # ``agent_utilities.deployment.backends``. Plan-only for every backend except
-    # in_process; never mutates a remote host/cluster from this command.
-    dp = sub.add_parser(
-        "deploy-plan",
-        help="render a DeploymentPlan for graph-os on one backend (plan-only "
-        "except in_process; never applies to a remote host/cluster)",
-    )
-    dp.add_argument(
-        "--backend",
-        required=True,
-        choices=["in_process", "container", "kubernetes", "native_shell"],
-    )
-    dp.add_argument(
-        "--target",
-        default="this process",
-        help="host alias / cluster / namespace this plan targets",
-    )
-    dp.add_argument(
-        "--param",
-        action="append",
-        default=[],
-        help="KEY=VALUE backend-specific override (repeatable), e.g. "
-        "--param image=ghcr.io/org/agent-utilities:1.2.3 --param namespace=graphos",
-    )
+    # Multi-backend deployment planning (deploy-plan) was retired under
+    # AU-BOUNDARY-R002: graph-os is now the sole owner of the packaging
+    # entry point for rendering a DeploymentPlan across backends.
 
     # CONCEPT:AU-KG.ingest.voice-model-acquisition — GOC-36 governed Piper voice-model
     # acquisition. Operator-driven by design (the lane doc's Authority and invariants:
@@ -958,50 +935,6 @@ def _merge_queue(args: argparse.Namespace) -> dict[str, Any]:
         return {"refused": str(exc), "exit_code": 1}
 
 
-def _deploy_plan(args: argparse.Namespace) -> dict[str, Any]:
-    """Render a :class:`DeploymentPlan` for the chosen backend and print it.
-
-    Delegates entirely to :mod:`agent_utilities.deployment.backends` — see that
-    module's docstring for exactly which backends are live-capable
-    (``in_process`` only) vs. plan-only (``container``/``kubernetes``/
-    ``native_shell``, which this command never applies).
-    """
-    from agent_utilities.deployment.backends import get_backend
-
-    overrides: dict[str, str] = {}
-    for kv in args.param:
-        if "=" in kv:
-            key, _, value = kv.partition("=")
-            overrides[key] = value
-
-    backend = get_backend(args.backend)
-    plan = backend.plan(target=args.target, **overrides)
-    return {
-        "backend": plan.backend,
-        "target": plan.target,
-        "live_capable": plan.live_capable,
-        "composition": list(plan.composition.co_service_names()),
-        "steps": [
-            {
-                "description": step.description,
-                "fleet_call": (
-                    {
-                        "server": step.fleet_call.server,
-                        "tool": step.fleet_call.tool,
-                        "args": step.fleet_call.args,
-                    }
-                    if step.fleet_call is not None
-                    else None
-                ),
-                "local_action": step.local_action,
-            }
-            for step in plan.steps
-        ],
-        "warnings": list(plan.warnings),
-        "artifacts": dict(plan.artifacts),
-    }
-
-
 def _voice_model(args: argparse.Namespace) -> dict[str, Any]:
     """GOC-36 governed Piper voice-model acquisition CLI dispatch.
 
@@ -1091,7 +1024,6 @@ _COMMAND_HANDLERS: dict[str, Callable[[argparse.Namespace], dict[str, Any]]] = {
     "concept": _concept,
     "lane": _lane,
     "merge-queue": _merge_queue,
-    "deploy-plan": _deploy_plan,
     "voice-model": _voice_model,
 }
 
