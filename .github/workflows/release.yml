@@ -330,7 +330,17 @@ jobs:
       # publishes its Linux x86_64 wheel to the rolling `engine-main`
       # prerelease (EG-CONTRACT-R047); install it so engine tests run. If the
       # release is unavailable, fall back to the PyPI floor with a loud
-      # warning. If neither resolves, engine tests skip as before.
+      # warning. If NEITHER resolves, or the installed package doesn't even
+      # import, this step now hard-fails the job (`::error::` + `exit 1`)
+      # instead of warning. AU #188 pinned a `gh` download here because the
+      # homelab runners lacked `gh` on PATH and the step silently fell
+      # through to a failing PyPI fallback, emitting only
+      # `::warning::...engine tests skip` -- which meant every
+      # engine-dependent test silently *skipped* on main instead of ever
+      # being exercised, with nothing in the job's red/green status to show
+      # it. A missing engine must fail the job loudly, not degrade into a
+      # quiet skip (see `tests/conftest.py`'s CI-vs-local skip/fail split for
+      # the matching enforcement on the pytest side).
       - name: Install the epistemic-graph engine wheel (engine-main release)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -377,13 +387,17 @@ jobs:
             echo "Engine wheel: release \`$EG_ENGINE_RELEASE_TAG\` at epistemic-graph \`${source_sha}\`" >> "$GITHUB_STEP_SUMMARY"
             uv pip install --python .venv/bin/python "$dest"/epistemic_graph-*.whl
           else
-            echo "::warning title=Engine wheel fallback::epistemic-graph release '$EG_ENGINE_RELEASE_TAG' is unavailable; falling back to the PyPI floor. Engine tests may skip."
+            echo "::warning title=Engine wheel fallback::epistemic-graph release '$EG_ENGINE_RELEASE_TAG' is unavailable; falling back to the PyPI floor."
             echo "WARNING: engine wheel fell back to PyPI" >> "$GITHUB_STEP_SUMMARY"
-            uv pip install --python .venv/bin/python 'epistemic-graph>=2.27.0,<3.0.0' \
-              || echo "::warning title=Engine unavailable::PyPI fallback failed; engine tests skip."
+            if ! uv pip install --python .venv/bin/python 'epistemic-graph>=2.27.0,<3.0.0'; then
+              echo "::error title=Engine unavailable::epistemic-graph release '$EG_ENGINE_RELEASE_TAG' AND the PyPI fallback both failed. The engine is required -- engine-backed tests may not silently skip (AU #188)."
+              exit 1
+            fi
           fi
-          .venv/bin/python -c "import epistemic_graph, importlib.metadata as m; print('epistemic-graph', m.version('epistemic-graph'))" \
-            || echo "::warning title=Engine not importable::epistemic_graph does not import; engine tests skip."
+          if ! .venv/bin/python -c "import epistemic_graph, importlib.metadata as m; print('epistemic-graph', m.version('epistemic-graph'))"; then
+            echo "::error title=Engine not importable::epistemic_graph installed but does not import. The engine is required -- engine-backed tests may not silently skip (AU #188)."
+            exit 1
+          fi
 
       # ---- THE test suite. pytest.ini's testpaths covers the whole `tests/`
       # tree (gates, scale, unit, integration, security, retrieval, ...) in
