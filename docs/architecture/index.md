@@ -32,7 +32,6 @@ Who is acting, on whose behalf, with what authority — from the first request t
 ## Control-plane suite
 
 The remaining runtime authority and resource-management seams.
-- [Relational Authority & Registry Read Model](relational-authority.md)
 - [Resource-pool capability authority](resource-pool-authority.md)
 - [Native WorkItem resource-reservation boundary](native-resource-reservation.md)
 - [Fleet scale authority](fleet-scale-authority.md)

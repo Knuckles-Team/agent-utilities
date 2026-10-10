@@ -266,7 +266,6 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [RCA: graph-os fleet-mount bookkeeping disagreed with the callable tool surface (D-OB-3)](../architecture/rca-mcp-tool-state-desync.md) — catalog
 - [Reactions / Emotes — a system-wide orchestrator output](../architecture/reactions.md) — catalog
 - [Reasoning Algorithms as Versioned Graph Topologies](../architecture/reasoning-graph-topologies.md) — catalog
-- [Relational authority and registry read model](../architecture/relational-authority.md) — catalog
 - [Repository-development WorkItem authority](../architecture/repository-workitem-authority.md) — catalog
 - [Resource-pool capability authority](../architecture/resource-pool-authority.md) — catalog
 - [Resource-Priority Edict — interactive over ingestion, end to end](../architecture/resource-priority-edict.md) — catalog
