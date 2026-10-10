@@ -17,7 +17,7 @@ import shutil
 import stat
 import sys
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -61,31 +61,66 @@ def unified_skills_dir() -> Path:
     return skills_dir()
 
 
-class CodexSkillsPathError(ValueError):
+class HarnessSkillsPathError(ValueError):
+    """A harness skills directory is unsafe to use as a materialization root."""
+
+
+class CodexSkillsPathError(HarnessSkillsPathError):
     """The Codex skills directory is unsafe to use as a materialization root."""
 
 
-def codex_skills_dir() -> Path:
-    """Resolve the Codex skills discovery directory, failing closed.
+class ClaudeSkillsPathError(HarnessSkillsPathError):
+    """The Claude Code skills directory is unsafe as a materialization root."""
 
-    Honours ``CODEX_HOME`` (absolute path required) and otherwise uses
-    ``~/.codex/skills``; the default matches the layout observed on the
-    operator machine.  A symlinked or junction ``skills`` directory, or a
-    non-directory at that path, is refused rather than followed.
-    """
-    configured = os.environ.get("CODEX_HOME", "").strip()
+
+def _harness_skills_dir(
+    *,
+    env_var: str,
+    default_dirname: str,
+    label: str,
+    error: type[HarnessSkillsPathError],
+) -> Path:
+    """Resolve ``<home>/skills`` for one harness, failing closed."""
+    configured = os.environ.get(env_var, "").strip()
     if configured:
         home = Path(configured).expanduser()
         if not home.is_absolute():
-            raise CodexSkillsPathError(f"CODEX_HOME must be absolute: {configured!r}")
+            raise error(f"{env_var} must be absolute: {configured!r}")
     else:
-        home = Path.home() / ".codex"
+        home = Path.home() / default_dirname
     root = home / "skills"
     if _is_linklike(root):
-        raise CodexSkillsPathError(f"Codex skills root is link-like: {root}")
+        raise error(f"{label} skills root is link-like: {root}")
     if root.exists() and not _safe_directory(root):
-        raise CodexSkillsPathError(f"Codex skills root is not a directory: {root}")
+        raise error(f"{label} skills root is not a directory: {root}")
     return root
+
+
+def codex_skills_dir() -> Path:
+    """Resolve the Codex skills discovery directory (``CODEX_HOME``/``~/.codex``)."""
+    return _harness_skills_dir(
+        env_var="CODEX_HOME",
+        default_dirname=".codex",
+        label="Codex",
+        error=CodexSkillsPathError,
+    )
+
+
+def claude_skills_dir() -> Path:
+    """Resolve the Claude Code skills directory (``CLAUDE_CONFIG_DIR``/``~/.claude``)."""
+    return _harness_skills_dir(
+        env_var="CLAUDE_CONFIG_DIR",
+        default_dirname=".claude",
+        label="Claude",
+        error=ClaudeSkillsPathError,
+    )
+
+
+# Harness targets that receive registered skill providers: result key -> resolver.
+HARNESS_TARGETS: dict[str, Callable[[], Path]] = {
+    "codex_skills": codex_skills_dir,
+    "claude_skills": claude_skills_dir,
+}
 
 
 def unified_ontologies_dir() -> Path:
@@ -454,20 +489,22 @@ def _install_registration(
     return count, True
 
 
-def _install_codex_skills(
+def _install_harness_skills(
     registrations: tuple[ProviderRegistration, ...],
+    resolver: Callable[[], Path],
 ) -> dict[str, int]:
-    """Materialize registered skill providers under the Codex skills path.
+    """Materialize registered skill providers under one harness skills path.
 
-    Fail-closed: an unsafe Codex path is counted as failed and never written.
+    Fail-closed: an unsafe path is counted as failed and never written.
+    Pruning only removes managed-marker directories.
     """
 
     summary = {"providers": 0, "files": 0, "failed": 0, "pruned": 0}
     try:
-        root = codex_skills_dir()
-    except CodexSkillsPathError:
+        root = resolver()
+    except HarnessSkillsPathError:
         summary["failed"] += 1
-        logger.warning("Codex skills path refused")
+        logger.warning("Harness skills path refused")
         return summary
     names = {item.name for item in registrations}
     names.add(OWN_PROVIDER)
@@ -494,13 +531,13 @@ def _install_codex_skills(
                 ) as exc:
                     summary["failed"] += 1
                     logger.warning(
-                        "Codex provider materialization failed (exception_type=%s)",
+                        "Harness provider materialization failed (exception_type=%s)",
                         type(exc).__name__,
                     )
     except (OSError, ProviderMaterializationError, ValueError) as exc:
         summary["failed"] += 1
         logger.warning(
-            "Codex skills root unusable (exception_type=%s)", type(exc).__name__
+            "Harness skills root unusable (exception_type=%s)", type(exc).__name__
         )
     return summary
 
@@ -524,6 +561,7 @@ def install_unified() -> dict[str, Any]:
         "ontologies": {"providers": 0, "files": 0, "failed": 0},
         "pruned": {},
         "codex_skills": {},
+        "claude_skills": {},
         "path_free": True,
     }
     for leg, (_group, root) in legs.items():
@@ -577,13 +615,17 @@ def install_unified() -> dict[str, Any]:
                 logger.warning(
                     "Hub materialization failed (exception_type=%s)", type(exc).__name__
                 )
-    result["codex_skills"] = _install_codex_skills(registrations["skills"])
+    for key, resolver in HARNESS_TARGETS.items():
+        result[key] = _install_harness_skills(registrations["skills"], resolver)
     return result
 
 
 __all__ = [
     "OWN_PROVIDER",
+    "ClaudeSkillsPathError",
     "CodexSkillsPathError",
+    "HarnessSkillsPathError",
+    "claude_skills_dir",
     "codex_skills_dir",
     "install_unified",
     "own_provider_asset",

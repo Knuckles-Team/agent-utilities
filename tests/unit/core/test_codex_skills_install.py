@@ -42,7 +42,9 @@ def test_registered_provider_installed_under_codex_with_marker(
     home = tmp_path / "codex"
     monkeypatch.setenv("CODEX_HOME", str(home))
 
-    summary = ui._install_codex_skills((_registration(provider_source),))
+    summary = ui._install_harness_skills(
+        (_registration(provider_source),), ui.codex_skills_dir
+    )
 
     provider_dir = home / "skills" / "demo"
     assert (provider_dir / MANAGED_PROVIDER_MARKER).is_file()
@@ -62,7 +64,9 @@ def test_unsafe_codex_path_is_refused_not_written(
     (home / "skills").symlink_to(real, target_is_directory=True)
     monkeypatch.setenv("CODEX_HOME", str(home))
 
-    summary = ui._install_codex_skills((_registration(provider_source),))
+    summary = ui._install_harness_skills(
+        (_registration(provider_source),), ui.codex_skills_dir
+    )
 
     assert summary["failed"] == 1
     assert list(real.iterdir()) == []
@@ -74,7 +78,14 @@ def test_install_unified_reports_codex_leg(tmp_path: Path, monkeypatch) -> None:
     seen: list[tuple] = []
     monkeypatch.setattr(ui, "provider_registrations", lambda _group: ())
     monkeypatch.setattr(
-        ui, "_install_codex_skills", lambda regs: seen.append(regs) or {"providers": 0}
+        ui,
+        "HARNESS_TARGETS",
+        {"codex_skills": lambda: tmp_path},
+    )
+    monkeypatch.setattr(
+        ui,
+        "_install_harness_skills",
+        lambda regs, _resolver: seen.append(regs) or {"providers": 0},
     )
     for name in ("unified_skills_dir", "unified_prompts_dir", "unified_ontologies_dir"):
         monkeypatch.setattr(ui, name, lambda n=name: tmp_path / n)

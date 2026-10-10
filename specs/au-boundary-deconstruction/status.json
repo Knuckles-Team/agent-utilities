@@ -1995,35 +1995,35 @@
     },
     {
       "id": "AU-BOUNDARY-R030.8",
-      "title": "Add `agent_utilities/knowledge_graph/extraction/schema_discovery.py`",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by AU-SEMANTIC-R021.2/R021.4",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by AU-SEMANTIC-R021.2/R021.4"
     },
     {
       "id": "AU-BOUNDARY-R030.9",
-      "title": "Add `scripts/scaffold_ontology_leg.py`",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by AU-SEMANTIC-R021.2/R021.4",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "AU-BOUNDARY-R030.9.1",
-        "AU-BOUNDARY-R030.9.2"
-      ]
+      "retired_reason": "superseded by AU-SEMANTIC-R021.2/R021.4"
     },
     {
       "id": "AU-BOUNDARY-R030.9.1",
-      "title": "Reconcile the `scripts/scaffold_ontology_leg.py` retirement tripwire",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by AU-SEMANTIC-R021.2/R021.4",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by AU-SEMANTIC-R021.2/R021.4"
     },
     {
       "id": "AU-BOUNDARY-R030.9.2",
-      "title": "Add `scripts/scaffold_ontology_leg.py`",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by AU-SEMANTIC-R021.2/R021.4",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by AU-SEMANTIC-R021.2/R021.4"
     },
     {
       "id": "AU-BOUNDARY-R031",

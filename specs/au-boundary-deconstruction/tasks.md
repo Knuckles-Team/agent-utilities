@@ -49,10 +49,10 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R030.5:** Wire `agent_utilities/knowledge_graph/domain_packs/pack_loader.py` off the local manifest compiler onto the SDK pack compiler.
 - [ ] **AU-BOUNDARY-R030.6:** Delete `agent_utilities/knowledge_graph/ontology/manifest_compiler.py` once it has zero importers.
 - [ ] **AU-BOUNDARY-R030.7:** Add `agent_utilities/knowledge_graph/core/ontology_publisher.py`, the typed AU declaration publisher.
-- [ ] **AU-BOUNDARY-R030.8:** Add `agent_utilities/knowledge_graph/extraction/schema_discovery.py`, the EG-pack-compilation-backed schema discovery module.
-- [ ] **AU-BOUNDARY-R030.9:** Add `scripts/scaffold_ontology_leg.py`, the scaffold script for a new ontology leg via EG pack compilation.
-  - [ ] **AU-BOUNDARY-R030.9.1:** Remove the `scripts/scaffold_ontology_leg.py` tripwire from `check_current_only_contract.py` `RETIRED_PATHS`.
-  - [ ] **AU-BOUNDARY-R030.9.2:** Add `scripts/scaffold_ontology_leg.py` compiling via the SDK pack compiler (needs R030.9.1).
+- [x] **AU-BOUNDARY-R030.8:** RETIRED: superseded by AU-SEMANTIC-R021.2/R021.4 (SDK ontology pack + `ontology_publisher.py`, AU-BOUNDARY-R030.7).
+- [x] **AU-BOUNDARY-R030.9:** RETIRED: superseded by AU-SEMANTIC-R021.2/R021.4 (SDK ontology pack + `ontology_publisher.py`, AU-BOUNDARY-R030.7).
+  - [x] **AU-BOUNDARY-R030.9.1:** RETIRED: superseded by AU-SEMANTIC-R021.2/R021.4 (SDK ontology pack + `ontology_publisher.py`, AU-BOUNDARY-R030.7).
+  - [x] **AU-BOUNDARY-R030.9.2:** RETIRED: superseded by AU-SEMANTIC-R021.2/R021.4 (SDK ontology pack + `ontology_publisher.py`, AU-BOUNDARY-R030.7).
 - [x] **AU-BOUNDARY-R048.1:** `agent_utilities/images/` already deleted/relocated; no remaining work on that directory
 - [ ] **AU-BOUNDARY-R048.2:** Relocate `domains/government/` to its epistemic-graph domain pack and delete from AU
 - [ ] **AU-BOUNDARY-R048.3:** Relocate `domains/hr/` to its epistemic-graph domain pack and delete from AU
