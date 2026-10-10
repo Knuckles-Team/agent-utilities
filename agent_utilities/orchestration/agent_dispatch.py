@@ -679,17 +679,11 @@ def create_dispatch_queue(config: Any = None) -> Any:
             TaskQueueUnavailable,
         )
 
-        try:
-            from agent_utilities.knowledge_graph.core.postgres_queue_backend import (
-                PostgresTaskQueue,
-            )
-
-            return PostgresTaskQueue(queue_table="agent_dispatch_queue")
-        except Exception as e:  # noqa: BLE001 - fail closed at the authority boundary
-            raise TaskQueueUnavailable(
-                "configured Postgres dispatch authority is unavailable "
-                f"(error_type={type(e).__name__})"
-            ) from None
+        # Local Postgres dispatch queue removed (AU-SEMANTIC-R011.4); fail closed.
+        raise TaskQueueUnavailable(
+            "configured Postgres dispatch authority is no longer served locally; "
+            "use the epistemic-graph durable-job path"
+        )
 
     from agent_utilities.knowledge_graph.core.engine_tasks import SQLiteTaskQueue
 

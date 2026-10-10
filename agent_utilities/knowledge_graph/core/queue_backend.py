@@ -72,15 +72,12 @@ def create_task_queue(config: Any, sqlite_db_path: str) -> tuple["QueueBackend",
         )
 
     if choice == "postgres":
-        try:
-            from .postgres_queue_backend import PostgresTaskQueue
-
-            return PostgresTaskQueue(), "postgres"
-        except Exception as e:  # noqa: BLE001 - fail closed at the authority boundary
-            raise TaskQueueUnavailable(
-                "configured Postgres task authority is unavailable "
-                f"(error_type={type(e).__name__})"
-            ) from None
+        # The local Postgres queue was removed (AU-SEMANTIC-R011.4); durable
+        # jobs are served by the epistemic graph. Fail closed, never fall back.
+        raise TaskQueueUnavailable(
+            "configured Postgres task authority is no longer served locally; "
+            "use the epistemic-graph durable-job path"
+        )
 
     from .engine_tasks import SQLiteTaskQueue
 

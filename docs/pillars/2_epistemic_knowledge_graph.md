@@ -604,7 +604,7 @@ model BPMN processes down to their steps, which is what makes
 ### AU-KG.ingest.cross-host-safe-kg — Cross-Host Task Queue (SKIP LOCKED)
 
 With `STATE_DB_URI` set (AU-OS.state.unified-durable-state-externalization), the KG task + staging queue moves onto the
-shared Postgres state store (`knowledge_graph/core/postgres_queue_backend.py`):
+shared Postgres state store (now served by the epistemic graph's durable-job path):
 claims are atomic `FOR UPDATE SKIP LOCKED` selections, so any number of hosts
 can poll the same queue without double-firing, and visibility-timeout recovery
 re-queues tasks whose claimant died. This is the durable substrate the ingest

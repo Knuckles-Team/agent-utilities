@@ -44,24 +44,6 @@ def _require_reachable(monkeypatch):
     state_store.reset_state_store_for_tests()
 
 
-def test_live_queue_claims_exclusive():
-    from agent_utilities.knowledge_graph.core.postgres_queue_backend import (
-        PostgresTaskQueue,
-    )
-
-    q1 = PostgresTaskQueue()
-    q2 = PostgresTaskQueue()
-    marker = f"live-{uuid.uuid4().hex[:8]}"
-    q1.put({"job_id": marker})
-    seen = []
-    for q in (q1, q2):
-        item = q.get()
-        if item and item[1].get("job_id") == marker:
-            seen.append(item)
-    assert len(seen) == 1  # never double-claimed
-    q1.ack(seen[0][0])
-
-
 def test_live_leadership_single_winner():
     from agent_utilities.core.leadership import DaemonLeadership
 

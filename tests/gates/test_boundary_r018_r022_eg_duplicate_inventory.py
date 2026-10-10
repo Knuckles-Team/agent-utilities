@@ -62,7 +62,6 @@ EG_DUPLICATE_INVENTORY: dict[str, tuple[str, tuple[str, ...]]] = {
         (
             "knowledge_graph/core/work_durability.py",
             "knowledge_graph/core/kafka_queue_backend.py",
-            "knowledge_graph/core/postgres_queue_backend.py",
             "knowledge_graph/core/queue_backend.py",
             "knowledge_graph/core/worker_scheduler.py",
             "knowledge_graph/core/chunked_drain.py",

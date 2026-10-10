@@ -96,33 +96,15 @@ def test_create_task_queue_recreates_missing_parent(tmp_path):
     assert queue.get_queue_size() == 1
 
 
-def test_create_task_queue_auto_postgres_fails_closed(tmp_path, monkeypatch):
-    """A configured external authority never switches to a local queue."""
-    from agent_utilities.knowledge_graph.core import postgres_queue_backend
-
-    class _Boom:
-        def __init__(self, *a, **kw):
-            raise ConnectionError("state store down")
-
-    monkeypatch.setattr(postgres_queue_backend, "PostgresTaskQueue", _Boom)
-    cfg = _cfg(state_db_uri="postgresql://down/now")
-    with pytest.raises(TaskQueueUnavailable) as exc_info:
-        create_task_queue(cfg, str(tmp_path / "q.db"))
-    assert "postgresql://down/now" not in str(exc_info.value)
-
-
-def test_create_task_queue_explicit_postgres_fails_loud(tmp_path, monkeypatch):
-    from agent_utilities.knowledge_graph.core import postgres_queue_backend
-
-    class _Boom:
-        def __init__(self, *a, **kw):
-            raise ConnectionError("state store down")
-
-    monkeypatch.setattr(postgres_queue_backend, "PostgresTaskQueue", _Boom)
-    cfg = _cfg(task_queue_backend="postgres", state_db_uri="postgresql://down/now")
-    with pytest.raises(TaskQueueUnavailable) as exc_info:
-        create_task_queue(cfg, str(tmp_path / "q.db"))
-    assert "postgresql://down/now" not in str(exc_info.value)
+def test_create_task_queue_postgres_fails_closed(tmp_path):
+    """A configured Postgres authority never switches to a local queue."""
+    for cfg in (
+        _cfg(state_db_uri="postgresql://down/now"),
+        _cfg(task_queue_backend="postgres", state_db_uri="postgresql://down/now"),
+    ):
+        with pytest.raises(TaskQueueUnavailable) as exc_info:
+            create_task_queue(cfg, str(tmp_path / "q.db"))
+        assert "postgresql://down/now" not in str(exc_info.value)
 
 
 # ── confluent_kafka test double (no install / no broker needed) ────────────────

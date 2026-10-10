@@ -225,7 +225,7 @@ def _ordered_descendants(node: ast.AST) -> list[ast.AST]:
 
 
 #: Necessary precondition for treating a string as Cypher at all: some other
-#: object entirely (a raw-SQL backend, e.g. ``postgres_queue_backend.py``'s
+#: object entirely (a raw-SQL backend, e.g. a Postgres queue's
 #: ``UPDATE ... SET`` / ``WITH ... AS (...)`` queries) also has an
 #: ``execute``/``execute_write`` method, and plain SQL shares the SET/WITH/
 #: DELETE keywords this gate looks for. Every genuine Cypher write in this
