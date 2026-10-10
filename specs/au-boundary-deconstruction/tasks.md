@@ -63,7 +63,64 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R003.2:** Delete `agent_utilities/mcp/kg_server.py`.
 - [ ] **AU-BOUNDARY-R003.3:** Delete `agent_utilities/mcp/_graphos_action_manifest.py`.
 - [ ] **AU-BOUNDARY-R003.4:** Remove `_ingest_capabilities` from `agent_utilities/sdd/watcher.py`.
+- [ ] **AU-BOUNDARY-R003.2:** RETIRED: superseded by AU-BOUNDARY-R003.5...AU-BOUNDARY-R003.29.
+- [ ] **AU-BOUNDARY-R003.5:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.6:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.7:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.8:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.9:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.10:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.11:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.12:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.13:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.14:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.15:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.16:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.17:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.18:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.19:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.20:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.21:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.22:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.23:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.24:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.25:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.26:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.27:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.28:** see requirements.md.
+- [ ] **AU-BOUNDARY-R003.29:** see requirements.md.
 - [ ] **AU-BOUNDARY-R004.1:** Record that commit `2456745c1e4d` shipped only gate scripts, not the multiplexer deletion; `status.json`'s LANDED is wrong.
-- [ ] **AU-BOUNDARY-R004.2:** Delete `agent_utilities/mcp/multiplexer.py`.
+- [ ] **AU-BOUNDARY-R004.2:** RETIRED: superseded by AU-BOUNDARY-R004.3...AU-BOUNDARY-R004.10.
+- [ ] **AU-BOUNDARY-R004.3:** see requirements.md.
+- [ ] **AU-BOUNDARY-R004.4:** see requirements.md.
+- [ ] **AU-BOUNDARY-R004.5:** see requirements.md.
+- [ ] **AU-BOUNDARY-R004.6:** see requirements.md.
+- [ ] **AU-BOUNDARY-R004.7:** see requirements.md.
+- [ ] **AU-BOUNDARY-R004.8:** see requirements.md.
+- [ ] **AU-BOUNDARY-R004.9:** see requirements.md.
+- [ ] **AU-BOUNDARY-R004.10:** see requirements.md.
 - [ ] **AU-BOUNDARY-R010.1:** Record that `status.json`'s `landed_in` (`2456745c1e4d`) did not delete the connector toolkit; LANDED is wrong.
-- [ ] **AU-BOUNDARY-R010.2:** Delete `agent_utilities/base_utilities.py`.
+- [ ] **AU-BOUNDARY-R010.2:** RETIRED: superseded by AU-BOUNDARY-R010.3...AU-BOUNDARY-R010.25.
+- [ ] **AU-BOUNDARY-R010.3:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.4:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.5:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.6:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.7:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.8:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.9:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.10:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.11:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.12:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.13:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.14:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.15:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.16:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.17:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.18:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.19:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.20:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.21:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.22:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.23:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.24:** see requirements.md.
+- [ ] **AU-BOUNDARY-R010.25:** see requirements.md.
