@@ -104,6 +104,7 @@ def test_a_matching_delta_proceeds_and_records_nothing(harness: Harness) -> None
     assert harness.engine.labelled("SchemaDriftReport") == {}
 
 
+@pytest.mark.spec("AU-SEC-R004")
 def test_breaking_drift_is_quarantined_reported_gapped_and_proposed(
     harness: Harness,
 ) -> None:
