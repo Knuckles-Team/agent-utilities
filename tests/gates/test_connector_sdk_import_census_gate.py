@@ -6,6 +6,7 @@ census instrument for the F-J and T-Z connector-package migration rows.
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -49,3 +50,26 @@ def test_tz_census_classifies_known_packages() -> None:
     # twenty-mcp still imports it (auth.py).
     assert "twenty-mcp" in result
     assert result["twenty-mcp"]
+
+
+@pytest.mark.spec("AU-BOUNDARY-R006.1")
+def test_no_arg_invocation_checks_both_ranges_instead_of_erroring() -> None:
+    """D-ML-1: the contract-checks forwarder invokes every
+    scripts/security/check_*.py with NO arguments at all
+    (scripts/security/run_contract_checks.py has no per-script args table).
+    Before this fix, --range was required, so that bare invocation failed
+    argparse validation (exit 2) on every push. The no-arg path must now
+    succeed by censusing BOTH the F-J and T-Z ranges -- strictly more
+    coverage than either range alone, not a weaker/exempted check.
+    """
+    script = _REPO_ROOT / "scripts" / "security" / "check_connector_sdk_import_census.py"
+    completed = subprocess.run(
+        [sys.executable, str(script), "--fleet-root", str(FLEET_ROOT)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    # Known fixtures from both ranges must both be visible in one no-arg run.
+    assert "fan-manager:" in completed.stdout
+    assert "twenty-mcp:" in completed.stdout

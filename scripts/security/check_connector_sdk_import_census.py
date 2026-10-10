@@ -15,6 +15,12 @@ per-package migrations are tracked as further ``AU-BOUNDARY-R006.n`` /
 Usage:
   python3 scripts/security/check_connector_sdk_import_census.py --range fj
   python3 scripts/security/check_connector_sdk_import_census.py --range tz --fleet-root DIR
+  python3 scripts/security/check_connector_sdk_import_census.py
+      # no --range: census BOTH the F-J (AU-BOUNDARY-R006.1) and T-Z
+      # (AU-BOUNDARY-R009.1) ranges, so the fast-tier contract-checks
+      # forwarder (scripts/security/run_contract_checks.py, which invokes
+      # every scripts/security/check_*.py with no arguments at all) gets
+      # full coverage of both ranges instead of an argparse usage error.
 """
 
 from __future__ import annotations
@@ -112,17 +118,45 @@ def census(fleet_root: Path, letter_start: str, letter_end: str) -> dict:
     return violations
 
 
+LETTER_RANGES = {"fj": ("f", "j"), "tz": ("t", "z")}
+
+
+def census_selected(fleet_root: Path, selected_range: str | None) -> dict:
+    """Census one named range, or BOTH ranges when ``selected_range`` is
+    ``None`` -- the no-arg invocation used by
+    scripts/security/run_contract_checks.py (the fast-tier contract-checks
+    forwarder, which calls every scripts/security/check_*.py with no
+    arguments). Omitting --range is strictly more coverage, not a weaker
+    default.
+    """
+    ranges = LETTER_RANGES if selected_range is None else {selected_range: LETTER_RANGES[selected_range]}
+    merged: dict = {}
+    for letters in ranges.values():
+        merged.update(census(fleet_root, *letters))
+    return merged
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--range", choices=["fj", "tz"], required=True)
+    parser.add_argument(
+        "--range",
+        choices=["fj", "tz"],
+        default=None,
+        help=(
+            "Restrict the census to one letter range. Omit to census BOTH "
+            "ranges (stricter, not a weaker default) -- required so the "
+            "no-arg invocation used by scripts/security/run_contract_checks.py "
+            "(the fast-tier contract-checks forwarder) still runs a real check "
+            "instead of failing argparse's required-argument validation."
+        ),
+    )
     parser.add_argument(
         "--fleet-root",
         type=Path,
         default=Path(__file__).resolve().parents[3] / "agents",
     )
     args = parser.parse_args()
-    letters = {"fj": ("f", "j"), "tz": ("t", "z")}[args.range]
-    result = census(args.fleet_root, *letters)
+    result = census_selected(args.fleet_root, args.range)
     for name, hits in result.items():
         print(f"{name}: {', '.join(hits)}")
     return 0
