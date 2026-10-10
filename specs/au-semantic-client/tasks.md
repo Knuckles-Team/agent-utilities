@@ -78,6 +78,11 @@ The task owner records a separate verdict per ID even when multiple IDs share a 
 - [ ] **AU-SEMANTIC-R019.1:** Factual record of what landed for R019
 - [ ] **AU-SEMANTIC-R019.2:** Delete `observability/trace_ontology.py`
 - [ ] **AU-SEMANTIC-R019.3:** Delete `observability/self_ingest.py`
+- [ ] **AU-SEMANTIC-R019.3.1:** `__main__.py` installs self-ingest logging through the EG-served client
+- [ ] **AU-SEMANTIC-R019.3.2:** `gateway/daemon.py` installs self-ingest logging through the EG-served client
+- [ ] **AU-SEMANTIC-R019.3.3:** `orchestration/engine.py` exports run traces through the EG-served client
+- [ ] **AU-SEMANTIC-R019.3.4:** `observability/__init__.py` no longer re-exports the self-ingest sink API
+- [ ] **AU-SEMANTIC-R019.3.5:** `observability/self_ingest.py` is deleted
 - [ ] **AU-SEMANTIC-R019.4:** Delete `observability/audit_logger.py`
 - [ ] **AU-SEMANTIC-R019.5:** Delete `governance/relational_authority.py`
 - [ ] **AU-SEMANTIC-R019.6:** Delete `knowledge_graph/research/placement_mining.py`

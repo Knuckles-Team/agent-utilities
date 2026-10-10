@@ -71,6 +71,11 @@
     "AU-SEMANTIC-R019.1",
     "AU-SEMANTIC-R019.2",
     "AU-SEMANTIC-R019.3",
+    "AU-SEMANTIC-R019.3.1",
+    "AU-SEMANTIC-R019.3.2",
+    "AU-SEMANTIC-R019.3.3",
+    "AU-SEMANTIC-R019.3.4",
+    "AU-SEMANTIC-R019.3.5",
     "AU-SEMANTIC-R019.4",
     "AU-SEMANTIC-R019.5",
     "AU-SEMANTIC-R019.6",
@@ -773,6 +778,48 @@
     {
       "id": "AU-SEMANTIC-R019.3",
       "title": "Delete `agent_utilities/observability/self_ingest.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R019.3.1",
+        "AU-SEMANTIC-R019.3.2",
+        "AU-SEMANTIC-R019.3.3",
+        "AU-SEMANTIC-R019.3.4",
+        "AU-SEMANTIC-R019.3.5"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R019.3.1",
+      "title": "`__main__.py` installs self-ingest logging through the EG-served client",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R019.3.2",
+      "title": "`gateway/daemon.py` installs self-ingest logging through the EG-served client",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R019.3.3",
+      "title": "`orchestration/engine.py` exports run traces through the EG-served client",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R019.3.4",
+      "title": "`observability/__init__.py` no longer re-exports the self-ingest sink API",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R019.3.5",
+      "title": "`observability/self_ingest.py` is deleted",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
