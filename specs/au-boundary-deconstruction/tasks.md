@@ -73,7 +73,11 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R001.3:** Delete `agent_utilities/gateway/artifacts_api.py`.
 - [ ] **AU-BOUNDARY-R001.4:** Delete `agent_utilities/gateway/registry_api.py` (rollup of .4.1 to .4.3).
 - [ ] **AU-BOUNDARY-R001.4.1:** Stop mounting registry_api routes from graph_api.py.
-- [ ] **AU-BOUNDARY-R001.4.2:** Repoint the /api/tools catalog read in kg_server.py off registry_api.
+- [ ] **AU-BOUNDARY-R001.4.2:** ROLLUP: repoint the /api/tools catalog read in kg_server.py off registry_api (children .4.2.1 to .4.2.4).
+- [ ] **AU-BOUNDARY-R001.4.2.1:** Record the owner of the servers catalog read for GET /api/tools.
+- [ ] **AU-BOUNDARY-R001.4.2.2:** Add one typed servers-kind catalog reader that does not import registry_api.
+- [ ] **AU-BOUNDARY-R001.4.2.3:** Call the new reader from _read_catalog_kind_sync in kg_server.py.
+- [ ] **AU-BOUNDARY-R001.4.2.4:** Update test_collapse_tool_endpoints.py to patch the new reader.
 - [ ] **AU-BOUNDARY-R001.4.3:** Delete the registry_api module and its tests.
 - [ ] **AU-BOUNDARY-R001.5:** Delete `agent_utilities/gateway/registry.py`.
 - [ ] **AU-BOUNDARY-R001.6:** Delete `agent_utilities/gateway/schemas/graph_analyze.py`.

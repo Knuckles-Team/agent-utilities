@@ -11,6 +11,10 @@
     "AU-BOUNDARY-R001.4",
     "AU-BOUNDARY-R001.4.1",
     "AU-BOUNDARY-R001.4.2",
+    "AU-BOUNDARY-R001.4.2.1",
+    "AU-BOUNDARY-R001.4.2.2",
+    "AU-BOUNDARY-R001.4.2.3",
+    "AU-BOUNDARY-R001.4.2.4",
     "AU-BOUNDARY-R001.4.3",
     "AU-BOUNDARY-R001.5",
     "AU-BOUNDARY-R001.6",
@@ -291,7 +295,41 @@
     },
     {
       "id": "AU-BOUNDARY-R001.4.2",
-      "title": "Repoint the `GET /api/tools` catalog read in `agent_utilities/mcp/kg_server.py` off `registry_api`",
+      "title": "ROLLUP: repoint the `GET /api/tools` catalog read in `agent_utilities/mcp/kg_server.py` off `registry_api`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R001.4.2.1",
+        "AU-BOUNDARY-R001.4.2.2",
+        "AU-BOUNDARY-R001.4.2.3",
+        "AU-BOUNDARY-R001.4.2.4"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R001.4.2.1",
+      "title": "Record the owner of the `servers` catalog read for `GET /api/tools`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R001.4.2.2",
+      "title": "Add one typed `servers`-kind catalog reader that does not import `registry_api`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R001.4.2.3",
+      "title": "Call the new reader from `_read_catalog_kind_sync` in `agent_utilities/mcp/kg_server.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R001.4.2.4",
+      "title": "Update `tests/unit/mcp/test_collapse_tool_endpoints.py` to patch the new reader instead of `registry_api` privates",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
