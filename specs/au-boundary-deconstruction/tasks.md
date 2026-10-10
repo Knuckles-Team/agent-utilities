@@ -71,7 +71,10 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R001.1:** Record that PR #23 (`aa5eba73e0f7`) shipped only boundary gate scripts, not the gateway deletion; `status.json`'s LANDED is wrong.
 - [ ] **AU-BOUNDARY-R001.2:** Delete `agent_utilities/gateway/api.py`.
 - [ ] **AU-BOUNDARY-R001.3:** Delete `agent_utilities/gateway/artifacts_api.py`.
-- [ ] **AU-BOUNDARY-R001.4:** Delete `agent_utilities/gateway/registry_api.py`.
+- [ ] **AU-BOUNDARY-R001.4:** Delete `agent_utilities/gateway/registry_api.py` (rollup of .4.1 to .4.3).
+- [ ] **AU-BOUNDARY-R001.4.1:** Stop mounting registry_api routes from graph_api.py.
+- [ ] **AU-BOUNDARY-R001.4.2:** Repoint the /api/tools catalog read in kg_server.py off registry_api.
+- [ ] **AU-BOUNDARY-R001.4.3:** Delete the registry_api module and its tests.
 - [ ] **AU-BOUNDARY-R001.5:** Delete `agent_utilities/gateway/registry.py`.
 - [ ] **AU-BOUNDARY-R001.6:** Delete `agent_utilities/gateway/schemas/graph_analyze.py`.
 - [ ] **AU-BOUNDARY-R001.7:** Delete `agent_utilities/gateway/widgets/genius_agent.py`.

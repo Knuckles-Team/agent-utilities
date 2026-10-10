@@ -9,6 +9,9 @@
     "AU-BOUNDARY-R001.2",
     "AU-BOUNDARY-R001.3",
     "AU-BOUNDARY-R001.4",
+    "AU-BOUNDARY-R001.4.1",
+    "AU-BOUNDARY-R001.4.2",
+    "AU-BOUNDARY-R001.4.3",
     "AU-BOUNDARY-R001.5",
     "AU-BOUNDARY-R001.6",
     "AU-BOUNDARY-R001.7",
@@ -251,7 +254,33 @@
     },
     {
       "id": "AU-BOUNDARY-R001.4",
-      "title": "Delete `agent_utilities/gateway/registry_api.py`",
+      "title": "Delete `agent_utilities/gateway/registry_api.py` (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R001.4.1",
+        "AU-BOUNDARY-R001.4.2",
+        "AU-BOUNDARY-R001.4.3"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R001.4.1",
+      "title": "Stop mounting `registry_api` routes from `agent_utilities/gateway/graph_api.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R001.4.2",
+      "title": "Repoint the `GET /api/tools` catalog read in `agent_utilities/mcp/kg_server.py` off `registry_api`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R001.4.3",
+      "title": "Delete the `registry_api` module and its tests",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
