@@ -71,6 +71,8 @@
     "AU-SEMANTIC-R019.6",
     "AU-SEMANTIC-R019.6.1",
     "AU-SEMANTIC-R019.6.2",
+    "AU-SEMANTIC-R019.6.2.1",
+    "AU-SEMANTIC-R019.6.2.2",
     "AU-SEMANTIC-R019.6.3",
     "AU-SEMANTIC-R019.6.4",
     "AU-SEMANTIC-R020",
@@ -754,7 +756,25 @@
     },
     {
       "id": "AU-SEMANTIC-R019.6.2",
+      "title": "The `placement_control` stage and its setting are removed from the loop controller and config",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R019.6.2.1",
+        "AU-SEMANTIC-R019.6.2.2"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R019.6.2.1",
       "title": "The `placement_control` stage is removed from the loop controller",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R019.6.2.2",
+      "title": "The `placement_control_loop_enabled` setting is removed from config",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
