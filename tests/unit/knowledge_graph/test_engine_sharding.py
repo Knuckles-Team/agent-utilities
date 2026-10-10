@@ -467,12 +467,14 @@ def test_unified_daemon_status_includes_shards(monkeypatch):
 
 
 def test_gateway_daemon_shards_route(monkeypatch):
-    """The dashboard router exposes the shard topology (CONCEPT:AU-OS.scaling.shard-topology-visibility-per)."""
-    import asyncio
+    """Shard topology status is reachable directly from
+    ``shard_topology_status`` (CONCEPT:AU-OS.scaling.shard-topology-visibility-per).
 
-    from agent_utilities.gateway import api as gateway_api
-
+    AU-BOUNDARY-R001.2: previously exercised through the now-deleted
+    ``agent_utilities.gateway.api.daemon_shards`` wrapper, which was AU-only
+    duplicated behavior retired in favor of graph-os's equivalent routes.
+    """
     monkeypatch.setattr(shard_topology, "probe_endpoint", lambda ep, timeout=0.5: True)
-    result = asyncio.run(gateway_api.daemon_shards())
+    result = shard_topology.shard_topology_status()
     assert result["mode"] in {"single", "sharded"}
     assert result["endpoints"]
