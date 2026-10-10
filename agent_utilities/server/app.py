@@ -719,18 +719,19 @@ def _include_gateway_routers(app: FastAPI) -> None:
 
     app.include_router(git_router.router)
     try:
-        from agent_utilities.gateway.api import dashboard_router
         from agent_utilities.gateway.graph_api import register_graph_routes
         from agent_utilities.gateway.usage_api import usage_router
 
-        app.include_router(dashboard_router, prefix="/api/dashboard")
+        # AU-BOUNDARY-R001.2: the gateway dashboard router
+        # (``agent_utilities.gateway.api``) was AU-only duplicated
+        # behavior retired in favor of graph-os's equivalent routes and
+        # widgets; it is no longer mounted here.
         register_graph_routes(app, prefix="/api")
         # CONCEPT:AU-ECO.mcp.usage-cost-observability-surface — usage/cost/
         # observability surface for all 3 UIs.
         app.include_router(usage_router, prefix="/api/observability")
         logger.info(
-            "Mounted centralized Gateway API "
-            "(Dashboard + Knowledge Graph + Observability)"
+            "Mounted centralized Gateway API (Knowledge Graph + Observability)"
         )
     except ImportError as exc:
         logger.error(

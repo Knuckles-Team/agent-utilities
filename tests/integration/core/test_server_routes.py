@@ -156,21 +156,23 @@ def test_health_ready_reflects_the_same_report_in_its_status_code(
 
 
 def test_rest_health_routes_share_the_reserved_async_collector() -> None:
-    """Top-level liveness/readiness and the dashboard route all invoke the
-    owning async health seam, so no REST consumer can drift back to the shared
-    default executor.
+    """Top-level readiness invokes the owning async health seam, so no REST
+    consumer can drift back to the shared default executor.
+
+    AU-BOUNDARY-R001.2: this test previously also exercised the dashboard
+    route's ``/api/dashboard/health``, which lived on the now-deleted
+    ``agent_utilities.gateway.api`` module (AU-only duplicated behavior
+    retired in favor of graph-os's equivalent routes/widgets).
     """
     report = {
         "status": "healthy",
         "checks": [{"name": "engine", "status": "ok", "latency_ms": 0.0}],
         "generated_at": "synthetic",
     }
-    from agent_utilities.gateway.api import dashboard_router
     from agent_utilities.server.routers.core import router as core_router
 
     app = FastAPI()
     app.include_router(core_router)
-    app.include_router(dashboard_router, prefix="/api/dashboard")
 
     with patch(
         "agent_utilities.observability.runtime_health.collect_health_async",
@@ -180,12 +182,10 @@ def test_rest_health_routes_share_the_reserved_async_collector() -> None:
         with TestClient(app) as client:
             liveness = client.get("/health")
             readiness = client.get("/health/ready")
-            dashboard = client.get("/api/dashboard/health")
 
     assert liveness.json() == {"status": "ok"}
     assert readiness.json() == {"status": "ready"}
-    assert dashboard.json() == report
-    assert collector.await_count == 2
+    assert collector.await_count == 1
 
 
 @pytest.mark.parametrize(
