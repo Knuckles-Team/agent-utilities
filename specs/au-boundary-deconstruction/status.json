@@ -174,6 +174,8 @@
     "AU-BOUNDARY-R030.7",
     "AU-BOUNDARY-R030.8",
     "AU-BOUNDARY-R030.9",
+    "AU-BOUNDARY-R030.9.1",
+    "AU-BOUNDARY-R030.9.2",
     "AU-BOUNDARY-R031",
     "AU-BOUNDARY-R032",
     "AU-BOUNDARY-R033",
@@ -1847,6 +1849,24 @@
     },
     {
       "id": "AU-BOUNDARY-R030.9",
+      "title": "Add `scripts/scaffold_ontology_leg.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R030.9.1",
+        "AU-BOUNDARY-R030.9.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R030.9.1",
+      "title": "Reconcile the `scripts/scaffold_ontology_leg.py` retirement tripwire",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R030.9.2",
       "title": "Add `scripts/scaffold_ontology_leg.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
