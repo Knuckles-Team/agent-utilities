@@ -5072,127 +5072,6 @@ def _check_warm_fork() -> dict[str, Any]:
     )
 
 
-def _a2a_missing_contract_methods(
-    broker_client: Any, node_client: Any, txn_client: Any
-) -> list[str]:
-    """Which required broker/nodes/txn client methods the installed engine lacks."""
-    required = (
-        (
-            "broker",
-            broker_client,
-            {
-                "declare_exchange",
-                "declare_queue",
-                "bind_queue",
-                "publish_idempotent",
-                "consume",
-                "renew_tag",
-                "ack_tag",
-                "nack_tag",
-            },
-        ),
-        (
-            "nodes",
-            node_client,
-            {"create_if_absent", "properties", "compare_and_set", "list_by_label"},
-        ),
-        ("txn", txn_client, {"begin", "cas", "commit", "rollback"}),
-    )
-    missing: list[str] = []
-    for label, client, names in required:
-        missing.extend(
-            sorted(
-                f"{label}.{name}"
-                for name in names
-                if not callable(getattr(client, name, None))
-            )
-        )
-    return missing
-
-
-def _a2a_bounded_configuration(cfg: Any) -> bool:
-    """Every A2A broker/storage limit must be a positive bound."""
-    return all(
-        value > 0
-        for value in (
-            cfg.a2a_broker_poll_interval_ms,
-            cfg.a2a_broker_lease_ms,
-            cfg.a2a_broker_prefetch,
-            cfg.a2a_broker_message_ttl_ms,
-            cfg.a2a_broker_max_delivery_count,
-            cfg.a2a_max_payload_bytes,
-            cfg.a2a_max_history,
-            cfg.a2a_max_artifacts,
-            cfg.a2a_max_context_messages,
-            cfg.a2a_storage_update_retries,
-            cfg.a2a_dispatch_reconcile_interval_ms,
-            cfg.a2a_dispatch_reconcile_limit,
-            cfg.a2a_cancellation_poll_interval_ms,
-        )
-    )
-
-
-def _check_a2a_persistence() -> dict[str, Any]:
-    """Validate the sole current FastA2A durability contract without network I/O."""
-
-    try:
-        from epistemic_graph.client import BrokerClient, NodeClient, TxnClient
-
-        from agent_utilities.core.config import AgentConfig
-        from agent_utilities.protocols.a2a_epistemic import (
-            EpistemicGraphA2ABroker,
-            EpistemicGraphA2AStorage,
-        )
-
-        cfg = AgentConfig()
-    except Exception as exc:  # noqa: BLE001 - doctor reports no configuration values
-        return _result(
-            "a2a_persistence",
-            "fail",
-            f"native A2A persistence is unavailable ({type(exc).__name__})",
-            remediation=(
-                "Install the current agent-utilities and epistemic-graph[full] "
-                "artifacts, then repair AgentConfig."
-            ),
-            data={"ready": False, "redacted": True},
-        )
-
-    missing = _a2a_missing_contract_methods(BrokerClient, NodeClient, TxnClient)
-    selected = (
-        cfg.a2a_broker == "epistemic_graph" and cfg.a2a_storage == "epistemic_graph"
-    )
-    bounded = _a2a_bounded_configuration(cfg)
-    adapters = all(
-        value is not None
-        for value in (EpistemicGraphA2ABroker, EpistemicGraphA2AStorage)
-    )
-    data = {
-        "native_backend_selected": selected,
-        "broker_contract_complete": not missing,
-        "bounded_configuration": bounded,
-        "adapter_count": 2 if adapters else 0,
-        "redacted": True,
-    }
-    if not selected or missing or not bounded or not adapters:
-        return _result(
-            "a2a_persistence",
-            "fail",
-            "native A2A broker/storage contract is incomplete",
-            remediation=(
-                "Set A2A_BROKER=epistemic_graph and "
-                "A2A_STORAGE=epistemic_graph, use positive bounded limits, and "
-                "install epistemic-graph[full]."
-            ),
-            data=data,
-        )
-    return _result(
-        "a2a_persistence",
-        "ok",
-        "native durable A2A broker/storage and bounded CAS policy are configured",
-        data=data,
-    )
-
-
 # ── optional lakehouse / data-plane services (CONCEPT:AU-OS.deployment.lakehouse-doctor) ──
 #
 # Every check below follows the same shape: absent (endpoint unconfigured) -> "skip",
@@ -5853,7 +5732,6 @@ CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "observability": _check_observability,
     "langfuse": _check_langfuse,
     "native_optimizer": _check_native_optimizer,
-    "a2a_persistence": _check_a2a_persistence,
     "bus": _check_bus,
     "skills": _check_skills,
     "unified_install": _check_unified_install,

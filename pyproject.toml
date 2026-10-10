@@ -801,7 +801,6 @@ graph-os = "agent_utilities.mcp.kg_server:mcp_server"
 agent-utilities-messaging = "agent_utilities.messaging.daemon:main"
 agent-utilities-memory = "agent_utilities.knowledge_graph.memory.cli:main"
 agent-utilities = "agent_utilities.cli:main"
-agent-utilities-acp = "agent_utilities.protocols.acp_adapter:main"
 # setup-config is graph-os-owned (GRAPHOS-DEPLOY requirement R.007.2):
 # graph_os.deployment.cli:main. Declaring it here too was an install-time
 # console-script name collision. agent_utilities.deployment.cli remains,

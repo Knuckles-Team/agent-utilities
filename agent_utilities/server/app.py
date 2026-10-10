@@ -506,21 +506,9 @@ def _build_a2a_app(
     skills: list[Any],
     debug: bool | None,
 ) -> Any:
-    """Build the native epistemic-graph A2A adapter."""
-    if broker != "epistemic_graph" or storage != "epistemic_graph":
-        raise ValueError(
-            "A2A_BROKER and A2A_STORAGE must both select 'epistemic_graph'"
-        )
-    from agent_utilities.protocols.a2a_epistemic import (
-        agent_to_epistemic_a2a,
-        build_epistemic_graph_a2a_backends,
-    )
-
-    native_broker, native_storage = build_epistemic_graph_a2a_backends(config)
-    return agent_to_epistemic_a2a(
-        agent_instance,
-        broker=native_broker,
-        storage=native_storage,
+    """Build the in-process A2A app (durable task storage lives in graph-os)."""
+    del broker, storage
+    return agent_instance.to_a2a(
         name=name,
         description=DEFAULT_AGENT_DESCRIPTION,
         version=__version__,

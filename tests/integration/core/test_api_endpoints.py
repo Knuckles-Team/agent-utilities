@@ -106,7 +106,7 @@ def client(mock_agent):
             # construction point directly so "/a2a" mounts the test's own
             # trivial stub app instead, matching this test's original intent.
             patch(
-                "agent_utilities.protocols.a2a_epistemic.agent_to_epistemic_a2a",
+                "agent_utilities.server.app._build_a2a_app",
                 return_value=mock_agent.to_a2a.return_value,
             ),
         ):

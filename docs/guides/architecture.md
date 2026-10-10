@@ -96,10 +96,8 @@ All protocol adapters are centralized in `agent_utilities/protocols/`:
 
 - `acp_adapter.py`: Harness ACP stdio boundary, durable sessions, and Graph-OS session dependencies
 - `a2a.py`: A2A peer discovery, JSON-RPC client, registry management
-- `a2a_epistemic.py`: durable task/context state, idempotent dispatch recovery,
-  delivery leases, and execution fencing
 - `agui_emitter.py`: AG-UI wire format translator for direct graph execution events
-- Server endpoints: `/a2a` (MOUNT), `/ag-ui` (POST); ACP is the separate `agent-utilities-acp` process
+- Server endpoints: `/a2a` (MOUNT), `/ag-ui` (POST); ACP is the separate editor-launched stdio process
 
 ### Direct Graph Execution (Fast Path)
 

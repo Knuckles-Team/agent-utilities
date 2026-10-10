@@ -1951,7 +1951,6 @@ concepts:
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/models/schema_packs/finance.py
   - agent_utilities/orchestration/durable_execution.py
-  - agent_utilities/protocols/a2a_epistemic.py
   - agent_utilities/protocols/acp_adapter.py
   - agent_utilities/security/permissions_kernel.py
   - agent_utilities/server/app.py
