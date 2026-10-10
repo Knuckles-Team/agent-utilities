@@ -58,8 +58,12 @@ import yaml
 
 from ..ingestion.evidence_spine import Artifact, Fragment
 from ..ontology import ontology_integrity
-from ..ontology.connector_manifest import OntologySpec
-from ..ontology.manifest_compiler import compile_manifest
+from ..ontology.connector_manifest import (
+    OntologyClassSpec,
+    OntologyDatatypePropertySpec,
+    OntologyObjectPropertySpec,
+    OntologySpec,
+)
 from .domain_pack import DomainPackManifest
 from .dsl import evaluate_mapping
 
@@ -392,7 +396,48 @@ def load_pack(path: str | Path, engine: Any = None) -> LoadedDomainPack:
             raise DomainPackError(f"{label}: provenance.signature failed verification")
 
     try:
-        ontology_spec = compile_manifest(manifest.ontology)
+        # AU-BOUNDARY-R030.5: the hand-written Turtle/spec emitter moved to
+        # ``agent_connector_sdk.manifest.ontology_pack`` (AU-BOUNDARY-R030).
+        # Mirrors ``connector_manifest_gate._compiled_manifest_graph``'s own
+        # migration: re-validate AU's ``ConnectorManifest`` against the SDK's
+        # own model (same schema, different Pydantic class, so a straight
+        # isinstance pass-through is not valid) before compiling, and use the
+        # ``_spec`` entry point because this call site needs the structured
+        # :class:`OntologySpec` (``own_class_names`` below walks its
+        # ``.classes``), not the gate's flattened Turtle string.
+        from agent_connector_sdk.manifest.model import ConnectorManifest as SDKManifest
+        from agent_connector_sdk.manifest.ontology_pack import (
+            compile_manifest_ontology_spec,
+        )
+
+        sdk_manifest = SDKManifest.model_validate(
+            manifest.ontology.model_dump(mode="python")
+        )
+        sdk_spec = compile_manifest_ontology_spec(sdk_manifest)
+        ontology_spec = OntologySpec(
+            classes=[
+                OntologyClassSpec(
+                    local=c.local, label=c.label, parent=c.parent, id_prefix=c.id_prefix
+                )
+                for c in sdk_spec.classes
+            ],
+            object_properties=[
+                OntologyObjectPropertySpec(
+                    local=p.local,
+                    label=p.label,
+                    domain=p.domain,
+                    range=p.range,
+                    lpg_rel_type=p.lpg_rel_type,
+                )
+                for p in sdk_spec.object_properties
+            ],
+            datatype_properties=[
+                OntologyDatatypePropertySpec(local=d.local, label=d.label, range=d.range)
+                for d in sdk_spec.datatype_properties
+            ],
+            type_map=dict(sdk_spec.type_map),
+            relation_map=dict(sdk_spec.relation_map),
+        )
     except Exception as exc:  # noqa: BLE001 - fail-closed on an uncompilable ontology extension
         raise DomainPackError(
             f"{label}: ontology extension does not compile ({type(exc).__name__})"
