@@ -125,11 +125,14 @@
     {
       "id": "AU-SEMANTIC-R002",
       "title": "AU verifies domain-pack class names against EG's schema-class list",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2648d0b28ad0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/knowledge_graph/domain_packs/test_pack_loader.py:355",
+        "tests/unit/knowledge_graph/domain_packs/test_pack_loader.py:365"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R003",

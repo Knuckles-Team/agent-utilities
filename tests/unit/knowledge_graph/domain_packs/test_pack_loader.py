@@ -352,6 +352,7 @@ def test_mapping_referencing_eg_served_class_is_accepted_with_engine(tmp_path):
     assert loaded.manifest.pack == "runbooks"
 
 
+@pytest.mark.spec("AU-SEMANTIC-R002")
 def test_mapping_referencing_class_eg_does_not_serve_is_still_refused(tmp_path):
     manifest = _manifest_with_status_mapping("TotallyMadeUpClassNoOneDeclared")
     pack_dir = _fixtures.write_pack(tmp_path, manifest)
@@ -361,6 +362,7 @@ def test_mapping_referencing_class_eg_does_not_serve_is_still_refused(tmp_path):
         load_pack(pack_dir, engine=engine)
 
 
+@pytest.mark.spec("AU-SEMANTIC-R002")
 def test_eg_served_class_lookup_failure_is_refused_not_silently_local(tmp_path):
     """A pack whose mapping references ONLY an offline-known class (Document)
     still refuses when the engine is given but unreachable — EG's authority is
