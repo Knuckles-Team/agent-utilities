@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import secrets
 import sqlite3
 import time
 from pathlib import Path
@@ -21,6 +22,8 @@ from agent_utilities.orchestration.agent_dispatch import (
     KIND_GOAL_LOOP,
     KIND_ORCHESTRATOR_TASK,
     AgentTurnEnvelope,
+    DispatchCarrier,
+    DispatchCarrierError,
 )
 from agent_utilities.orchestration.agent_dispatch_worker import (
     WorkItemLeaseGuard,
@@ -1297,3 +1300,94 @@ def test_job_status_reports_executing_worker_and_host(fake_queue, monkeypatch):
 
     status = RealOrch.get_task_status(SimpleNamespace(engine=engine), job_id)
     assert status["status"] == "succeeded"
+
+
+# Generated per run: a literal signing key in source trips the credential gate.
+_SIGNING_KEY = secrets.token_hex(16)
+
+
+@pytest.mark.spec("AU-CONTROL-R035.2")
+def test_dispatch_carrier_signature_covers_allowed_tool_subset():
+    """The signature binds allowed_tool_subset; tampering fails verification."""
+    carrier = DispatchCarrier.mint(
+        tenant="tenant-a",
+        session_id="session-a",
+        job_id="job-a",
+        allowed_tool_subset=["search", "read_file"],
+        secret=_SIGNING_KEY,
+    )
+    # Honest round-trip verifies and reports the signed subset back.
+    carrier.verify(
+        tenant="tenant-a",
+        session_id="session-a",
+        job_id="job-a",
+        allowed_tool_subset=["read_file", "search"],  # order-independent
+        secret=_SIGNING_KEY,
+    )
+    assert carrier.allowed_tool_subset == ("read_file", "search")
+
+    # Tamper: rebuild the carrier with a WIDER subset but keep the ORIGINAL
+    # signature. The signature covers allowed_tool_subset, so this must fail
+    # verification rather than silently widening what the consumer trusts.
+    tampered = carrier.model_copy(
+        update={"allowed_tool_subset": ("read_file", "search", "delete_all")}
+    )
+    with pytest.raises(DispatchCarrierError, match="signature is invalid"):
+        tampered.verify(
+            tenant="tenant-a",
+            session_id="session-a",
+            job_id="job-a",
+            allowed_tool_subset=["read_file", "search", "delete_all"],
+            secret=_SIGNING_KEY,
+        )
+
+
+@pytest.mark.spec("AU-CONTROL-R035.2")
+def test_dispatch_carrier_refuses_tool_outside_signed_subset():
+    """Dispatch of a tool outside the signed subset is refused."""
+    carrier = DispatchCarrier.mint(
+        tenant="tenant-a",
+        session_id="session-a",
+        job_id="job-a",
+        allowed_tool_subset=["search", "read_file"],
+        secret=_SIGNING_KEY,
+    )
+    # In-subset tool is permitted (no raise).
+    carrier.enforce_tool_allowed("search")
+
+    # Out-of-subset tool is refused at dispatch.
+    with pytest.raises(DispatchCarrierError, match="does not authorize tool"):
+        carrier.enforce_tool_allowed("delete_all")
+
+
+@pytest.mark.spec("AU-CONTROL-R035.2")
+def test_consumer_cannot_claim_caller_filtered_exposure_without_the_field():
+    """An envelope/carrier lacking allowed_tool_subset authorizes no claim."""
+    carrier = DispatchCarrier.mint(
+        tenant="tenant-a",
+        session_id="session-a",
+        job_id="job-a",
+        secret=_SIGNING_KEY,
+    )
+    assert carrier.allowed_tool_subset == ()
+    with pytest.raises(DispatchCarrierError, match="cannot claim caller-filtered"):
+        carrier.require_caller_filtered_exposure()
+
+    env = AgentTurnEnvelope(
+        job_id="job-a",
+        session_id="session-a",
+        tenant="tenant-a",
+    )
+    env.ensure_authenticated_carrier(secret=_SIGNING_KEY)
+    with pytest.raises(DispatchCarrierError, match="cannot claim caller-filtered"):
+        env.require_caller_filtered_exposure()
+
+    # A properly signed, non-empty subset DOES authorize the claim.
+    filtered_env = AgentTurnEnvelope(
+        job_id="job-b",
+        session_id="session-a",
+        tenant="tenant-a",
+        allowed_tool_subset=["search"],
+    )
+    filtered_env.ensure_authenticated_carrier(secret=_SIGNING_KEY)
+    assert filtered_env.require_caller_filtered_exposure() == ("search",)
