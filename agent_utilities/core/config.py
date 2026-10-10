@@ -1194,8 +1194,7 @@ def _hermetic_xdg_projection_applies() -> bool:
     if _read_agent_utilities_config_dir_env():
         return False
     if not (
-        _under_pytest()
-        or to_boolean(_read_agent_utilities_testing_env() or "false")
+        _under_pytest() or to_boolean(_read_agent_utilities_testing_env() or "false")
     ):
         return False
     _commit_xdg_environment_projection({}, {})
@@ -5727,18 +5726,6 @@ class AgentConfig(BaseSettings):
     should be rediscovered quickly. A stale-epoch redirect bypasses this TTL
     outright via ``force_refresh=True``, so this only bounds the *unprompted*
     re-check cadence."""
-
-    placement_control_loop_enabled: bool = Field(
-        default=False, alias="PLACEMENT_CONTROL_LOOP_ENABLED"
-    )
-    """Permit automatic or periodic placement-control callers to run.
-
-    The loop remains off by default because a successful governed proposal can
-    initiate a real online placement move. An explicit ``graph_loops``
-    ``placement_control`` request is itself the operator trigger and enables only
-    that invocation; this setting controls callers that have no such request
-    boundary. Keeping the flag in ``AgentConfig`` makes it visible to config
-    generation, the doctor, and the generated runtime reference."""
 
     graph_service_persist_on_shutdown: bool = Field(
         default=True, alias="GRAPH_SERVICE_PERSIST_ON_SHUTDOWN"

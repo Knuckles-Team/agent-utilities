@@ -17,12 +17,9 @@ from agent_utilities.core.config import (
 )
 
 
-def test_placement_control_loop_is_typed_and_opt_in(monkeypatch):
-    monkeypatch.delenv("PLACEMENT_CONTROL_LOOP_ENABLED", raising=False)
-    assert AgentConfig().placement_control_loop_enabled is False
-
-    monkeypatch.setenv("PLACEMENT_CONTROL_LOOP_ENABLED", "true")
-    assert AgentConfig().placement_control_loop_enabled is True
+@pytest.mark.spec("AU-SEMANTIC-R019.6.2.2")
+def test_placement_control_loop_enabled_setting_is_removed():
+    assert "placement_control_loop_enabled" not in AgentConfig.model_fields
 
 
 def test_dispatch_lease_config_is_bounded_by_recovery_objective():

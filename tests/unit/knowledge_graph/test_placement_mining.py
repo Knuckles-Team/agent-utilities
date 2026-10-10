@@ -1291,36 +1291,20 @@ def test_placement_control_loop_default_off_is_a_zero_side_effect_noop(monkeypat
     """Default OFF: importing/calling this without opting in must NEVER mine,
     govern, canary, or reshard anything."""
     import agent_utilities.knowledge_graph.research.placement_mining as pm
-    from agent_utilities.core.config import config
-
-    monkeypatch.setattr(config, "placement_control_loop_enabled", False)
 
     def _boom(*a, **kw):  # pragma: no cover - must never be called
         raise AssertionError("mining must not run while the loop is disabled")
 
     monkeypatch.setattr(pm, "mine_placement_patterns", _boom)
 
-    rep = placement_control_loop(_CycleStubEngine())
+    rep = placement_control_loop(_CycleStubEngine(), enabled=False)
     assert rep == {
         "enabled": False,
         "skipped": True,
         "reason": (
-            "placement_control_loop is opt-in "
-            "(PLACEMENT_CONTROL_LOOP_ENABLED=0) — manual trigger required"
+            "placement_control_loop is opt-in (enabled=False) — manual trigger required"
         ),
     }
-
-
-def test_placement_control_loop_enabled_via_agent_config(monkeypatch):
-    """The typed-config opt-in path (distinct from an explicit ``enabled=True``
-    manual-trigger call) also turns the loop on."""
-    from agent_utilities.core.config import config
-
-    monkeypatch.setattr(config, "placement_control_loop_enabled", True)
-    _patch_mine_result(monkeypatch, anomaly_score=0.5)  # below floor -> no side effects
-    rep = placement_control_loop(_CycleStubEngine())
-    assert rep["enabled"] is True
-    assert rep["eligible"] == 0
 
 
 def test_placement_control_loop_denied_proposal_never_applied(monkeypatch):
