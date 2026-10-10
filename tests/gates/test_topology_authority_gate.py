@@ -22,10 +22,12 @@ SELECTOR = "agent_utilities/graph/team_composer.py"
 ELSEWHERE = "agent_utilities/graph/other.py"
 
 
+@pytest.mark.spec("AU-CONTROL-R014")
 def test_the_tree_holds_one_topology_authority() -> None:
     assert gate.check_tree(ROOT) == []
 
 
+@pytest.mark.spec("AU-CONTROL-R014")
 @pytest.mark.parametrize(
     ("source", "path", "rule"),
     [

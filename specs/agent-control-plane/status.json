@@ -222,12 +222,15 @@
     {
       "id": "AU-CONTROL-R014",
       "title": "No local topology solver, defer to the validated graph-engine model",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "148ef73124d2",
         "c049e325e91d"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_topology_authority_gate.py:25",
+        "tests/gates/test_topology_authority_gate.py:30"
+      ]
     },
     {
       "id": "AU-CONTROL-R015",
