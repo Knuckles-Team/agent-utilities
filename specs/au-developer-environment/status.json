@@ -156,16 +156,26 @@
     {
       "id": "AU-DEV-R003.3.4",
       "title": "Define the Claude Code skills discovery path",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d330871d37af"
+      ],
+      "verified_by": [
+        "tests/unit/core/test_claude_skills_install.py:35",
+        "tests/unit/core/test_claude_skills_install.py:46"
+      ]
     },
     {
       "id": "AU-DEV-R003.3.5",
       "title": "One harness-target install feeds Claude and Codex together",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d330871d37af"
+      ],
+      "verified_by": [
+        "tests/unit/core/test_claude_skills_install.py:67",
+        "tests/unit/core/test_claude_skills_install.py:91"
+      ]
     }
   ]
 }

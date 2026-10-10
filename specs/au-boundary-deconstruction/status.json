@@ -1574,7 +1574,8 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "8b325ddf1818",
-        "8c6fb318c5d3"
+        "8c6fb318c5d3",
+        "d330871d37af"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1997,7 +1998,9 @@
       "id": "AU-BOUNDARY-R030.8",
       "title": "RETIRED: superseded by AU-SEMANTIC-R021.2/R021.4",
       "delivery_state": "RETIRED",
-      "landed_in": [],
+      "landed_in": [
+        "d330871d37af"
+      ],
       "verified_by": [],
       "retired_reason": "superseded by AU-SEMANTIC-R021.2/R021.4"
     },
