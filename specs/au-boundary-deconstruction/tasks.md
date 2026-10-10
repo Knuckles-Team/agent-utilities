@@ -78,7 +78,12 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R001.8:** Delete `agent_utilities/gateway/widgets/_optional_client.py`.
 - [ ] **AU-BOUNDARY-R002.1:** Record that PR #26 (`fca0c5ee42b3`) did not delete `backends.py`/`certification_oidc.py`; `status.json`'s LANDED is wrong.
 - [ ] **AU-BOUNDARY-R002.2:** Delete `agent_utilities/deployment/backends.py`.
-- [ ] **AU-BOUNDARY-R002.3:** Delete `agent_utilities/deployment/certification_oidc.py`.
+- [ ] **AU-BOUNDARY-R002.3:** ROLLUP: delete `agent_utilities/deployment/certification_oidc.py` via children R002.3.1 to R002.3.5.
+- [ ] **AU-BOUNDARY-R002.3.1:** Record the graph-os owner of the ephemeral loopback OIDC certification authority.
+- [ ] **AU-BOUNDARY-R002.3.2:** Repoint or remove the `certification_oidc` import in `skill_validation.py` and `skill_validation_assets.py`.
+- [ ] **AU-BOUNDARY-R002.3.3:** Delete `scripts/certification/loopback_oidc.py` and `tests/unit/scripts/test_loopback_oidc.py`.
+- [ ] **AU-BOUNDARY-R002.3.4:** Remove `certification_oidc.py` from the egress-boundary and release-wheel script path lists.
+- [ ] **AU-BOUNDARY-R002.3.5:** Delete `agent_utilities/deployment/certification_oidc.py`.
 - [ ] **AU-BOUNDARY-R003.1:** Record that commit `2456745c1e4d` shipped only gate scripts, not the MCP host deletion; `status.json`'s LANDED is wrong.
 - [ ] **AU-BOUNDARY-R003.2:** Delete `agent_utilities/mcp/kg_server.py`.
 - [ ] **AU-BOUNDARY-R003.3:** Delete `agent_utilities/mcp/_graphos_action_manifest.py`.
