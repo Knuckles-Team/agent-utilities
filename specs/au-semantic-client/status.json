@@ -137,9 +137,15 @@
     {
       "id": "AU-SEMANTIC-R006.2",
       "title": "The workflow gate submits a typed payload instead of an rdflib graph",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "eb94d8306a5b"
+      ],
+      "verified_by": [
+        "tests/unit/knowledge_graph/test_workflow_gate.py:201",
+        "tests/unit/knowledge_graph/test_workflow_gate.py:218",
+        "tests/unit/knowledge_graph/test_workflow_gate.py:236"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R006.3",

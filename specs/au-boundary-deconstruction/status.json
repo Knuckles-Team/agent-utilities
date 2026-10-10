@@ -246,7 +246,9 @@
       "id": "AU-BOUNDARY-R016",
       "title": "Split AU's monolithic configuration module",
       "delivery_state": "VERIFIED",
-      "landed_in": [],
+      "landed_in": [
+        "13655b508554"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-BOUNDARY-R016.1"
