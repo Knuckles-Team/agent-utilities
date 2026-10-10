@@ -269,8 +269,15 @@ jobs:
     # the GitHub-hosted runner instead (graph-os PR #125 pattern).
     runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
     timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    # Exposes the PR test-scope verdict (NONE|FULL|<newline-separated test
+    # paths>) so the `full-suite` job below can decide, at the job level
+    # (not a step's `timeout-minutes`, which cannot read another step's
+    # output), whether a FULL-scope PR needs its own, longer-budget run.
+    outputs:
+      scope: ${{ steps.pr-test-scope.outputs.scope }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - &gates-checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -283,7 +290,8 @@ jobs:
       # builds have no such requirement, so uv is the python provider here
       # too -- one step both installs python (so `python`/`python3` resolve
       # for later steps, same as actions/setup-python did) and sets up uv.
-      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+      - &gates-uv-setup
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           version: '0.11.7'
           python-version: '3.12'
@@ -319,7 +327,8 @@ jobs:
       # live in the `test` extra), so CI silently ran a plainer pytest than
       # the one every local invocation used (`asyncio_mode = auto` in
       # pytest.ini requires pytest-asyncio to be installed to take effect).
-      - name: Sync test environment (engine wheel installed next)
+      - &gates-sync-test-env
+        name: Sync test environment (engine wheel installed next)
         run: |
           uv sync --frozen --extra test --group guardrails \
             --no-install-package epistemic-graph \
@@ -341,7 +350,8 @@ jobs:
       # it. A missing engine must fail the job loudly, not degrade into a
       # quiet skip (see `tests/conftest.py`'s CI-vs-local skip/fail split for
       # the matching enforcement on the pytest side).
-      - name: Install the epistemic-graph engine wheel (engine-main release)
+      - &gates-install-engine-wheel
+        name: Install the epistemic-graph engine wheel (engine-main release)
         env:
           GH_TOKEN: ${{ github.token }}
           EG_ENGINE_RELEASE_TAG: engine-main
@@ -470,23 +480,47 @@ jobs:
         if: github.event_name != 'pull_request'
         run: python3 -m pytest -q -n auto --dist loadfile
 
+      # FULL scope is deliberately NOT run here: a step's `timeout-minutes`
+      # cannot read another step's output, so keeping this fast path fast
+      # means FULL must skip it entirely and get its own budget. The
+      # `full-suite` job below (`if: needs.gates.outputs.scope == 'FULL'`)
+      # runs the full suite with a 30-minute timeout instead.
       - name: Test suite -- pull request fast subset
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.pr-test-scope.outputs.scope != 'FULL'
         env:
           SCOPE: ${{ steps.pr-test-scope.outputs.scope }}
         run: |
           set -euo pipefail
           if [ "$SCOPE" = "NONE" ]; then
             echo "pr-test-scope: no agent_utilities/tests change in this diff; skipping pytest"
-          elif [ "$SCOPE" = "FULL" ]; then
-            echo "pr-test-scope: unmapped source change (or an unreadable diff); running the full suite"
-            python3 -m pytest -q -n auto --dist loadfile
           else
             echo "pr-test-scope: running only the tests this diff affects:"
             echo "$SCOPE"
             mapfile -t affected_tests <<< "$SCOPE"
             python3 -m pytest -q -n auto --dist loadfile "${affected_tests[@]}"
           fi
+
+  # ── STAGE 1.5: FULL-scope PRs (conftest/pyproject/lockfile/unmapped source
+  # changes) get their own job with a real budget instead of sharing `gates`'
+  # 10-minute PR timeout, which the ~21k-test suite cannot meet even under
+  # `-n auto` (AU #192). `gates` itself never runs the full suite for a PR
+  # (see the fast-subset step's `if` above); this job picks up exactly the
+  # cases that step skipped. On push to main / a release tag this job never
+  # runs at all -- `gates` already runs the full suite unconditionally there.
+  full-suite:
+    name: full suite (PR, FULL scope)
+    needs: gates
+    if: github.event_name == 'pull_request' && needs.gates.outputs.scope == 'FULL'
+    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - *gates-checkout
+      - *sdk-checkout
+      - *gates-uv-setup
+      - *gates-sync-test-env
+      - *gates-install-engine-wheel
+      - name: Full test suite (PR, FULL scope)
+        run: python3 -m pytest -q -n auto --dist loadfile
 
   # ── STAGE 2: build the release wheel. Needs: gates + clone-scanners +
   # engine-release-order. ──────────────────────────────────────────────────
