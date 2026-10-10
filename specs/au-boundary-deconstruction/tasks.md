@@ -149,3 +149,15 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R021.2:** Delete the AU-BOUNDARY-R021 tenancy/admission modules
 - [x] **AU-BOUNDARY-R022.1:** Ship a typed inventory of the AU-BOUNDARY-R022 reasoning/analytics modules
 - [ ] **AU-BOUNDARY-R022.2:** Delete the AU-BOUNDARY-R022 reasoning/analytics modules
+- [ ] **AU-BOUNDARY-R011.1:** Record that R011's deletions (universal_connector, source_connectors, certification, manifest) have not started.
+- [ ] **AU-BOUNDARY-R011.2:** Delete `protocols/universal_connector.py` and fix its importers.
+- [ ] **AU-BOUNDARY-R011.3:** Delete the `protocols/source_connectors/**` package and fix its importers.
+- [ ] **AU-BOUNDARY-R011.4:** Delete `knowledge_graph/integrations/connector_certification.py`, `connector_certification_cli.py`, `connector_source_attestation.py` and fix their importers.
+- [ ] **AU-BOUNDARY-R011.5:** Delete `knowledge_graph/ontology/connector_manifest.py`, `connector_manifest_gate.py`, `connector_manifests/**`, and drop `graph-os-certify-connector`.
+- [ ] **AU-BOUNDARY-R014.1:** Record that R014's moves, including `knowledge_graph/readiness.py`, have not started.
+- [ ] **AU-BOUNDARY-R014.2:** Move `knowledge_graph/readiness.py` to graph-os and delete the AU copy.
+- [ ] **AU-BOUNDARY-R015.1:** Record that R015's moves, including `protocols/a2a_epistemic.py`, have not started.
+- [ ] **AU-BOUNDARY-R015.2:** Delete `protocols/a2a_epistemic.py` and drop the `agent-utilities-acp` script.
+- [ ] **AU-BOUNDARY-R024.1:** Record that R024's moves, including `source_sync.py` and `governance_import.py`, have not started.
+- [ ] **AU-BOUNDARY-R024.2:** Move `knowledge_graph/core/source_sync.py` to the agent connector SDK and delete the AU copy.
+- [ ] **AU-BOUNDARY-R024.3:** Move `knowledge_graph/governance_import.py` to the SDK and delete the AU copy.
