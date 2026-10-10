@@ -24,6 +24,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "3279dcc7d1d7",
+        "42f6dada3749",
         "fdeabad709b3"
       ],
       "verified_by": [
@@ -38,6 +39,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "37a3800dd3b1",
+        "42f6dada3749",
         "fdeabad709b3"
       ],
       "verified_by": [
@@ -49,6 +51,7 @@
       "title": "Graph-driven work market on Gap and WorkItem contracts",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "42f6dada3749",
         "d1fdedd885f3",
         "d856d0bd92f6",
         "fdeabad709b3"
@@ -74,7 +77,8 @@
       "title": "Typed correction-proposal model",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "068bd9c17859"
+        "068bd9c17859",
+        "42f6dada3749"
       ],
       "verified_by": [
         "tests/knowledge_graph/research/test_correction_proposal.py:31",
@@ -87,6 +91,7 @@
       "title": "Defer generative model work pending evidence-backed need",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "42f6dada3749",
         "a754f1299033"
       ],
       "verified_by": [
@@ -98,6 +103,7 @@
       "title": "Statistical scoring head ranks work-market offers",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "42f6dada3749",
         "75dc28c16382",
         "c0e12b7034f3"
       ],
@@ -113,6 +119,7 @@
       "landed_in": [
         "05d0acdf70b2",
         "3df03825a497",
+        "42f6dada3749",
         "579815031bcd",
         "b15fd573cb5b"
       ],

@@ -104,6 +104,7 @@
       "title": "Delta ingest reaps nodes for deleted files",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "42f6dada3749",
         "5822ee9bef09",
         "bc7bba33932d"
       ],
