@@ -291,7 +291,7 @@ def test_body_citation_does_not_count_as_declared_identity():
 # ``Concept`` corpus stayed at zero embeddings forever. Decoupled into its own
 # native-by-default maintenance tick (``_tick_enrich_concepts``,
 # `engine_tasks.py`), the same fix shape as BUG-PE-104
-# (``placement_mining_reactive``, see ``test_placement_mining.py``). These
+# (a since-removed reactive maintenance tick). These
 # tests prove (a) the schedule ref is actually dispatchable through
 # ``run_scheduled_job`` and (b) what the tick does when it runs.
 # ---------------------------------------------------------------------------
@@ -299,8 +299,8 @@ def test_body_citation_does_not_count_as_declared_identity():
 
 def test_enrich_concepts_is_in_the_maintenance_allowlist():
     """The registered schedule ref must actually be dispatchable -- the exact
-    gap (D-OP-13-shaped) that made ``placement_mining_reactive`` permanently
-    dead until it was added to the allowlist."""
+    gap (D-OP-13-shaped) that once left a maintenance tick permanently
+    dead until it was added to the allowlist in an earlier tick."""
     from agent_utilities.core.schedule_engine import _MAINTENANCE_REF_ALLOWLIST
 
     assert "enrich_concepts" in _MAINTENANCE_REF_ALLOWLIST
