@@ -173,9 +173,15 @@
     {
       "id": "AU-SEMANTIC-R006.3",
       "title": "The SHACL pipeline gate and pack loader submit typed payloads instead of rdflib graphs",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "f235aa252a91"
+      ],
+      "verified_by": [
+        "tests/unit/knowledge_graph/pipeline/phases/test_shacl_gate_no_rdflib.py:22",
+        "tests/unit/knowledge_graph/pipeline/phases/test_shacl_gate_no_rdflib.py:53",
+        "tests/unit/knowledge_graph/pipeline/phases/test_shacl_gate_no_rdflib.py:80"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R006.4",

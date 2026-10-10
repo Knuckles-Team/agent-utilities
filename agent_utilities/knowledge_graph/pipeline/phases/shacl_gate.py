@@ -33,6 +33,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from ...core.workflow_gate import (
+    _turtle_integer_literal,
+    _turtle_string_literal,
+    _turtle_uri,
+)
 from ..types import PhaseResult, PipelineContext, PipelinePhase
 
 logger = logging.getLogger(__name__)
@@ -96,12 +101,14 @@ class EngineRdfProjectionError(RuntimeError):
     """
 
 
-def _data_graph_from_engine_rdf(graph: Any) -> Any | None:
-    """Build the SHACL data graph from the ENGINE's RDF projection (CONCEPT:AU-KG.compute.native-sparql-owl-shacl).
+def _data_graph_from_engine_rdf(graph: Any) -> str | None:
+    """Build the SHACL data document from the ENGINE's RDF projection (CONCEPT:AU-KG.compute.native-sparql-owl-shacl).
 
     Routes the SHACL *graph source* to the engine: pulls the canonical N-Triples
-    document from ``GetRdf`` (one round-trip over the live graph) and parses it
-    without datatype/language loss.
+    document from ``GetRdf`` (one round-trip over the live graph). N-Triples is
+    already syntactically valid Turtle (full ``<IRI>`` terms, one
+    period-terminated triple per line), so the document is returned as-is --
+    no rdflib parse/reserialize round-trip (AU-SEMANTIC-R006.3).
 
     Returns ``None`` for EXACTLY ONE condition -- no engine RDF surface is attached
     at all -- so the caller's fall back to per-node LPG iteration stays the
@@ -109,9 +116,9 @@ def _data_graph_from_engine_rdf(graph: Any) -> Any | None:
     (``GetRdf`` raising, or an empty projection over a non-empty graph) raises
     :class:`EngineRdfProjectionError` WITH its cause attached, because those mean the
     authoritative source is degraded and the caller must decide that explicitly
-    rather than inherit a silent downgrade (BUG-281). PySHACL is used only for this
-    advisory quarantine view; the native engine validator remains authoritative at
-    materialization time.
+    rather than inherit a silent downgrade (BUG-281). The native engine validator
+    remains authoritative at materialization time; this is only an advisory
+    quarantine view.
     """
     get_rdf = getattr(graph, "get_rdf", None)
     if get_rdf is None:
@@ -134,24 +141,18 @@ def _data_graph_from_engine_rdf(graph: Any) -> Any | None:
             )
         return None
 
-    import rdflib
-
-    g = rdflib.Graph()
-    kg = rdflib.Namespace(KG_NS)
-    g.bind("", kg)
-    g.bind("rdf", rdflib.RDF)
-    g.bind("rdfs", rdflib.RDFS)
-
-    g.parse(data=ntriples, format="nt")
-    return g
+    return ntriples if isinstance(ntriples, str) else ntriples.decode()
 
 
-def build_data_graph(graph: Any) -> Any:
-    """Materialize the LPG into an rdflib Graph in the kg# namespace.
+def build_data_graph(graph: Any) -> str:
+    """Materialize the LPG into a Turtle document in the kg# namespace.
 
     The data SHACL validates is sourced from the ENGINE's RDF projection first
     (``get_rdf`` -- one N-Triples round-trip over the live graph, CONCEPT:AU-KG.compute.native-sparql-owl-shacl); when no
-    engine is reachable this falls back to per-node iteration of the LPG.
+    engine is reachable this falls back to per-node iteration of the LPG,
+    rendered directly to Turtle text with the same hand-rolled serializer
+    helpers ``workflow_gate`` uses (AU-SEMANTIC-R006.3) -- no rdflib graph
+    object is constructed.
 
     Each node becomes ``kg:<id> rdf:type kg:<Class>`` plus its string/numeric
     properties as datatype-property assertions, so SHACL shapes targeting
@@ -164,44 +165,41 @@ def build_data_graph(graph: Any) -> Any:
     authoritative source is observable rather than silently tolerated.
     """
     try:
-        engine_graph = _data_graph_from_engine_rdf(graph)
+        engine_turtle = _data_graph_from_engine_rdf(graph)
     except EngineRdfProjectionError:
         logger.warning(
             "SHACL data graph: engine RDF projection degraded; falling back to "
             "per-node LPG iteration (advisory view only)",
             exc_info=True,
         )
-        engine_graph = None
-    if engine_graph is not None:
-        return engine_graph
+        engine_turtle = None
+    if engine_turtle is not None:
+        return engine_turtle
 
-    import rdflib
-
-    g = rdflib.Graph()
-    kg = rdflib.Namespace(KG_NS)
-    g.bind("", kg)
-    g.bind("rdf", rdflib.RDF)
-    g.bind("rdfs", rdflib.RDFS)
-
+    lines: list[str] = []
     for node_id, data in graph.nodes(data=True):
-        node_uri = kg[str(node_id).replace(" ", "_")]
+        node_uri = _turtle_uri(str(node_id).replace(" ", "_"))
         node_type = data.get("node_type", "Thing")
-        g.add((node_uri, rdflib.RDF.type, kg[_class_iri(node_type)]))
+        lines.append(f"{node_uri} a {_turtle_uri(_class_iri(node_type))} .")
         for key, value in data.items():
             if key in _SKIP_PROPS or key == "node_type":
                 continue
             if isinstance(value, bool):
                 continue
             if isinstance(value, str) and value:
-                g.add((node_uri, kg[key], rdflib.Literal(value)))
+                lines.append(
+                    f"{node_uri} {_turtle_uri(key)} {_turtle_string_literal(value)} ."
+                )
             elif isinstance(value, int | float):
-                g.add((node_uri, kg[key], rdflib.Literal(value)))
-    return g
+                lines.append(
+                    f"{node_uri} {_turtle_uri(key)} "
+                    f"{_turtle_integer_literal(int(value))} ."
+                )
+    return "\n".join(lines) + "\n"
 
 
 def _data_turtle(graph: Any) -> str:
-    rendered = build_data_graph(graph).serialize(format="turtle")
-    return rendered.decode() if isinstance(rendered, bytes) else str(rendered)
+    return build_data_graph(graph)
 
 
 def _result_node_id(focus_node: str) -> str:
