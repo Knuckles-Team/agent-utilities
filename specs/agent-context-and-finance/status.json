@@ -38,11 +38,13 @@
     {
       "id": "AU-CONTEXT-R002",
       "title": "Corpus re-embedding uses a governed shadow ANN swap",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "88c61dc9164c"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/decide/test_generation_cycle.py:187"
+      ]
     },
     {
       "id": "AU-CONTEXT-R003",
