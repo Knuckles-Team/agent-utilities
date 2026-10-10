@@ -34,12 +34,16 @@
     {
       "id": "AU-INTEGRATION-R001",
       "title": "Clustered mode deliberately refuses local-only agent writes",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "34481f825411",
+        "42f6dada3749",
         "daa321626142"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/orchestration/test_agent_library.py:204",
+        "tests/unit/test_native_cypher_routing.py:294"
+      ]
     },
     {
       "id": "AU-INTEGRATION-R002",
@@ -225,22 +229,32 @@
     {
       "id": "AU-INTEGRATION-R019",
       "title": "Messaging direct turns use a configured budget and never discard an over-budget run",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "003679966f78",
+        "42f6dada3749",
         "f94a3c109517"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/messaging/test_direct_reply_budget.py:20",
+        "tests/unit/messaging/test_direct_reply_budget.py:30",
+        "tests/unit/messaging/test_direct_reply_budget.py:39"
+      ]
     },
     {
       "id": "AU-INTEGRATION-R020",
       "title": "Outbound chat text never carries the run envelope",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "42f6dada3749",
         "6778d5dfd79b",
         "b1fd0469c010"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/messaging/test_run_envelope_unwrap.py:29",
+        "tests/unit/messaging/test_run_envelope_unwrap.py:36",
+        "tests/unit/messaging/test_run_envelope_unwrap.py:43"
+      ]
     },
     {
       "id": "AU-INTEGRATION-R021",

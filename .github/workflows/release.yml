@@ -335,11 +335,41 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EG_ENGINE_RELEASE_TAG: engine-main
+          GH_CLI_VERSION: '2.102.0'
         run: |
           set -uo pipefail
           dest="$RUNNER_TEMP/eg-wheel"
           mkdir -p "$dest"
-          if gh release download "$EG_ENGINE_RELEASE_TAG" -R Knuckles-Team/epistemic-graph \
+          # The homelab self-hosted runner (same-repo push/PR traffic, see
+          # `runs-on` above) has no `gh` binary on PATH -- unlike the
+          # GitHub-hosted `ubuntu-latest` fallback used for fork PRs, which
+          # ships it preinstalled. That silently degraded every self-hosted
+          # run straight past this fast path to the PyPI fallback ("gh:
+          # command not found", exit non-zero -> `if` takes the `else`
+          # branch), and the PyPI floor is capped at epistemic-graph<=2.23.0
+          # (the engine wheel exceeds the PyPI size limit -- see the
+          # `engine-release-order` job above), so that fallback always failed
+          # too -- the exact "PyPI fallback failed; engine tests skip" signature.
+          # Install a pinned `gh` from its own GitHub Release (tarball +
+          # checksum verified against that release's own checksums file, no
+          # piped installer script) when it is missing, rather than assuming
+          # the runner image carries it.
+          if ! command -v gh >/dev/null 2>&1; then
+            gh_dir="$RUNNER_TEMP/gh-cli"
+            mkdir -p "$gh_dir"
+            tarball="gh_${GH_CLI_VERSION}_linux_amd64.tar.gz"
+            base_url="https://github.com/cli/cli/releases/download/v${GH_CLI_VERSION}"
+            if curl -fsSL "$base_url/$tarball" -o "$gh_dir/$tarball" \
+                 && curl -fsSL "$base_url/gh_${GH_CLI_VERSION}_checksums.txt" -o "$gh_dir/checksums.txt" \
+                 && (cd "$gh_dir" && sha256sum --check --ignore-missing checksums.txt) \
+                 && tar -xzf "$gh_dir/$tarball" -C "$gh_dir"; then
+              echo "$gh_dir/gh_${GH_CLI_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
+              export PATH="$gh_dir/gh_${GH_CLI_VERSION}_linux_amd64/bin:$PATH"
+            else
+              echo "::warning title=gh CLI install failed::could not install gh ${GH_CLI_VERSION}; engine wheel fast path unavailable this run."
+            fi
+          fi
+          if command -v gh >/dev/null 2>&1 && gh release download "$EG_ENGINE_RELEASE_TAG" -R Knuckles-Team/epistemic-graph \
                -p 'epistemic_graph-*manylinux*x86_64.whl' -p SHA256SUMS -D "$dest" \
              && (cd "$dest" && sha256sum --check --ignore-missing SHA256SUMS); then
             source_sha="$(gh release view "$EG_ENGINE_RELEASE_TAG" -R Knuckles-Team/epistemic-graph --json targetCommitish --jq .targetCommitish)"
