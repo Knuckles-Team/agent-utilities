@@ -20,6 +20,11 @@
     "AU-BOUNDARY-R002.1",
     "AU-BOUNDARY-R002.2",
     "AU-BOUNDARY-R002.3",
+    "AU-BOUNDARY-R002.3.1",
+    "AU-BOUNDARY-R002.3.2",
+    "AU-BOUNDARY-R002.3.3",
+    "AU-BOUNDARY-R002.3.4",
+    "AU-BOUNDARY-R002.3.5",
     "AU-BOUNDARY-R003",
     "AU-BOUNDARY-R003.1",
     "AU-BOUNDARY-R003.2",
@@ -355,6 +360,48 @@
     },
     {
       "id": "AU-BOUNDARY-R002.3",
+      "title": "ROLLUP: delete `agent_utilities/deployment/certification_oidc.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R002.3.1",
+        "AU-BOUNDARY-R002.3.2",
+        "AU-BOUNDARY-R002.3.3",
+        "AU-BOUNDARY-R002.3.4",
+        "AU-BOUNDARY-R002.3.5"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R002.3.1",
+      "title": "Record the graph-os owner of the ephemeral loopback OIDC certification authority",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R002.3.2",
+      "title": "Repoint or remove the `certification_oidc` import in `agent_utilities/deployment/skill_validation.py` and `agent_utilities/deployment/skill_validation_assets.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R002.3.3",
+      "title": "Delete `scripts/certification/loopback_oidc.py` and `tests/unit/scripts/test_loopback_oidc.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R002.3.4",
+      "title": "Remove `agent_utilities/deployment/certification_oidc.py` from the path lists in `scripts/check_http_egress_boundary.py` and `scripts/release/check_release_wheel.py`, and its docstring mention in `scripts/security/check_http_egress_boundary_gate.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R002.3.5",
       "title": "Delete `agent_utilities/deployment/certification_oidc.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
