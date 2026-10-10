@@ -63,12 +63,14 @@ from agent_utilities.knowledge_graph.ontology.connector_manifest import (  # noq
     SyncSpec,
     nearest_hub_class,
 )
-from agent_utilities.knowledge_graph.ontology.manifest_compiler import (  # noqa: E402
-    compile_manifest,
-    export_manifest_ttl,
-)
 from agent_utilities.orchestration.fleet_reconciler import (  # noqa: E402
     registry_server_alias,
+)
+from agent_connector_sdk.manifest.model import (  # noqa: E402
+    ConnectorManifest as SDKConnectorManifest,
+)
+from agent_connector_sdk.manifest.ontology_pack import (  # noqa: E402
+    compile_manifest_ontology,
 )
 
 _XSD_NS = "http://www.w3.org/2001/XMLSchema#"
@@ -763,7 +765,6 @@ def build_manifest(
         "predicate has been reviewed for this connector."
     )
 
-    source_slug = ontology_source or connector
     placeholder = ConnectorManifest(
         connector=connector,
         ontology_source=(ontology_source or ""),
@@ -779,8 +780,15 @@ def build_manifest(
         review_todos=sorted(set(todos)),
     )
 
-    spec = compile_manifest(placeholder)
-    ttl = export_manifest_ttl(spec, source=source_slug)
+    # AU-BOUNDARY-R030.2: compile through the SDK's typed, source-agnostic
+    # pack compiler (agent_connector_sdk.manifest.ontology_pack) instead of
+    # AU's local manifest_compiler.compile_manifest/export_manifest_ttl pair —
+    # re-validate the placeholder against the SDK's own ConnectorManifest the
+    # same way connector_manifest_gate._compiled_manifest_graph does.
+    sdk_manifest = SDKConnectorManifest.model_validate(
+        placeholder.model_dump(mode="python")
+    )
+    ttl = compile_manifest_ontology(sdk_manifest)
     import rdflib
 
     g = rdflib.Graph()
