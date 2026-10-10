@@ -837,9 +837,6 @@ graph-os-generate-skill-runtime-profile = "agent_utilities.deployment.skill_vali
 graph-os-generate-skill-certification = "agent_utilities.deployment.skill_validation_assets:generator_main"
 graph-os-skill-readiness = "agent_utilities.deployment.skill_validation_assets:readiness_main"
 graph-os-verify-skill-certification = "agent_utilities.deployment.skill_validation_assets:verifier_main"
-# CONCEPT:KG-2.57 — decoupled kg-ingest consumer-group worker (engine client, no
-# KG host role); also `python -m agent_utilities.knowledge_graph.ingest_worker`.
-kg-ingest-worker = "agent_utilities.knowledge_graph.ingest_worker:main"
 # CONCEPT:AU-ORCH.dispatch.agents-as-data-activation (ADR-6/W2.3) — the stateless
 # agents-as-data activation worker: claims agent_activation WorkItems via the CAS
 # lease and runs dormant statechart-agents on demand (engine client, no KG host role).
