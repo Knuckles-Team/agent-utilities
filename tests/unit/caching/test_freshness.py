@@ -110,6 +110,7 @@ def test_a_declared_bound_only_caps_the_callers_tolerance() -> None:
     assert combine_tolerance(3_600, 0.0) is None, "a live class refuses outright"
 
 
+@pytest.mark.spec("AU-SEC-R003")
 def test_a_learned_rate_never_lengthens_a_declared_ttl() -> None:
     rates = ChangeRateEstimator(min_observations=2)
     for at in (0.0, 10.0, 20.0):
@@ -124,6 +125,7 @@ def test_a_learned_rate_never_lengthens_a_declared_ttl() -> None:
     assert ChangeRateEstimator().learned_ttl("Unseen") is None
 
 
+@pytest.mark.spec("AU-SEC-R003")
 def test_class_events_drop_only_their_classes_and_advance_the_cursor() -> None:
     clock = _Clock()
     hub, target = _hub(clock), _Target()
