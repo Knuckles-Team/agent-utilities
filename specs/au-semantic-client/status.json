@@ -252,10 +252,11 @@
     },
     {
       "id": "AU-SEMANTIC-R008.2.1",
-      "title": "What landed for R008.2 so far",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: nothing landed; the remaining scope lives in the sibling rows",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "nothing landed; the remaining scope lives in the sibling rows"
     },
     {
       "id": "AU-SEMANTIC-R008.2.2",
@@ -373,10 +374,11 @@
     },
     {
       "id": "AU-SEMANTIC-R011.1",
-      "title": "What landed for R011 so far",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: nothing landed; the remaining scope lives in the sibling rows",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "nothing landed; the remaining scope lives in the sibling rows"
     },
     {
       "id": "AU-SEMANTIC-R011.2",
@@ -622,10 +624,11 @@
     },
     {
       "id": "AU-SEMANTIC-R019.1",
-      "title": "What landed for R019 so far",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: nothing landed; the remaining scope lives in the sibling rows",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "nothing landed; the remaining scope lives in the sibling rows"
     },
     {
       "id": "AU-SEMANTIC-R019.2",
