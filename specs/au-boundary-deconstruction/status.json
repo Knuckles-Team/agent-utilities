@@ -235,9 +235,13 @@
     {
       "id": "AU-BOUNDARY-R001.1",
       "title": "Record what actually landed for the gateway retirement",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "65d9961401fd"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_landed_records.py:51"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R001.2",
@@ -277,8 +281,10 @@
     {
       "id": "AU-BOUNDARY-R001.4.1",
       "title": "Stop mounting `registry_api` routes from `agent_utilities/gateway/graph_api.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8bc78cbdfda1"
+      ],
       "verified_by": [
         "tests/unit/gateway/test_remote_oauth_api.py:194"
       ]
@@ -457,9 +463,13 @@
     {
       "id": "AU-BOUNDARY-R003.1",
       "title": "Record what actually landed for the legacy MCP host retirement",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "65d9961401fd"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_landed_records.py:57"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R003.2",
@@ -687,9 +697,13 @@
     {
       "id": "AU-BOUNDARY-R004.1",
       "title": "Record what actually landed for the multiplexer-family retirement",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "65d9961401fd"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_landed_records.py:70"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R004.2",
@@ -923,9 +937,13 @@
     {
       "id": "AU-BOUNDARY-R010.1",
       "title": "Record what actually landed for the connector-toolkit deletion",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "635f38f64aca"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r010_r048_landed_records.py:12"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R010.2",
@@ -2116,9 +2134,13 @@
     {
       "id": "AU-BOUNDARY-R048.1",
       "title": "`images/` is already relocated",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "635f38f64aca"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r010_r048_landed_records.py:18"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R048.2",

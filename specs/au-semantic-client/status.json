@@ -743,9 +743,14 @@
     {
       "id": "AU-SEMANTIC-R019.6.1",
       "title": "The reactive placement-mining tick is removed from the engine scheduler",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "6b889c64f003"
+      ],
+      "verified_by": [
+        "tests/gates/test_au_semantic_r019_6_1_tick_removed.py:18",
+        "tests/gates/test_au_semantic_r019_6_1_tick_removed.py:24"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R019.6.2",
