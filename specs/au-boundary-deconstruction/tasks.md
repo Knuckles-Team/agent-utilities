@@ -42,6 +42,15 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [x] **AU-BOUNDARY-R044.1:** Typed inventory of orchestration paths pending move to graph-os
 - [x] **AU-BOUNDARY-R045.1:** Typed inventory of unplaced knowledge_graph packages pending move
 - [x] **AU-BOUNDARY-R047.1:** Typed inventory of engine-facing adapters pending thin-client cutover
+- [x] **AU-BOUNDARY-R030.1:** Record what has already landed for the emitter cutover (SDK pack compilation + gate call site landed; 4 callers and 3 new modules remain).
+- [ ] **AU-BOUNDARY-R030.2:** Wire `scripts/generate_connector_manifests.py` off the local manifest compiler onto the SDK pack compiler.
+- [ ] **AU-BOUNDARY-R030.3:** Wire `scripts/update_ontology_lock.py` off the local manifest compiler onto the SDK pack compiler.
+- [ ] **AU-BOUNDARY-R030.4:** Wire `scripts/generate_native_connector_manifest.py` off the local manifest compiler onto the SDK pack compiler.
+- [ ] **AU-BOUNDARY-R030.5:** Wire `agent_utilities/knowledge_graph/domain_packs/pack_loader.py` off the local manifest compiler onto the SDK pack compiler.
+- [ ] **AU-BOUNDARY-R030.6:** Delete `agent_utilities/knowledge_graph/ontology/manifest_compiler.py` once it has zero importers.
+- [ ] **AU-BOUNDARY-R030.7:** Add `agent_utilities/knowledge_graph/core/ontology_publisher.py`, the typed AU declaration publisher.
+- [ ] **AU-BOUNDARY-R030.8:** Add `agent_utilities/knowledge_graph/extraction/schema_discovery.py`, the EG-pack-compilation-backed schema discovery module.
+- [ ] **AU-BOUNDARY-R030.9:** Add `scripts/scaffold_ontology_leg.py`, the scaffold script for a new ontology leg via EG pack compilation.
 - [ ] **AU-BOUNDARY-R005.1:** A-E connector import census (PR #150, `79dc21bab`) that moved R005 to LANDED; `status.json`'s `landed_in` SHA is wrong (points at the unrelated `AU-HARNESS-R005.1` merge, not an A-E connector change).
 - [ ] **AU-BOUNDARY-R005.2:** Migrate `ansible-tower-mcp`, `audiobookshelf-mcp`, `ciso-assistant-api`, `data-science-mcp` off the banned AU imports the census missed.
 - [ ] **AU-BOUNDARY-R007.1:** K-O connector import census (PR #150, `79dc21bab`) that moved R007 to LANDED; `status.json`'s `landed_in` SHA is wrong (points at the unrelated `AU-HARNESS-R005.1` merge, not a K-O connector change).

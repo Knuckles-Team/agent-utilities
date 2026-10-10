@@ -140,6 +140,15 @@
     "AU-BOUNDARY-R028.8.1",
     "AU-BOUNDARY-R029",
     "AU-BOUNDARY-R030",
+    "AU-BOUNDARY-R030.1",
+    "AU-BOUNDARY-R030.2",
+    "AU-BOUNDARY-R030.3",
+    "AU-BOUNDARY-R030.4",
+    "AU-BOUNDARY-R030.5",
+    "AU-BOUNDARY-R030.6",
+    "AU-BOUNDARY-R030.7",
+    "AU-BOUNDARY-R030.8",
+    "AU-BOUNDARY-R030.9",
     "AU-BOUNDARY-R031",
     "AU-BOUNDARY-R032",
     "AU-BOUNDARY-R033",
@@ -1388,7 +1397,7 @@
     {
       "id": "AU-BOUNDARY-R030",
       "title": "Move hand-written ontology emitters behind EG pack compilation",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1446fc4c3db5",
         "5e15da9f9e40",
@@ -1396,6 +1405,80 @@
         "bcdde1ec1a57",
         "c7fc09d3d2f6"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R030.1",
+        "AU-BOUNDARY-R030.2",
+        "AU-BOUNDARY-R030.3",
+        "AU-BOUNDARY-R030.4",
+        "AU-BOUNDARY-R030.5",
+        "AU-BOUNDARY-R030.6",
+        "AU-BOUNDARY-R030.7",
+        "AU-BOUNDARY-R030.8",
+        "AU-BOUNDARY-R030.9"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R030.1",
+      "title": "Record what has already landed for the emitter cutover",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R030.2",
+      "title": "Wire `scripts/generate_connector_manifests.py` off the local manifest compiler",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R030.3",
+      "title": "Wire `scripts/update_ontology_lock.py` off the local manifest compiler",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R030.4",
+      "title": "Wire `scripts/generate_native_connector_manifest.py` off the local manifest compiler",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R030.5",
+      "title": "Wire `agent_utilities/knowledge_graph/domain_packs/pack_loader.py` off the local manifest compiler",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R030.6",
+      "title": "Delete `agent_utilities/knowledge_graph/ontology/manifest_compiler.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R030.7",
+      "title": "Add `agent_utilities/knowledge_graph/core/ontology_publisher.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R030.8",
+      "title": "Add `agent_utilities/knowledge_graph/extraction/schema_discovery.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R030.9",
+      "title": "Add `scripts/scaffold_ontology_leg.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
