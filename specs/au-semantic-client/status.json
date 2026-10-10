@@ -441,7 +441,11 @@
       "title": "Delete `agent_utilities/knowledge_graph/analytics_worker.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_semantic_r011_10_deleted.py:31",
+        "tests/gates/test_semantic_r011_10_deleted.py:40",
+        "tests/gates/test_semantic_r011_10_deleted.py:60"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R011.11",
