@@ -114,7 +114,8 @@
       "landed_in": [
         "2acbf25f8bb2",
         "c7483960ebb0",
-        "eba6b8e9a661"
+        "eba6b8e9a661",
+        "f63aeb608cc2"
       ],
       "verified_by": [
         "tests/unit/security/test_scope_registry.py:62",
@@ -140,7 +141,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "3fb99d2ff295",
-        "e2b2152f1396"
+        "e2b2152f1396",
+        "f63aeb608cc2"
       ],
       "verified_by": [
         "tests/unit/knowledge_graph/core/test_tenant_registry_control_graph.py:187"

@@ -1522,6 +1522,7 @@
       "title": "Ship a typed inventory of the AU-BOUNDARY-R019 facade modules",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "0fbe4bf46720",
         "8b325ddf1818"
       ],
       "verified_by": [
