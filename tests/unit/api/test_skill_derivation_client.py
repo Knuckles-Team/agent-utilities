@@ -1,6 +1,11 @@
-"""AU-SEMANTIC-R009.1: typed contract + fail-closed refusal tests."""
+"""AU-SEMANTIC-R009.1/.2.1: typed contract, fail-closed refusal, and the
+real-call wiring once EG's generated client exposes the op.
+"""
 
 from __future__ import annotations
+
+import sys
+import types
 
 import pytest
 
@@ -53,3 +58,42 @@ def test_resolve_fails_closed_while_eg_op_is_absent() -> None:
 
 def test_unavailable_error_is_a_runtime_error_not_a_default_value() -> None:
     assert issubclass(RunnableSkillDerivationUnavailableError, RuntimeError)
+
+
+@pytest.mark.spec("AU-SEMANTIC-R009.2.1")
+def test_resolve_wires_the_real_call_once_eg_ships_the_op(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Once EG's generated SourceIngestClient exposes the op, the resolver
+    must delegate to it rather than continuing to refuse.
+    """
+
+    class _FakeSourceIngestClient:
+        def runnable_skill_derivation(
+            self, request: RunnableSkillDerivationRequest
+        ) -> RunnableSkillDerivationResponse:
+            return RunnableSkillDerivationResponse(
+                skill_id="skill-fake", derivation_receipt_id="receipt-fake"
+            )
+
+    fake_module = types.ModuleType("epistemic_graph.generated.source_ingest")
+    fake_module.SourceIngestClient = _FakeSourceIngestClient  # type: ignore[attr-defined]
+    monkeypatch.setitem(
+        sys.modules, "epistemic_graph.generated.source_ingest", fake_module
+    )
+    monkeypatch.setitem(
+        sys.modules, "epistemic_graph", types.ModuleType("epistemic_graph")
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "epistemic_graph.generated",
+        types.ModuleType("epistemic_graph.generated"),
+    )
+
+    client = resolve_runnable_skill_derivation_client()
+
+    assert isinstance(client, RunnableSkillDerivationClient)
+    response = client.runnable_skill_derivation(
+        RunnableSkillDerivationRequest(source_envelope_id="env-1", tenant_id="t-1")
+    )
+    assert response.skill_id == "skill-fake"

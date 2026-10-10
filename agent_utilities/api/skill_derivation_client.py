@@ -7,7 +7,7 @@ EG-REPO-INGEST-R002's ``skill_workflow_ingest`` capability), and it fails
 closed -- raising, never returning a stub or default value -- for as long as
 that op is absent from the installed generated contract.
 
-AU-SEMANTIC-R009.2 swaps :func:`resolve_runnable_skill_derivation_client`'s
+AU-SEMANTIC-R009.2.1 swaps :func:`resolve_runnable_skill_derivation_client`'s
 body to call the real generated method once EG publishes it; the typed
 request/response/Protocol shapes here are expected to survive that swap
 unchanged.
@@ -64,9 +64,10 @@ class RunnableSkillDerivationUnavailableError(RuntimeError):
 def resolve_runnable_skill_derivation_client() -> RunnableSkillDerivationClient:
     """Resolve the generated EG client's ``runnable_skill_derivation`` op.
 
-    Fails closed with :class:`RunnableSkillDerivationUnavailableError` until
-    EG-REPO-INGEST-R002 ships the op on the generated ``SourceIngest``
-    client (AU-SEMANTIC-R009.2 wires the real call here).
+    Fails closed with :class:`RunnableSkillDerivationUnavailableError` while
+    EG has not shipped the op on the generated ``SourceIngest`` client
+    (tracked by EG-REPO-INGEST-R002); once it has, returns the real client
+    (AU-SEMANTIC-R009.2.1).
     """
     try:
         from epistemic_graph.generated.source_ingest import (  # type: ignore[import-not-found]
@@ -87,8 +88,7 @@ def resolve_runnable_skill_derivation_client() -> RunnableSkillDerivationClient:
             "(AU-SEMANTIC-R009.1 fail-closed refusal)"
         )
 
-    raise RunnableSkillDerivationUnavailableError(
-        "runnable_skill_derivation was detected on the generated client but "
-        "AU-SEMANTIC-R009.2 has not yet wired the real call; refusing "
-        "rather than guessing at call semantics"
-    )
+    # AU-SEMANTIC-R009.2.1: the op is present on the installed generated
+    # client -- delegate to it rather than refusing. The instance returned
+    # here satisfies RunnableSkillDerivationClient structurally.
+    return SourceIngestClient()
