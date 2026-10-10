@@ -2,9 +2,11 @@
   "schema_version": 2,
   "spec_id": "AU-RETIRE-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-RETIRE-R001",
+    "AU-RETIRE-R001.1",
+    "AU-RETIRE-R001.2",
     "AU-RETIRE-R002",
     "AU-RETIRE-R003",
     "AU-RETIRE-R003.1",
@@ -20,10 +22,30 @@
     {
       "id": "AU-RETIRE-R001",
       "title": "Complete inventory and retirement of duplicate graph engine code",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "6a408267e403"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-RETIRE-R001.1",
+        "AU-RETIRE-R001.2"
+      ]
+    },
+    {
+      "id": "AU-RETIRE-R001.1",
+      "title": "Census recorded no safe disposition yet for `graph_compute.py` or `formal_reasoning_core.py`",
       "delivery_state": "LANDED",
       "landed_in": [
         "6a408267e403"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETIRE-R001.2",
+      "title": "Open the cross-repo spec item enumerating EG-native equivalents",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
