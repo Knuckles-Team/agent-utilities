@@ -173,36 +173,71 @@ def _find_workflow(
 # ---------------------------------------------------------------------------
 
 
-def _build_workflow_rdf(
+_XSD_INTEGER = "<http://www.w3.org/2001/XMLSchema#integer>"
+
+
+def _turtle_uri(local: str) -> str:
+    """Render a ``kg#``-namespaced local name as a full Turtle IRI ref."""
+    return f"<{KG_NS}{local}>"
+
+
+def _turtle_string_literal(value: str) -> str:
+    """Escape ``value`` into a Turtle short-form string literal."""
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
+    return f'"{escaped}"'
+
+
+def _turtle_integer_literal(value: int) -> str:
+    return f'"{int(value)}"^^{_XSD_INTEGER}'
+
+
+def _build_workflow_turtle(
     workflow_id: str, props: dict[str, Any], steps: list[dict[str, Any]]
-) -> Any:
-    """Materialize the stored definition into a focused rdflib graph (kg# ns)."""
-    import rdflib
+) -> str:
+    """Materialize the stored definition as a focused Turtle document (kg# ns).
 
-    g = rdflib.Graph()
-    kg = rdflib.Namespace(KG_NS)
-    g.bind("", kg)
+    Builds the request body directly from the typed ``props``/``steps``
+    payload AU already holds — no local RDF graph object is constructed.
+    """
+    lines: list[str] = []
 
-    wf_uri = kg[str(workflow_id).replace(" ", "_")]
-    g.add((wf_uri, rdflib.RDF.type, kg.WorkflowDefinition))
+    wf_uri = _turtle_uri(str(workflow_id).replace(" ", "_"))
+    lines.append(f"{wf_uri} a {_turtle_uri('WorkflowDefinition')} .")
     name = props.get("name")
     if isinstance(name, str) and name:
-        g.add((wf_uri, kg.name, rdflib.Literal(name)))
+        lines.append(
+            f"{wf_uri} {_turtle_uri('name')} {_turtle_string_literal(name)} ."
+        )
     step_count = props.get("step_count")
     if isinstance(step_count, int | float):
-        g.add((wf_uri, kg.step_count, rdflib.Literal(int(step_count))))
+        lines.append(
+            f"{wf_uri} {_turtle_uri('step_count')} "
+            f"{_turtle_integer_literal(int(step_count))} ."
+        )
 
     for step in steps:
         sid = str(step.get("sid") or f"{workflow_id}:step").replace(" ", "_")
-        step_uri = kg[sid]
-        g.add((step_uri, rdflib.RDF.type, kg.WorkflowStep))
+        step_uri = _turtle_uri(sid)
+        lines.append(f"{step_uri} a {_turtle_uri('WorkflowStep')} .")
         node_id = step.get("node_id")
         if isinstance(node_id, str) and node_id:
-            g.add((step_uri, kg.node_id, rdflib.Literal(node_id)))
+            lines.append(
+                f"{step_uri} {_turtle_uri('node_id')} "
+                f"{_turtle_string_literal(node_id)} ."
+            )
         order = step.get("step_order")
         if isinstance(order, int | float):
-            g.add((step_uri, kg.step_order, rdflib.Literal(int(order))))
-    return g
+            lines.append(
+                f"{step_uri} {_turtle_uri('step_order')} "
+                f"{_turtle_integer_literal(int(order))} ."
+            )
+    return "\n".join(lines) + "\n"
 
 
 def _validate_workflow_shape(
@@ -213,9 +248,7 @@ def _validate_workflow_shape(
 ) -> dict[str, Any]:
     """Validate the focused workflow through committed EG GraphSchema."""
 
-    data_graph = _build_workflow_rdf(workflow_id, props, steps)
-    rendered = data_graph.serialize(format="turtle")
-    turtle = rendered.decode() if isinstance(rendered, bytes) else str(rendered)
+    turtle = _build_workflow_turtle(workflow_id, props, steps)
     report = _committed_shacl_report(engine, turtle)
     return {
         "conforms": bool(report.conforms),

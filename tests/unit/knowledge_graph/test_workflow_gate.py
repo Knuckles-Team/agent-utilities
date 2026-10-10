@@ -193,6 +193,60 @@ def _governed_permission_state(monkeypatch):
     monkeypatch.setattr(cbr, "_BRAIN", None)
 
 
+class TestNoLocalRdflibGraph:
+    """AU-SEMANTIC-R006.2 — the gate submits a typed payload, not an
+    ``rdflib.Graph()``, to EG's committed SHACL validator.
+    """
+
+    @pytest.mark.spec("AU-SEMANTIC-R006.2")
+    def test_workflow_gate_module_does_not_import_rdflib(self):
+        import ast
+        import inspect
+
+        from agent_utilities.knowledge_graph.core import workflow_gate
+
+        source = inspect.getsource(workflow_gate)
+        tree = ast.parse(source)
+        imported_names = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported_names.update(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported_names.add(node.module.split(".")[0])
+        assert "rdflib" not in imported_names
+
+    @pytest.mark.spec("AU-SEMANTIC-R006.2")
+    def test_turtle_payload_is_built_without_an_rdflib_graph_object(self):
+        """The typed payload is rendered as plain Turtle text, not via
+        ``rdflib.Graph.serialize`` — proven by asserting the builder's return
+        type is ``str`` and the module carries no ``rdflib`` symbol at all.
+        """
+        from agent_utilities.knowledge_graph.core import workflow_gate
+
+        turtle = workflow_gate._build_workflow_turtle(
+            "workflow:demo:1",
+            {"name": "demo", "step_count": 2},
+            [{"sid": "workflow:demo:1:step:0", "node_id": "review", "step_order": 0}],
+        )
+        assert isinstance(turtle, str)
+        assert "WorkflowDefinition" in turtle
+        assert "demo" in turtle
+        assert not hasattr(workflow_gate, "rdflib")
+
+    @pytest.mark.spec("AU-SEMANTIC-R006.2")
+    def test_engine_path_still_validates_a_real_workflow_end_to_end(self):
+        """Behavior through the typed-payload path matches the prior
+        rdflib-graph path: a conformant workflow still passes the engine's
+        committed-SHACL gate.
+        """
+        engine = FakeEngine()
+        wid = _seed_workflow(engine)
+        gate = gate_workflow_execution(engine, "invoice_flow")
+        assert gate["allowed"] is True
+        assert gate["workflow_id"] == wid
+        assert gate["violations"] == []
+
+
 class TestShapeGate:
     def test_valid_workflow_passes(self):
         engine = FakeEngine()
