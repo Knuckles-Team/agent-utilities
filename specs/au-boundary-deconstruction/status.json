@@ -122,6 +122,14 @@
     "AU-BOUNDARY-R011.5",
     "AU-BOUNDARY-R012",
     "AU-BOUNDARY-R013",
+    "AU-BOUNDARY-R013.1",
+    "AU-BOUNDARY-R013.2",
+    "AU-BOUNDARY-R013.3",
+    "AU-BOUNDARY-R013.4",
+    "AU-BOUNDARY-R013.5",
+    "AU-BOUNDARY-R013.6",
+    "AU-BOUNDARY-R013.7",
+    "AU-BOUNDARY-R013.8",
     "AU-BOUNDARY-R014",
     "AU-BOUNDARY-R014.1",
     "AU-BOUNDARY-R014.2",
@@ -1261,14 +1269,80 @@
     {
       "id": "AU-BOUNDARY-R013",
       "title": "Restrict graph-os to AU's public API only",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "4a5540dd2e3d",
         "5b4e8d0a31d0"
       ],
       "verified_by": [
         "tests/unit/test_api_messaging.py:12"
+      ],
+      "rollup_of": [
+        "AU-BOUNDARY-R013.1",
+        "AU-BOUNDARY-R013.2",
+        "AU-BOUNDARY-R013.3",
+        "AU-BOUNDARY-R013.4",
+        "AU-BOUNDARY-R013.5",
+        "AU-BOUNDARY-R013.6",
+        "AU-BOUNDARY-R013.7",
+        "AU-BOUNDARY-R013.8"
       ]
+    },
+    {
+      "id": "AU-BOUNDARY-R013.1",
+      "title": "Export `persistence_reference` from `agent_utilities.api.persistence_privacy` with an import test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R013.2",
+      "title": "Export `Orchestrator` from `agent_utilities.api.orchestration` with an import test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R013.3",
+      "title": "Export the `work_durability` module from `agent_utilities.api.work_durability` with an import test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R013.4",
+      "title": "Export `KIND_ORCHESTRATOR_TASK`, `AgentTurnEnvelope`, `enqueue_agent_turn` from `agent_utilities.api.agent_dispatch` with an import test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R013.5",
+      "title": "Export `trace_id` from `agent_utilities.api.trace_ontology` with an import test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R013.6",
+      "title": "Export `ACTION_APPROVAL_KIND`, `approval_lease_to_props` from `agent_utilities.api.action_policy` with an import test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R013.7",
+      "title": "Export `ElevationRequest`, `ElevationApproval`, `ElevationRevocation` from `agent_utilities.api.elevation` with an import test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R013.8",
+      "title": "Export `ElevationService`, `ElevationSurface` from `agent_utilities.api.elevation` with an import test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R014",
