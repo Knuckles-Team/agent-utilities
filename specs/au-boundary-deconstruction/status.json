@@ -23,10 +23,19 @@
     "AU-BOUNDARY-R009.1",
     "AU-BOUNDARY-R010",
     "AU-BOUNDARY-R011",
+    "AU-BOUNDARY-R011.1",
+    "AU-BOUNDARY-R011.2",
+    "AU-BOUNDARY-R011.3",
+    "AU-BOUNDARY-R011.4",
+    "AU-BOUNDARY-R011.5",
     "AU-BOUNDARY-R012",
     "AU-BOUNDARY-R013",
     "AU-BOUNDARY-R014",
+    "AU-BOUNDARY-R014.1",
+    "AU-BOUNDARY-R014.2",
     "AU-BOUNDARY-R015",
+    "AU-BOUNDARY-R015.1",
+    "AU-BOUNDARY-R015.2",
     "AU-BOUNDARY-R016",
     "AU-BOUNDARY-R016.1",
     "AU-BOUNDARY-R017",
@@ -47,6 +56,9 @@
     "AU-BOUNDARY-R022.2",
     "AU-BOUNDARY-R023",
     "AU-BOUNDARY-R024",
+    "AU-BOUNDARY-R024.1",
+    "AU-BOUNDARY-R024.2",
+    "AU-BOUNDARY-R024.3",
     "AU-BOUNDARY-R025",
     "AU-BOUNDARY-R026",
     "AU-BOUNDARY-R027",
@@ -267,10 +279,52 @@
     {
       "id": "AU-BOUNDARY-R011",
       "title": "Delete AU's source lifecycle and certification code",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "2456745c1e4d"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R011.1",
+        "AU-BOUNDARY-R011.2",
+        "AU-BOUNDARY-R011.3",
+        "AU-BOUNDARY-R011.4",
+        "AU-BOUNDARY-R011.5"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R011.1",
+      "title": "Record that AU-BOUNDARY-R011 has not started",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R011.2",
+      "title": "Delete `protocols/universal_connector.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R011.3",
+      "title": "Delete the `protocols/source_connectors/",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R011.4",
+      "title": "Delete `knowledge_graph/integrations/connector_certification.py`, `connector_certification_cli.py`, and `connector_source_attestation.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R011.5",
+      "title": "Delete `knowledge_graph/ontology/connector_manifest.py`, `connector_manifest_gate.py`, and `connector_manifests/",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -295,7 +349,7 @@
     {
       "id": "AU-BOUNDARY-R014",
       "title": "Move graph-os boundary modules out of AU",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "3254358d61d6",
         "63731a44a881",
@@ -303,15 +357,51 @@
         "8b3510fcb2eb",
         "d09cad07e875"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R014.1",
+        "AU-BOUNDARY-R014.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R014.1",
+      "title": "Record that AU-BOUNDARY-R014 has not started",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R014.2",
+      "title": "Move `knowledge_graph/readiness.py` to graph-os",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R015",
       "title": "Move the agent HTTP and A2A/ACP host out of AU",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "2456745c1e4d"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R015.1",
+        "AU-BOUNDARY-R015.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R015.1",
+      "title": "Record that AU-BOUNDARY-R015 has not started",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R015.2",
+      "title": "Delete `protocols/a2a_epistemic.py` and drop the `agent-utilities-acp` script",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -505,10 +595,36 @@
     {
       "id": "AU-BOUNDARY-R024",
       "title": "Move enterprise source synchronization to the SDK",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "743e98cda405"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R024.1",
+        "AU-BOUNDARY-R024.2",
+        "AU-BOUNDARY-R024.3"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R024.1",
+      "title": "Record that AU-BOUNDARY-R024 has not started",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R024.2",
+      "title": "Move `knowledge_graph/core/source_sync.py` to the agent connector SDK as a runner",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R024.3",
+      "title": "Move `knowledge_graph/governance_import.py` to the SDK",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {

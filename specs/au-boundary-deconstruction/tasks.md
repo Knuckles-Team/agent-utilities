@@ -48,3 +48,15 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R007.2:** Migrate `keycloak-agent`, `langfuse-agent`, `leanix-agent`, `microsoft-agent`, `opensearch-mcp` off the banned AU imports the census missed.
 - [ ] **AU-BOUNDARY-R008.1:** P-S connector import census (PR #150, `79dc21bab`) that moved R008 to LANDED; `status.json`'s `landed_in` SHA is wrong (points at the unrelated `AU-HARNESS-R005.1` merge, not a P-S connector change).
 - [ ] **AU-BOUNDARY-R008.2:** Migrate `paperless-ngx-mcp`, `pulselink-mcp`, `repository-manager`, `rom-manager`, `systems-manager` off the banned AU imports the census missed.
+- [ ] **AU-BOUNDARY-R011.1:** Record that R011's deletions (universal_connector, source_connectors, certification, manifest) have not started.
+- [ ] **AU-BOUNDARY-R011.2:** Delete `protocols/universal_connector.py` and fix its importers.
+- [ ] **AU-BOUNDARY-R011.3:** Delete the `protocols/source_connectors/**` package and fix its importers.
+- [ ] **AU-BOUNDARY-R011.4:** Delete `knowledge_graph/integrations/connector_certification.py`, `connector_certification_cli.py`, `connector_source_attestation.py` and fix their importers.
+- [ ] **AU-BOUNDARY-R011.5:** Delete `knowledge_graph/ontology/connector_manifest.py`, `connector_manifest_gate.py`, `connector_manifests/**`, and drop `graph-os-certify-connector`.
+- [ ] **AU-BOUNDARY-R014.1:** Record that R014's moves, including `knowledge_graph/readiness.py`, have not started.
+- [ ] **AU-BOUNDARY-R014.2:** Move `knowledge_graph/readiness.py` to graph-os and delete the AU copy.
+- [ ] **AU-BOUNDARY-R015.1:** Record that R015's moves, including `protocols/a2a_epistemic.py`, have not started.
+- [ ] **AU-BOUNDARY-R015.2:** Delete `protocols/a2a_epistemic.py` and drop the `agent-utilities-acp` script.
+- [ ] **AU-BOUNDARY-R024.1:** Record that R024's moves, including `source_sync.py` and `governance_import.py`, have not started.
+- [ ] **AU-BOUNDARY-R024.2:** Move `knowledge_graph/core/source_sync.py` to the agent connector SDK and delete the AU copy.
+- [ ] **AU-BOUNDARY-R024.3:** Move `knowledge_graph/governance_import.py` to the SDK and delete the AU copy.
