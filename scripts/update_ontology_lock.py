@@ -36,12 +36,14 @@ from agent_utilities.knowledge_graph.integrations.connector_source_attestation i
     source_attestation_violations,
 )
 from agent_utilities.knowledge_graph.ontology import ontology_integrity  # noqa: E402
+from agent_connector_sdk.manifest.model import (  # noqa: E402
+    ConnectorManifest as SDKConnectorManifest,
+)
+from agent_connector_sdk.manifest.ontology_pack import (  # noqa: E402
+    compile_manifest_ontology,
+)
 from agent_utilities.knowledge_graph.ontology.connector_manifest import (  # noqa: E402
     ConnectorManifest,
-)
-from agent_utilities.knowledge_graph.ontology.manifest_compiler import (  # noqa: E402
-    compile_manifest,
-    export_manifest_ttl,
 )
 
 _PROVIDER_NAME = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
@@ -175,8 +177,15 @@ def _lock_entry(
         _load_raw(manifest_path)
     )
 
-    spec = compile_manifest(manifest)
-    ttl = export_manifest_ttl(spec, source=manifest.resolved_ontology_source)
+    # AU-BOUNDARY-R030.3: compile through the SDK's typed, source-agnostic
+    # pack compiler (agent_connector_sdk.manifest.ontology_pack) instead of
+    # importing agent_utilities' own hand-written manifest_compiler. Mirrors
+    # the re-validate-then-compile pattern connector_manifest_gate's
+    # `_compiled_manifest_graph` already uses for the compile-before-sync gate.
+    sdk_manifest = SDKConnectorManifest.model_validate(
+        manifest.model_dump(mode="python")
+    )
+    ttl = compile_manifest_ontology(sdk_manifest)
     import rdflib
 
     graph = rdflib.Graph()
