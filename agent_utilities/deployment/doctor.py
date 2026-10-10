@@ -67,9 +67,10 @@ def _prescription(
     ``manifest_path`` is the checked-in declarative manifest (under the
     workspace's ``services/<name>/k8s/manifests.yaml`` convention) an operator
     or a reviewed ``execute_agent`` run applies -- this module never applies it
-    itself (see :mod:`agent_utilities.deployment.backends`'s module docstring:
-    ``container-manager-mcp`` exposes no generic manifest-apply tool, so
-    Kubernetes deploys stay PLAN-ONLY by design). ``config_keys`` maps the exact
+    itself (graph-os's deployment planner owns this behavior now, per
+    AU-BOUNDARY-R002: ``container-manager-mcp`` exposes no generic
+    manifest-apply tool, so Kubernetes deploys stay PLAN-ONLY by design).
+    ``config_keys`` maps the exact
     AgentConfig env-var alias this doctor read to the value/shape it expects.
     ``scaling`` (when present) describes whether/how the workload can be scaled
     live via a real, already-existing fleet tool
@@ -6152,10 +6153,10 @@ def interactive_apply(
     deployment. When it is ``None`` (the default) a confirmed step still never
     calls a fleet tool: it records that the plan is PLAN-ONLY and must be
     handed to an operator or a reviewed ``graph_orchestrate
-    action=execute_agent`` run -- the exact posture
-    :class:`agent_utilities.deployment.backends.KubernetesBackend` already
-    established for this codebase (no generic k8s manifest-apply tool exists;
-    see that module's docstring). When an ``executor`` genuinely applies a
+    action=execute_agent`` run -- the exact posture graph-os's Kubernetes
+    deployment backend (AU-BOUNDARY-R002: AU's own ``backends.py`` was
+    retired in its favor) already established for this codebase (no generic
+    k8s manifest-apply tool exists). When an ``executor`` genuinely applies a
     step (``exec_result["applied"]`` is truthy), the underlying check is
     re-run — live, when it supports ``live=`` — to prove the result rather
     than trusting the executor's say-so.

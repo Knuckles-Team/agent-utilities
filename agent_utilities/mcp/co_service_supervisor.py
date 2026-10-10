@@ -89,9 +89,10 @@ _MAX_BACKOFF_SECONDS = 30.0
 class CompositionPlan:
     """What THIS composition run detected as configured, independent of backend.
 
-    Reused by both the in-process supervisor below and the multi-backend
-    deployment planners (:mod:`agent_utilities.deployment.backends`) so
-    messaging/web-UI composition is decided in exactly one place.
+    Reused by both the in-process supervisor below and graph-os's
+    multi-backend deployment planners (AU's own ``deployment/backends.py``
+    was retired under AU-BOUNDARY-R002) so messaging/web-UI composition is
+    decided in exactly one place.
     """
 
     messaging_platforms: tuple[str, ...] = ()

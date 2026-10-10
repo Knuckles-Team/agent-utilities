@@ -138,42 +138,6 @@ def test_main_graph_os_prints_no_json_envelope(monkeypatch, capsys):
     assert capsys.readouterr().out == ""
 
 
-def test_main_deploy_plan_live_path(monkeypatch, capsys):
-    """LIVE-PATH: ``agent-utilities deploy-plan`` drives the real
-    ``agent_utilities.deployment.backends`` planner end to end (not a mock) and
-    emits its plan as the standard JSON envelope."""
-    from agent_utilities.messaging import daemon as messaging_daemon
-
-    monkeypatch.setattr(
-        messaging_daemon, "configured_platforms", lambda engine=None: []
-    )
-
-    class _Cfg:
-        enable_web_ui = False
-
-    monkeypatch.setattr("agent_utilities.core.config.config", _Cfg())
-
-    rc = cli.main(
-        [
-            "--json",
-            "deploy-plan",
-            "--backend",
-            "container",
-            "--target",
-            "example-host",
-            "--param",
-            "image=agent-utilities:test",
-        ]
-    )
-    assert rc == 0
-    out = json.loads(capsys.readouterr().out)
-    assert out["backend"] == "container"
-    assert out["target"] == "example-host"
-    assert out["live_capable"] is False
-    assert out["steps"][1]["fleet_call"]["server"] == "container-manager-mcp"
-    assert "agent-utilities:test" in out["artifacts"]["compose.yml"]
-
-
 def test_main_voice_model_license_and_status_live_path(monkeypatch, tmp_path, capsys):
     """LIVE-PATH (Wire-First): ``agent-utilities voice-model license`` and
     ``voice-model status`` drive the real GOC-36 acquisition package
