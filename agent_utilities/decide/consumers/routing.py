@@ -98,4 +98,59 @@ def route_by_cost(
     return decide.choose("au.route.cost", options, lambda: str(picked.id))
 
 
-__all__ = ["ObservedCost", "route_by_cost", "route_choice", "route_model"]
+class UsageAccountingObservedCost:
+    """Production :class:`ObservedCost`, backed by AU's own recorded usage/cost
+    event layer (``agent_utilities.usage``) rather than a placeholder.
+
+    Wraps a :class:`~agent_utilities.usage.service.UsageService` (the same
+    read-side aggregation the usage gateway API serves from) and answers
+    ``observed_cost`` from its per-model ``cost_usd`` breakdown, so a model
+    that has actually accrued recorded spend changes the next routing
+    decision's cost inputs -- the "L5 accounting" the module docstring and
+    ``_cost_option`` describe as unwired until a real source exists.
+    """
+
+    def __init__(self, service: Any | None = None, **filters: Any) -> None:
+        if service is None:
+            from agent_utilities.usage.service import UsageService
+
+            service = UsageService()
+        self._service = service
+        self._filters = filters
+        self._costs: dict[str, float] | None = None
+
+    def _load(self) -> dict[str, float]:
+        if self._costs is None:
+            self._costs = {
+                entry.key: entry.cost_usd
+                for entry in self._service.by_model(**self._filters)
+                if entry.cost_usd
+            }
+        return self._costs
+
+    def observed_cost(self, model_id: str) -> float | None:
+        return self._load().get(model_id)
+
+
+def route_model_by_observed_cost(
+    models: Sequence[Any],
+    picked: Any,
+    *,
+    usage_service: Any | None = None,
+    **filters: Any,
+) -> decide.Choice:
+    """``route_by_cost`` wired to AU's real recorded usage/cost accounting
+    (:class:`UsageAccountingObservedCost`) instead of a caller-supplied fake.
+    """
+    observed = UsageAccountingObservedCost(usage_service, **filters)
+    return route_by_cost(models, picked, observed)
+
+
+__all__ = [
+    "ObservedCost",
+    "UsageAccountingObservedCost",
+    "route_by_cost",
+    "route_choice",
+    "route_model",
+    "route_model_by_observed_cost",
+]
