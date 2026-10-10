@@ -14,19 +14,22 @@
     "AU-RETIRE-R005",
     "AU-RETIRE-R006",
     "AU-RETIRE-R007",
-    "AU-RETIRE-R008"
+    "AU-RETIRE-R008",
+    "AU-RETIRE-R001.1",
+    "AU-RETIRE-R001.2"
   ],
   "requirements": [
     {
       "id": "AU-RETIRE-R001",
       "title": "Complete inventory and retirement of duplicate graph engine code",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
-        "4a5540dd2e3d",
         "6a408267e403"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/test_retirement_inventory.py:24"
+      "verified_by": [],
+      "rollup_of": [
+        "AU-RETIRE-R001.1",
+        "AU-RETIRE-R001.2"
       ]
     },
     {
@@ -87,13 +90,11 @@
     {
       "id": "AU-RETIRE-R004",
       "title": "Fix doubled node_type text in embedding composition",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "bc7bba33932d"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/enrichment/test_entity_text_bare_node_type.py:38"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-RETIRE-R005",
@@ -135,6 +136,22 @@
       "landed_in": [
         "6a408267e403"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETIRE-R001.1",
+      "title": "Census recorded no safe disposition yet for `graph_compute.py` or `formal_reasoning_core.py`",
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "6a408267e403"
+      ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETIRE-R001.2",
+      "title": "Open the cross-repo spec item enumerating EG-native equivalents",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     }
   ]

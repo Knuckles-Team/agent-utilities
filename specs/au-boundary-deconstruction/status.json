@@ -186,7 +186,18 @@
     "AU-BOUNDARY-R015.2",
     "AU-BOUNDARY-R024.1",
     "AU-BOUNDARY-R024.2",
-    "AU-BOUNDARY-R024.3"
+    "AU-BOUNDARY-R024.3",
+    "AU-BOUNDARY-R048.1",
+    "AU-BOUNDARY-R048.2",
+    "AU-BOUNDARY-R048.3",
+    "AU-BOUNDARY-R048.4",
+    "AU-BOUNDARY-R048.5",
+    "AU-BOUNDARY-R048.6",
+    "AU-BOUNDARY-R048.7",
+    "AU-BOUNDARY-R048.8",
+    "AU-BOUNDARY-R048.9",
+    "AU-BOUNDARY-R048.10",
+    "AU-BOUNDARY-R048.11"
   ],
   "requirements": [
     {
@@ -1128,16 +1139,11 @@
     {
       "id": "AU-BOUNDARY-R024",
       "title": "Move enterprise source synchronization to the SDK",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "743e98cda405"
       ],
-      "verified_by": [],
-      "rollup_of": [
-        "AU-BOUNDARY-R024.1",
-        "AU-BOUNDARY-R024.2",
-        "AU-BOUNDARY-R024.3"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R025",
@@ -1752,6 +1758,83 @@
     {
       "id": "AU-BOUNDARY-R024.3",
       "title": "Move `knowledge_graph/governance_import.py` to the SDK",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R048.1",
+      "title": "`images/` is already relocated",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R048.2",
+      "title": "Relocate `domains/government/`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R048.3",
+      "title": "Relocate `domains/hr/`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R048.4",
+      "title": "Relocate `domains/law/`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R048.5",
+      "title": "Relocate `domains/medical/`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R048.6",
+      "title": "Relocate `models/domains/`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R048.7",
+      "title": "Move the HR workforce MCP tool to graph-os",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R048.8",
+      "title": "Assign an owner to `ontology/shapes/`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R048.9",
+      "title": "Assign an owner to `data/`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R048.10",
+      "title": "Assign an owner to `protocols/voice_supply_chain/`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R048.11",
+      "title": "Assign an owner to the skill-content directories under `skills/`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

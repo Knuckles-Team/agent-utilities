@@ -51,6 +51,17 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R030.7:** Add `agent_utilities/knowledge_graph/core/ontology_publisher.py`, the typed AU declaration publisher.
 - [ ] **AU-BOUNDARY-R030.8:** Add `agent_utilities/knowledge_graph/extraction/schema_discovery.py`, the EG-pack-compilation-backed schema discovery module.
 - [ ] **AU-BOUNDARY-R030.9:** Add `scripts/scaffold_ontology_leg.py`, the scaffold script for a new ontology leg via EG pack compilation.
+- [x] **AU-BOUNDARY-R048.1:** `agent_utilities/images/` already deleted/relocated; no remaining work on that directory
+- [ ] **AU-BOUNDARY-R048.2:** Relocate `domains/government/` to its epistemic-graph domain pack and delete from AU
+- [ ] **AU-BOUNDARY-R048.3:** Relocate `domains/hr/` to its epistemic-graph domain pack and delete from AU
+- [ ] **AU-BOUNDARY-R048.4:** Relocate `domains/law/` to its epistemic-graph domain pack and delete from AU
+- [ ] **AU-BOUNDARY-R048.5:** Relocate `domains/medical/` to its epistemic-graph domain pack and delete from AU
+- [ ] **AU-BOUNDARY-R048.6:** Relocate `models/domains/` to its epistemic-graph domain pack and delete from AU
+- [ ] **AU-BOUNDARY-R048.7:** Move `mcp/tools/analysis_tools.py` (HR workforce MCP tool) to graph-os and delete from AU
+- [ ] **AU-BOUNDARY-R048.8:** Assign and act on one disposition for `ontology/shapes/`
+- [ ] **AU-BOUNDARY-R048.9:** Assign and act on one disposition for `data/`
+- [ ] **AU-BOUNDARY-R048.10:** Assign and act on one disposition for `protocols/voice_supply_chain/`
+- [ ] **AU-BOUNDARY-R048.11:** Assign and act on one disposition for each skill-content directory under `skills/`
 - [ ] **AU-BOUNDARY-R005.1:** A-E connector import census (PR #150, `79dc21bab`) that moved R005 to LANDED; `status.json`'s `landed_in` SHA is wrong (points at the unrelated `AU-HARNESS-R005.1` merge, not an A-E connector change).
 - [ ] **AU-BOUNDARY-R005.2:** Migrate `ansible-tower-mcp`, `audiobookshelf-mcp`, `ciso-assistant-api`, `data-science-mcp` off the banned AU imports the census missed.
 - [ ] **AU-BOUNDARY-R007.1:** K-O connector import census (PR #150, `79dc21bab`) that moved R007 to LANDED; `status.json`'s `landed_in` SHA is wrong (points at the unrelated `AU-HARNESS-R005.1` merge, not a K-O connector change).
