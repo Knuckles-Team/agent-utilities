@@ -2,28 +2,31 @@
   "schema_version": 2,
   "spec_id": "AU-DEV-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-DEV-R001",
     "AU-DEV-R001.1",
     "AU-DEV-R001.2",
+    "AU-DEV-R001.3",
     "AU-DEV-R002",
     "AU-DEV-R003",
     "AU-DEV-R003.1",
-    "AU-DEV-R003.2"
+    "AU-DEV-R003.2",
+    "AU-DEV-R003.3"
   ],
   "requirements": [
     {
       "id": "AU-DEV-R001",
       "title": "A development skill documents AU's contribution workflow",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "ed6485573f1e"
       ],
       "verified_by": [],
       "rollup_of": [
         "AU-DEV-R001.1",
-        "AU-DEV-R001.2"
+        "AU-DEV-R001.2",
+        "AU-DEV-R001.3"
       ]
     },
     {
@@ -48,6 +51,13 @@
       ]
     },
     {
+      "id": "AU-DEV-R001.3",
+      "title": "Audit the sibling development skills and trim each AGENTS.md",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "AU-DEV-R002",
       "title": "Deployment and genesis tooling move to graph-os",
       "delivery_state": "LANDED",
@@ -59,14 +69,15 @@
     {
       "id": "AU-DEV-R003",
       "title": "Skill inventory refresh stays deterministic after moves",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "ed6485573f1e"
       ],
       "verified_by": [],
       "rollup_of": [
         "AU-DEV-R003.1",
-        "AU-DEV-R003.2"
+        "AU-DEV-R003.2",
+        "AU-DEV-R003.3"
       ]
     },
     {
@@ -90,6 +101,13 @@
         "tests/unit/skills/test_inventory_refresh_runtime.py:10",
         "tests/unit/skills/test_inventory_refresh_runtime.py:26"
       ]
+    },
+    {
+      "id": "AU-DEV-R003.3",
+      "title": "Codex skill discovery path joins the refresh inventory",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }

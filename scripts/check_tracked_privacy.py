@@ -389,7 +389,7 @@ _CREDENTIAL_PLACEHOLDER_TOKENS = frozenset(
     }
 )
 _HOST_IDENTITY_RE = re.compile(r"(?i)\bssh://(?!\$\{)[^\s/@]+@")
-_MACHINE_HOST_ID_RE = re.compile(r"(?i)(?<![a-z0-9])(?:rw?|host)[0-9]{3,}(?![a-z0-9])")
+_MACHINE_HOST_ID_RE = re.compile(r"(?i)(?<![a-z0-9-])(?:rw?|host)[0-9]{3,}(?![a-z0-9])")
 _NEUTRAL_AUTHOR_NAME = "repository maintainers"
 _NEUTRAL_AUTHOR_EMAIL_SUFFIX = "@example.invalid"
 _SCAN_EXCLUDED_DIRECTORIES = frozenset(
