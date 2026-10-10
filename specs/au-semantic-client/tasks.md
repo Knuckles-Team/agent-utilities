@@ -76,6 +76,10 @@ The task owner records a separate verdict per ID even when multiple IDs share a 
 - [ ] **AU-SEMANTIC-R019.4:** Delete `observability/audit_logger.py`
 - [ ] **AU-SEMANTIC-R019.5:** Delete `governance/relational_authority.py`
 - [ ] **AU-SEMANTIC-R019.6:** Delete `knowledge_graph/research/placement_mining.py`
+- [ ] **AU-SEMANTIC-R019.6.1:** The reactive placement-mining tick is removed from the engine scheduler
+- [ ] **AU-SEMANTIC-R019.6.2:** The `placement_control` stage is removed from the loop controller
+- [ ] **AU-SEMANTIC-R019.6.3:** The `graph_loops` `placement_control` action is removed
+- [ ] **AU-SEMANTIC-R019.6.4:** `knowledge_graph/research/placement_mining.py` is deleted
 - [ ] **AU-SEMANTIC-R009.2.1:** `resolve_runnable_skill_derivation_client()` wires the real call when EG's op is present
 - [x] **AU-SEMANTIC-R009.2.2:** The local engine-facade modules are deleted once callers consume the wired client
 - [ ] **AU-SEMANTIC-R013:** Reasoning and analytics duplicates are deleted only with proven EG parity

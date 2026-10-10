@@ -69,6 +69,10 @@
     "AU-SEMANTIC-R019.4",
     "AU-SEMANTIC-R019.5",
     "AU-SEMANTIC-R019.6",
+    "AU-SEMANTIC-R019.6.1",
+    "AU-SEMANTIC-R019.6.2",
+    "AU-SEMANTIC-R019.6.3",
+    "AU-SEMANTIC-R019.6.4",
     "AU-SEMANTIC-R020",
     "AU-SEMANTIC-R020.1",
     "AU-SEMANTIC-R021",
@@ -726,6 +730,40 @@
     {
       "id": "AU-SEMANTIC-R019.6",
       "title": "Delete `agent_utilities/knowledge_graph/research/placement_mining.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R019.6.1",
+        "AU-SEMANTIC-R019.6.2",
+        "AU-SEMANTIC-R019.6.3",
+        "AU-SEMANTIC-R019.6.4"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R019.6.1",
+      "title": "The reactive placement-mining tick is removed from the engine scheduler",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R019.6.2",
+      "title": "The `placement_control` stage is removed from the loop controller",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R019.6.3",
+      "title": "The `graph_loops` `placement_control` action is removed",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R019.6.4",
+      "title": "`knowledge_graph/research/placement_mining.py` is deleted",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
