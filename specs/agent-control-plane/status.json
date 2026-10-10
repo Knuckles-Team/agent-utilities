@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-CONTROL-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-CONTROL-R001",
     "AU-CONTROL-R002",
@@ -39,7 +39,9 @@
     "AU-CONTROL-R032",
     "AU-CONTROL-R033",
     "AU-CONTROL-R034",
-    "AU-CONTROL-R035"
+    "AU-CONTROL-R035",
+    "AU-CONTROL-R035.1",
+    "AU-CONTROL-R035.2"
   ],
   "requirements": [
     {
@@ -438,10 +440,28 @@
     {
       "id": "AU-CONTROL-R035",
       "title": "The signed agent-dispatch envelope carries an enforced allowed-tool-subset field",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-CONTROL-R035.1",
+        "AU-CONTROL-R035.2"
+      ]
+    },
+    {
+      "id": "AU-CONTROL-R035.1",
+      "title": "Open the AU-CONTROL-R035 owner row",
       "delivery_state": "LANDED",
       "landed_in": [
-        "bca0cd3c44d9"
+        "79a0b3968c7c"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R035.2",
+      "title": "Add and enforce the allowed-tool-subset field",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     }
   ]
