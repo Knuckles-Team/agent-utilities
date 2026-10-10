@@ -1520,11 +1520,14 @@
     {
       "id": "AU-BOUNDARY-R019.1",
       "title": "Ship a typed inventory of the AU-BOUNDARY-R019 facade modules",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "8b325ddf1818"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:178",
+        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:185"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R019.2",
