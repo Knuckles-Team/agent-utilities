@@ -278,6 +278,16 @@ def _artifact_paths(
     return unique
 
 
+def _validate_shapes_text(shapes_text: str) -> None:
+    """Fail closed unless the engine accepts the shapes document."""
+
+    from agent_utilities.knowledge_graph.integrations.connector_certification import (
+        _validate_native_shacl,
+    )
+
+    _validate_native_shacl("", shapes_text)
+
+
 def _validate_written_bundle(
     repo: Path,
     module: Path,
@@ -323,11 +333,10 @@ def _validate_written_bundle(
     ):
         raise RuntimeError("provider synthetic fixture contract is invalid")
 
-    import rdflib
-
     shapes_path = module / "ontology" / "shapes" / "connector.shacl.ttl"
-    shapes = rdflib.Graph()
-    shapes.parse(str(shapes_path), format="turtle")
+    # AU-SEMANTIC-R006.5.5: the shapes Turtle is submitted as text to the
+    # epistemic-graph SHACL validator (empty data graph); no local rdflib graph.
+    _validate_shapes_text(shapes_path.read_text(encoding="utf-8"))
 
     # Release artifacts must be deterministic across the workstation/runner
     # that generates them. Runtime identity deny terms include the local account
