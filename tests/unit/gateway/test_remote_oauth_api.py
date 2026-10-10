@@ -191,6 +191,7 @@ def test_register_routes_mounts_on_fastapi():
     assert "/providers/{provider_id}/revoke" in paths
 
 
+@pytest.mark.spec("AU-BOUNDARY-R001.4.1")
 def test_graph_gateway_mounts_prefixed_remote_oauth_routes(monkeypatch):
     """NE-062: the centralized gateway owns the prefixed OAuth surface."""
 
@@ -198,7 +199,6 @@ def test_graph_gateway_mounts_prefixed_remote_oauth_routes(monkeypatch):
         fleet,
         graph_api,
         ontology_api,
-        registry_api,
         research_api,
     )
     from agent_utilities.mcp import kg_server
@@ -213,9 +213,6 @@ def test_graph_gateway_mounts_prefixed_remote_oauth_routes(monkeypatch):
     monkeypatch.setattr(
         research_api, "register_research_routes", lambda app, prefix: None
     )
-    monkeypatch.setattr(
-        registry_api, "register_registry_routes", lambda app, prefix: None
-    )
 
     app = FastAPI()
     from agent_utilities.gateway.graph_api import register_graph_routes
@@ -227,6 +224,7 @@ def test_graph_gateway_mounts_prefixed_remote_oauth_routes(monkeypatch):
     assert "/api/oauth/callback" in paths
     assert "/api/providers/{provider_id}/revoke" in paths
     assert "/providers/{provider_id}/authorize" not in paths
+    assert not [p for p in paths if p.startswith("/api/registry")]
 
 
 @pytest.mark.asyncio
