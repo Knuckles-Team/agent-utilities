@@ -1375,7 +1375,10 @@
       "title": "Wire `scripts/generate_native_connector_manifest.py` off the local manifest compiler",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/knowledge_graph/ontology/test_generate_native_connector_manifest_uses_sdk_pack.py:42",
+        "tests/unit/knowledge_graph/ontology/test_generate_native_connector_manifest_uses_sdk_pack.py:58"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R030.5",
