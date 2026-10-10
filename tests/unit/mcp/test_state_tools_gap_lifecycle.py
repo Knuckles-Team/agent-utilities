@@ -75,8 +75,6 @@ async def _call(tool, **kwargs: Any) -> dict[str, Any]:
         decision="",
         status="",
         mine_discovery=None,
-        placement_scan_limit=200,
-        placement_canary_tolerance=0.10,
         data_json="{}",
     )
     defaults.update(kwargs)
