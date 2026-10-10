@@ -24,9 +24,12 @@ from typing import Protocol, runtime_checkable
 __all__ = [
     "KellySizingRequest",
     "KellySizingResponse",
+    "PriceDeltaRequest",
+    "PriceDeltaResponse",
     "FinancePrimitivesClient",
     "resolve_finance_primitives_client",
     "kelly_size_via_eg_or_local",
+    "price_delta_via_eg_or_local",
 ]
 
 
@@ -45,11 +48,29 @@ class KellySizingResponse:
     suggested_fraction: float
 
 
+@dataclass(frozen=True, slots=True)
+class PriceDeltaRequest:
+    """Typed request for a prior/current price delta + flip verdict."""
+
+    prior_price: float
+    current_price: float
+
+
+@dataclass(frozen=True, slots=True)
+class PriceDeltaResponse:
+    """Typed response: the computed delta and its flip verdict."""
+
+    delta: float
+    verdict: str
+
+
 @runtime_checkable
 class FinancePrimitivesClient(Protocol):
     """Contract for EG's served finance-core primitives, once they exist."""
 
     def kelly_sizing(self, request: KellySizingRequest) -> KellySizingResponse: ...
+
+    def price_delta(self, request: PriceDeltaRequest) -> PriceDeltaResponse: ...
 
 
 def resolve_finance_primitives_client() -> FinancePrimitivesClient | None:
@@ -89,4 +110,22 @@ def kelly_size_via_eg_or_local(
     client = resolve_finance_primitives_client()
     if client is not None:
         return client.kelly_sizing(request)
+    return local_fallback(request)
+
+
+def price_delta_via_eg_or_local(
+    request: PriceDeltaRequest,
+    *,
+    local_fallback: Callable[[PriceDeltaRequest], PriceDeltaResponse],
+) -> PriceDeltaResponse:
+    """Delegate the price-delta/flip-verdict calculation to EG, else local.
+
+    Same seam pattern as :func:`kelly_size_via_eg_or_local`: callers (e.g.
+    the flip-explainer agent role) never compute the delta/verdict with a
+    local formula directly -- they go through this seam so AU-CONTEXT-R007.2
+    can swap in EG's finance core without touching callers.
+    """
+    client = resolve_finance_primitives_client()
+    if client is not None:
+        return client.price_delta(request)
     return local_fallback(request)
