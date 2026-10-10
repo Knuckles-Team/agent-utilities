@@ -40,17 +40,13 @@ from agent_utilities.knowledge_graph.ontology.connector_manifest import (
     SchemaMapping,
     SyncSpec,
 )
-from agent_utilities.knowledge_graph.ontology.manifest_compiler import (
-    compile_manifest,
-    export_manifest_ttl,
-)
 from agent_utilities.knowledge_graph.ontology.ontology_integrity import (
     DEFAULT_SIGNER_ID,
     ReleaseSigner,
-    ReleaseSigningError,
     canonical_hash,
     canonical_manifest_hash,
 )
+from tests.unit._sdk_manifest_ttl import sdk_manifest_ttl
 
 _WIDGET_SCHEMA_SHA256 = "1" * 64
 
@@ -139,8 +135,7 @@ def _write_signed_widget_manifest(
             integrity=IntegrityInfo(hash="0" * 64), signer=DEFAULT_SIGNER_ID
         ),
     )
-    spec = compile_manifest(manifest)
-    ttl = export_manifest_ttl(spec, source=manifest.resolved_ontology_source)
+    ttl = sdk_manifest_ttl(manifest)
     import rdflib
 
     g = rdflib.Graph()

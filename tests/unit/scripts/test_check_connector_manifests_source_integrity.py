@@ -17,11 +17,8 @@ from agent_utilities.knowledge_graph.ontology.connector_manifest import (
 from agent_utilities.knowledge_graph.ontology.connector_manifest_gate import (
     check_manifest_bytes,
 )
-from agent_utilities.knowledge_graph.ontology.manifest_compiler import (
-    compile_manifest,
-    export_manifest_ttl,
-)
 from agent_utilities.knowledge_graph.ontology.ontology_integrity import canonical_hash
+from tests.unit._sdk_manifest_ttl import sdk_manifest_ttl
 
 _SCRIPT = Path(__file__).resolve().parents[3] / "scripts/check_connector_manifests.py"
 
@@ -32,9 +29,7 @@ def _manifest(tmp_path: Path) -> Path:
         provenance=ProvenanceSpec(integrity=IntegrityInfo(hash="0" * 64)),
     )
     graph = rdflib.Graph().parse(
-        data=export_manifest_ttl(
-            compile_manifest(manifest), source=manifest.resolved_ontology_source
-        ),
+        data=sdk_manifest_ttl(manifest),
         format="turtle",
     )
     manifest.provenance.integrity.hash = canonical_hash(graph)[0]
