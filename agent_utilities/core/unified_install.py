@@ -454,6 +454,57 @@ def _install_registration(
     return count, True
 
 
+def _install_codex_skills(
+    registrations: tuple[ProviderRegistration, ...],
+) -> dict[str, int]:
+    """Materialize registered skill providers under the Codex skills path.
+
+    Fail-closed: an unsafe Codex path is counted as failed and never written.
+    """
+
+    summary = {"providers": 0, "files": 0, "failed": 0, "pruned": 0}
+    try:
+        root = codex_skills_dir()
+    except CodexSkillsPathError:
+        summary["failed"] += 1
+        logger.warning("Codex skills path refused")
+        return summary
+    names = {item.name for item in registrations}
+    names.add(OWN_PROVIDER)
+    try:
+        with _materialization_lock(root):
+            summary["pruned"] = _prune_removed_managed(
+                root, leg="skills", registered=names
+            )
+            for item in registrations:
+                if item.name == OWN_PROVIDER:
+                    continue
+                try:
+                    count, active = _install_registration(
+                        root=root, leg="skills", registration=item
+                    )
+                    summary["providers"] += int(active)
+                    summary["files"] += count
+                    summary["failed"] += int(not active)
+                except (
+                    OSError,
+                    shutil.Error,
+                    ProviderMaterializationError,
+                    ValueError,
+                ) as exc:
+                    summary["failed"] += 1
+                    logger.warning(
+                        "Codex provider materialization failed (exception_type=%s)",
+                        type(exc).__name__,
+                    )
+    except (OSError, ProviderMaterializationError, ValueError) as exc:
+        summary["failed"] += 1
+        logger.warning(
+            "Codex skills root unusable (exception_type=%s)", type(exc).__name__
+        )
+    return summary
+
+
 def install_unified() -> dict[str, Any]:
     """Reconcile all current provider legs without returning local filesystem data."""
 
@@ -472,6 +523,7 @@ def install_unified() -> dict[str, Any]:
         "prompts": {"providers": 0, "files": 0, "failed": 0},
         "ontologies": {"providers": 0, "files": 0, "failed": 0},
         "pruned": {},
+        "codex_skills": {},
         "path_free": True,
     }
     for leg, (_group, root) in legs.items():
@@ -525,6 +577,7 @@ def install_unified() -> dict[str, Any]:
                 logger.warning(
                     "Hub materialization failed (exception_type=%s)", type(exc).__name__
                 )
+    result["codex_skills"] = _install_codex_skills(registrations["skills"])
     return result
 
 
