@@ -1874,16 +1874,26 @@
     {
       "id": "AU-BOUNDARY-R030.7",
       "title": "Add `agent_utilities/knowledge_graph/core/ontology_publisher.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c0dc104b77a9"
+      ],
+      "verified_by": [
+        "tests/unit/knowledge_graph/core/test_ontology_publisher.py:22",
+        "tests/unit/knowledge_graph/core/test_ontology_publisher.py:31"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R030.8",
       "title": "Add `agent_utilities/knowledge_graph/extraction/schema_discovery.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1ec69953824b"
+      ],
+      "verified_by": [
+        "tests/unit/knowledge_graph/extraction/test_schema_discovery.py:13",
+        "tests/unit/knowledge_graph/extraction/test_schema_discovery.py:29"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R030.9",

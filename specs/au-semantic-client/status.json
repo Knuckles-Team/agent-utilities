@@ -197,9 +197,14 @@
     {
       "id": "AU-SEMANTIC-R006.4",
       "title": "The connector-certification gate submits a typed payload instead of an rdflib graph",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "98efc7009d5f"
+      ],
+      "verified_by": [
+        "tests/unit/knowledge_graph/integrations/test_connector_certification_no_rdflib.py:17",
+        "tests/unit/knowledge_graph/integrations/test_connector_certification_no_rdflib.py:27"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R006.5",
