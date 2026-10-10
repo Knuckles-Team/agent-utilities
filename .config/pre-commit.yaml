@@ -46,9 +46,12 @@ repos:
     additional_dependencies: [pydantic==2.13.4, types-PyYAML==6.0.12.20260518, types-requests==2.33.0.20260518]
     args: ["--ignore-missing-imports"]
     stages: [pre-commit, pre-push, manual]
-    # Align with ruff/bandit/codespell, which all exclude tests — the repo does
-    # not statically type-check test code (validated at runtime by pytest).
-    exclude: ^(tests/|test/|scripts/|script/)
+    # AU-QUAL-R005.2.1: tests/unit/patterns/ is carved back INTO mypy coverage
+    # (the first per-directory grandchild slice of AU-QUAL-R005.2 -- see
+    # specs/au-boundary-quality/tasks.md). The rest of tests/ stays excluded
+    # here, worked through directory-by-directory in further .2.n slices,
+    # aligned with ruff/bandit/codespell which still exclude the rest of tests.
+    exclude: ^(tests/(?!unit/patterns/)|test/|scripts/|script/)
 - repo: https://github.com/jendrikseipp/vulture
   rev: b0f67ba0044693aa9ec0d38fe460590facc98004 # v2.16
   hooks:
