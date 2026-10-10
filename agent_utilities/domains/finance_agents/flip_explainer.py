@@ -1,14 +1,26 @@
-"""Flip-explainer agent (AU-CONTEXT-R005.2).
+"""Flip-explainer agent (AU-CONTEXT-R005.2 / AU-CONTEXT-R007).
 
 Computes its answer from math first, then attaches every claim it makes to a
-cited source. The finance backfill/scan scheduling surfaces presented to
-users remain hosted by graph-os; this module only provides the underlying
-sourced-explanation primitive consumed by that scheduling work.
+cited source. The underlying price-delta/flip-verdict calculation is sourced
+through the typed delegation seam in ``agent_utilities/api/finance_delegation.py``
+(``price_delta_via_eg_or_local``), which prefers epistemic-graph's finance
+core when it is available and otherwise falls back to the local formula
+below -- this module never computes the delta with its own formula directly.
+
+The finance backfill/scan scheduling surfaces presented to users remain
+hosted by graph-os; this module only provides the underlying sourced-
+explanation primitive consumed by that scheduling work.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from agent_utilities.api.finance_delegation import (
+    PriceDeltaRequest,
+    PriceDeltaResponse,
+    price_delta_via_eg_or_local,
+)
 
 
 @dataclass(frozen=True)
@@ -48,6 +60,18 @@ class FlipExplanation:
                 raise ValueError(f"claim {claim.text!r} has no cited source")
 
 
+def _local_price_delta(request: PriceDeltaRequest) -> PriceDeltaResponse:
+    """Local fallback formula, used only when EG's finance core is absent."""
+    delta = request.current_price - request.prior_price
+    if delta > 0:
+        verdict = "flip_up"
+    elif delta < 0:
+        verdict = "flip_down"
+    else:
+        verdict = "no_flip"
+    return PriceDeltaResponse(delta=delta, verdict=verdict)
+
+
 def explain_flip(
     symbol: str,
     prior_price: float,
@@ -64,22 +88,23 @@ def explain_flip(
             produced from this computation attaches to.
 
     Returns:
-        A :class:`FlipExplanation` whose ``verdict``/``computed_value`` are
-        pure functions of ``prior_price``/``current_price``, and whose
-        ``claims`` each cite ``source``.
+        A :class:`FlipExplanation` whose ``verdict``/``computed_value`` come
+        from the typed finance-delegation seam (EG's finance core when
+        available, else the local fallback formula), and whose ``claims``
+        each cite ``source``.
     """
     if not source:
         raise ValueError("explain_flip requires a cited source")
 
-    # Math first: the verdict is derived purely from the numeric delta before
-    # any claim sentence is constructed.
-    delta = current_price - prior_price
-    if delta > 0:
-        verdict = "flip_up"
-    elif delta < 0:
-        verdict = "flip_down"
-    else:
-        verdict = "no_flip"
+    # Math first: the verdict is derived purely from the numeric delta,
+    # sourced through the delegation seam, before any claim sentence is
+    # constructed.
+    result = price_delta_via_eg_or_local(
+        PriceDeltaRequest(prior_price=prior_price, current_price=current_price),
+        local_fallback=_local_price_delta,
+    )
+    delta = result.delta
+    verdict = result.verdict
 
     claims = (
         SourcedClaim(

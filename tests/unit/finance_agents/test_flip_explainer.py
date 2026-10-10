@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_utilities.domains.finance.flip_explainer import (
+from agent_utilities.domains.finance_agents.flip_explainer import (
     FlipExplanation,
     SourcedClaim,
     explain_flip,
