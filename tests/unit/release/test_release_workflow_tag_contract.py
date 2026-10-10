@@ -73,6 +73,29 @@ def test_build_needs_gates_clone_scanners_and_the_engine_release_order_gate() ->
     assert "check_eg_pypi_resolvable.py" not in gates_source
 
 
+def test_gates_job_hard_fails_when_the_engine_is_unavailable() -> None:
+    """AU #188 made `gates` install a pinned `gh` first because the homelab
+    runners lacked it and the engine-wheel-install step silently fell
+    through to a failing PyPI fallback, emitting only
+    `::warning::...engine tests skip`. That left every engine-dependent test
+    silently *skipping* on main with a green job and no red signal anywhere.
+    Both terminal unavailable-engine paths (PyPI fallback failure, and the
+    installed package not even importing) must now be a hard job failure
+    (`::error::` + `exit 1`), never just a warning that lets the job pass."""
+    gates_source = _run_text(_job("gates"))
+
+    assert "::error title=Engine unavailable::" in gates_source
+    assert "::error title=Engine not importable::" in gates_source
+    # The two terminal failure paths must each actually abort the job, not
+    # merely annotate it.
+    assert gates_source.count("exit 1") >= 2
+    # These are the exact prior warning-only annotations this closes --
+    # pinning their absence guards against silently reintroducing the
+    # warn-and-continue behaviour.
+    assert "::warning title=Engine unavailable::" not in gates_source
+    assert "::warning title=Engine not importable::" not in gates_source
+
+
 def test_pypi_publish_is_tag_only_and_uses_the_protected_environment() -> None:
     publish = _job("publish-pypi")
 

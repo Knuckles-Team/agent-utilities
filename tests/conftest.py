@@ -22,6 +22,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # a full directory enumeration for every test allocation (D-CDX-27).
 pytest_plugins = ("_tmp_path_allocator",)
 
+#: AU #188 / release.yml `gates` job: a genuinely unavailable epistemic-graph
+#: engine must be a hard CI failure, never a silent skip -- that silent-skip
+#: behaviour is exactly what let every engine-dependent test skip on main
+#: with no red signal. Locally (no CI env vars set) a missing engine still
+#: degrades to a skip, since most laptops have no prebuilt engine binary and
+#: that is a legitimate, cheap dev-loop default. GitHub Actions sets both
+#: ``CI`` and ``GITHUB_ACTIONS`` to ``"true"`` on every job by default.
+_CI = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
+
 
 _DANGEROUS_GIT_ENV_VARS = (
     "GIT_DIR",
@@ -1404,10 +1413,18 @@ def tiny_engine(_session_engine):
     connection error).
     """
     if not _session_engine:
-        pytest.skip(
+        message = (
             "real epistemic-graph engine unavailable (no prebuilt full binary) — cannot run this "
             "engine-backed test against the real database."
         )
+        if _CI:
+            # AU #188: in CI the engine is expected to be installed by the
+            # `gates` job's wheel-install step (now a hard failure itself
+            # when unavailable). Reaching here in CI anyway means that
+            # guarantee broke somewhere -- fail loudly rather than skip, so
+            # the job goes red instead of silently losing coverage.
+            pytest.fail(message, pytrace=False)
+        pytest.skip(message)
     return _session_engine
 
 
@@ -1629,9 +1646,15 @@ def pytest_runtest_makereport(item, call):
     ``ConnectionRefused``. Where an engine IS started (CI / canonical, which
     autostart it from the epistemic-graph source) these errors remain real
     failures, so genuine engine bugs are never masked.
+
+    AU #188: that degrade-to-skip is a LOCAL-ONLY convenience. In CI
+    (``_CI``) an engine-unreachable error must stay a hard failure -- turning
+    it into a skip here is exactly the mechanism that let engine-dependent
+    tests silently skip on main with a green job. Local dev without a
+    prebuilt engine binary is unaffected.
     """
     outcome = yield
-    if _TEST_ENGINE_AVAILABLE:
+    if _TEST_ENGINE_AVAILABLE or _CI:
         return
     report = outcome.get_result()
     if report.failed and call.excinfo is not None:
