@@ -12,6 +12,8 @@ adapter, the ``min_group`` floor, idempotent job ids, and determinism.
 
 from types import SimpleNamespace
 
+import pytest
+
 from agent_utilities.graph.training_signals import batch_normalized_advantage
 from agent_utilities.harness.fast_slow_controller import FastSlowController, Trace
 from agent_utilities.harness.policy_job_inputs import PolicyJobInputs
@@ -143,6 +145,7 @@ def _policy_inputs(**overrides):
     return PolicyJobInputs(**fields)
 
 
+@pytest.mark.spec("AU-HARNESS-R002")
 def test_policy_job_is_digest_bound_and_idempotent():
     trainer = SubstrateTrainer()
     first = trainer.policy_job(_policy_inputs())

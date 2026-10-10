@@ -52,8 +52,8 @@
       ],
       "verified_by": [
         "tests/unit/layers/test_harness_port.py:115",
-        "tests/unit/layers/test_harness_port.py:123",
-        "tests/unit/layers/test_harness_port.py:498"
+        "tests/unit/layers/test_harness_port.py:124",
+        "tests/unit/layers/test_harness_port.py:501"
       ]
     },
     {

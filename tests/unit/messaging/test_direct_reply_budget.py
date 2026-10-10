@@ -17,6 +17,7 @@ def _direct_shape() -> ExecutionProfile:
     )
 
 
+@pytest.mark.spec("AU-INTEGRATION-R019")
 def test_direct_budget_defaults_to_sixty_seconds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -26,6 +27,7 @@ def test_direct_budget_defaults_to_sixty_seconds(
     assert shape.is_interactive
 
 
+@pytest.mark.spec("AU-INTEGRATION-R019")
 def test_direct_budget_respects_the_setting(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MESSAGING_DIRECT_REPLY_BUDGET_S", "120")
     shape = _direct_shape()
@@ -34,6 +36,7 @@ def test_direct_budget_respects_the_setting(monkeypatch: pytest.MonkeyPatch) -> 
     assert shape.is_interactive
 
 
+@pytest.mark.spec("AU-INTEGRATION-R019")
 def test_invalid_direct_budget_falls_back_to_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

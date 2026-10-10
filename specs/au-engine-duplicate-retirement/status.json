@@ -102,12 +102,16 @@
     {
       "id": "AU-RETIRE-R006",
       "title": "Delta ingest reaps nodes for deleted files",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5822ee9bef09",
         "bc7bba33932d"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/knowledge_graph/test_ingestion_perf_optimizations.py:362",
+        "tests/unit/knowledge_graph/test_ingestion_perf_optimizations.py:380",
+        "tests/unit/knowledge_graph/test_ingestion_perf_optimizations.py:393"
+      ]
     },
     {
       "id": "AU-RETIRE-R007",

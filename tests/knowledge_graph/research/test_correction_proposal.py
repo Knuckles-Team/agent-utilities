@@ -28,6 +28,7 @@ def _proposal(**overrides: object) -> CorrectionProposal:
     return CorrectionProposal(**fields)  # type: ignore[arg-type]
 
 
+@pytest.mark.spec("AU-HARNESS-R004.1")
 def test_valid_proposal_constructs() -> None:
     proposal = _proposal()
     assert proposal.status == STATUS_PROPOSED
@@ -43,11 +44,13 @@ def test_valid_proposal_constructs() -> None:
         {"evidence": ()},
     ],
 )
+@pytest.mark.spec("AU-HARNESS-R004.1")
 def test_missing_required_field_is_refused(overrides: dict[str, object]) -> None:
     with pytest.raises(CorrectionProposalRefused):
         _proposal(**overrides)
 
 
+@pytest.mark.spec("AU-HARNESS-R004.1")
 def test_unknown_status_is_refused() -> None:
     with pytest.raises(CorrectionProposalRefused):
         _proposal(status="merged")
