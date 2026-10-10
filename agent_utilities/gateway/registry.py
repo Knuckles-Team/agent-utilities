@@ -65,7 +65,6 @@ _BUILTIN_WIDGETS: dict[str, str] = {
     "emerald_exchange": "agent_utilities.gateway.widgets.emerald_exchange",
     "legal_peripherals": "agent_utilities.gateway.widgets.legal_peripherals",
     "twenty": "agent_utilities.gateway.widgets.twenty",
-    "genius_agent": "agent_utilities.gateway.widgets.genius_agent",
     "atlassian": "agent_utilities.gateway.widgets.atlassian",
     "google_workspace": "agent_utilities.gateway.widgets.google_workspace",
     "zulip": "agent_utilities.gateway.widgets.zulip",
