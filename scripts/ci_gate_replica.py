@@ -158,6 +158,18 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
                 "that pushes to a Docker registry via DOCKER_* secrets. Publishing "
                 "must never happen from a local pre-push hook."
             ),
+            "full-suite": (
+                "runs only `if: github.event_name == 'pull_request' && "
+                "needs.gates.outputs.scope == 'FULL'` -- a CI-only job-level split "
+                "that exists solely to give a FULL-scope PR its own 30-minute "
+                "budget instead of sharing `gates`' 10-minute PR timeout (a "
+                "step's `timeout-minutes` cannot read another step's output, so "
+                "the split has to be a job). It repeats `gates`' own checkout/uv/ "
+                "engine-wheel setup steps and then runs the exact same "
+                "`pytest -q -n auto --dist loadfile` full suite that this script "
+                "already replicates locally (no PR-scope concept exists outside "
+                "CI), so a separate local pass here would be duplicate work."
+            ),
         },
     ),
     "advisory.yml": WorkflowSpec(
