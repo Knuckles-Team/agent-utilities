@@ -36,6 +36,11 @@
     "AU-SEMANTIC-R011.3",
     "AU-SEMANTIC-R011.4",
     "AU-SEMANTIC-R011.5",
+    "AU-SEMANTIC-R011.5.1",
+    "AU-SEMANTIC-R011.5.2",
+    "AU-SEMANTIC-R011.5.3",
+    "AU-SEMANTIC-R011.5.4",
+    "AU-SEMANTIC-R011.5.5",
     "AU-SEMANTIC-R011.6",
     "AU-SEMANTIC-R011.7",
     "AU-SEMANTIC-R011.8",
@@ -409,7 +414,49 @@
     },
     {
       "id": "AU-SEMANTIC-R011.5",
-      "title": "Delete `agent_utilities/knowledge_graph/core/worker_scheduler.py`",
+      "title": "Delete `agent_utilities/knowledge_graph/core/worker_scheduler.py` (rollup of R011.5.1 to R011.5.5)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R011.5.1",
+        "AU-SEMANTIC-R011.5.2",
+        "AU-SEMANTIC-R011.5.3",
+        "AU-SEMANTIC-R011.5.4",
+        "AU-SEMANTIC-R011.5.5"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R011.5.1",
+      "title": "Repoint `engine_tasks.py` off the local worker scheduler",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.5.2",
+      "title": "Repoint `ingest_routing.py` off the local worker scheduler",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.5.3",
+      "title": "Repoint scheduler tests, part 1",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.5.4",
+      "title": "Repoint scheduler tests, part 2",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.5.5",
+      "title": "Delete the module once no importer remains",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
