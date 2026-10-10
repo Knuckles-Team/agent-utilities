@@ -42,3 +42,9 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [x] **AU-BOUNDARY-R044.1:** Typed inventory of orchestration paths pending move to graph-os
 - [x] **AU-BOUNDARY-R045.1:** Typed inventory of unplaced knowledge_graph packages pending move
 - [x] **AU-BOUNDARY-R047.1:** Typed inventory of engine-facing adapters pending thin-client cutover
+- [ ] **AU-BOUNDARY-R005.1:** A-E connector import census (PR #150, `79dc21bab`) that moved R005 to LANDED; `status.json`'s `landed_in` SHA is wrong (points at the unrelated `AU-HARNESS-R005.1` merge, not an A-E connector change).
+- [ ] **AU-BOUNDARY-R005.2:** Migrate `ansible-tower-mcp`, `audiobookshelf-mcp`, `ciso-assistant-api`, `data-science-mcp` off the banned AU imports the census missed.
+- [ ] **AU-BOUNDARY-R007.1:** K-O connector import census (PR #150, `79dc21bab`) that moved R007 to LANDED; `status.json`'s `landed_in` SHA is wrong (points at the unrelated `AU-HARNESS-R005.1` merge, not a K-O connector change).
+- [ ] **AU-BOUNDARY-R007.2:** Migrate `keycloak-agent`, `langfuse-agent`, `leanix-agent`, `microsoft-agent`, `opensearch-mcp` off the banned AU imports the census missed.
+- [ ] **AU-BOUNDARY-R008.1:** P-S connector import census (PR #150, `79dc21bab`) that moved R008 to LANDED; `status.json`'s `landed_in` SHA is wrong (points at the unrelated `AU-HARNESS-R005.1` merge, not a P-S connector change).
+- [ ] **AU-BOUNDARY-R008.2:** Migrate `paperless-ngx-mcp`, `pulselink-mcp`, `repository-manager`, `rom-manager`, `systems-manager` off the banned AU imports the census missed.
