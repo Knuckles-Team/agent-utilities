@@ -76,14 +76,3 @@ def test_refresh_via_kg_source_rederives(monkeypatch):
     final = store.get(art.artifact_id)
     assert final is not None
     assert "count=1" in final.last_rendered  # prior preserved
-
-
-def test_install_registers_resolver():
-    from agent_utilities.gateway import artifacts_api
-    from agent_utilities.knowledge_graph.live_artifacts.kg_source import (
-        install_kg_artifact_source,
-        kg_source_resolver,
-    )
-
-    assert install_kg_artifact_source() is True
-    assert artifacts_api._source_resolver is kg_source_resolver

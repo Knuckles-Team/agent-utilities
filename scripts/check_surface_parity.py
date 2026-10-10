@@ -129,7 +129,6 @@ SURFACE_ROOTS = (
     "agent_utilities/gateway/fleet.py",
     "agent_utilities/gateway/api.py",
     "agent_utilities/gateway/usage_api.py",
-    "agent_utilities/gateway/artifacts_api.py",
     "agent_utilities/server/app.py",
 )
 
