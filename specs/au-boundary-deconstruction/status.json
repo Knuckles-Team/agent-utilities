@@ -2,17 +2,23 @@
   "schema_version": 2,
   "spec_id": "AU-BOUNDARY-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-BOUNDARY-R001",
     "AU-BOUNDARY-R002",
     "AU-BOUNDARY-R003",
     "AU-BOUNDARY-R004",
     "AU-BOUNDARY-R005",
+    "AU-BOUNDARY-R005.1",
+    "AU-BOUNDARY-R005.2",
     "AU-BOUNDARY-R006",
     "AU-BOUNDARY-R006.1",
     "AU-BOUNDARY-R007",
+    "AU-BOUNDARY-R007.1",
+    "AU-BOUNDARY-R007.2",
     "AU-BOUNDARY-R008",
+    "AU-BOUNDARY-R008.1",
+    "AU-BOUNDARY-R008.2",
     "AU-BOUNDARY-R009",
     "AU-BOUNDARY-R009.1",
     "AU-BOUNDARY-R010",
@@ -116,10 +122,28 @@
     {
       "id": "AU-BOUNDARY-R005",
       "title": "Migrate connector packages A-E onto the SDK",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "a754f1299033"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R005.1",
+        "AU-BOUNDARY-R005.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R005.1",
+      "title": "A-E connector import census lands, naming its own blind spot",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R005.2",
+      "title": "Fix the A-E census blind spot and finish the migration",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -149,19 +173,55 @@
     {
       "id": "AU-BOUNDARY-R007",
       "title": "Migrate connector packages K-O onto the SDK",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "a754f1299033"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R007.1",
+        "AU-BOUNDARY-R007.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R007.1",
+      "title": "K-O connector import census lands, naming its own blind spot",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R007.2",
+      "title": "Fix the K-O census blind spot and finish the migration",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R008",
       "title": "Migrate connector packages P-S onto the SDK",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "a754f1299033"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R008.1",
+        "AU-BOUNDARY-R008.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R008.1",
+      "title": "P-S connector import census lands, naming its own blind spot",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R008.2",
+      "title": "Fix the P-S census blind spot and finish the migration",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {

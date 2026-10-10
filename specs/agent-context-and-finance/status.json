@@ -2,13 +2,15 @@
   "schema_version": 2,
   "spec_id": "AU-CONTEXT-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-CONTEXT-R001",
     "AU-CONTEXT-R002",
     "AU-CONTEXT-R003",
     "AU-CONTEXT-R004",
     "AU-CONTEXT-R005",
+    "AU-CONTEXT-R005.1",
+    "AU-CONTEXT-R005.2",
     "AU-CONTEXT-R006",
     "AU-CONTEXT-R006.1",
     "AU-CONTEXT-R006.2",
@@ -16,6 +18,7 @@
     "AU-CONTEXT-R007",
     "AU-CONTEXT-R007.1",
     "AU-CONTEXT-R007.2",
+    "AU-CONTEXT-R007.2.1",
     "AU-CONTEXT-R008",
     "AU-CONTEXT-R008.1",
     "AU-CONTEXT-R008.2",
@@ -73,10 +76,30 @@
     {
       "id": "AU-CONTEXT-R005",
       "title": "Finance scheduling and a sourced flip-explainer agent",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "88c61dc9164c"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-CONTEXT-R005.1",
+        "AU-CONTEXT-R005.2"
+      ]
+    },
+    {
+      "id": "AU-CONTEXT-R005.1",
+      "title": "Retrieval/decide-layer work lands under a commit that disclaims this row; no finance-scheduling or flip-explainer code ships",
       "delivery_state": "LANDED",
       "landed_in": [
         "88c61dc9164c"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTEXT-R005.2",
+      "title": "Build finance scheduling and the sourced flip-explainer agent",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -136,7 +159,7 @@
     {
       "id": "AU-CONTEXT-R007",
       "title": "Finance math and feeds move out of agent-utilities",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "703c3eb9d88d",
         "88c61dc9164c",
@@ -166,10 +189,20 @@
     {
       "id": "AU-CONTEXT-R007.2",
       "title": "The local finance-math modules and the fallback branch are deleted after cutover",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "9effc03d5c99"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-CONTEXT-R007.2.1"
+      ]
+    },
+    {
+      "id": "AU-CONTEXT-R007.2.1",
+      "title": "Delete the local finance-math modules and fallback branch once EG parity evidence exists",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
