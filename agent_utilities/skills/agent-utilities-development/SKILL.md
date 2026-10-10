@@ -487,3 +487,20 @@ The full catalogue — canonical checkout, worktree isolation, `update-ref`,
 views, register writes, `git add -A`, `uv.lock`, and the remaining prohibitions —
 is in
 [`references/g11-replacement-catalogue-reference.md`](references/g11-replacement-catalogue-reference.md).
+
+## Required development-skill topics (AU-DEV-R001)
+
+This skill documents every topic `agent_utilities.skills.dev_skill_topics.REQUIRED_TOPICS`
+requires of a per-repository development skill:
+
+- **architecture boundaries** — "Architecture and module map" / "What this repository owns"
+  (owning-repository table and the flowchart above).
+- **build hosts** — the `build-host-split-r820-r710` allocation referenced by `lane env`
+  (R820 for epistemic-graph, R710 for agent-utilities); `repository-manager --lane doctor`
+  reports the current host.
+- **quality gates** — "Quality gates" (unit, wiring, contract, live-path) and the mandatory
+  guardrails above.
+- **contract regeneration** — "Commands" (`scripts/gen_docs.py`, `scripts/gen_agents_md.py`,
+  `scripts/docs_contract.py --check`, `scripts/build_concepts_yaml.py`).
+- **identity setup** — "Setup" (`scripts/bootstrap.sh`) plus `agent-utilities lane env` for the
+  per-lane identity and secret-reference wiring.
