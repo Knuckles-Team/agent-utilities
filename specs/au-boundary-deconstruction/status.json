@@ -1803,9 +1803,13 @@
     {
       "id": "AU-BOUNDARY-R030.6",
       "title": "Delete `agent_utilities/knowledge_graph/ontology/manifest_compiler.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c4c654815738"
+      ],
+      "verified_by": [
+        "tests/gates/test_au_boundary_r030_6_deleted.py:16"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R030.7",
