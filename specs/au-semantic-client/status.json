@@ -30,6 +30,7 @@
     "AU-SEMANTIC-R018",
     "AU-SEMANTIC-R019",
     "AU-SEMANTIC-R020",
+    "AU-SEMANTIC-R020.1",
     "AU-SEMANTIC-R021",
     "AU-SEMANTIC-R021.1",
     "AU-SEMANTIC-R021.2",
@@ -282,6 +283,16 @@
       "id": "AU-SEMANTIC-R020",
       "title": "The ontology object model moves to EG",
       "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R020.1"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R020.1",
+      "title": "The AU-SEMANTIC-R020 migration scope is a typed, validated manifest",
+      "delivery_state": "BUILDING",
       "landed_in": [],
       "verified_by": []
     },
