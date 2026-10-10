@@ -847,7 +847,6 @@ agent-activation-worker = "agent_utilities.orchestration.agent_activation:main"
 # CONCEPT:ORCH-1.45 — stateless agent dispatch worker (agent-dispatch group);
 # also `python -m agent_utilities.orchestration.agent_dispatch_worker`.
 agent-dispatch-worker = "agent_utilities.orchestration.agent_dispatch_worker:main"
-graph-os-analytics-worker = "agent_utilities.knowledge_graph.analytics_worker:main"
 graph-os-production-ops = "agent_utilities.deployment.production_ops:main"
 graph-os-certify-connector = "agent_utilities.knowledge_graph.integrations.connector_certification_cli:main"
 assemble-exact-local-release = "scripts.release.assemble_exact_local_release:main"
