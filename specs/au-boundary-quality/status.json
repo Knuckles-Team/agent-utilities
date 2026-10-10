@@ -106,21 +106,27 @@
     {
       "id": "AU-QUAL-R006",
       "title": "A privacy check covers the final tree and commit history",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0fa2df86ace4",
         "576cf41ee890"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_tracked_privacy_commit_history.py:112",
+        "tests/gates/test_tracked_privacy_commit_history.py:88"
+      ]
     },
     {
       "id": "AU-QUAL-R007",
       "title": "Liveness placeholder detector ignores documentation prose",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "f93efd64d001"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_liveness_analyzer_compat.py:163",
+        "tests/gates/test_liveness_analyzer_compat.py:174"
+      ]
     },
     {
       "id": "AU-QUAL-R008",

@@ -22,6 +22,7 @@ from agent_utilities.security.authority_audit import (
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
+@pytest.mark.spec("AU-SEC-R009")
 def test_no_learned_score_grants_or_extends_authority() -> None:
     violations = learned_score_violations(REPO_ROOT)
     assert violations == [], violations

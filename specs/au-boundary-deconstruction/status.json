@@ -214,11 +214,13 @@
     {
       "id": "AU-BOUNDARY-R013",
       "title": "Restrict graph-os to AU's public API only",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5b4e8d0a31d0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/test_api_messaging.py:12"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R014",
@@ -270,11 +272,13 @@
     {
       "id": "AU-BOUNDARY-R017",
       "title": "Split messaging behavior and authority across AU, graph-os, and EG",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5b4e8d0a31d0"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/test_api_messaging.py:25"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R018",
@@ -324,29 +328,35 @@
     {
       "id": "AU-BOUNDARY-R023",
       "title": "Split ingestion commit and derivation into EG",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "743e98cda405"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:199"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R024",
       "title": "Move enterprise source synchronization to the SDK",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "743e98cda405"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:200"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R025",
       "title": "Move document, conversation, and feed sources to the SDK",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "743e98cda405"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:201"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R026",
@@ -362,11 +372,13 @@
     {
       "id": "AU-BOUNDARY-R027",
       "title": "Move deterministic enrichment and derivation to EG",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "743e98cda405"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:202"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R028",
@@ -403,7 +415,7 @@
     {
       "id": "AU-BOUNDARY-R028.2",
       "title": "Retire `kg/infra/{placement_optimizer,inventory_collector}.py`",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "32bdd70f5ea4"
       ],
@@ -415,11 +427,13 @@
     {
       "id": "AU-BOUNDARY-R028.2.1",
       "title": "Pin the `kg/infra` production-importer set",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "32bdd70f5ea4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_r028x_module_census.py:150"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R028.3",
@@ -452,7 +466,7 @@
     {
       "id": "AU-BOUNDARY-R028.6",
       "title": "Retire `observability/{trace_ontology,self_ingest,audit_logger}.py`",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "26b087dd3b2f"
       ],
@@ -464,17 +478,19 @@
     {
       "id": "AU-BOUNDARY-R028.6.1",
       "title": "Pin the `observability/{trace_ontology,self_ingest,audit_logger}` production-importer set",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_r028x_module_census.py:161"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R028.7",
       "title": "Retire `governance/relational_authority.py` and `.json`",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "26b087dd3b2f"
       ],
@@ -486,17 +502,19 @@
     {
       "id": "AU-BOUNDARY-R028.7.1",
       "title": "Pin the `governance/relational_authority` importer set",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_r028x_module_census.py:184"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R028.8",
       "title": "Retire `kg/research/placement_mining.py`",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4"
@@ -509,21 +527,25 @@
     {
       "id": "AU-BOUNDARY-R028.8.1",
       "title": "Pin the `kg/research/placement_mining` production-importer set",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_r028x_module_census.py:196"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R029",
       "title": "Move the ontology object model to EG",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "743e98cda405"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:203"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R030",
@@ -541,11 +563,13 @@
     {
       "id": "AU-BOUNDARY-R031",
       "title": "Replace AU's graph-schema DTOs with EG-generated types",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "743e98cda405"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:204"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R032",
@@ -560,20 +584,24 @@
     {
       "id": "AU-BOUNDARY-R033",
       "title": "Move external graph and database federation to EG",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "743e98cda405"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:205"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R034",
       "title": "Move retrieval engines to EG",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "743e98cda405"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:206"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R035",

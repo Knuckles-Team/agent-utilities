@@ -20,11 +20,13 @@
     {
       "id": "AU-RETIRE-R001",
       "title": "Complete inventory and retirement of duplicate graph engine code",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "6a408267e403"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/knowledge_graph/test_retirement_inventory.py:24"
+      ]
     },
     {
       "id": "AU-RETIRE-R002",
@@ -102,12 +104,15 @@
     {
       "id": "AU-RETIRE-R006",
       "title": "Delta ingest reaps nodes for deleted files",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5822ee9bef09",
         "bc7bba33932d"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/knowledge_graph/test_ingestion_perf_optimizations.py:362",
+        "tests/unit/knowledge_graph/test_ingestion_perf_optimizations.py:392"
+      ]
     },
     {
       "id": "AU-RETIRE-R007",

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from agent_utilities.knowledge_graph.retirement_inventory import (
     RETIREMENT_INVENTORY,
     Disposition,
@@ -19,6 +21,7 @@ from agent_utilities.knowledge_graph.retirement_inventory import (
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
+@pytest.mark.spec("AU-RETIRE-R001")
 def test_every_entry_has_exactly_one_disposition():
     for entry in RETIREMENT_INVENTORY:
         assert isinstance(entry.disposition, Disposition)

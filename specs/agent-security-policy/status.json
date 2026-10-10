@@ -108,12 +108,14 @@
     {
       "id": "AU-SEC-R009",
       "title": "Learned scores never grant security authority",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2acbf25f8bb2",
         "8a7a9e0e3fbe"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/security/test_authority_audit.py:25"
+      ]
     },
     {
       "id": "AU-SEC-R010",

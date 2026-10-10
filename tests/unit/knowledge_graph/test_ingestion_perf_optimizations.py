@@ -359,6 +359,7 @@ class TestGitDelta:
             changed == []
         )  # functional git, but no source changed → near-empty re-ingest
 
+    @pytest.mark.spec("AU-RETIRE-R006")
     def test_deleted_source_files_returns_only_deleted_any_language(
         self, git_repo: Path
     ):
@@ -388,6 +389,7 @@ class TestGitDelta:
 class TestReapDeletedFiles:
     """AU-RETIRE-R006: a delta ingest retracts the deleted files' nodes."""
 
+    @pytest.mark.spec("AU-RETIRE-R006")
     def test_reaps_each_deleted_file_by_its_file_path(self):
         backend = MagicMock()
         IngestionEngine._reap_deleted_files(backend, ["a.py", "pkg/b.py"])

@@ -196,6 +196,14 @@ def _entries() -> list[tuple[str, str, str]]:
     ]
 
 
+@pytest.mark.spec("AU-BOUNDARY-R023")
+@pytest.mark.spec("AU-BOUNDARY-R024")
+@pytest.mark.spec("AU-BOUNDARY-R025")
+@pytest.mark.spec("AU-BOUNDARY-R027")
+@pytest.mark.spec("AU-BOUNDARY-R029")
+@pytest.mark.spec("AU-BOUNDARY-R031")
+@pytest.mark.spec("AU-BOUNDARY-R033")
+@pytest.mark.spec("AU-BOUNDARY-R034")
 @pytest.mark.parametrize("requirement_id,destination,module_path", _entries())
 def test_inventoried_relocation_target_still_present(
     requirement_id: str, destination: str, module_path: str

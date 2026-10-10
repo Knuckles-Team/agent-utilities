@@ -160,6 +160,7 @@ def real_placeholder_analyzer(tmp_path):
     return gate, analyzer
 
 
+@pytest.mark.spec("AU-QUAL-R007")
 def test_docstring_prose_is_not_a_placeholder_finding(real_placeholder_analyzer):
     gate, an = real_placeholder_analyzer
     src = (
@@ -170,6 +171,7 @@ def test_docstring_prose_is_not_a_placeholder_finding(real_placeholder_analyzer)
     assert list(gate._placeholder_ids(an, src)) == []
 
 
+@pytest.mark.spec("AU-QUAL-R007")
 def test_prose_comment_mid_sentence_is_not_a_placeholder_finding(
     real_placeholder_analyzer,
 ):
