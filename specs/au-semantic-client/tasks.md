@@ -62,7 +62,7 @@ The task owner records a separate verdict per ID even when multiple IDs share a 
 - [ ] **AU-SEMANTIC-R011.3:** Delete `knowledge_graph/core/kafka_queue_backend.py`
 - [ ] **AU-SEMANTIC-R011.4:** Delete `knowledge_graph/core/postgres_queue_backend.py`
 - [ ] **AU-SEMANTIC-R011.5:** Delete `knowledge_graph/core/worker_scheduler.py`
-- [ ] **AU-SEMANTIC-R011.5.1:** Repoint `engine_tasks.py` off `worker_scheduler`
+- [ ] **AU-SEMANTIC-R011.5.1:** Repoint `engine_tasks.py` off `worker_scheduler` (BLOCKED on epistemic-graph: no served WorkerRegistry, AdmissionPolicy, scheduler config/lane floors or shard-writer width)
 - [ ] **AU-SEMANTIC-R011.5.2:** Repoint `ingest_routing.py` off `worker_scheduler`
 - [ ] **AU-SEMANTIC-R011.5.3:** Repoint scheduler tests, part 1
 - [ ] **AU-SEMANTIC-R011.5.4:** Repoint scheduler tests, part 2
