@@ -45,6 +45,11 @@ The task owner records a separate verdict per ID even when multiple IDs share a 
 - [ ] **AU-SEMANTIC-R006.3:** The SHACL pipeline gate and pack loader submit typed payloads instead of rdflib graphs
 - [ ] **AU-SEMANTIC-R006.4:** The connector-certification gate submits a typed payload instead of an rdflib graph
 - [ ] **AU-SEMANTIC-R006.5:** The connector-manifest gate and generation scripts submit typed payloads instead of rdflib graphs
+- [ ] **AU-SEMANTIC-R006.5.1:** `connector_manifest_gate.py` submits typed payloads instead of an rdflib graph
+- [ ] **AU-SEMANTIC-R006.5.2:** `generate_connector_manifests.py` submits typed payloads instead of an rdflib graph
+- [ ] **AU-SEMANTIC-R006.5.3:** `generate_native_connector_manifest.py` submits typed payloads instead of an rdflib graph
+- [ ] **AU-SEMANTIC-R006.5.4:** `check_connector_capability_bundles.py` submits typed payloads instead of an rdflib graph
+- [ ] **AU-SEMANTIC-R006.5.5:** `generate_connector_capability_bundles.py` submits typed payloads instead of an rdflib graph
 - [ ] **AU-SEMANTIC-R006.6:** The team-sharing gate, remaining ontology modules and `rdflib` dependency removal close R006
 - [x] **AU-SEMANTIC-R008:** Reasoning-topology selection uses a served policy, not a local outcome store
 - [ ] **AU-SEMANTIC-R008.1:** A typed topology decision-policy client contract fails closed while no served policy exists
