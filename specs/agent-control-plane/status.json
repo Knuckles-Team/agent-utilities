@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-CONTROL-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "AU-CONTROL-R001",
     "AU-CONTROL-R002",
@@ -66,7 +66,7 @@
         "e0420bc5ba59"
       ],
       "verified_by": [
-        "tests/unit/decide/test_routing_consumers.py:47"
+        "tests/unit/decide/test_routing_consumers.py:52"
       ]
     },
     {
@@ -110,7 +110,7 @@
     {
       "id": "AU-CONTROL-R006",
       "title": "Cost-aware routing informed by usage accounting",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4351f26b3d3b",
         "a1dd4111f04f",
@@ -124,9 +124,13 @@
     {
       "id": "AU-CONTROL-R006.1",
       "title": "A production ObservedCost implementer and a caller in routing",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "6a43f914f823"
+      ],
+      "verified_by": [
+        "tests/unit/decide/test_routing_consumers.py:78"
+      ]
     },
     {
       "id": "AU-CONTROL-R007",
