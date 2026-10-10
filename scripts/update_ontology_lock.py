@@ -32,16 +32,17 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agent_utilities.knowledge_graph.integrations.connector_source_attestation import (  # noqa: E402
-    source_attestation_violations,
-)
-from agent_utilities.knowledge_graph.ontology import ontology_integrity  # noqa: E402
 from agent_connector_sdk.manifest.model import (  # noqa: E402
     ConnectorManifest as SDKConnectorManifest,
 )
 from agent_connector_sdk.manifest.ontology_pack import (  # noqa: E402
     compile_manifest_ontology,
 )
+
+from agent_utilities.knowledge_graph.integrations.connector_source_attestation import (  # noqa: E402
+    source_attestation_violations,
+)
+from agent_utilities.knowledge_graph.ontology import ontology_integrity  # noqa: E402
 from agent_utilities.knowledge_graph.ontology.connector_manifest import (  # noqa: E402
     ConnectorManifest,
 )
@@ -173,9 +174,7 @@ def _lock_entry(
     # authorship record for them. The identity check above and the compiled-TTL
     # digest below are the pins that actually detect a stale or edited manifest.
     # Hash the RAW document, not the validated model — see `_load_raw`.
-    manifest_hash = ontology_integrity.canonical_manifest_hash(
-        _load_raw(manifest_path)
-    )
+    manifest_hash = ontology_integrity.canonical_manifest_hash(_load_raw(manifest_path))
 
     # AU-BOUNDARY-R030.3: compile through the SDK's typed, source-agnostic
     # pack compiler (agent_connector_sdk.manifest.ontology_pack) instead of

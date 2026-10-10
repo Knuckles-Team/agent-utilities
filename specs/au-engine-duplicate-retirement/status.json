@@ -2,9 +2,11 @@
   "schema_version": 2,
   "spec_id": "AU-RETIRE-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-RETIRE-R001",
+    "AU-RETIRE-R001.1",
+    "AU-RETIRE-R001.2",
     "AU-RETIRE-R002",
     "AU-RETIRE-R003",
     "AU-RETIRE-R003.1",
@@ -14,9 +16,7 @@
     "AU-RETIRE-R005",
     "AU-RETIRE-R006",
     "AU-RETIRE-R007",
-    "AU-RETIRE-R008",
-    "AU-RETIRE-R001.1",
-    "AU-RETIRE-R001.2"
+    "AU-RETIRE-R008"
   ],
   "requirements": [
     {
@@ -24,13 +24,32 @@
       "title": "Complete inventory and retirement of duplicate graph engine code",
       "delivery_state": "SPECIFIED",
       "landed_in": [
+        "4a5540dd2e3d",
         "6a408267e403"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/unit/knowledge_graph/test_retirement_inventory.py:24"
+      ],
       "rollup_of": [
         "AU-RETIRE-R001.1",
         "AU-RETIRE-R001.2"
       ]
+    },
+    {
+      "id": "AU-RETIRE-R001.1",
+      "title": "Census recorded no safe disposition yet for `graph_compute.py` or `formal_reasoning_core.py`",
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "6a408267e403"
+      ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETIRE-R001.2",
+      "title": "Open the cross-repo spec item enumerating EG-native equivalents",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-RETIRE-R002",
@@ -90,11 +109,14 @@
     {
       "id": "AU-RETIRE-R004",
       "title": "Fix doubled node_type text in embedding composition",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "bc7bba33932d"
+        "bc7bba33932d",
+        "f0f5e51f6b47"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/knowledge_graph/enrichment/test_entity_text_bare_node_type.py:38"
+      ]
     },
     {
       "id": "AU-RETIRE-R005",
@@ -110,6 +132,7 @@
       "title": "Delta ingest reaps nodes for deleted files",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "42f6dada3749",
         "4a5540dd2e3d",
         "5822ee9bef09",
         "bc7bba33932d"
@@ -136,22 +159,6 @@
       "landed_in": [
         "6a408267e403"
       ],
-      "verified_by": []
-    },
-    {
-      "id": "AU-RETIRE-R001.1",
-      "title": "Census recorded no safe disposition yet for `graph_compute.py` or `formal_reasoning_core.py`",
-      "delivery_state": "LANDED",
-      "landed_in": [
-        "6a408267e403"
-      ],
-      "verified_by": []
-    },
-    {
-      "id": "AU-RETIRE-R001.2",
-      "title": "Open the cross-repo spec item enumerating EG-native equivalents",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
       "verified_by": []
     }
   ]

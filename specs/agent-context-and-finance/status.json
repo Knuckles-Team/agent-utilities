@@ -43,7 +43,8 @@
       "title": "Corpus re-embedding uses a governed shadow ANN swap",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "88c61dc9164c"
+        "88c61dc9164c",
+        "f0f5e51f6b47"
       ],
       "verified_by": [
         "tests/unit/decide/test_generation_cycle.py:187"
@@ -78,9 +79,10 @@
     {
       "id": "AU-CONTEXT-R005",
       "title": "Finance scheduling and a sourced flip-explainer agent",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
-        "88c61dc9164c"
+        "88c61dc9164c",
+        "f0f5e51f6b47"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -100,9 +102,14 @@
     {
       "id": "AU-CONTEXT-R005.2",
       "title": "Build finance scheduling and the sourced flip-explainer agent",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0209a00db1f0",
+        "0c09b35ea390"
+      ],
+      "verified_by": [
+        "tests/unit/finance_agents/test_flip_explainer.py:19"
+      ]
     },
     {
       "id": "AU-CONTEXT-R006",
@@ -178,6 +185,7 @@
       "title": "A boundary test pins the finance-math module set, and a typed delegation seam prefers EG when available",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "0209a00db1f0",
         "4eac8c6dc419",
         "af11c84309ee",
         "f474735cab25"
@@ -193,7 +201,8 @@
       "title": "The local finance-math modules and the fallback branch are deleted after cutover",
       "delivery_state": "SPECIFIED",
       "landed_in": [
-        "9effc03d5c99"
+        "9effc03d5c99",
+        "f0f5e51f6b47"
       ],
       "verified_by": [],
       "rollup_of": [

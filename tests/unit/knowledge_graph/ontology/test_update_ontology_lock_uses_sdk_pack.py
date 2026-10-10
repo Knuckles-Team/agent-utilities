@@ -14,9 +14,7 @@ from pathlib import Path
 
 import pytest
 
-_SCRIPT = (
-    Path(__file__).resolve().parents[4] / "scripts" / "update_ontology_lock.py"
-)
+_SCRIPT = Path(__file__).resolve().parents[4] / "scripts" / "update_ontology_lock.py"
 
 
 def _imported_modules(tree: ast.Module) -> set[str]:

@@ -28,7 +28,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = REPO_ROOT / "agent_utilities"
 
 
-def _modules_importing(needle_substrings: tuple[str, ...], exclude: tuple[str, ...]) -> frozenset[str]:
+def _modules_importing(
+    needle_substrings: tuple[str, ...], exclude: tuple[str, ...]
+) -> frozenset[str]:
     """Return relative paths (posix, from agent_utilities/) of production
     files whose import statements reference any of `needle_substrings`,
     excluding the defining modules themselves. Test files are out of scope:

@@ -18,9 +18,15 @@ from agent_utilities.domains.finance_agents.flip_explainer import (
 
 @pytest.mark.spec("AU-CONTEXT-R005.2")
 def test_flip_verdict_derives_from_computed_math_and_every_claim_is_sourced() -> None:
-    up = explain_flip("ACME", prior_price=10.0, current_price=12.0, source="feed:acme/2026-10-09")
-    down = explain_flip("ACME", prior_price=12.0, current_price=10.0, source="feed:acme/2026-10-09")
-    flat = explain_flip("ACME", prior_price=10.0, current_price=10.0, source="feed:acme/2026-10-09")
+    up = explain_flip(
+        "ACME", prior_price=10.0, current_price=12.0, source="feed:acme/2026-10-09"
+    )
+    down = explain_flip(
+        "ACME", prior_price=12.0, current_price=10.0, source="feed:acme/2026-10-09"
+    )
+    flat = explain_flip(
+        "ACME", prior_price=10.0, current_price=10.0, source="feed:acme/2026-10-09"
+    )
 
     # The verdict and computed_value are pure functions of the price delta.
     assert up.computed_value == pytest.approx(2.0)
@@ -38,7 +44,10 @@ def test_flip_verdict_derives_from_computed_math_and_every_claim_is_sourced() ->
             assert claim.source == "feed:acme/2026-10-09"
             # Every claim must reference the computed verdict/value, proving
             # it was derived from the math rather than asserted independently.
-            assert str(explanation.computed_value) in claim.text or explanation.verdict in claim.text
+            assert (
+                str(explanation.computed_value) in claim.text
+                or explanation.verdict in claim.text
+            )
 
     # A missing source is rejected outright: no claim may exist unsourced.
     with pytest.raises(ValueError):

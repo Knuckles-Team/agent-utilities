@@ -25,6 +25,13 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from agent_connector_sdk.manifest.model import (  # noqa: E402
+    ConnectorManifest as SDKConnectorManifest,
+)
+from agent_connector_sdk.manifest.ontology_pack import (  # noqa: E402
+    compile_manifest_ontology,
+)
+
 from agent_utilities.knowledge_graph.ontology import ontology_integrity  # noqa: E402
 from agent_utilities.knowledge_graph.ontology.connector_manifest import (  # noqa: E402
     ConnectorManifest,
@@ -42,12 +49,6 @@ from agent_utilities.knowledge_graph.ontology.connector_manifest_gate import (  
     SOURCE_TO_CONNECTOR_PACKAGE,
     native_activation_contract,
     native_activation_fingerprints,
-)
-from agent_connector_sdk.manifest.model import (  # noqa: E402
-    ConnectorManifest as SDKConnectorManifest,
-)
-from agent_connector_sdk.manifest.ontology_pack import (  # noqa: E402
-    compile_manifest_ontology,
 )
 
 CONNECTOR = "native-source-connectors"

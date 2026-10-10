@@ -25,9 +25,7 @@ def test_shacl_gate_module_imports_no_rdflib():
     tree = ast.parse(_MODULE_PATH.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            assert all(
-                alias.name.split(".")[0] != "rdflib" for alias in node.names
-            )
+            assert all(alias.name.split(".")[0] != "rdflib" for alias in node.names)
         if isinstance(node, ast.ImportFrom):
             assert (node.module or "").split(".")[0] != "rdflib"
 
@@ -53,9 +51,7 @@ class _FakeEngineGraph:
 @pytest.mark.spec("AU-SEMANTIC-R006.3")
 def test_build_data_graph_renders_turtle_via_reused_serializer():
     """No-engine fallback renders Turtle text (not an rdflib Graph object)."""
-    graph = _FakeEngineGraph(
-        {"tool-1": {"node_type": "tool", "name": "Example"}}
-    )
+    graph = _FakeEngineGraph({"tool-1": {"node_type": "tool", "name": "Example"}})
     turtle = shacl_gate.build_data_graph(graph)
     assert isinstance(turtle, str)
     assert "<http://knuckles.team/kg#tool-1>" in turtle

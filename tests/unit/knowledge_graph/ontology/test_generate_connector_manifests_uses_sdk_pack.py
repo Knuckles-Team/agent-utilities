@@ -16,9 +16,7 @@ from agent_connector_sdk.manifest.model import ConnectorManifest as SDKConnector
 from agent_connector_sdk.manifest.ontology_pack import compile_manifest_ontology
 
 _SCRIPT_PATH = (
-    Path(__file__).resolve().parents[4]
-    / "scripts"
-    / "generate_connector_manifests.py"
+    Path(__file__).resolve().parents[4] / "scripts" / "generate_connector_manifests.py"
 )
 
 _SPEC = importlib.util.spec_from_file_location(

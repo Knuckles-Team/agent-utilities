@@ -56,5 +56,5 @@ def test_no_production_importers_of_gateway_artifacts_api():
     matches = [line for line in result.stdout.splitlines() if line.strip()]
     assert matches == [], (
         "found remaining importers of the deleted "
-        f"agent_utilities/gateway/artifacts_api.py:\n" + "\n".join(matches)
+        "agent_utilities/gateway/artifacts_api.py:\n" + "\n".join(matches)
     )

@@ -109,8 +109,7 @@ def explain_flip(
     claims = (
         SourcedClaim(
             text=(
-                f"{symbol} moved from {prior_price} to {current_price} "
-                f"(delta={delta})."
+                f"{symbol} moved from {prior_price} to {current_price} (delta={delta})."
             ),
             source=source,
         ),

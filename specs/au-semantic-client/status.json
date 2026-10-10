@@ -89,6 +89,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "2648d0b28ad0",
+        "42f6dada3749",
         "43197d7c65a3"
       ],
       "verified_by": []
@@ -178,8 +179,8 @@
       ],
       "verified_by": [
         "tests/unit/knowledge_graph/pipeline/phases/test_shacl_gate_no_rdflib.py:22",
-        "tests/unit/knowledge_graph/pipeline/phases/test_shacl_gate_no_rdflib.py:53",
-        "tests/unit/knowledge_graph/pipeline/phases/test_shacl_gate_no_rdflib.py:80"
+        "tests/unit/knowledge_graph/pipeline/phases/test_shacl_gate_no_rdflib.py:51",
+        "tests/unit/knowledge_graph/pipeline/phases/test_shacl_gate_no_rdflib.py:76"
       ]
     },
     {
@@ -437,8 +438,10 @@
     {
       "id": "AU-SEMANTIC-R011.9",
       "title": "Delete `agent_utilities/knowledge_graph/ingest_worker.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b02e3995039e"
+      ],
       "verified_by": [
         "tests/gates/test_semantic_r011_9_deleted.py:19",
         "tests/gates/test_semantic_r011_9_deleted.py:29",
@@ -448,12 +451,14 @@
     {
       "id": "AU-SEMANTIC-R011.10",
       "title": "Delete `agent_utilities/knowledge_graph/analytics_worker.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "92974bae8c3e"
+      ],
       "verified_by": [
-        "tests/gates/test_semantic_r011_10_deleted.py:31",
-        "tests/gates/test_semantic_r011_10_deleted.py:40",
-        "tests/gates/test_semantic_r011_10_deleted.py:60"
+        "tests/gates/test_semantic_r011_10_deleted.py:33",
+        "tests/gates/test_semantic_r011_10_deleted.py:42",
+        "tests/gates/test_semantic_r011_10_deleted.py:62"
       ]
     },
     {

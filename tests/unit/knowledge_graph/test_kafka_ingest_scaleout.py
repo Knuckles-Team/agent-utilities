@@ -16,7 +16,6 @@ import sys
 import threading
 import time
 import types
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest

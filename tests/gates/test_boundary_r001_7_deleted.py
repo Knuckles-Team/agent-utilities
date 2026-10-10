@@ -13,7 +13,9 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DELETED_MODULE = REPO_ROOT / "agent_utilities" / "gateway" / "widgets" / "genius_agent.py"
+DELETED_MODULE = (
+    REPO_ROOT / "agent_utilities" / "gateway" / "widgets" / "genius_agent.py"
+)
 MODULE_DOTTED_PATH = "agent_utilities.gateway.widgets.genius_agent"
 
 
@@ -40,9 +42,7 @@ def test_gateway_widgets_genius_agent_no_importers_remain() -> None:
         text=True,
     )
     # git grep exits 1 when no matches are found; anything else is a real error.
-    assert result.returncode in (0, 1), (
-        f"git grep failed unexpectedly: {result.stderr}"
-    )
+    assert result.returncode in (0, 1), f"git grep failed unexpectedly: {result.stderr}"
     assert result.returncode == 1 and not result.stdout.strip(), (
         "Found remaining production references to the deleted "
         f"{MODULE_DOTTED_PATH} module:\n{result.stdout}"

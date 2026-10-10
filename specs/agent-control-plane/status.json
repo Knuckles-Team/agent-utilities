@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-CONTROL-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "AU-CONTROL-R001",
     "AU-CONTROL-R002",
@@ -449,8 +449,10 @@
     {
       "id": "AU-CONTROL-R035",
       "title": "The signed agent-dispatch envelope carries an enforced allowed-tool-subset field",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "8c6fb318c5d3"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-CONTROL-R035.1",
@@ -469,8 +471,10 @@
     {
       "id": "AU-CONTROL-R035.2",
       "title": "Add and enforce the allowed-tool-subset field",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "018e9824140f"
+      ],
       "verified_by": [
         "tests/unit/test_agent_dispatch.py:1309",
         "tests/unit/test_agent_dispatch.py:1345",

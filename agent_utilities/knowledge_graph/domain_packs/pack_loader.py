@@ -432,7 +432,9 @@ def load_pack(path: str | Path, engine: Any = None) -> LoadedDomainPack:
                 for p in sdk_spec.object_properties
             ],
             datatype_properties=[
-                OntologyDatatypePropertySpec(local=d.local, label=d.label, range=d.range)
+                OntologyDatatypePropertySpec(
+                    local=d.local, label=d.label, range=d.range
+                )
                 for d in sdk_spec.datatype_properties
             ],
             type_map=dict(sdk_spec.type_map),

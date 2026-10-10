@@ -15,7 +15,9 @@ from pathlib import Path
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_MODULE_PATH = _REPO_ROOT / "agent_utilities" / "knowledge_graph" / "analytics_worker.py"
+_MODULE_PATH = (
+    _REPO_ROOT / "agent_utilities" / "knowledge_graph" / "analytics_worker.py"
+)
 _DOTTED_MODULE = "agent_utilities.knowledge_graph.analytics_worker"
 _IMPORT_PATTERN = re.compile(
     r"(^|[\s(])"

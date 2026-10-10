@@ -720,9 +720,7 @@ def _include_gateway_routers(app: FastAPI) -> None:
         # CONCEPT:AU-ECO.mcp.usage-cost-observability-surface — usage/cost/
         # observability surface for all 3 UIs.
         app.include_router(usage_router, prefix="/api/observability")
-        logger.info(
-            "Mounted centralized Gateway API (Knowledge Graph + Observability)"
-        )
+        logger.info("Mounted centralized Gateway API (Knowledge Graph + Observability)")
     except ImportError as exc:
         logger.error(
             "Failed to load Gateway APIs (exception_type=%s)",

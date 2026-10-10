@@ -52,7 +52,9 @@ def test_r028_3_quantum_modules_deleted_and_unreferenced() -> None:
 
     offending: list[str] = []
     for path in PACKAGE_ROOT.rglob("*.py"):
-        if _imports_any(path, ("knowledge_graph.quantum", "observability.quantum_trace")):
+        if _imports_any(
+            path, ("knowledge_graph.quantum", "observability.quantum_trace")
+        ):
             offending.append(path.relative_to(PACKAGE_ROOT).as_posix())
     assert offending == [], f"stale importer(s) of deleted quantum modules: {offending}"
 
@@ -89,7 +91,9 @@ def test_r028_4_cognitive_trap_defense_deleted_and_remaining_trio_blocked() -> N
         ),
     }
     for module_rel, importer_rels in remaining.items():
-        assert (PACKAGE_ROOT / module_rel).exists(), f"{module_rel} unexpectedly deleted"
+        assert (PACKAGE_ROOT / module_rel).exists(), (
+            f"{module_rel} unexpectedly deleted"
+        )
         module_name = module_rel[:-3].replace("/", ".")
         short_name = module_name.rsplit(".", 1)[-1]
         for importer_rel in importer_rels:
