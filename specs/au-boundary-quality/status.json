@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-QUAL-01",
   "owner_repo": "agent-utilities",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "AU-QUAL-R001",
     "AU-QUAL-R002",
@@ -11,6 +11,7 @@
     "AU-QUAL-R005",
     "AU-QUAL-R005.1",
     "AU-QUAL-R005.2",
+    "AU-QUAL-R005.2.1",
     "AU-QUAL-R006",
     "AU-QUAL-R007",
     "AU-QUAL-R008"
@@ -58,8 +59,9 @@
     {
       "id": "AU-QUAL-R005",
       "title": "Test files are included in mypy with real fixes",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
+        "d9d7cc7b59c0",
         "ed6485573f1e"
       ],
       "verified_by": [],
@@ -80,9 +82,26 @@
     {
       "id": "AU-QUAL-R005.2",
       "title": "Remaining scope of AU-QUAL-R005 (slice .2): Test files are included in mypy with real fixes",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d9d7cc7b59c0"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-QUAL-R005.2.1"
+      ]
+    },
+    {
+      "id": "AU-QUAL-R005.2.1",
+      "title": "Per-directory grandchild slice of AU-QUAL-R005.2 — `tests/unit/patterns/`",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d9d7cc7b59c0"
+      ],
+      "verified_by": [
+        "tests/unit/quality/test_mypy_config_includes_patterns_dir.py:33",
+        "tests/unit/quality/test_mypy_config_includes_patterns_dir.py:41"
+      ]
     },
     {
       "id": "AU-QUAL-R006",

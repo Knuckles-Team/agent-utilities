@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-CONTEXT-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "AU-CONTEXT-R001",
     "AU-CONTEXT-R002",
@@ -27,7 +27,8 @@
       "title": "RetrievalPath templates feed EG-DECISION-ENGINE-R029 as candidates",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "88c61dc9164c"
+        "88c61dc9164c",
+        "c563cef1f530"
       ],
       "verified_by": [
         "tests/unit/decide/test_retrieval_consumer.py:15",
@@ -48,7 +49,8 @@
       "title": "Embedding admission changes come from reviewed proposals only",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "88c61dc9164c"
+        "88c61dc9164c",
+        "c563cef1f530"
       ],
       "verified_by": [
         "tests/unit/knowledge_graph/ingestion/test_admission_feedback.py:25",
@@ -60,7 +62,8 @@
       "title": "Context sizing solves a certified multi-resolution knapsack",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "88c61dc9164c"
+        "88c61dc9164c",
+        "c563cef1f530"
       ],
       "verified_by": [
         "tests/retrieval/test_context_knapsack.py:143",
@@ -131,10 +134,11 @@
     {
       "id": "AU-CONTEXT-R007",
       "title": "Finance math and feeds move out of agent-utilities",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "703c3eb9d88d",
-        "88c61dc9164c"
+        "88c61dc9164c",
+        "af11c84309ee"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -148,6 +152,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "4eac8c6dc419",
+        "af11c84309ee",
         "f474735cab25"
       ],
       "verified_by": [
@@ -159,14 +164,16 @@
     {
       "id": "AU-CONTEXT-R007.2",
       "title": "The local finance-math modules and the fallback branch are deleted after cutover",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "9effc03d5c99"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-CONTEXT-R008",
       "title": "Finance recommendations are calibrated, cited, and informational",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0cd7be250b3d",
         "88c61dc9164c"
@@ -184,6 +191,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0cd7be250b3d",
+        "af11c84309ee",
         "f474735cab25"
       ],
       "verified_by": [
@@ -195,16 +203,26 @@
     {
       "id": "AU-CONTEXT-R008.2",
       "title": "A real entry point produces recommendations from live holdings",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "9effc03d5c99"
+      ],
+      "verified_by": [
+        "tests/unit/finance/test_recommend_entrypoint.py:57",
+        "tests/unit/finance/test_recommend_entrypoint.py:78"
+      ]
     },
     {
       "id": "AU-CONTEXT-R008.3",
       "title": "Per-strategy scorecards persist for comparison",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "9effc03d5c99"
+      ],
+      "verified_by": [
+        "tests/unit/finance/test_recommend_entrypoint.py:122",
+        "tests/unit/finance/test_recommend_entrypoint.py:92"
+      ]
     }
   ]
 }

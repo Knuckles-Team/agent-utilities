@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-DEV-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "AU-DEV-R001",
     "AU-DEV-R001.1",
@@ -16,7 +16,7 @@
     {
       "id": "AU-DEV-R001",
       "title": "A development skill documents AU's contribution workflow",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "ed6485573f1e"
       ],
@@ -31,16 +31,21 @@
       "title": "typed DevelopmentSkillTopicInventory model (agent_utilities/skills/dev_skill_topics.py) that refuses a skill missing any required topic, plus its refusal test (",
       "delivery_state": "LANDED",
       "landed_in": [
+        "c48cba9d3f95",
         "f25a287bac6c"
       ],
       "verified_by": []
     },
     {
       "id": "AU-DEV-R001.2",
-      "title": "Remaining scope of AU-DEV-R001 (slice .2): A development skill documents AU's contribution workflow",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "title": "The real agent-utilities-development skill declares every `DevelopmentSkillTopicInventory` required topic",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c48cba9d3f95"
+      ],
+      "verified_by": [
+        "tests/unit/skills/test_dev_skill_topics_audit.py:35"
+      ]
     },
     {
       "id": "AU-DEV-R002",
@@ -54,7 +59,7 @@
     {
       "id": "AU-DEV-R003",
       "title": "Skill inventory refresh stays deterministic after moves",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "ed6485573f1e"
       ],
@@ -69,16 +74,22 @@
       "title": "typed SkillInventoryRefreshEntry model (agent_utilities/skills/inventory_refresh_model.py) that refuses a refresh which mutates before printing its plan, or cla",
       "delivery_state": "LANDED",
       "landed_in": [
+        "c48cba9d3f95",
         "f25a287bac6c"
       ],
       "verified_by": []
     },
     {
       "id": "AU-DEV-R003.2",
-      "title": "Remaining scope of AU-DEV-R003 (slice .2): Skill inventory refresh stays deterministic after moves",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "title": "The real runtime XDG skills refresh prints its plan before mutating and verifies hashes through `SkillInventoryRefreshEntry`",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c48cba9d3f95"
+      ],
+      "verified_by": [
+        "tests/unit/skills/test_inventory_refresh_runtime.py:10",
+        "tests/unit/skills/test_inventory_refresh_runtime.py:26"
+      ]
     }
   ]
 }

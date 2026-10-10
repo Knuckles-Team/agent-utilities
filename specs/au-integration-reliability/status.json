@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-INTEGRATION-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-INTEGRATION-R001",
     "AU-INTEGRATION-R002",
@@ -26,7 +26,9 @@
     "AU-INTEGRATION-R018.1",
     "AU-INTEGRATION-R019",
     "AU-INTEGRATION-R020",
-    "AU-INTEGRATION-R021"
+    "AU-INTEGRATION-R021",
+    "AU-INTEGRATION-R022",
+    "AU-INTEGRATION-R023"
   ],
   "requirements": [
     {
@@ -249,6 +251,28 @@
         "671acde661a3"
       ],
       "verified_by": []
+    },
+    {
+      "id": "AU-INTEGRATION-R022",
+      "title": "The maintenance scheduler syncs every configured connector source on an interval",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0f6916669b59",
+        "7475a78b2fb3"
+      ],
+      "verified_by": [
+        "tests/unit/core/test_connector_sync_sweep.py:19",
+        "tests/unit/core/test_connector_sync_sweep.py:63"
+      ]
+    },
+    {
+      "id": "AU-INTEGRATION-R023",
+      "title": "Native ChangeEnvelope mutations carry only the fields the engine contract allows",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/unit/knowledge_graph/ingestion/test_native_envelope_ingest.py:615"
+      ]
     }
   ]
 }
