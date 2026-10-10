@@ -12,7 +12,10 @@
     "AU-DEV-R003",
     "AU-DEV-R003.1",
     "AU-DEV-R003.2",
-    "AU-DEV-R003.3"
+    "AU-DEV-R003.3",
+    "AU-DEV-R003.3.1",
+    "AU-DEV-R003.3.2",
+    "AU-DEV-R003.3.3"
   ],
   "requirements": [
     {
@@ -104,7 +107,33 @@
     },
     {
       "id": "AU-DEV-R003.3",
-      "title": "Codex skill discovery path joins the refresh inventory",
+      "title": "ROLLUP: Codex skill discovery path joins the refresh inventory (superseded by AU-DEV-R003.3.1...AU-DEV-R003.3.3)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-DEV-R003.3.1",
+        "AU-DEV-R003.3.2",
+        "AU-DEV-R003.3.3"
+      ]
+    },
+    {
+      "id": "AU-DEV-R003.3.1",
+      "title": "Define the Codex skill discovery path",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-DEV-R003.3.2",
+      "title": "Materialize registered skill providers into the Codex path",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-DEV-R003.3.3",
+      "title": "Codex leg prints its plan before mutating and refuses a hash mismatch",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
