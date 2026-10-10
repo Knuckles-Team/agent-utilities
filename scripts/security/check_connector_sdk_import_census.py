@@ -36,7 +36,26 @@ BANNED_MODULES = (
 # so only dotted submodule imports that resolve under one of the banned
 # prefixes above are flagged.
 
-_SKIP_DIR_NAMES = {"tests", "test", ".git", "build", "dist", "scripts"}
+_SKIP_DIR_NAMES = {
+    "tests",
+    "test",
+    ".git",
+    "build",
+    "dist",
+    "scripts",
+    ".uv-workspace-siblings",
+    ".venv",
+    "venv",
+    "node_modules",
+    "site-packages",
+}
+
+
+def _has_skipped_part(relative_parts: tuple) -> bool:
+    for part in relative_parts:
+        if part in _SKIP_DIR_NAMES or part.endswith(".egg-info"):
+            return True
+    return False
 
 
 def _qualified_names(node: ast.AST) -> list[str]:
@@ -85,7 +104,7 @@ def census(fleet_root: Path, letter_start: str, letter_end: str) -> dict:
     for package_dir in _package_dirs(fleet_root, letter_start, letter_end):
         found: list[str] = []
         for py_file in package_dir.rglob("*.py"):
-            if any(part in _SKIP_DIR_NAMES for part in py_file.relative_to(package_dir).parts[:-1]):
+            if _has_skipped_part(py_file.relative_to(package_dir).parts[:-1]):
                 continue
             found.extend(banned_imports_in_file(py_file))
         if found:

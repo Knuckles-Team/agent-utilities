@@ -786,6 +786,28 @@ def _write_private_configuration_mapping(
                 pass
 
 
+def _read_agent_utilities_testing_env() -> str | None:
+    """Single reader for the ``AGENT_UTILITIES_TESTING`` environment variable.
+
+    AU-BOUNDARY-R016.1: every call site below reads through this one
+    function instead of its own ``os.environ``/``os.getenv`` call, so the
+    variable has exactly one reader.
+    """
+
+    return os.environ.get("AGENT_UTILITIES_TESTING")
+
+
+def _read_agent_utilities_config_dir_env() -> str | None:
+    """Single reader for the ``AGENT_UTILITIES_CONFIG_DIR`` environment variable.
+
+    AU-BOUNDARY-R016.1: every call site below reads through this one
+    function instead of its own ``os.environ``/``os.getenv`` call, so the
+    variable has exactly one reader.
+    """
+
+    return os.environ.get("AGENT_UTILITIES_CONFIG_DIR")
+
+
 def _ensure_env_loaded():
     global _env_loaded
     with _xdg_projection_lock:
@@ -795,7 +817,7 @@ def _ensure_env_loaded():
         # Hermetic tests never inherit a host's XDG deployment. Tests set explicit
         # process values or opt into a temporary XDG root. Repository dotenv files
         # are not an AgentConfig source in any profile.
-        if to_boolean(os.environ.get("AGENT_UTILITIES_TESTING", "false")):
+        if to_boolean(_read_agent_utilities_testing_env() or "false"):
             _env_loaded = True
             return
 
@@ -1169,11 +1191,11 @@ def _hermetic_xdg_projection_applies() -> bool:
     Returns True when the hermetic projection was committed and the caller is
     done.
     """
-    if os.environ.get("AGENT_UTILITIES_CONFIG_DIR"):
+    if _read_agent_utilities_config_dir_env():
         return False
     if not (
         _under_pytest()
-        or to_boolean(os.environ.get("AGENT_UTILITIES_TESTING", "false"))
+        or to_boolean(_read_agent_utilities_testing_env() or "false")
     ):
         return False
     _commit_xdg_environment_projection({}, {})
@@ -1185,7 +1207,7 @@ def _staged_xdg_document(cfg_file, strict: bool) -> dict[str, Any]:
     """Read and canonicalize the staged XDG document under the given posture."""
     data: dict[str, Any] = {}
     if not cfg_file.exists():
-        if strict and os.environ.get("AGENT_UTILITIES_CONFIG_DIR"):
+        if strict and _read_agent_utilities_config_dir_env():
             raise ConfigurationSourceError("xdg", "FileNotFoundError")
     else:
         data = _read_configuration_mapping(cfg_file, source_type="xdg", strict=strict)
@@ -1338,7 +1360,7 @@ def _xdg_config_file():
 
     import platformdirs
 
-    override = os.environ.get("AGENT_UTILITIES_CONFIG_DIR")
+    override = _read_agent_utilities_config_dir_env()
     cfg_dir = (
         Path(override).expanduser()
         if override
@@ -6752,7 +6774,7 @@ def _populate_env_fallback_defaults(cfg: AgentConfig) -> None:
     _LAZY_CACHE["DEFAULT_VALIDATION_MODE"] = (
         cfg.validation_mode
         or to_boolean(os.getenv("VALIDATION_MODE", "False"))
-        or to_boolean(os.getenv("AGENT_UTILITIES_TESTING", "False"))
+        or to_boolean(_read_agent_utilities_testing_env() or "False")
     )
 
 
