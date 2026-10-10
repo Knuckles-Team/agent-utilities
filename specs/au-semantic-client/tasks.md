@@ -57,6 +57,11 @@ The task owner records a separate verdict per ID even when multiple IDs share a 
 - [ ] **AU-SEMANTIC-R011.3:** Delete `knowledge_graph/core/kafka_queue_backend.py`
 - [ ] **AU-SEMANTIC-R011.4:** Delete `knowledge_graph/core/postgres_queue_backend.py`
 - [ ] **AU-SEMANTIC-R011.5:** Delete `knowledge_graph/core/worker_scheduler.py`
+- [ ] **AU-SEMANTIC-R011.5.1:** Repoint `engine_tasks.py` off `worker_scheduler`
+- [ ] **AU-SEMANTIC-R011.5.2:** Repoint `ingest_routing.py` off `worker_scheduler`
+- [ ] **AU-SEMANTIC-R011.5.3:** Repoint scheduler tests, part 1
+- [ ] **AU-SEMANTIC-R011.5.4:** Repoint scheduler tests, part 2
+- [ ] **AU-SEMANTIC-R011.5.5:** Delete `knowledge_graph/core/worker_scheduler.py`
 - [ ] **AU-SEMANTIC-R011.6:** Delete `knowledge_graph/core/chunked_drain.py`
 - [ ] **AU-SEMANTIC-R011.7:** Delete `knowledge_graph/core/ingest_routing.py`
 - [ ] **AU-SEMANTIC-R011.8:** Delete `knowledge_graph/core/bitemporal.py`
