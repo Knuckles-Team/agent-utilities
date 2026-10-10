@@ -1583,13 +1583,7 @@ def _semantic_validation(
         _declared_semantic_validation(bundle, envelopes)
         return "declared-shacl-contract"
     try:
-        import rdflib
-
-        data = _build_certification_data_graph(rdflib, envelopes)
-        rendered = data.serialize(format="turtle")
-        data_turtle = (
-            rendered.decode() if isinstance(rendered, bytes) else str(rendered)
-        )
+        data_turtle = _build_certification_turtle(envelopes)
         return _validate_native_shacl(data_turtle, bundle.shapes_text)
     except CertificationError:
         raise
@@ -1608,21 +1602,33 @@ def _validate_native_shacl(data_turtle: str, shapes_text: str) -> str:
     return "epistemic-graph"
 
 
-def _build_certification_data_graph(
-    rdflib: Any, envelopes: Sequence[ChangeEnvelope]
-) -> Any:
-    data = rdflib.Graph()
-    kg = rdflib.Namespace("http://knuckles.team/kg#")
+def _build_certification_turtle(envelopes: Sequence[ChangeEnvelope]) -> str:
+    """Render the synthetic certification fixture as a typed Turtle payload.
+
+    No local RDF graph object is constructed (AU-SEMANTIC-R006.4); the text is
+    handed straight to the engine's SHACL validator.
+    """
+    from agent_utilities.knowledge_graph.core.workflow_gate import (
+        _turtle_string_literal,
+        _turtle_uri,
+    )
+
+    lines: list[str] = []
     for index, envelope in enumerate(envelopes):
         payload = envelope.typed_payload or {}
         resource = str(payload.get("type") or "Document")
-        subject = rdflib.URIRef(f"urn:graphos:connector-certification:{index}")
-        data.add((subject, rdflib.RDF.type, kg[resource]))
-        data.add((subject, kg.sourceRecordRef, rdflib.Literal("opaque")))
-        data.add((subject, kg.tenantReference, rdflib.Literal("bound")))
-        data.add((subject, kg.accessPolicyReference, rdflib.Literal("bound")))
-        data.add((subject, kg.provenanceReference, rdflib.Literal("bound")))
-    return data
+        lines.append(
+            f"<urn:graphos:connector-certification:{index}> a {_turtle_uri(resource)}"
+        )
+        for prop, value in (
+            ("sourceRecordRef", "opaque"),
+            ("tenantReference", "bound"),
+            ("accessPolicyReference", "bound"),
+            ("provenanceReference", "bound"),
+        ):
+            lines.append(f" ; {_turtle_uri(prop)} {_turtle_string_literal(value)}")
+        lines.append(" .")
+    return "\n".join(lines) + "\n"
 
 
 def _declared_semantic_validation(
