@@ -1269,7 +1269,7 @@
     {
       "id": "AU-BOUNDARY-R013",
       "title": "Restrict graph-os to AU's public API only",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4a5540dd2e3d",
         "5b4e8d0a31d0"
@@ -1291,58 +1291,90 @@
     {
       "id": "AU-BOUNDARY-R013.1",
       "title": "Export `persistence_reference` from `agent_utilities.api.persistence_privacy` with an import test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a2616c523584"
+      ],
+      "verified_by": [
+        "tests/unit/test_api_persistence_privacy.py:11"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R013.2",
       "title": "Export `Orchestrator` from `agent_utilities.api.orchestration` with an import test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "a2616c523584"
+      ],
+      "verified_by": [
+        "tests/unit/test_api_orchestration.py:11"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R013.3",
       "title": "Export the `work_durability` module from `agent_utilities.api.work_durability` with an import test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "811ea6463bb6"
+      ],
+      "verified_by": [
+        "tests/unit/test_api_work_durability.py:11"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R013.4",
       "title": "Export `KIND_ORCHESTRATOR_TASK`, `AgentTurnEnvelope`, `enqueue_agent_turn` from `agent_utilities.api.agent_dispatch` with an import test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "811ea6463bb6"
+      ],
+      "verified_by": [
+        "tests/unit/test_api_agent_dispatch.py:11"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R013.5",
       "title": "Export `trace_id` from `agent_utilities.api.trace_ontology` with an import test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bafa21805b51"
+      ],
+      "verified_by": [
+        "tests/unit/test_api_trace_ontology.py:11"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R013.6",
       "title": "Export `ACTION_APPROVAL_KIND`, `approval_lease_to_props` from `agent_utilities.api.action_policy` with an import test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bafa21805b51"
+      ],
+      "verified_by": [
+        "tests/unit/test_api_action_policy.py:11"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R013.7",
       "title": "Export `ElevationRequest`, `ElevationApproval`, `ElevationRevocation` from `agent_utilities.api.elevation` with an import test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2a5643693ab7"
+      ],
+      "verified_by": [
+        "tests/unit/test_api_elevation.py:11"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R013.8",
       "title": "Export `ElevationService`, `ElevationSurface` from `agent_utilities.api.elevation` with an import test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "2a5643693ab7"
+      ],
+      "verified_by": [
+        "tests/unit/test_api_elevation.py:18"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R014",
