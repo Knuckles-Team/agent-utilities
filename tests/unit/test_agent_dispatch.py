@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import secrets
 import sqlite3
 import time
 from pathlib import Path
@@ -1301,6 +1302,10 @@ def test_job_status_reports_executing_worker_and_host(fake_queue, monkeypatch):
     assert status["status"] == "succeeded"
 
 
+# Generated per run: a literal signing key in source trips the credential gate.
+_SIGNING_KEY = secrets.token_hex(16)
+
+
 @pytest.mark.spec("AU-CONTROL-R035.2")
 def test_dispatch_carrier_signature_covers_allowed_tool_subset():
     """The signature binds allowed_tool_subset; tampering fails verification."""
@@ -1309,7 +1314,7 @@ def test_dispatch_carrier_signature_covers_allowed_tool_subset():
         session_id="session-a",
         job_id="job-a",
         allowed_tool_subset=["search", "read_file"],
-        secret="unit-test-secret",
+        secret=_SIGNING_KEY,
     )
     # Honest round-trip verifies and reports the signed subset back.
     carrier.verify(
@@ -1317,7 +1322,7 @@ def test_dispatch_carrier_signature_covers_allowed_tool_subset():
         session_id="session-a",
         job_id="job-a",
         allowed_tool_subset=["read_file", "search"],  # order-independent
-        secret="unit-test-secret",
+        secret=_SIGNING_KEY,
     )
     assert carrier.allowed_tool_subset == ("read_file", "search")
 
@@ -1333,7 +1338,7 @@ def test_dispatch_carrier_signature_covers_allowed_tool_subset():
             session_id="session-a",
             job_id="job-a",
             allowed_tool_subset=["read_file", "search", "delete_all"],
-            secret="unit-test-secret",
+            secret=_SIGNING_KEY,
         )
 
 
@@ -1345,7 +1350,7 @@ def test_dispatch_carrier_refuses_tool_outside_signed_subset():
         session_id="session-a",
         job_id="job-a",
         allowed_tool_subset=["search", "read_file"],
-        secret="unit-test-secret",
+        secret=_SIGNING_KEY,
     )
     # In-subset tool is permitted (no raise).
     carrier.enforce_tool_allowed("search")
@@ -1362,7 +1367,7 @@ def test_consumer_cannot_claim_caller_filtered_exposure_without_the_field():
         tenant="tenant-a",
         session_id="session-a",
         job_id="job-a",
-        secret="unit-test-secret",
+        secret=_SIGNING_KEY,
     )
     assert carrier.allowed_tool_subset == ()
     with pytest.raises(DispatchCarrierError, match="cannot claim caller-filtered"):
@@ -1373,7 +1378,7 @@ def test_consumer_cannot_claim_caller_filtered_exposure_without_the_field():
         session_id="session-a",
         tenant="tenant-a",
     )
-    env.ensure_authenticated_carrier(secret="unit-test-secret")
+    env.ensure_authenticated_carrier(secret=_SIGNING_KEY)
     with pytest.raises(DispatchCarrierError, match="cannot claim caller-filtered"):
         env.require_caller_filtered_exposure()
 
@@ -1384,5 +1389,5 @@ def test_consumer_cannot_claim_caller_filtered_exposure_without_the_field():
         tenant="tenant-a",
         allowed_tool_subset=["search"],
     )
-    filtered_env.ensure_authenticated_carrier(secret="unit-test-secret")
+    filtered_env.ensure_authenticated_carrier(secret=_SIGNING_KEY)
     assert filtered_env.require_caller_filtered_exposure() == ("search",)
