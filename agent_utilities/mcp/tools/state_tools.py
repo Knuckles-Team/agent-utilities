@@ -750,8 +750,6 @@ class _LoopsParams:
     decision: str = ""
     status: str = ""
     mine_discovery: bool | None = None
-    placement_scan_limit: int = 200
-    placement_canary_tolerance: float = 0.10
     data_json: str = "{}"
 
 
@@ -940,36 +938,6 @@ async def _loops_review_action(engine: Any, p: _LoopsParams) -> str:
     return _json.dumps({"action": "review", "result": review_result}, default=str)
 
 
-async def _loops_placement_control_action(engine: Any, p: _LoopsParams) -> str:
-    """``"placement_control"`` action of ``register_state_tools``'s
-    ``graph_loops`` — Seam 4
-    (CONCEPT:AU-KG.evolution.placement-mining-canary-loop): manual-trigger
-    ONE governed placement-loop pass. Calling this action over MCP/REST IS
-    the explicit manual trigger, so ``enabled=True`` is passed
-    unconditionally here — the module itself stays opt-in/OFF for every
-    other (e.g. periodic/automatic) caller that does not pass this flag
-    explicitly.
-
-    Extracted verbatim (pure extract-method, no behaviour change).
-    """
-    import json as _json
-
-    from agent_utilities.knowledge_graph.research.placement_mining import (
-        placement_control_loop,
-    )
-
-    placement_result = await run_blocking_ordered(
-        placement_control_loop,
-        engine,
-        tolerance=p.placement_canary_tolerance,
-        limit=p.placement_scan_limit,
-        enabled=True,
-    )
-    return _json.dumps(
-        {"action": "placement_control", "result": placement_result}, default=str
-    )
-
-
 async def _loops_gaps_action(engine: Any, p: _LoopsParams) -> str:
     """``"gaps"`` action of ``register_state_tools``'s ``graph_loops``: the
     canonical :Gap backlog (CONCEPT:AU-AHE.harness.canonical-gap-lifecycle,
@@ -1129,7 +1097,6 @@ def _build_loops_dispatch(
         "state": lambda: _loops_state_action(engine, p),
         "specs": lambda: _loops_specs_action(engine, p),
         "review": lambda: _loops_review_action(engine, p),
-        "placement_control": lambda: _loops_placement_control_action(engine, p),
         "gaps": lambda: _loops_gaps_action(engine, p),
         "submit_gap": lambda: _loops_submit_gap_action(engine, p),
         "gap": lambda: _loops_gap_action(engine, p),
@@ -1230,13 +1197,6 @@ def register_state_tools(mcp):
             "KG_LOOP_MINE_DISCOVERY): the discovery-flywheel mining pass — association-"
             "rule + anomaly + graph_learn link-prediction over the KG's Capability/"
             "Concept nodes, write-back only (propose-only, never auto-merges). "
-            "'placement_control' (CONCEPT:AU-KG.evolution.placement-mining-canary-loop, "
-            "Seam 4): manually trigger ONE governed pass of the workload-aware "
-            "placement loop — mine -> propose -> ActionPolicy review "
-            "(``apply_placement_change``, fail-closed approval_required by default) -> "
-            "engine reshard (the real online-move RPC) -> measured canary -> outcome "
-            "recorded back to mining. Opt-in/manual-trigger ONLY — calling this action "
-            "IS the manual trigger; it never runs on import or on any periodic loop. "
             "GAP LIFECYCLE (CONCEPT:AU-AHE.harness.canonical-gap-lifecycle, Wave 6 — the "
             "unified Gap->SDD->Implement->Promote->Close spine every discovery track "
             "files into): 'gaps' (the open :Gap backlog, highest priority first), "
@@ -1254,7 +1214,7 @@ def register_state_tools(mcp):
             default="list",
             description=(
                 "submit|list|run|drive|cancel|prioritize|state|specs|review|"
-                "placement_control|gaps|submit_gap|gap"
+                "gaps|submit_gap|gap"
             ),
         ),
         objective: str = Field(default="", description="Objective text (submit)."),
@@ -1296,16 +1256,6 @@ def register_state_tools(mcp):
             "(CONCEPT:AU-KG.evolution.mining-flywheel). None (default) falls back to "
             "config.kg_loop_mine_discovery (default True); explicit true/false overrides.",
         ),
-        placement_scan_limit: int = Field(
-            default=200,
-            description="'placement_control' only: provenance row-scan cap for the "
-            "placement mining pass.",
-        ),
-        placement_canary_tolerance: float = Field(
-            default=0.10,
-            description="'placement_control' only: fraction the canary metric may "
-            "regress by and still be promoted (SLO noise tolerance).",
-        ),
         data_json: str = Field(
             default="{}",
             description="'submit_gap' only: JSON object {source, signature, statement, "
@@ -1314,7 +1264,7 @@ def register_state_tools(mcp):
         ),
     ) -> str:
         """Submit / list / run / drive / cancel / prioritize Loops + observe & steer
-        the self-evolution flywheel (state / specs / review / placement_control /
+        the self-evolution flywheel (state / specs / review /
         gaps / submit_gap / gap) — the one entrypoint."""
         import json as _json
 
@@ -1345,8 +1295,6 @@ def register_state_tools(mcp):
             decision=decision,
             status=status,
             mine_discovery=mine_discovery,
-            placement_scan_limit=placement_scan_limit,
-            placement_canary_tolerance=placement_canary_tolerance,
             data_json=data_json,
         )
         core = _LoopsCore(
