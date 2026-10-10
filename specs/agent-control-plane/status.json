@@ -471,7 +471,11 @@
       "title": "Add and enforce the allowed-tool-subset field",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/test_agent_dispatch.py:1309",
+        "tests/unit/test_agent_dispatch.py:1345",
+        "tests/unit/test_agent_dispatch.py:1363"
+      ]
     }
   ]
 }

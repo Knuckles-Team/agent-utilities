@@ -76,6 +76,9 @@ DISPATCH_CARRIER_VERSION = 1
 DISPATCH_CARRIER_TTL_S = 300.0
 DISPATCH_CARRIER_MAX_CLOCK_SKEW = 30.0
 DISPATCH_CARRIER_MAX_FIELD_BYTES = 256
+#: AU-CONTROL-R035.2: bound on how many tool names a signed envelope/carrier
+#: may admit, so the subset cannot be used to smuggle unbounded payload.
+DISPATCH_CARRIER_MAX_TOOL_SUBSET_SIZE = 64
 
 
 class DispatchCarrierError(ValueError):
@@ -150,6 +153,30 @@ def _carrier_text(value: Any, field_name: str, *, allow_empty: bool = False) -> 
     return rendered
 
 
+def _normalize_tool_subset(value: Any) -> tuple[str, ...]:
+    """Normalize an allowed-tool-subset input into a canonical, sorted tuple.
+
+    AU-CONTROL-R035.2: the subset is a signed SET of admitted tool names, not
+    an ordered list, so sorting + deduplicating here makes the canonical
+    signature payload independent of caller-supplied ordering/duplicates.
+    """
+    if value is None:
+        return ()
+    if isinstance(value, (str, bytes)):
+        raise DispatchCarrierError(
+            "dispatch carrier allowed_tool_subset must be a sequence of tool "
+            "names, not a single string"
+        )
+    names: set[str] = set()
+    for item in value:
+        names.add(_carrier_text(item, "allowed_tool_subset"))
+    if len(names) > DISPATCH_CARRIER_MAX_TOOL_SUBSET_SIZE:
+        raise DispatchCarrierError(
+            "dispatch carrier allowed_tool_subset exceeds its size bound"
+        )
+    return tuple(sorted(names))
+
+
 class DispatchCarrier(BaseModel):
     """Signed broker proof binding one turn to tenant/session/job and time.
 
@@ -176,6 +203,16 @@ class DispatchCarrier(BaseModel):
     # removing the dispatch deadline.
     agent_name: str = ""
     deadline_unix: float | None = None
+    #: AU-CONTROL-R035.2: the exact tools a caller-filtered assembly admitted
+    #: for this turn, bound into the signature. Empty means the envelope
+    #: makes NO caller-filtered exposure claim at all (not "all tools
+    #: allowed") -- see ``require_caller_filtered_exposure``.
+    allowed_tool_subset: tuple[str, ...] = Field(default_factory=tuple)
+
+    @field_validator("allowed_tool_subset", mode="before")
+    @classmethod
+    def _normalize_allowed_tool_subset(cls, value: Any) -> tuple[str, ...]:
+        return _normalize_tool_subset(value)
 
     @field_validator("version")
     @classmethod
@@ -219,9 +256,11 @@ class DispatchCarrier(BaseModel):
         issued_at: float,
         expires_at: float,
         nonce: str,
+        allowed_tool_subset: tuple[str, ...] = (),
     ) -> bytes:
         return json.dumps(
             {
+                "allowed_tool_subset": list(allowed_tool_subset),
                 "expires_at": expires_at,
                 "deadline_unix": deadline_unix,
                 "issued_at": issued_at,
@@ -250,6 +289,7 @@ class DispatchCarrier(BaseModel):
         payload_ref: str = "",
         agent_name: str = "",
         deadline_unix: float | None = None,
+        allowed_tool_subset: Any = (),
         ttl_seconds: float = DISPATCH_CARRIER_TTL_S,
         now: float | None = None,
         nonce: str | None = None,
@@ -262,6 +302,7 @@ class DispatchCarrier(BaseModel):
         kind = _carrier_text(kind, "kind", allow_empty=True)
         payload_ref = _carrier_text(payload_ref, "payload_ref", allow_empty=True)
         agent_name = _carrier_text(agent_name, "agent_name", allow_empty=True)
+        allowed_tool_subset = _normalize_tool_subset(allowed_tool_subset)
         issued_at = float(time.time() if now is None else now)
         ttl = float(ttl_seconds)
         if (
@@ -286,6 +327,7 @@ class DispatchCarrier(BaseModel):
             issued_at=issued_at,
             expires_at=expires_at,
             nonce=carrier_nonce,
+            allowed_tool_subset=allowed_tool_subset,
         )
         signature = hmac.new(
             _dispatch_carrier_secret(secret), payload, hashlib.sha256
@@ -301,6 +343,7 @@ class DispatchCarrier(BaseModel):
             issued_at=issued_at,
             expires_at=expires_at,
             nonce=carrier_nonce,
+            allowed_tool_subset=allowed_tool_subset,
             signature=signature,
         )
 
@@ -314,6 +357,7 @@ class DispatchCarrier(BaseModel):
         payload_ref: str = "",
         agent_name: str = "",
         deadline_unix: float | None = None,
+        allowed_tool_subset: Any = (),
         now: float | None = None,
         secret: str | bytes | None = None,
         require_tenant: bool = True,
@@ -328,6 +372,7 @@ class DispatchCarrier(BaseModel):
             payload_ref, "payload_ref", allow_empty=True
         )
         expected_agent_name = _carrier_text(agent_name, "agent_name", allow_empty=True)
+        expected_allowed_tool_subset = _normalize_tool_subset(allowed_tool_subset)
         if deadline_unix is not None and not math.isfinite(float(deadline_unix)):
             raise DispatchCarrierError("dispatch deadline must be finite")
         if self.version != DISPATCH_CARRIER_VERSION:
@@ -342,6 +387,7 @@ class DispatchCarrier(BaseModel):
             self.payload_ref,
             self.agent_name,
             self.deadline_unix,
+            self.allowed_tool_subset,
         ) != (
             expected_tenant,
             expected_session,
@@ -350,6 +396,7 @@ class DispatchCarrier(BaseModel):
             expected_payload_ref,
             expected_agent_name,
             float(deadline_unix) if deadline_unix is not None else None,
+            expected_allowed_tool_subset,
         ):
             raise DispatchCarrierError("dispatch carrier identity binding mismatch")
         if not all(math.isfinite(value) for value in (self.issued_at, self.expires_at)):
@@ -377,6 +424,7 @@ class DispatchCarrier(BaseModel):
             issued_at=self.issued_at,
             expires_at=self.expires_at,
             nonce=self.nonce,
+            allowed_tool_subset=self.allowed_tool_subset,
         )
         expected_signature = hmac.new(
             _dispatch_carrier_secret(secret), payload, hashlib.sha256
@@ -384,6 +432,36 @@ class DispatchCarrier(BaseModel):
         if not hmac.compare_digest(self.signature, expected_signature):
             raise DispatchCarrierError("dispatch carrier signature is invalid")
         return self
+
+    def enforce_tool_allowed(self, tool_name: str) -> None:
+        """Refuse a tool outside the signed allowed-tool subset (AU-CONTROL-R035.2).
+
+        A no-op when the carrier declares no subset at all -- an envelope
+        that never claimed a caller-filtered subset is not restricted by
+        this check; a consumer that needs the caller-filtered GUARANTEE
+        calls :meth:`require_caller_filtered_exposure` first.
+        """
+        name = _carrier_text(tool_name, "tool_name")
+        if self.allowed_tool_subset and name not in self.allowed_tool_subset:
+            raise DispatchCarrierError(
+                f"dispatch carrier does not authorize tool {name!r}: outside "
+                "its signed allowed-tool subset"
+            )
+
+    def require_caller_filtered_exposure(self) -> tuple[str, ...]:
+        """Return the signed subset, refusing an absent caller-filtered claim.
+
+        AU-CONTROL-R035.2: an envelope/carrier with no allowed-tool-subset
+        field never authorizes a caller-filtered exposure claim by a
+        consumer -- absence of the field is NOT evidence of restriction, so
+        it must not be read as "all tools were filtered to none/this set".
+        """
+        if not self.allowed_tool_subset:
+            raise DispatchCarrierError(
+                "dispatch carrier has no signed allowed-tool-subset; a "
+                "consumer cannot claim caller-filtered tool exposure"
+            )
+        return self.allowed_tool_subset
 
 
 class DispatchQueueFull(RuntimeError):
@@ -424,10 +502,20 @@ class AgentTurnEnvelope(BaseModel):
     deadline_unix: float | None = None
     attempt: int = 0
     enqueued_at: float = Field(default_factory=time.time)
+    #: AU-CONTROL-R035.2: the exact tools a caller-filtered assembly admitted
+    #: for this turn. Signed into the carrier below; empty makes no
+    #: caller-filtered exposure claim at all (see
+    #: ``require_caller_filtered_exposure``).
+    allowed_tool_subset: tuple[str, ...] = Field(default_factory=tuple)
     #: Signed transport proof.  It is added at the explicit enqueue boundary;
     #: direct model construction remains useful for local inspection/fixtures,
     #: but the consumer refuses a delivery whose proof is absent or stale.
     carrier: DispatchCarrier | None = None
+
+    @field_validator("allowed_tool_subset", mode="before")
+    @classmethod
+    def _coerce_allowed_tool_subset(cls, v: Any) -> tuple[str, ...]:
+        return _normalize_tool_subset(v)
 
     @field_validator("prio_bucket", mode="before")
     @classmethod
@@ -462,6 +550,7 @@ class AgentTurnEnvelope(BaseModel):
                 payload_ref=self.payload_ref,
                 agent_name=self.agent_name,
                 deadline_unix=self.deadline_unix,
+                allowed_tool_subset=self.allowed_tool_subset,
                 now=self.enqueued_at,
                 allow_empty_tenant=True,
             )
@@ -487,6 +576,7 @@ class AgentTurnEnvelope(BaseModel):
                 payload_ref=self.payload_ref,
                 agent_name=self.agent_name,
                 deadline_unix=self.deadline_unix,
+                allowed_tool_subset=self.allowed_tool_subset,
                 now=now,
                 secret=secret,
             )
@@ -498,6 +588,7 @@ class AgentTurnEnvelope(BaseModel):
             payload_ref=self.payload_ref,
             agent_name=self.agent_name,
             deadline_unix=self.deadline_unix,
+            allowed_tool_subset=self.allowed_tool_subset,
             now=now,
             secret=secret,
         )
@@ -521,9 +612,22 @@ class AgentTurnEnvelope(BaseModel):
             payload_ref=self.payload_ref,
             agent_name=self.agent_name,
             deadline_unix=self.deadline_unix,
+            allowed_tool_subset=self.allowed_tool_subset,
             now=now,
             secret=secret,
         )
+
+    def enforce_tool_allowed(self, tool_name: str) -> None:
+        """Refuse dispatch of a tool outside the signed subset (AU-CONTROL-R035.2)."""
+        if self.carrier is None:
+            raise DispatchCarrierError("dispatch delivery has no carrier")
+        self.carrier.enforce_tool_allowed(tool_name)
+
+    def require_caller_filtered_exposure(self) -> tuple[str, ...]:
+        """Return the signed subset, refusing an absent caller-filtered claim."""
+        if self.carrier is None:
+            raise DispatchCarrierError("dispatch delivery has no carrier")
+        return self.carrier.require_caller_filtered_exposure()
 
     @classmethod
     def from_item(cls, item: dict[str, Any]) -> AgentTurnEnvelope:
