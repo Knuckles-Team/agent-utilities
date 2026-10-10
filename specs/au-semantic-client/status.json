@@ -20,6 +20,9 @@
     "AU-SEMANTIC-R008",
     "AU-SEMANTIC-R008.1",
     "AU-SEMANTIC-R008.2",
+    "AU-SEMANTIC-R008.2.1",
+    "AU-SEMANTIC-R008.2.2",
+    "AU-SEMANTIC-R008.2.3",
     "AU-SEMANTIC-R009",
     "AU-SEMANTIC-R009.1",
     "AU-SEMANTIC-R009.2",
@@ -28,6 +31,19 @@
     "AU-SEMANTIC-R010",
     "AU-SEMANTIC-R010.1",
     "AU-SEMANTIC-R011",
+    "AU-SEMANTIC-R011.1",
+    "AU-SEMANTIC-R011.2",
+    "AU-SEMANTIC-R011.3",
+    "AU-SEMANTIC-R011.4",
+    "AU-SEMANTIC-R011.5",
+    "AU-SEMANTIC-R011.6",
+    "AU-SEMANTIC-R011.7",
+    "AU-SEMANTIC-R011.8",
+    "AU-SEMANTIC-R011.9",
+    "AU-SEMANTIC-R011.10",
+    "AU-SEMANTIC-R011.11",
+    "AU-SEMANTIC-R011.12",
+    "AU-SEMANTIC-R011.13",
     "AU-SEMANTIC-R012",
     "AU-SEMANTIC-R013",
     "AU-SEMANTIC-R013.1",
@@ -42,6 +58,12 @@
     "AU-SEMANTIC-R018",
     "AU-SEMANTIC-R018.1",
     "AU-SEMANTIC-R019",
+    "AU-SEMANTIC-R019.1",
+    "AU-SEMANTIC-R019.2",
+    "AU-SEMANTIC-R019.3",
+    "AU-SEMANTIC-R019.4",
+    "AU-SEMANTIC-R019.5",
+    "AU-SEMANTIC-R019.6",
     "AU-SEMANTIC-R020",
     "AU-SEMANTIC-R020.1",
     "AU-SEMANTIC-R021",
@@ -189,7 +211,7 @@
     {
       "id": "AU-SEMANTIC-R008",
       "title": "Reasoning-topology selection uses a served policy, not a local outcome store",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "b8ef12acba3c"
       ],
@@ -217,10 +239,36 @@
     {
       "id": "AU-SEMANTIC-R008.2",
       "title": "Topology selection consumes the served decision policy and the local outcome store is deleted",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "b8ef12acba3c"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R008.2.1",
+        "AU-SEMANTIC-R008.2.2",
+        "AU-SEMANTIC-R008.2.3"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R008.2.1",
+      "title": "What landed for R008.2 so far",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R008.2.2",
+      "title": "`topology.py` calls the served decision-policy client instead of the local EMA store",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R008.2.3",
+      "title": "The local EMA outcome-store code is deleted from `topology.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -302,10 +350,116 @@
     {
       "id": "AU-SEMANTIC-R011",
       "title": "Durable jobs, queues and state move to EG",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "b881d5bca432"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R011.1",
+        "AU-SEMANTIC-R011.2",
+        "AU-SEMANTIC-R011.3",
+        "AU-SEMANTIC-R011.4",
+        "AU-SEMANTIC-R011.5",
+        "AU-SEMANTIC-R011.6",
+        "AU-SEMANTIC-R011.7",
+        "AU-SEMANTIC-R011.8",
+        "AU-SEMANTIC-R011.9",
+        "AU-SEMANTIC-R011.10",
+        "AU-SEMANTIC-R011.11",
+        "AU-SEMANTIC-R011.12",
+        "AU-SEMANTIC-R011.13"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R011.1",
+      "title": "What landed for R011 so far",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.2",
+      "title": "Delete `agent_utilities/knowledge_graph/core/queue_backend.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.3",
+      "title": "Delete `agent_utilities/knowledge_graph/core/kafka_queue_backend.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.4",
+      "title": "Delete `agent_utilities/knowledge_graph/core/postgres_queue_backend.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.5",
+      "title": "Delete `agent_utilities/knowledge_graph/core/worker_scheduler.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.6",
+      "title": "Delete `agent_utilities/knowledge_graph/core/chunked_drain.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.7",
+      "title": "Delete `agent_utilities/knowledge_graph/core/ingest_routing.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.8",
+      "title": "Delete `agent_utilities/knowledge_graph/core/bitemporal.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.9",
+      "title": "Delete `agent_utilities/knowledge_graph/ingest_worker.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.10",
+      "title": "Delete `agent_utilities/knowledge_graph/analytics_worker.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.11",
+      "title": "Delete `agent_utilities/core/shared_resource_leases.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.12",
+      "title": "Delete `agent_utilities/core/state_store.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.13",
+      "title": "Delete `agent_utilities/core/chat_persistence.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -452,10 +606,60 @@
     {
       "id": "AU-SEMANTIC-R019",
       "title": "Remaining EG-bound standardization, infra and governance modules move out",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "2e5c8d7f2d8b"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R019.1",
+        "AU-SEMANTIC-R019.2",
+        "AU-SEMANTIC-R019.3",
+        "AU-SEMANTIC-R019.4",
+        "AU-SEMANTIC-R019.5",
+        "AU-SEMANTIC-R019.6"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R019.1",
+      "title": "What landed for R019 so far",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R019.2",
+      "title": "Delete `agent_utilities/observability/trace_ontology.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R019.3",
+      "title": "Delete `agent_utilities/observability/self_ingest.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R019.4",
+      "title": "Delete `agent_utilities/observability/audit_logger.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R019.5",
+      "title": "Delete `agent_utilities/governance/relational_authority.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R019.6",
+      "title": "Delete `agent_utilities/knowledge_graph/research/placement_mining.py`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {

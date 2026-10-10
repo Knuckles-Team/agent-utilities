@@ -49,6 +49,28 @@ The task owner records a separate verdict per ID even when multiple IDs share a 
 - [x] **AU-SEMANTIC-R008:** Reasoning-topology selection uses a served policy, not a local outcome store
 - [ ] **AU-SEMANTIC-R008.1:** A typed topology decision-policy client contract fails closed while no served policy exists
 - [x] **AU-SEMANTIC-R008.2:** Topology selection consumes the served decision policy and the local outcome store is deleted
+- [ ] **AU-SEMANTIC-R008.2.1:** Factual record of what landed for R008.2
+- [ ] **AU-SEMANTIC-R008.2.2:** `topology.py` calls the served decision-policy client instead of the local EMA store
+- [ ] **AU-SEMANTIC-R008.2.3:** The local EMA outcome-store code is deleted from `topology.py`
+- [ ] **AU-SEMANTIC-R011.1:** Factual record of what landed for R011
+- [ ] **AU-SEMANTIC-R011.2:** Delete `knowledge_graph/core/queue_backend.py`
+- [ ] **AU-SEMANTIC-R011.3:** Delete `knowledge_graph/core/kafka_queue_backend.py`
+- [ ] **AU-SEMANTIC-R011.4:** Delete `knowledge_graph/core/postgres_queue_backend.py`
+- [ ] **AU-SEMANTIC-R011.5:** Delete `knowledge_graph/core/worker_scheduler.py`
+- [ ] **AU-SEMANTIC-R011.6:** Delete `knowledge_graph/core/chunked_drain.py`
+- [ ] **AU-SEMANTIC-R011.7:** Delete `knowledge_graph/core/ingest_routing.py`
+- [ ] **AU-SEMANTIC-R011.8:** Delete `knowledge_graph/core/bitemporal.py`
+- [ ] **AU-SEMANTIC-R011.9:** Delete `knowledge_graph/ingest_worker.py`
+- [ ] **AU-SEMANTIC-R011.10:** Delete `knowledge_graph/analytics_worker.py`
+- [ ] **AU-SEMANTIC-R011.11:** Delete `core/shared_resource_leases.py`
+- [ ] **AU-SEMANTIC-R011.12:** Delete `core/state_store.py`
+- [ ] **AU-SEMANTIC-R011.13:** Delete `core/chat_persistence.py`
+- [ ] **AU-SEMANTIC-R019.1:** Factual record of what landed for R019
+- [ ] **AU-SEMANTIC-R019.2:** Delete `observability/trace_ontology.py`
+- [ ] **AU-SEMANTIC-R019.3:** Delete `observability/self_ingest.py`
+- [ ] **AU-SEMANTIC-R019.4:** Delete `observability/audit_logger.py`
+- [ ] **AU-SEMANTIC-R019.5:** Delete `governance/relational_authority.py`
+- [ ] **AU-SEMANTIC-R019.6:** Delete `knowledge_graph/research/placement_mining.py`
 - [ ] **AU-SEMANTIC-R009.2.1:** `resolve_runnable_skill_derivation_client()` wires the real call when EG's op is present
 - [x] **AU-SEMANTIC-R009.2.2:** The local engine-facade modules are deleted once callers consume the wired client
 - [ ] **AU-SEMANTIC-R013:** Reasoning and analytics duplicates are deleted only with proven EG parity
