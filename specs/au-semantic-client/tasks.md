@@ -70,6 +70,11 @@ The task owner records a separate verdict per ID even when multiple IDs share a 
 - [ ] **AU-SEMANTIC-R011.6:** Delete `knowledge_graph/core/chunked_drain.py`
 - [ ] **AU-SEMANTIC-R011.7:** Delete `knowledge_graph/core/ingest_routing.py`
 - [ ] **AU-SEMANTIC-R011.8:** Delete `knowledge_graph/core/bitemporal.py`
+- [ ] **AU-SEMANTIC-R011.8.1:** Repoint `engine.py` off `bitemporal` (BLOCKED on epistemic-graph: no served write-time bitemporal stamping)
+- [ ] **AU-SEMANTIC-R011.8.2:** Repoint `learning_engine.py` off `bitemporal` (BLOCKED on epistemic-graph: same)
+- [ ] **AU-SEMANTIC-R011.8.3:** Repoint writeback `core.py` and `envelope_ingest.py` off `bitemporal` (BLOCKED on epistemic-graph: no served source-validity stamping)
+- [ ] **AU-SEMANTIC-R011.8.4:** Repoint `engine_query.py` off `bitemporal` (BLOCKED on epistemic-graph: no served as-of filter or supersession)
+- [ ] **AU-SEMANTIC-R011.8.5:** Delete `knowledge_graph/core/bitemporal.py`
 - [ ] **AU-SEMANTIC-R011.9:** Delete `knowledge_graph/ingest_worker.py`
 - [ ] **AU-SEMANTIC-R011.10:** Delete `knowledge_graph/analytics_worker.py`
 - [ ] **AU-SEMANTIC-R011.11:** Delete `core/shared_resource_leases.py`

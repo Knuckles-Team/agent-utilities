@@ -49,6 +49,11 @@
     "AU-SEMANTIC-R011.6",
     "AU-SEMANTIC-R011.7",
     "AU-SEMANTIC-R011.8",
+    "AU-SEMANTIC-R011.8.1",
+    "AU-SEMANTIC-R011.8.2",
+    "AU-SEMANTIC-R011.8.3",
+    "AU-SEMANTIC-R011.8.4",
+    "AU-SEMANTIC-R011.8.5",
     "AU-SEMANTIC-R011.9",
     "AU-SEMANTIC-R011.10",
     "AU-SEMANTIC-R011.11",
@@ -545,7 +550,49 @@
     },
     {
       "id": "AU-SEMANTIC-R011.8",
-      "title": "Delete `agent_utilities/knowledge_graph/core/bitemporal.py`",
+      "title": "Delete `agent_utilities/knowledge_graph/core/bitemporal.py` (rollup of R011.8.1 to R011.8.5)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R011.8.1",
+        "AU-SEMANTIC-R011.8.2",
+        "AU-SEMANTIC-R011.8.3",
+        "AU-SEMANTIC-R011.8.4",
+        "AU-SEMANTIC-R011.8.5"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R011.8.1",
+      "title": "Repoint `core/engine.py` off local bitemporal stamping",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.8.2",
+      "title": "Repoint `memory/learning_engine.py` off local bitemporal stamping",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.8.3",
+      "title": "Repoint writeback and envelope ingest off source-validity stamping",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.8.4",
+      "title": "Repoint `orchestration/engine_query.py` off local as-of filtering and supersession",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R011.8.5",
+      "title": "Delete the module once no importer remains",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
