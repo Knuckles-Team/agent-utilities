@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-CONTROL-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-CONTROL-R001",
     "AU-CONTROL-R002",
@@ -39,7 +39,9 @@
     "AU-CONTROL-R032",
     "AU-CONTROL-R033",
     "AU-CONTROL-R034",
-    "AU-CONTROL-R035"
+    "AU-CONTROL-R035",
+    "AU-CONTROL-R035.1",
+    "AU-CONTROL-R035.2"
   ],
   "requirements": [
     {
@@ -52,8 +54,8 @@
       ],
       "verified_by": [
         "tests/unit/layers/test_harness_port.py:115",
-        "tests/unit/layers/test_harness_port.py:123",
-        "tests/unit/layers/test_harness_port.py:501"
+        "tests/unit/layers/test_harness_port.py:124",
+        "tests/unit/layers/test_harness_port.py:504"
       ]
     },
     {
@@ -252,6 +254,7 @@
       "title": "Single re-decision on capacity denial for topology admission",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "4a5540dd2e3d",
         "6d8865040871",
         "e78a5cf3de4e"
       ],
@@ -265,13 +268,14 @@
       "title": "Subagent allowance negotiated into the run specification",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "4a5540dd2e3d",
         "bd37ae7764a6",
         "d008da7e66d1"
       ],
       "verified_by": [
-        "tests/unit/layers/test_harness_port.py:196",
-        "tests/unit/layers/test_harness_port.py:243",
-        "tests/unit/layers/test_harness_port.py:255"
+        "tests/unit/layers/test_harness_port.py:199",
+        "tests/unit/layers/test_harness_port.py:246",
+        "tests/unit/layers/test_harness_port.py:258"
       ]
     },
     {
@@ -445,10 +449,28 @@
     {
       "id": "AU-CONTROL-R035",
       "title": "The signed agent-dispatch envelope carries an enforced allowed-tool-subset field",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-CONTROL-R035.1",
+        "AU-CONTROL-R035.2"
+      ]
+    },
+    {
+      "id": "AU-CONTROL-R035.1",
+      "title": "Open the AU-CONTROL-R035 owner row",
       "delivery_state": "LANDED",
       "landed_in": [
-        "bca0cd3c44d9"
+        "79a0b3968c7c"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R035.2",
+      "title": "Add and enforce the allowed-tool-subset field",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     }
   ]

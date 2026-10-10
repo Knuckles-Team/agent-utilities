@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-BOUNDARY-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-BOUNDARY-R001",
     "AU-BOUNDARY-R002",
@@ -25,10 +25,20 @@
     "AU-BOUNDARY-R016.1",
     "AU-BOUNDARY-R017",
     "AU-BOUNDARY-R018",
+    "AU-BOUNDARY-R018.1",
+    "AU-BOUNDARY-R018.2",
     "AU-BOUNDARY-R019",
+    "AU-BOUNDARY-R019.1",
+    "AU-BOUNDARY-R019.2",
     "AU-BOUNDARY-R020",
+    "AU-BOUNDARY-R020.1",
+    "AU-BOUNDARY-R020.2",
     "AU-BOUNDARY-R021",
+    "AU-BOUNDARY-R021.1",
+    "AU-BOUNDARY-R021.2",
     "AU-BOUNDARY-R022",
+    "AU-BOUNDARY-R022.1",
+    "AU-BOUNDARY-R022.2",
     "AU-BOUNDARY-R023",
     "AU-BOUNDARY-R024",
     "AU-BOUNDARY-R025",
@@ -141,7 +151,8 @@
         "fe5ca4e239ec"
       ],
       "verified_by": [
-        "tests/gates/test_connector_sdk_import_census_gate.py:34"
+        "tests/gates/test_connector_sdk_import_census_gate.py:35",
+        "tests/gates/test_connector_sdk_import_census_gate.py:55"
       ]
     },
     {
@@ -180,7 +191,7 @@
         "5a00da215c55"
       ],
       "verified_by": [
-        "tests/gates/test_connector_sdk_import_census_gate.py:44"
+        "tests/gates/test_connector_sdk_import_census_gate.py:45"
       ]
     },
     {
@@ -216,6 +227,7 @@
       "title": "Restrict graph-os to AU's public API only",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "4a5540dd2e3d",
         "5b4e8d0a31d0"
       ],
       "verified_by": [
@@ -274,6 +286,7 @@
       "title": "Split messaging behavior and authority across AU, graph-os, and EG",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "4a5540dd2e3d",
         "5b4e8d0a31d0"
       ],
       "verified_by": [
@@ -283,33 +296,106 @@
     {
       "id": "AU-BOUNDARY-R018",
       "title": "Replace the AU graph engine facade with the EG client",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "8b325ddf1818"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R018.1",
+        "AU-BOUNDARY-R018.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R018.1",
+      "title": "Ship a typed inventory of the AU-BOUNDARY-R018 facade modules",
       "delivery_state": "LANDED",
       "landed_in": [
         "8b325ddf1818"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R018.2",
+      "title": "Delete the AU-BOUNDARY-R018 facade modules",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R019",
       "title": "Replace AU's graph-compute and state facades with the EG client",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "8b325ddf1818"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R019.1",
+        "AU-BOUNDARY-R019.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R019.1",
+      "title": "Ship a typed inventory of the AU-BOUNDARY-R019 facade modules",
       "delivery_state": "LANDED",
       "landed_in": [
         "8b325ddf1818"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R019.2",
+      "title": "Delete the AU-BOUNDARY-R019 facade modules",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R020",
       "title": "Move durable work, queues, and state to EG",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "8b325ddf1818"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R020.1",
+        "AU-BOUNDARY-R020.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R020.1",
+      "title": "Ship a typed inventory of the AU-BOUNDARY-R020 durable-work modules",
       "delivery_state": "LANDED",
       "landed_in": [
         "8b325ddf1818"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R020.2",
+      "title": "Move the AU-BOUNDARY-R020 durable-work modules and drop their scripts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R021",
       "title": "Move graph tenancy, topology, and admission to EG",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "8b325ddf1818"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R021.1",
+        "AU-BOUNDARY-R021.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R021.1",
+      "title": "Ship a typed inventory of the AU-BOUNDARY-R021 tenancy/admission modules",
       "delivery_state": "LANDED",
       "landed_in": [
         "8b325ddf1818"
@@ -317,12 +403,39 @@
       "verified_by": []
     },
     {
+      "id": "AU-BOUNDARY-R021.2",
+      "title": "Delete the AU-BOUNDARY-R021 tenancy/admission modules",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "AU-BOUNDARY-R022",
       "title": "Retire AU's reasoning and graph-analytics duplicates",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "8b325ddf1818"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R022.1",
+        "AU-BOUNDARY-R022.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R022.1",
+      "title": "Ship a typed inventory of the AU-BOUNDARY-R022 reasoning/analytics modules",
       "delivery_state": "LANDED",
       "landed_in": [
         "8b325ddf1818"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R022.2",
+      "title": "Delete the AU-BOUNDARY-R022 reasoning/analytics modules",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -330,6 +443,7 @@
       "title": "Split ingestion commit and derivation into EG",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "4a5540dd2e3d",
         "743e98cda405"
       ],
       "verified_by": [
@@ -341,6 +455,7 @@
       "title": "Move enterprise source synchronization to the SDK",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "4a5540dd2e3d",
         "743e98cda405"
       ],
       "verified_by": [
@@ -352,6 +467,7 @@
       "title": "Move document, conversation, and feed sources to the SDK",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "4a5540dd2e3d",
         "743e98cda405"
       ],
       "verified_by": [
@@ -374,6 +490,7 @@
       "title": "Move deterministic enrichment and derivation to EG",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "4a5540dd2e3d",
         "743e98cda405"
       ],
       "verified_by": [
@@ -429,7 +546,8 @@
       "title": "Pin the `kg/infra` production-importer set",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "32bdd70f5ea4"
+        "32bdd70f5ea4",
+        "4a5540dd2e3d"
       ],
       "verified_by": [
         "tests/gates/test_r028x_module_census.py:150"
@@ -481,7 +599,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "26b087dd3b2f",
-        "32bdd70f5ea4"
+        "32bdd70f5ea4",
+        "4a5540dd2e3d"
       ],
       "verified_by": [
         "tests/gates/test_r028x_module_census.py:161"
@@ -505,7 +624,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "26b087dd3b2f",
-        "32bdd70f5ea4"
+        "32bdd70f5ea4",
+        "4a5540dd2e3d"
       ],
       "verified_by": [
         "tests/gates/test_r028x_module_census.py:184"
@@ -530,7 +650,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "26b087dd3b2f",
-        "32bdd70f5ea4"
+        "32bdd70f5ea4",
+        "4a5540dd2e3d"
       ],
       "verified_by": [
         "tests/gates/test_r028x_module_census.py:196"
@@ -541,6 +662,7 @@
       "title": "Move the ontology object model to EG",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "4a5540dd2e3d",
         "743e98cda405"
       ],
       "verified_by": [
@@ -565,6 +687,7 @@
       "title": "Replace AU's graph-schema DTOs with EG-generated types",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "4a5540dd2e3d",
         "743e98cda405"
       ],
       "verified_by": [
@@ -586,6 +709,7 @@
       "title": "Move external graph and database federation to EG",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "4a5540dd2e3d",
         "743e98cda405"
       ],
       "verified_by": [
@@ -597,6 +721,7 @@
       "title": "Move retrieval engines to EG",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "4a5540dd2e3d",
         "743e98cda405"
       ],
       "verified_by": [

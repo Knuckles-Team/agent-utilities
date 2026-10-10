@@ -113,6 +113,7 @@ async def _assert_conforms(port: Any, request: HarnessRequest) -> RunOutcome:
 
 
 @pytest.mark.spec("AU-CONTROL-R001")
+@pytest.mark.spec("AU-HARNESS-R007")
 async def test_native_adapter_conforms() -> None:
     runner = _Runner(_envelope("hello"))
     request = HarnessRequest(agent_name="a", task="t", run_id="run:abc")
@@ -121,6 +122,7 @@ async def test_native_adapter_conforms() -> None:
 
 
 @pytest.mark.spec("AU-CONTROL-R001")
+@pytest.mark.spec("AU-HARNESS-R007")
 async def test_claude_adapter_conforms(
     tmp_path: Path, workspace: Path, mcp_config: Path
 ) -> None:
@@ -130,6 +132,7 @@ async def test_claude_adapter_conforms(
     assert outcome.status == "completed"
 
 
+@pytest.mark.spec("AU-HARNESS-R007")
 def test_outcome_is_immutable_and_strict() -> None:
     outcome = RunOutcome(run_id="r", harness="h", agent_name="a", status="completed")
     with pytest.raises(ValueError):

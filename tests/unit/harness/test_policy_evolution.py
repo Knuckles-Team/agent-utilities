@@ -186,6 +186,7 @@ async def _episode() -> tuple[EpisodeTokens, list[dict[str, Any]]]:
     return episode, sent
 
 
+@pytest.mark.spec("AU-HARNESS-R001")
 def test_capture_round_trips_through_blob_cas_and_the_generated_record() -> None:
     engine, blobs = FakePolicyEvolution(), FakeBlobs()
     capability_id = engine.put_capability(capture=True, train=False)
@@ -209,6 +210,7 @@ def test_capture_round_trips_through_blob_cas_and_the_generated_record() -> None
     assert PolicyCapture.model_validate(wire) == capture
 
 
+@pytest.mark.spec("AU-HARNESS-R001")
 def test_capture_under_a_refused_capability_is_typed_and_side_effect_free() -> None:
     engine, blobs = FakePolicyEvolution(), FakeBlobs()
     episode, _ = asyncio.run(_episode())
@@ -229,6 +231,7 @@ def test_capture_under_a_refused_capability_is_typed_and_side_effect_free() -> N
     assert blobs.blobs == {} and set(engine.records) == before
 
 
+@pytest.mark.spec("AU-HARNESS-R001")
 def test_a_sampler_without_chosen_token_logprobs_fails_closed() -> None:
     sampler, _ = _sampler(_vllm_response(logprobs=False))
     with pytest.raises(PolicyEvolutionRefused) as refused:

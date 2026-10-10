@@ -291,6 +291,7 @@ def test_native_refusal_omits_code_without_valid_contract(
     ],
     ids=["add_node", "add_edge", "apply_typed_batch"],
 )
+@pytest.mark.spec("AU-INTEGRATION-R001")
 def test_typed_batch_writes_annotate_clustered_mutation_refusal(run_op) -> None:
     """AU-INTEGRATION-R001: a clustered local-only refusal survives every typed write.
 

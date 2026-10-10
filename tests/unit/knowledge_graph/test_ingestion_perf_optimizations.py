@@ -377,6 +377,7 @@ class TestGitDelta:
         changed = _changed_source_files(str(git_repo), first)
         assert sorted(p.name for p in changed) == ["b.py", "c.py"]
 
+    @pytest.mark.spec("AU-RETIRE-R006")
     def test_no_deletions_yields_empty_list(self, git_repo: Path):
         first = _git_head_sha(str(git_repo))
         (git_repo / "b.py").write_text("def b():\n    return 99\n")

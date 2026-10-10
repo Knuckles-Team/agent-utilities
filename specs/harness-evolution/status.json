@@ -21,38 +21,46 @@
     {
       "id": "AU-HARNESS-R001",
       "title": "Capability-gated capture of policy trajectories",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3279dcc7d1d7",
         "fdeabad709b3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/harness/test_policy_evolution.py:189",
+        "tests/unit/harness/test_policy_evolution.py:213",
+        "tests/unit/harness/test_policy_evolution.py:234"
+      ]
     },
     {
       "id": "AU-HARNESS-R002",
       "title": "External training path supports an optional KLPO method",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "37a3800dd3b1",
         "fdeabad709b3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/harness/test_substrate_trainer.py:148"
+      ]
     },
     {
       "id": "AU-HARNESS-R003",
       "title": "Graph-driven work market on Gap and WorkItem contracts",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "d1fdedd885f3",
         "d856d0bd92f6",
         "fdeabad709b3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/knowledge_graph/test_work_market.py:83"
+      ]
     },
     {
       "id": "AU-HARNESS-R004",
       "title": "AU proposes corrections through the graph, never writes Git directly",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "26bfecfbde1a"
       ],
@@ -64,42 +72,55 @@
     {
       "id": "AU-HARNESS-R004.1",
       "title": "Typed correction-proposal model",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "068bd9c17859"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/knowledge_graph/research/test_correction_proposal.py:31",
+        "tests/knowledge_graph/research/test_correction_proposal.py:47",
+        "tests/knowledge_graph/research/test_correction_proposal.py:53"
+      ]
     },
     {
       "id": "AU-HARNESS-R005",
       "title": "Defer generative model work pending evidence-backed need",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "a754f1299033"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/harness/test_generative_model_policy.py:20"
+      ]
     },
     {
       "id": "AU-HARNESS-R006",
       "title": "Statistical scoring head ranks work-market offers",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "75dc28c16382",
         "c0e12b7034f3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/knowledge_graph/test_work_market.py:202",
+        "tests/unit/knowledge_graph/test_work_market.py:243"
+      ]
     },
     {
       "id": "AU-HARNESS-R007",
       "title": "One typed L4 harness port",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "05d0acdf70b2",
         "3df03825a497",
         "579815031bcd",
         "b15fd573cb5b"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/layers/test_harness_port.py:116",
+        "tests/unit/layers/test_harness_port.py:125",
+        "tests/unit/layers/test_harness_port.py:135"
+      ]
     },
     {
       "id": "AU-HARNESS-R008",
