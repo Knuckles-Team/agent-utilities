@@ -96,7 +96,6 @@ _MAINTENANCE_REF_ALLOWLIST = frozenset(
         "loop",
         "optimize_components",
         "package_install_ingest",
-        "placement_mining_reactive",
         "reasoning",
         "reconcile_mirrors",
         "runtime_reliability",
@@ -1128,7 +1127,9 @@ def _dispatch_research_feed(engine: Any, payload: dict[str, Any]) -> dict[str, A
     return {"status": "ok", "feeds": results}
 
 
-def _dispatch_connector_sync_sweep(engine: Any, payload: dict[str, Any]) -> dict[str, Any]:
+def _dispatch_connector_sync_sweep(
+    engine: Any, payload: dict[str, Any]
+) -> dict[str, Any]:
     """Sweep every connector ``sync_source`` knows (AU-INTEGRATION-R022).
 
     ``_dispatch_research_feed`` above only ever synced the three hardcoded
