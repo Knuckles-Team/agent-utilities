@@ -61,6 +61,33 @@ def unified_skills_dir() -> Path:
     return skills_dir()
 
 
+class CodexSkillsPathError(ValueError):
+    """The Codex skills directory is unsafe to use as a materialization root."""
+
+
+def codex_skills_dir() -> Path:
+    """Resolve the Codex skills discovery directory, failing closed.
+
+    Honours ``CODEX_HOME`` (absolute path required) and otherwise uses
+    ``~/.codex/skills``; the default matches the layout observed on the
+    operator machine.  A symlinked or junction ``skills`` directory, or a
+    non-directory at that path, is refused rather than followed.
+    """
+    configured = os.environ.get("CODEX_HOME", "").strip()
+    if configured:
+        home = Path(configured).expanduser()
+        if not home.is_absolute():
+            raise CodexSkillsPathError(f"CODEX_HOME must be absolute: {configured!r}")
+    else:
+        home = Path.home() / ".codex"
+    root = home / "skills"
+    if _is_linklike(root):
+        raise CodexSkillsPathError(f"Codex skills root is link-like: {root}")
+    if root.exists() and not _safe_directory(root):
+        raise CodexSkillsPathError(f"Codex skills root is not a directory: {root}")
+    return root
+
+
 def unified_ontologies_dir() -> Path:
     return ontology_dir()
 
@@ -503,6 +530,8 @@ def install_unified() -> dict[str, Any]:
 
 __all__ = [
     "OWN_PROVIDER",
+    "CodexSkillsPathError",
+    "codex_skills_dir",
     "install_unified",
     "own_provider_asset",
     "unified_ontologies_dir",
