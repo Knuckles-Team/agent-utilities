@@ -7,7 +7,12 @@ from types import SimpleNamespace
 import pytest
 
 from agent_utilities import decide
-from agent_utilities.decide.consumers.routing import route_by_cost, route_model
+from agent_utilities.decide.consumers.routing import (
+    UsageAccountingObservedCost,
+    route_by_cost,
+    route_model,
+    route_model_by_observed_cost,
+)
 from agent_utilities.orchestration.outcome_router import OutcomeRouter
 from tests.unit.decide.fakes import FakeTransport, abstained, acted
 
@@ -68,3 +73,40 @@ def test_cost_routing_declares_observed_cost_only_when_l5_holds_it(
     assert _keys(eg) == [["declared_cost"], ["declared_cost"]]
     route_by_cost(models, models[0], _Observed())
     assert _keys(eg) == [["declared_cost"], ["declared_cost", "l5.observed_cost"]]
+
+
+@pytest.mark.spec("AU-CONTROL-R006.1")
+def test_route_by_observed_cost_reads_real_recorded_usage_accounting(
+    eg: FakeTransport, tmp_path
+) -> None:
+    """A real ``ObservedCost`` implementer, sourced from AU's own recorded
+    usage/cost events (not a test fake), changes the cost-routing decision's
+    inputs -- proving ``route_by_cost`` actually sees recorded spend.
+    """
+    from agent_utilities.usage.backends.sqlite_fts import SqliteUsageBackend
+    from agent_utilities.usage.models import ParsedSessionBundle, UsageEvent, UsageSession
+    from agent_utilities.usage.service import UsageService
+
+    backend = SqliteUsageBackend(tmp_path / "usage.db")
+    backend.ensure_schema()
+    backend.write_bundle(
+        ParsedSessionBundle(
+            session=UsageSession(id="sess-1"),
+            usage_events=[
+                UsageEvent(session_id="sess-1", model="m-light", cost_usd=0.5),
+            ],
+        )
+    )
+    service = UsageService(backend)
+
+    models = [_model("m-heavy", "heavy"), _model("m-light", "light")]
+    eg.answer = abstained("unknown_fact")
+
+    choice = route_model_by_observed_cost(models, models[0], usage_service=service)
+
+    assert choice.option_id == "m-heavy" and not choice.decided
+    assert _keys(eg) == [["declared_cost"], ["declared_cost", "l5.observed_cost"]]
+
+    observed = UsageAccountingObservedCost(service)
+    assert observed.observed_cost("m-light") == 0.5
+    assert observed.observed_cost("m-heavy") is None
