@@ -10,24 +10,37 @@
     "AU-SEMANTIC-R004",
     "AU-SEMANTIC-R005",
     "AU-SEMANTIC-R006",
+    "AU-SEMANTIC-R006.1",
+    "AU-SEMANTIC-R006.2",
+    "AU-SEMANTIC-R006.3",
+    "AU-SEMANTIC-R006.4",
+    "AU-SEMANTIC-R006.5",
+    "AU-SEMANTIC-R006.6",
     "AU-SEMANTIC-R007",
     "AU-SEMANTIC-R008",
+    "AU-SEMANTIC-R008.1",
+    "AU-SEMANTIC-R008.2",
     "AU-SEMANTIC-R009",
     "AU-SEMANTIC-R009.1",
     "AU-SEMANTIC-R009.2",
+    "AU-SEMANTIC-R009.2.1",
+    "AU-SEMANTIC-R009.2.2",
     "AU-SEMANTIC-R010",
     "AU-SEMANTIC-R010.1",
     "AU-SEMANTIC-R011",
     "AU-SEMANTIC-R012",
     "AU-SEMANTIC-R013",
+    "AU-SEMANTIC-R013.1",
     "AU-SEMANTIC-R014",
     "AU-SEMANTIC-R015",
     "AU-SEMANTIC-R015.1",
     "AU-SEMANTIC-R015.2",
+    "AU-SEMANTIC-R015.2.1",
     "AU-SEMANTIC-R016",
     "AU-SEMANTIC-R016.1",
     "AU-SEMANTIC-R017",
     "AU-SEMANTIC-R018",
+    "AU-SEMANTIC-R018.1",
     "AU-SEMANTIC-R019",
     "AU-SEMANTIC-R020",
     "AU-SEMANTIC-R021",
@@ -98,6 +111,60 @@
       "id": "AU-SEMANTIC-R006",
       "title": "AU removes rdflib and submits typed payloads to EG instead",
       "delivery_state": "SPECIFIED",
+      "landed_in": [
+        "b8ef12acba3c"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R006.1",
+        "AU-SEMANTIC-R006.2",
+        "AU-SEMANTIC-R006.3",
+        "AU-SEMANTIC-R006.4",
+        "AU-SEMANTIC-R006.5",
+        "AU-SEMANTIC-R006.6"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R006.1",
+      "title": "The harness gate submits a typed payload instead of an rdflib graph",
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "b8ef12acba3c"
+      ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R006.2",
+      "title": "The workflow gate submits a typed payload instead of an rdflib graph",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R006.3",
+      "title": "The SHACL pipeline gate and pack loader submit typed payloads instead of rdflib graphs",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R006.4",
+      "title": "The connector-certification gate submits a typed payload instead of an rdflib graph",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R006.5",
+      "title": "The connector-manifest gate and generation scripts submit typed payloads instead of rdflib graphs",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R006.6",
+      "title": "The team-sharing gate, remaining ontology modules and `rdflib` dependency removal close R006",
+      "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
@@ -114,14 +181,44 @@
     {
       "id": "AU-SEMANTIC-R008",
       "title": "Reasoning-topology selection uses a served policy, not a local outcome store",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "b8ef12acba3c"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R008.1",
+        "AU-SEMANTIC-R008.2"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R008.1",
+      "title": "A typed topology decision-policy client contract fails closed while no served policy exists",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8ef12acba3c"
+      ],
+      "verified_by": [
+        "tests/unit/api/test_topology_decision_policy_client.py:16",
+        "tests/unit/api/test_topology_decision_policy_client.py:31",
+        "tests/unit/api/test_topology_decision_policy_client.py:40",
+        "tests/unit/api/test_topology_decision_policy_client.py:55",
+        "tests/unit/api/test_topology_decision_policy_client.py:66"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R008.2",
+      "title": "Topology selection consumes the served decision policy and the local outcome store is deleted",
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "b8ef12acba3c"
+      ],
       "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R009",
       "title": "The local engine facade is deleted in favor of the generated EG client",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "703c3eb9d88d"
       ],
@@ -143,8 +240,34 @@
     {
       "id": "AU-SEMANTIC-R009.2",
       "title": "AU's engine-facade callers consume the shipped `runnable_skill_derivation` op",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "b8ef12acba3c"
+      ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R009.2.1",
+        "AU-SEMANTIC-R009.2.2"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R009.2.1",
+      "title": "`resolve_runnable_skill_derivation_client()` wires the real call when EG's op is present",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b8ef12acba3c"
+      ],
+      "verified_by": [
+        "tests/unit/api/test_skill_derivation_client.py:63"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R009.2.2",
+      "title": "The local engine-facade modules are deleted once callers consume the wired client",
+      "delivery_state": "LANDED",
+      "landed_in": [
+        "b8ef12acba3c"
+      ],
       "verified_by": []
     },
     {
@@ -189,9 +312,25 @@
     {
       "id": "AU-SEMANTIC-R013",
       "title": "Reasoning and analytics duplicates are deleted only with proven EG parity",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R013.1"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R013.1",
+      "title": "The AU-SEMANTIC-R013 core-reasoning migration scope is a typed, validated manifest",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1558cd9d0726"
+      ],
+      "verified_by": [
+        "tests/unit/core/test_r013_migration_scope.py:17",
+        "tests/unit/core/test_r013_migration_scope.py:23",
+        "tests/unit/core/test_r013_migration_scope.py:28"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R014",
@@ -205,7 +344,7 @@
     {
       "id": "AU-SEMANTIC-R015",
       "title": "Enterprise source sync becomes an SDK runner over EG SourceIngest",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "703c3eb9d88d"
       ],
@@ -227,9 +366,25 @@
     {
       "id": "AU-SEMANTIC-R015.2",
       "title": "The SDK-hosted source-sync runner consumes the shipped `workflow_derivation` op",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R015.2.1"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R015.2.1",
+      "title": "The AU-SEMANTIC-R015.2 migration scope is a typed, validated manifest",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1558cd9d0726"
+      ],
+      "verified_by": [
+        "tests/unit/core/test_r015_2_migration_scope.py:17",
+        "tests/unit/core/test_r015_2_migration_scope.py:23",
+        "tests/unit/core/test_r015_2_migration_scope.py:28"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R016",
@@ -249,6 +404,7 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "117359dabc9a",
+        "1558cd9d0726",
         "76d440ff79dc"
       ],
       "verified_by": []
@@ -265,9 +421,25 @@
     {
       "id": "AU-SEMANTIC-R018",
       "title": "Deterministic derivation modules move to EG",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R018.1"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R018.1",
+      "title": "The AU-SEMANTIC-R018 enrichment migration scope is a typed, validated manifest",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1558cd9d0726"
+      ],
+      "verified_by": [
+        "tests/unit/core/test_r018_migration_scope.py:17",
+        "tests/unit/core/test_r018_migration_scope.py:23",
+        "tests/unit/core/test_r018_migration_scope.py:28"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R019",

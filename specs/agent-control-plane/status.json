@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-CONTROL-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-CONTROL-R001",
     "AU-CONTROL-R002",
@@ -10,6 +10,7 @@
     "AU-CONTROL-R004",
     "AU-CONTROL-R005",
     "AU-CONTROL-R006",
+    "AU-CONTROL-R006.1",
     "AU-CONTROL-R007",
     "AU-CONTROL-R008",
     "AU-CONTROL-R009",
@@ -109,12 +110,22 @@
     {
       "id": "AU-CONTROL-R006",
       "title": "Cost-aware routing informed by usage accounting",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "4351f26b3d3b",
         "a1dd4111f04f",
         "c049e325e91d"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-CONTROL-R006.1"
+      ]
+    },
+    {
+      "id": "AU-CONTROL-R006.1",
+      "title": "A production ObservedCost implementer and a caller in routing",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {

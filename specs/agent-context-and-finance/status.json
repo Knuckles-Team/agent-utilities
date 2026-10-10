@@ -82,7 +82,7 @@
     {
       "id": "AU-CONTEXT-R006",
       "title": "Paper trading is isolated; live orders need governed approval",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0cd7be250b3d",
         "88c61dc9164c"
@@ -111,25 +111,27 @@
     },
     {
       "id": "AU-CONTEXT-R006.2",
-      "title": "Live orders use the SDK's governed write-back contract",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: tracked by agent-connector-sdk",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "0cd7be250b3d",
         "dbe03a6687ca",
         "f474735cab25"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "tracked by agent-connector-sdk"
     },
     {
       "id": "AU-CONTEXT-R006.3",
-      "title": "A finance widget replaces the placeholder widget in graph-os",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: tracked by graph-os",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "0cd7be250b3d",
         "dbe03a6687ca",
         "f474735cab25"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "tracked by graph-os"
     },
     {
       "id": "AU-CONTEXT-R007",
