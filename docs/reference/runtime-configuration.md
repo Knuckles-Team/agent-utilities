@@ -546,7 +546,6 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `EG_ANALYTICS_WORKER_LEASE_MS` | `int` | `60000` |
 | `EG_ANALYTICS_WORKER_POLL_SECONDS` | `float` | `0.25` |
 | `PLACEMENT_CATALOG_TTL_S` | `float` | `5.0` |
-| `PLACEMENT_CONTROL_LOOP_ENABLED` | `bool` | `False` |
 | `GRAPH_SERVICE_PERSIST_ON_SHUTDOWN` | `bool` | `True` |
 | `GRAPH_PERSISTENCE_PATH` | `str` | `resolved at runtime` |
 | `ENABLE_LLM_VALIDATION` | `bool` | `False` |

@@ -833,7 +833,9 @@
       "title": "The `placement_control_loop_enabled` setting is removed from config",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/core/test_config.py:20"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R019.6.3",

@@ -284,11 +284,6 @@ def test_config_reference_includes_memento_privacy_policy():
     assert "MEMENTO_RAW_ENCRYPTION_KEY_REF" in flat
 
 
-def test_config_reference_exposes_placement_control_opt_in():
-    flat = {f["env"]: f for s in config_reference() for f in s["fields"]}
-    assert flat["PLACEMENT_CONTROL_LOOP_ENABLED"]["default"] is False
-
-
 def test_config_reference_exposes_dispatch_lease_recovery_controls():
     flat = {f["env"]: f for s in config_reference() for f in s["fields"]}
     assert flat["AGENT_DISPATCH_CLAIM_TTL_S"]["default"] == 120.0

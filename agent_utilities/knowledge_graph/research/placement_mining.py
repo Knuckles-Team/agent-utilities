@@ -2045,7 +2045,7 @@ def placement_control_loop(
     measurement_fn: MeasurementFn | None = None,
     tolerance: float = _CANARY_TOLERANCE,
     limit: int = _SCAN_LIMIT,
-    enabled: bool | None = None,
+    enabled: bool,
 ) -> dict[str, Any]:
     """Seam 4 — THE manual-trigger controller step that closes the placement
     loop: mine -> propose -> ActionPolicy review -> engine reshard (online
@@ -2058,35 +2058,22 @@ def placement_control_loop(
     ``ClaimFlywheel`` lifecycle, :class:`CanaryResult`) is that function's,
     reused as-is.
 
-    **Default OFF / manual-trigger (opt-in) — never auto-reshards on
-    import.** ``enabled=None`` (the default) resolves through the typed
-    ``AgentConfig.placement_control_loop_enabled`` field — an operator must
-    explicitly opt in via ``PLACEMENT_CONTROL_LOOP_ENABLED`` for this to run
-    on an automatic/periodic caller. A caller that IS the manual trigger
-    itself (the ``graph_loops`` MCP action / its REST twin — a human or an
-    orchestrator explicitly asking for one governed pass right now) passes
-    ``enabled=True`` for that one call, bypassing the flag without changing
-    it — nothing in this module, and nothing this function calls, is ever
-    invoked merely by importing the package or by any periodic/scheduled
-    loop unless an operator has explicitly turned the flag on.
+    **Explicit opt-in — never auto-reshards on import.** ``enabled`` is a
+    required keyword: there is no config flag. A caller that IS the manual
+    trigger (the ``graph_loops`` MCP action / its REST twin) passes
+    ``enabled=True`` for that one call; nothing in this module is ever invoked
+    merely by importing the package or by any periodic loop.
 
     Disabled ⇒ a zero-side-effect no-op report: mining, governance, the
     canary, and the engine reshard RPC never run.
     """
-    from agent_utilities.core.config import config
-
-    gate = (
-        bool(config.placement_control_loop_enabled)
-        if enabled is None
-        else bool(enabled)
-    )
-    if not gate:
+    if not enabled:
         return {
             "enabled": False,
             "skipped": True,
             "reason": (
                 "placement_control_loop is opt-in "
-                "(PLACEMENT_CONTROL_LOOP_ENABLED=0) — manual trigger required"
+                "(enabled=False) — manual trigger required"
             ),
         }
     report = run_placement_mining_cycle(
@@ -2114,7 +2101,7 @@ def placement_mining_subscription(engine: Any) -> Any:
     Mirrors :func:`~agent_utilities.orchestration.fleet_autoscaler.
     fleet_autoscale_subscription` exactly: instead of waiting for the next slow
     Loop-engine cycle (``run_one_cycle``'s ``placement_control`` stage, gated
-    behind ``KG_LOOP`` + ``PLACEMENT_CONTROL_LOOP_ENABLED`` and entangled with a
+    behind ``KG_LOOP`` and entangled with a
     dozen unrelated stages), the daemon polls this subscription on a fast,
     dedicated tick and only pays the mining pass's cost when the engine actually
     pushed a new ``:ToolCall`` change since last time.
