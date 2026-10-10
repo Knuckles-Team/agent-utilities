@@ -279,7 +279,9 @@
       "title": "Stop mounting `registry_api` routes from `agent_utilities/gateway/graph_api.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/gateway/test_remote_oauth_api.py:194"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R001.4.2",
