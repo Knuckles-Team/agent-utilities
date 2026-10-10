@@ -1,8 +1,9 @@
 """CONCEPT:AU-KG.memory.live-refreshable-artifact-models — Live Refreshable Artifact tests.
 
 Covers injection-safe interpolation, the bounded-JSON contract, refresh re-derivation from a source,
-the "failed refresh preserves prior" rule (bi-temporal valid-time), provenance, and the live gateway
-route (create → mutate source → refresh; forced-fail preserves prior).
+the "failed refresh preserves prior" rule (bi-temporal valid-time), and provenance. The former
+live-gateway-route coverage moved with the HTTP surface; the AU gateway router was retired under
+AU-BOUNDARY-R001.3 (graph-os is now the sole HTTP door — org runtime boundary).
 """
 
 from __future__ import annotations
@@ -137,50 +138,3 @@ def test_provenance_records_model_and_evidence():
     assert got is not None
     assert got.provenance.model == "adapter:claude-code"
     assert "node:1" in got.provenance.evidence_node_ids
-
-
-# ── live gateway route ──────────────────────────────────────────────
-
-
-def test_artifact_routes_end_to_end():
-    pytest.importorskip("fastapi")
-    import fastapi
-    from fastapi.testclient import TestClient
-
-    from agent_utilities.gateway.artifacts_api import artifacts_router
-
-    app = fastapi.FastAPI()
-    app.include_router(artifacts_router)
-    client = TestClient(app)
-
-    created = client.post(
-        "/api/artifacts",
-        json={
-            "name": "r",
-            "template": "n={{data.n}}",
-            "data": {"n": 1},
-            "model": "adapter:ollama",
-        },
-    )
-    assert created.status_code == 200
-    aid = created.json()["artifact_id"]
-    assert created.json()["rendered"] == "n=1"
-
-    # manual refresh with new data
-    refreshed = client.post(f"/api/artifacts/{aid}/refresh", json={"data": {"n": 99}})
-    assert refreshed.status_code == 200
-    assert refreshed.json()["ok"] is True
-    assert refreshed.json()["rendered"] == "n=99"
-
-    # forced-fail refresh (bounded violation) preserves prior render
-    bad = client.post(
-        f"/api/artifacts/{aid}/refresh",
-        json={"data": {"items": list(range(MAX_ITEMS + 1))}},
-    )
-    assert bad.json()["ok"] is False
-    got = client.get(f"/api/artifacts/{aid}")
-    assert got.json()["data"]["n"] == 99  # prior preserved
-
-    assert (
-        client.post("/api/artifacts/nope/refresh", json={"data": {}}).status_code == 404
-    )

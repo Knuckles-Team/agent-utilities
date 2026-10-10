@@ -206,7 +206,10 @@
       "title": "Delete `agent_utilities/gateway/artifacts_api.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_r001_3_deleted.py:28",
+        "tests/gates/test_boundary_r001_3_deleted.py:35"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R001.4",

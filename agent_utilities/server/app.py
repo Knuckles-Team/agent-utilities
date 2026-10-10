@@ -689,16 +689,6 @@ def _include_gateway_routers(app: FastAPI) -> None:
     # proxy (/api/proxy/{provider}/stream).
     app.include_router(proxy.router)
 
-    # CONCEPT:AU-KG.memory.live-refreshable-artifact-models — Live Refreshable
-    # Artifacts (/api/artifacts...).
-    from agent_utilities.gateway.artifacts_api import artifacts_router
-    from agent_utilities.knowledge_graph.live_artifacts.kg_source import (
-        install_kg_artifact_source,
-    )
-
-    app.include_router(artifacts_router)
-    install_kg_artifact_source()
-
     # CONCEPT:AU-AHE.evaluation.longmemeval-validation-harness — LongMemEval-S
     # validation harness (Quarq HTTP runner compatible).
     from .routers import benchmark
