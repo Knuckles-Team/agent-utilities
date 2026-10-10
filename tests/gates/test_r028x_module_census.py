@@ -19,10 +19,11 @@ pinned set below corrects that and the row text is updated alongside.
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 import pytest
+
+from tests.gates._deletion_support import files_importing
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = REPO_ROOT / "agent_utilities"
@@ -31,37 +32,9 @@ PACKAGE_ROOT = REPO_ROOT / "agent_utilities"
 def _modules_importing(
     needle_substrings: tuple[str, ...], exclude: tuple[str, ...]
 ) -> frozenset[str]:
-    """Return relative paths (posix, from agent_utilities/) of production
-    files whose import statements reference any of `needle_substrings`,
-    excluding the defining modules themselves. Test files are out of scope:
-    these censuses track production callers only, matching each row's own
-    "blocked on a production caller" framing.
-    """
-    hits: set[str] = set()
-    for path in PACKAGE_ROOT.rglob("*.py"):
-        rel = path.relative_to(PACKAGE_ROOT).as_posix()
-        if any(rel == ex or rel.startswith(ex) for ex in exclude):
-            continue
-        try:
-            source = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            continue
-        try:
-            tree = ast.parse(source)
-        except SyntaxError:
-            continue
-        for node in ast.walk(tree):
-            names: list[str] = []
-            if isinstance(node, ast.Import):
-                names = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                names = [node.module]
-            else:
-                continue
-            if any(any(sub in name for sub in needle_substrings) for name in names):
-                hits.add(rel)
-                break
-    return frozenset(hits)
+    """Production files (posix, relative to agent_utilities/) importing a
+    needle, excluding the defining modules. Tests are out of scope."""
+    return files_importing((PACKAGE_ROOT,), needle_substrings, PACKAGE_ROOT, exclude)
 
 
 # AU-BOUNDARY-R028.2.1 -- kg/infra/{placement_optimizer,inventory_collector}

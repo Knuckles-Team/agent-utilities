@@ -18,44 +18,17 @@ R002.1 state (text says deleted, file still on disk).
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 import pytest
+
+from tests.gates._deletion_support import files_importing
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = REPO_ROOT / "agent_utilities"
 TESTS_ROOT = REPO_ROOT / "tests"
 
 DELETED_MODULE_PATH = PACKAGE_ROOT / "deployment" / "backends.py"
-
-
-def _files_importing(needle: str, roots: tuple[Path, ...]) -> frozenset[str]:
-    """Relative (posix, from REPO_ROOT) paths of files whose import
-    statements reference `needle` (a dotted module substring)."""
-    hits: set[str] = set()
-    for root in roots:
-        for path in root.rglob("*.py"):
-            try:
-                source = path.read_text(encoding="utf-8")
-            except UnicodeDecodeError:
-                continue
-            try:
-                tree = ast.parse(source)
-            except SyntaxError:
-                continue
-            for node in ast.walk(tree):
-                names: list[str] = []
-                if isinstance(node, ast.Import):
-                    names = [alias.name for alias in node.names]
-                elif isinstance(node, ast.ImportFrom) and node.module:
-                    names = [node.module]
-                else:
-                    continue
-                if any(needle in name for name in names):
-                    hits.add(path.relative_to(REPO_ROOT).as_posix())
-                    break
-    return frozenset(hits)
 
 
 @pytest.mark.spec("AU-BOUNDARY-R002.2")
@@ -66,8 +39,10 @@ def test_deployment_backends_deleted() -> None:
         f"{DELETED_MODULE_PATH} still present; AU-BOUNDARY-R002.2 requires it deleted"
     )
 
-    importers = _files_importing(
-        "agent_utilities.deployment.backends", (PACKAGE_ROOT, TESTS_ROOT)
+    importers = files_importing(
+        (PACKAGE_ROOT, TESTS_ROOT),
+        ("agent_utilities.deployment.backends",),
+        REPO_ROOT,
     )
     assert importers == frozenset(), (
         "no importer of agent_utilities.deployment.backends may remain, found: "
