@@ -39,3 +39,11 @@ Contract mismatch, unknown tenant, absent authorization, duplicate idempotency k
 ## Design constraints
 
 Keep one owner per capability. Check copied code with jscpd and dupehound and use CCCC complexity reports to split oversized cutover adapters. Apply KISS by deleting obsolete wrappers rather than creating a second translation registry. Every change needs the language-native lint/type/test gate and this repository's normal pre-commit gate.
+
+## Recorded owners for deletion rollups
+
+### AU-BOUNDARY-R002.3.1: ephemeral loopback OIDC certification authority
+
+Finding (graph-os `main` at `9095a5c`, read-only search): graph-os has NO replacement for `EphemeralLoopbackOidcAuthority`, `AUTHORITY_MODE`, `DEFAULT_TOKEN_TTL_SECONDS` or `validated_token_ttl_seconds`. `git grep -n -i "loopback.*oidc\|certification_oidc" -- graph_os` prints nothing. The only related graph-os code is `graph_os/deployment/doctor_certification.py`, which merely reports the `ephemeral-https-loopback` authority mode, and `specs/public-ingress-identity` IN-05, which specifies a fake OIDC issuer fixture but delivers no module.
+
+Result: no graph-os owner exists yet, so this row stays SPECIFIED. Cross-repo dependency: graph-os must first own an authority (a new graph-os module, or a reviewed decision that the skill-certification flow is deleted) before `AU-BOUNDARY-R002.3.2` to `AU-BOUNDARY-R002.3.5` can proceed. Do not delete `certification_oidc.py` until then.
