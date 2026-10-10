@@ -15,7 +15,9 @@
     "AU-DEV-R003.3",
     "AU-DEV-R003.3.1",
     "AU-DEV-R003.3.2",
-    "AU-DEV-R003.3.3"
+    "AU-DEV-R003.3.3",
+    "AU-DEV-R003.3.4",
+    "AU-DEV-R003.3.5"
   ],
   "requirements": [
     {
@@ -114,7 +116,9 @@
       "rollup_of": [
         "AU-DEV-R003.3.1",
         "AU-DEV-R003.3.2",
-        "AU-DEV-R003.3.3"
+        "AU-DEV-R003.3.3",
+        "AU-DEV-R003.3.4",
+        "AU-DEV-R003.3.5"
       ]
     },
     {
@@ -138,13 +142,27 @@
       ],
       "verified_by": [
         "tests/unit/core/test_codex_skills_install.py:38",
-        "tests/unit/core/test_codex_skills_install.py:54",
-        "tests/unit/core/test_codex_skills_install.py:71"
+        "tests/unit/core/test_codex_skills_install.py:56",
+        "tests/unit/core/test_codex_skills_install.py:75"
       ]
     },
     {
       "id": "AU-DEV-R003.3.3",
       "title": "Codex leg prints its plan before mutating and refuses a hash mismatch",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-DEV-R003.3.4",
+      "title": "Define the Claude Code skills discovery path",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-DEV-R003.3.5",
+      "title": "One harness-target install feeds Claude and Codex together",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
