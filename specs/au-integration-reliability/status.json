@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-INTEGRATION-001",
   "owner_repo": "agent-utilities",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "LANDED",
   "requirement_ids": [
     "AU-INTEGRATION-R001",
     "AU-INTEGRATION-R002",
@@ -268,8 +268,10 @@
     {
       "id": "AU-INTEGRATION-R023",
       "title": "Native ChangeEnvelope mutations carry only the fields the engine contract allows",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "6a43f914f823"
+      ],
       "verified_by": [
         "tests/unit/knowledge_graph/ingestion/test_native_envelope_ingest.py:615"
       ]
