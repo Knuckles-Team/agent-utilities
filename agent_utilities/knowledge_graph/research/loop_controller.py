@@ -165,7 +165,6 @@ def _new_cycle_report(propose_only: bool) -> dict[str, Any]:
         "insight_validation": None,
         "trace_mining": None,
         "skill_evolution": None,
-        "placement_control": None,
         "belief_revision": None,
         "standardize": None,
         "skill_proposals": None,
@@ -376,9 +375,7 @@ class LoopController:
         mining: mines RunTrace/OutcomeEvaluation/ToolCall provenance for repeated
         FAILURE tool-call sequences and runs each through the SAME C4
         CandidateInsight→Claim→Validation→Action-gate pipeline; SAFETY-CRITICAL,
-        see ``_run_trace_mining``'s docstring) → ``placement_control`` (typed
-        ``PLACEMENT_CONTROL_LOOP_ENABLED``, default OFF — mines placement evidence
-        and enters the approval-gated measured canary) → ``insight_validation`` (env
+        see ``_run_trace_mining``'s docstring) → ``insight_validation`` (env
         ``KG_LOOP_INSIGHT_VALIDATION``, default ON — workstream C4, the Insight
         Engine closed loop: mined findings above a confidence floor become
         reviewable ``ClaimNode``s, gated by ``action_policy.decide()``) →
@@ -606,9 +603,6 @@ class LoopController:
         ``trace_mining`` is closed-loop agent mining (workstream C6) over
         RunTrace/OutcomeEvaluation/ToolCall provenance through the SAME C4
         pipeline — SAFETY-CRITICAL, see ``_run_trace_mining``'s docstring.
-        ``placement_control`` is the one automatic caller of workload-aware
-        placement mining (X-5), governed by the typed opt-in and reusing the same
-        propose → ActionPolicy → measured canary → promote/rollback spine.
         ``belief_revision`` recomputes every ``Belief`` node's confidence from its
         support/contradiction neighborhood, persisting each outcome as a
         ``:BeliefRevisionProposal`` — never a mutation of the live belief
@@ -616,8 +610,6 @@ class LoopController:
         ``embedding_generation`` (opt-in) is the governed embedding-generation
         swap (AU-CONTEXT-R002): activated only with EG's passing receipt.
         """
-        from agent_utilities.core.config import config
-
         if opts.insight_validation and (
             report.get("mine_discovery") or report.get("evidence_intake")
         ):
@@ -629,13 +621,6 @@ class LoopController:
             )
         if opts.trace_mining:
             report["trace_mining"] = stage("trace_mining", self._run_trace_mining)
-        if config.placement_control_loop_enabled:
-            from .placement_mining import placement_control_loop
-
-            report["placement_control"] = stage(
-                "placement_control",
-                lambda: placement_control_loop(self.engine, enabled=True),
-            )
         if opts.belief_revision:
             report["belief_revision"] = stage(
                 "belief_revision", self._run_belief_revision

@@ -83,7 +83,7 @@ The task owner records a separate verdict per ID even when multiple IDs share a 
 - [ ] **AU-SEMANTIC-R019.6:** Delete `knowledge_graph/research/placement_mining.py`
 - [ ] **AU-SEMANTIC-R019.6.1:** The reactive placement-mining tick is removed from the engine scheduler
 - [ ] **AU-SEMANTIC-R019.6.2:** The `placement_control` stage is removed from the loop controller
-- [ ] **AU-SEMANTIC-R019.6.2.1:** The `placement_control` stage is removed from the loop controller
+- [x] **AU-SEMANTIC-R019.6.2.1:** The `placement_control` stage is removed from the loop controller
 - [ ] **AU-SEMANTIC-R019.6.2.2:** The `placement_control_loop_enabled` setting is removed from config
 - [ ] **AU-SEMANTIC-R019.6.3:** The `graph_loops` `placement_control` action is removed
 - [ ] **AU-SEMANTIC-R019.6.4:** `knowledge_graph/research/placement_mining.py` is deleted

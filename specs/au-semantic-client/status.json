@@ -822,7 +822,9 @@
       "title": "The `placement_control` stage is removed from the loop controller",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/unit/knowledge_graph/test_loop_controller.py:590"
+      ]
     },
     {
       "id": "AU-SEMANTIC-R019.6.2.2",
