@@ -259,6 +259,6 @@ The AU adapter compares the verified session with the tenant and principal captu
 
 ### Consumer alignment and remaining work
 
-`GRAPHOS-OPS-R021.4.5` projects this read as `runs.get.current_plan` while retaining independent trace fields. `TUI-RUNTIME-R010.4` and `GENIUSBOT-CLIENT-R019.4` show the projection and clear expired or denied values. Their served proof rows remain separate obligations. GraphOS-R021.4.6 owns transport registration and generated client parity.
+`GRAPHOS-OPS-R021.4.5` projects this read as `runs.get.current_plan` while retaining independent trace fields. `TUI-RUNTIME-R010.4` and `GENIUSBOT-CLIENT-R019.4` show the projection and clear expired or denied values. Their served proof rows remain separate obligations. GRAPHOS-OPS-R021.4.6 owns transport registration and generated client parity.
 
 BLOCKED for delivery: implement R012 runtime composition and R014.1 through R014.5, then this AU public port and its host binding. The port, runtime lookup and served acceptance do not exist at the audited base. Keep all new rows SPECIFIED until implementation and exact-head evidence exist. This definition closes the missing producer contract, not the missing producer runtime.
