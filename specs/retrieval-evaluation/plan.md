@@ -28,3 +28,39 @@ Decision: a declared budget bounds cost and makes the stop reason auditable. The
 
 References:
 - arXiv:2606.06036 — Ji et al., "Memory is Reconstructed, Not Retrieved: Graph Memory for LLM Agents" (2026)
+
+## Insufficient evidence and strict fallback (AU-RETRIEVAL-R004)
+
+Data flow: `served executable_rag action -> _analysis_action_executable_rag (mcp/tools/analysis_tools.py:2280) -> HybridRetriever.retrieve_executable (hybrid_retriever.py:1917) -> ExecutableRagProgram.run (executable_rag.py:236) -> engine verdict -> another round, answer or RetrievalAbstention -> StepTrace`.
+
+Existing code: `knowledge_graph/retrieval/executable_rag.py:87`, `executable_rag.py:198`, `executable_rag.py:236`, `hybrid_retriever.py:1917`, `hybrid_retriever.py:1957`, `mcp/tools/analysis_tools.py:2294`. Reachable today: yes, for repair; no, for a received verdict or strict abstention.
+
+Moves to EG: the marker test `_is_insufficient` (`executable_rag.py:87`) and the k boost and mode switch in `_retrieve_with_repair` (`executable_rag.py:198`) decide sufficiency and retrieval. The default answerer at `hybrid_retriever.py:1957` also needs the verdict.
+
+Cross-repository rows: EG-RETRIEVAL — the sufficiency verdict, the fallback policy and the round limit.
+
+## Stop verdict for iterative retrieval (AU-RETRIEVAL-R005)
+
+Data flow: `served query -> engine_query.py:1509 -> IterativeQueryExpander.run (iterative_expansion.py:168) -> engine stop verdict -> stop or continue -> trace`. The reconstruction path calls the stopper at `active_reconstruction.py:282` from `entity_context.py:153`.
+
+Existing code: `adaptive_stopping.py:39`, `adaptive_stopping.py:80`, `adaptive_stopping.py:151`, `iterative_expansion.py:171`, `iterative_expansion.py:229`, `active_reconstruction.py:237`, `active_reconstruction.py:282`, `engine_query.py:1509`. Reachable today: yes for the repeat rule; no for a received verdict.
+
+Moves to EG: `IterativeStopper` and its `answer_repeat` rule (`adaptive_stopping.py:80`, `adaptive_stopping.py:151`) decide when to stop. The calibrated margin also belongs to the engine.
+
+Cross-repository rows: EG-RETRIEVAL — the stop verdict with reason, calibrated margin and threshold.
+
+References:
+- arXiv:2606.13814 — Kieback et al., "TASR: Training-Free Adaptive Stopping for Iterative Retrieval" (2026)
+
+## Applying the arbitration verdict (AU-RETRIEVAL-R006)
+
+Data flow: `served executable_rag action -> retrieve_executable (hybrid_retriever.py:1917) -> ExecutableRagProgram.run answer step (executable_rag.py:256) -> engine arbitration verdict -> chosen candidate or RetrievalAbstention -> trace`.
+
+Existing code: `executable_rag.py:256`, `hybrid_retriever.py:1917`, `search_synthesis/shortcut_risks.py:42`, `api/agent_control_contracts.py:73`. Reachable today: no. Searches with no hit: `arbitrat`, `parametric`, `trust margin`, `closed-book`, `prior_answer`.
+
+Moves to EG: the closed-book probe in `shortcut_risks.py:42` is the nearest prior probe. The `EvidenceClass` vocabulary (`agent_control_contracts.py:73`) gains `parametric` and `retrieved`. Arbitration and its margin belong to the engine.
+
+Cross-repository rows: EG-RETRIEVAL — the arbitration verdict, the margin, the prior probe and the evidence classes.
+
+References:
+- arXiv:2606.08397 — Xu et al., "TrustMargin: Training-Free Arbitration between Parametric Memory and Retrieved Evidence in Large Language Models" (2026)

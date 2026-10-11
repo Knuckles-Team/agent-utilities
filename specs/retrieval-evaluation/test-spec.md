@@ -12,3 +12,6 @@
 
 Store run manifests, exact merged SHA, fixture digest and command output as public receipts. Focused tests and the repository CCCC, jscpd, Dupehound and full Python gates remain pending until implementation.
 | RETRIEVAL-8 | FR-5 | Submit a studied technique with no paired benchmark result. | Admission refused; the missing result is named. |
+| RETRIEVAL-9 | R004 | Run the served `executable_rag` action with a scripted `insufficient` verdict, under `strict`, then under `lenient`. | `strict` abstains with the evidence gathered. `lenient` returns the extractive answer. The trace shows each round. |
+| RETRIEVAL-10 | R005 | Script a `stop` verdict, then a `continue` verdict, for the iterative loop. | The first ends the loop early. The second keeps it running. The trace records the received reason and margin. |
+| RETRIEVAL-11 | R006 | Script a choose verdict, then an abstain verdict, at the served answer step. | The first returns the chosen candidate. The second abstains with both candidates and their classes. |
