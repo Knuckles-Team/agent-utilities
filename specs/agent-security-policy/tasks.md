@@ -16,7 +16,7 @@ Tasks may be split across PRs. Mark a row **LANDED** only after its code reaches
 | T10 | AU-SEC-R011 | Add the typed screen verdict, the tool-output screen call site, the approval-required refusal and the served proof. | Open. |
 
 - [ ] **AU-SEC-R012:** Deliver the rollup row by delivering its six children.
-- [ ] **AU-SEC-R012.1:** Deliver the model row; proved by `tests/unit/security/test_tainted_action_gate.py::test_influence_model_fields`.
+- [ ] **AU-SEC-R012.1:** Reuse the exact producer action classes and assert wire equality and unknown-class refusal; proved by `tests/unit/security/test_tainted_action_gate.py::test_influence_model_fields`.
 - [ ] **AU-SEC-R012.2:** Deliver the behavior row; proved by `tests/unit/security/test_tainted_action_gate.py::test_tainted_run_pauses_for_approval`.
 - [ ] **AU-SEC-R012.3:** Deliver the wiring row; proved by `tests/unit/security/test_tainted_action_gate.py::test_requires_approval_reads_taint`.
 - [ ] **AU-SEC-R012.4:** Deliver the refusal row; proved by `tests/unit/security/test_tainted_action_gate.py::test_missing_taint_fails_closed`.

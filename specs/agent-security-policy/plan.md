@@ -66,13 +66,13 @@ Decision: one screen policy serves both sources, so the rule sets cannot drift a
 
 Data flow: `execute_agent (api/agent_control_plane.py:361) -> tool result enters run -> taint mark -> tool call -> _requires_approval (security/tool_guard.py:383) -> ApprovalRequiredToolset (:464) -> tool-call record (capabilities/kg_audit_sink.py:113)`.
 
-Types: `ContentInfluence` and `ActionClass` are new. `ApprovalRequiredToolset`, the policy decision at `tool_guard.py:383` and `ToolCallRecord` are reused. This rollup extends the screening of `AU-SEC-R011`: that rollup refuses bad text, this one governs actions after untrusted text.
+Types: `ContentInfluence` is new. `ActionClass` uses the producer values `egress`, `privileged_call` and `delegation` without translation. A contract test asserts exact equality and refuses `privileged`. `ApprovalRequiredToolset`, the policy decision at `tool_guard.py:383` and `ToolCallRecord` are reused. This rollup extends the screening of `AU-SEC-R011`: that rollup refuses bad text, this one governs actions after untrusted text.
 
-Failure: a missing taint mark counts as tainted. A denied approval stops the action and records the outcome.
+Failure: an unknown action class returns `invalid_action_class` before any effect. A missing taint mark counts as tainted. A denied approval stops the action and records the outcome.
 
 Decision: the run carries the received taint mark and pauses on the existing approval hook. The rejected alternative is a second approval engine for tainted runs.
 
 Search terms used: untrusted, taint, influence, ApprovalRequiredToolset, requires_approval.
 Existing code: `agent_utilities/security/tool_guard.py:383`, `:464`; `agent_utilities/agent/factory.py:1054`; `agent_utilities/capabilities/kg_audit_sink.py:113`, `:540`. Reachable today: approval yes, taint input no.
-Moves to GRAPHOS-HOST: the approval decision in `_requires_approval` (`agent_utilities/security/tool_guard.py:383`).
-Cross-repository rows: EG-TRUST — the taint mark on content; GRAPHOS-HOST — the approval admission for a gated action.
+Moves to GRAPHOS-A2A: the approval decision in `_requires_approval` (`agent_utilities/security/tool_guard.py:383`).
+Cross-repository rows: EG-SRC-AUTH-R011 — the taint mark on content; GRAPHOS-A2A-R005 — the approval admission for a gated action.

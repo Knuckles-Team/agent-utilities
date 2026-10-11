@@ -15,3 +15,9 @@ Store run manifests, exact merged SHA, fixture digest and command output as publ
 | RETRIEVAL-9 | R004 | Run the served `executable_rag` action with a scripted `insufficient` verdict, under `strict`, then under `lenient`. | `strict` abstains with the evidence gathered. `lenient` returns the extractive answer. The trace shows each round. |
 | RETRIEVAL-10 | R005 | Script a `stop` verdict, then a `continue` verdict, for the iterative loop. | The first ends the loop early. The second keeps it running. The trace records the received reason and margin. |
 | RETRIEVAL-11 | R006 | Script a choose verdict, then an abstain verdict, at the served answer step. | The first returns the chosen candidate. The second abstains with both candidates and their classes. |
+
+## Producer contract coverage
+
+AU-RETRIEVAL-R004, R005 and R006 consume EG-FEDERATED-QUERY-R081, R082 and R083 respectively.
+
+Harness tests assert receipt and application of these contracts. They do not prove producer decisions, storage or admission.

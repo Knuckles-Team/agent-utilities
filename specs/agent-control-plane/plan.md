@@ -111,15 +111,15 @@ Decision: the warm registry owns every parent, so a branch is one more registere
 
 ## The harness holds run output uncommitted and applies the verdict it receives (AU-CONTROL-R040)
 
-Data flow: `execute_agent -> hold layer (new) -> run tools write to the layer -> FsCarrier.snapshot (carrier.py:121) -> RunEventLog.append (kernel.py:160) -> verdict from graph-os -> apply | drop -> base tree`.
+Data flow: `execute_agent -> hold layer (new) -> run tools write to the layer -> FsCarrier.snapshot (carrier.py:121) -> RunEventLog.append (kernel.py:160) -> HeldItemVerdict from graph-os -> apply | drop local layer | keep held -> base tree`.
 
 Existing code: `agent_utilities/runtime/run_vcs/kernel.py:145`, `agent_utilities/runtime/run_vcs/carrier.py:101`, `agent_utilities/runtime/run_vcs/run_session.py:39`, `agent_utilities/runtime/run_vcs/run_commit.py:30`. Reachable today: no for the carrier; yes for replay only.
 
-Moves to GRAPHOS-HOST: the accept or reject admission of a proposal. Moves to EG-DECISION-ENGINE: the run's durable record. Existing code that implements a moved part: `agent_utilities/knowledge_graph/enrichment/writeback/approval.py:47` (approval queue).
+Moves to GRAPHOS-A2A: the admission outcome of a proposal. Moves to EG-DECISION-ENGINE: the run's durable record. Existing code that implements a moved part: `agent_utilities/knowledge_graph/enrichment/writeback/approval.py:47` (approval queue).
 
-Cross-repository rows: GRAPHOS-HOST — admit or reject a proposal and return the verdict; EG-DECISION-ENGINE — store the run's durable record.
+Cross-repository rows: GRAPHOS-A2A-R006 — return the admitted, rejected or abstained outcome for a proposal; EG-DECISION-ENGINE-R133 — store the run's durable record.
 
-The decision: the harness applies only a received verdict. The rejected alternative is a harness-side review queue, which decides admission outside graph-os.
+The adapter preserves `HeldItemVerdict.outcome` and `verdict_ref`. `admitted` applies the layer; `rejected` discards only the local layer. `abstained`, unavailable responses and typed refusals preserve the held proposal with no filesystem effect. The engine retains the authoritative held-item record. The harness makes no admission decision. The rejected alternative is a harness-side review queue, which decides admission outside graph-os.
 
 ## The harness runs agent runtimes isolated and enforces the quota it receives (AU-CONTROL-R041)
 
@@ -129,7 +129,7 @@ Existing code: `agent_utilities/rlm/sandboxes/container_fork_backend.py:54`, `ag
 
 Moves to EG-DECISION-ENGINE: the quota values. No agent-utilities code implements them today.
 
-Cross-repository rows: EG-DECISION-ENGINE — produce the quota values for a run.
+Cross-repository rows: EG-DECISION-ENGINE-R133 — produce the quota values for a run.
 
 The decision: the runtime owns its own stop. The rejected alternative is a supervisor that only kills on timeout, which loses in-flight results. `ResourceLimits` of AU-CONTROL-R038.1 is reused for the call-count limit.
 
@@ -139,9 +139,9 @@ Data flow: `execute_agent -> build agent (factory.py:973) -> given tools from gr
 
 Existing code: `agent_utilities/capabilities/fleet_tool_search.py:54`, `agent_utilities/capabilities/fleet_tool_search.py:84`, `agent_utilities/capabilities/fleet_tool_search.py:198`, `agent_utilities/agent/factory.py:529`. Reachable today: no for the fleet capability; yes for deferred local toolsets.
 
-Moves to GRAPHOS-HOST: the tool registry and on-demand disclosure. Moves to EG-DECISION-ENGINE: tool choice. Existing code that implements a moved part: `agent_utilities/capabilities/fleet_tool_search.py:54` (relevance search) and `:84`.
+Moves to GRAPHOS-FLEET: the tool registry and on-demand disclosure. Moves to EG-DECISION-ENGINE: tool choice. Existing code that implements a moved part: `agent_utilities/capabilities/fleet_tool_search.py:54` (relevance search) and `:84`.
 
-Cross-repository rows: GRAPHOS-HOST — serve the registry and disclose tools on demand; EG-DECISION-ENGINE — choose the tools for a run.
+Cross-repository rows: GRAPHOS-FLEET-R011 and GRAPHOS-FLEET-R029 — serve the registry and disclose tools on demand; EG-DECISION-ENGINE-R134 — choose the tools for a run.
 
 The decision: the gate checks the given set at call time. The rejected alternative is a prompt instruction not to call unseen tools, which a model can ignore. R031 and R032 stay unchanged.
 
@@ -153,7 +153,7 @@ Existing code: `agent_utilities/graph/coordination.py:51`, `agent_utilities/grap
 
 Moves to EG-DECISION-ENGINE: decomposition into independent subtasks and routing to specialists. Existing code that implements a moved part: `agent_utilities/graph/planning/__init__.py:165` (decomposition).
 
-Cross-repository rows: EG-DECISION-ENGINE — decompose the task, route the subtasks and set the independence flag.
+Cross-repository rows: EG-DECISION-ENGINE-R134 — decompose the task, route the subtasks and set the independence flag.
 
 The decision: subtasks share nothing, so aggregation is the only join. The rejected alternative is a shared scratchpad between agents, which couples failures. Width stays with AU-CONTROL-R007. References: [arXiv:2605.15132] Rose et al., APWA.
 

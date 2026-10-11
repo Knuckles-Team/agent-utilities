@@ -188,8 +188,8 @@ Data flow: `run_agent` (`agent_runner.py:702`) -> program request to the engine 
 
 Types: `RunProgram`, `ProgramStep`. Attach point: `run_agent`, called by the dispatch worker and the graph nodes. Failure: a deviation or an unadmitted program returns control to the agent. Reused: `ReplayManifest` and `InteractionRecord` (`observability/replay_engine.py:20`, `:36`). New: preconditions and the replayer.
 Existing code: `agent_utilities/observability/replay_engine.py:48`, `agent_utilities/orchestration/agent_runner.py:702`. Reachable today: no.
-Cross-repository rows: EG-DECISION-ENGINE — must store programs, compile them from successful runs and return one by task signature; GRAPHOS-HOST — must admit a program only after an independent replay.
-Moves to EG-DECISION-ENGINE: compiler and program store (no code in agent-utilities yet). Moves to GRAPHOS-HOST: admission and independent verifier (no code in agent-utilities yet).
+Cross-repository rows: EG-DECISION-ENGINE-R135 — must store programs, compile them from successful runs and return one by task signature; GRAPHOS-A2A-R006 — must admit a program only after an independent replay.
+Moves to EG-DECISION-ENGINE: compiler and program store (no code in agent-utilities yet). Moves to GRAPHOS-A2A: admission and independent verifier (no code in agent-utilities yet).
 Search terms used: replay, compiled, macro, record_trajectory, workflow_cache.
 Decision: the harness replays what it receives and checks state before each action. Rejected: an AU-side compiler or store, which adds a second store and a second decider.
 
@@ -202,8 +202,8 @@ Data flow: served graph run -> `_dispatch_parallel_batch` (`graph/_router_impl.p
 
 Types: `RunSpanContract`. Attach point: graph steps and the tool path. Failure: no collector gives one typed observation, and the run continues. Reused: `build_fleet_instrumentation` (`capabilities/telemetry_instrumentation.py:40`), `setup_otel` (`observability/custom_observability.py:850`). New: step and tool spans, replay digests.
 Existing code: `agent_utilities/capabilities/telemetry_instrumentation.py:40`, `agent_utilities/capabilities/composition.py:160`, `agent_utilities/observability/custom_observability.py:850`, `agent_utilities/observability/replay_engine.py:81`. Reachable today: yes for agent-call spans, no for graph-step spans.
-Cross-repository rows: EG-TRACE — must define span kinds, store trace records and report the first diverging span of a replay.
-Moves to EG-TRACE: replay comparison and regression report (`agent_utilities/observability/replay_engine.py:81` records steps today).
+Cross-repository rows: EG-ORCH-VOCAB-R013 — must define span kinds, store trace records and report the first diverging span of a replay.
+Moves to EG-ORCH-VOCAB: replay comparison and regression report (`agent_utilities/observability/replay_engine.py:81` records steps today).
 Decision: the harness emits one connected span tree per run. Rejected: separate agent and graph traces, which cannot show a regression across layers.
 
 ## Revertible harness edits (AU-HARNESS-R025)
@@ -212,7 +212,7 @@ Data flow: evolution round -> `AegisLoop` (`harness/aegis_loop.py:91`) -> `Harne
 
 Types: `HarnessEditRecord`, `DeclaredPrediction`. Attach point: `AegisLoop`, reached from the evolution sweep. Failure: a missing prediction refuses the edit. Reused: `HarnessGate` (`harness/harness_gate.py:114`). New: prediction, file-level revert.
 Existing code: `agent_utilities/harness/harness_gate.py:127`, `agent_utilities/harness/aegis_loop.py:274`, `agent_utilities/harness/edit_engine.py:457`, `agent_utilities/core/registry/kg_adapter.py:660`. Reachable today: yes for the gate, no for predictions.
-Cross-repository rows: EG-DECISION-ENGINE — must return the keep-or-revert verdict from the prediction and the next round outcomes. It must also store the edit record.
+Cross-repository rows: EG-DECISION-ENGINE-R136 — must return the keep-or-revert verdict from the prediction and the next round outcomes. It must also store the edit record.
 Moves to EG-DECISION-ENGINE: verdict rule and record store (no code in agent-utilities yet).
 Decision: the harness applies the received verdict, including revert on unverified. Rejected: an AU-side verdict rule, which adds a second decider.
 
@@ -225,7 +225,7 @@ Data flow: planning step -> `_router_impl.py:811` -> `run_full_rlm` (`rlm/repl.p
 
 Types: `MapPrimitive`, `DecompositionBudget`. Attach point: the sandbox namespace in `run_full_rlm`. Failure: a typed `budget_exhausted` result. Reused: `map_concurrent` (`core/model_concurrency.py:296`), `RLMConfig.max_depth` (`rlm/config.py:60`). New: primitives and loop refusal.
 Existing code: `agent_utilities/rlm/repl.py:470`, `agent_utilities/rlm/repl.py:972`, `agent_utilities/core/model_concurrency.py:296`, `agent_utilities/rlm/config.py:60`. Reachable today: `run_full_rlm` yes, `run_parallel_sub_calls` no production caller.
-Cross-repository rows: EG-DECISION-ENGINE — must decide depth, item, cost and concurrency limits and the over-window threshold.
+Cross-repository rows: EG-DECISION-ENGINE-R137 — must decide depth, item, cost and concurrency limits and the over-window threshold.
 Moves to EG-DECISION-ENGINE: limit values (`agent_utilities/rlm/config.py:60` holds a depth default today).
 Decision: the harness loops and the engine supplies the limits. Rejected: model-written loops, which cannot guarantee termination.
 

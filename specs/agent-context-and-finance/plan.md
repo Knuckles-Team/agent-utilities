@@ -51,4 +51,4 @@ Decision: detect once at the sizing scope, where the tokenizer and capacity alre
 
 Existing code: `agent_utilities/knowledge_graph/retrieval/context_knapsack.py:303`, `:98`, `:422`; `agent_utilities/core/contextual_model.py:752`. Reachable today: yes for knapsack sizing, no for whole-prompt fit.
 Moves to EG-DECISION-ENGINE: the knapsack item selection and package choice in `context_knapsack.py:422` (`fit_to_budget`); the engine decides the context policy and budget.
-Cross-repository rows: EG-DECISION-ENGINE — the context policy, window budget, over-window margin and decomposition plan the harness receives.
+Cross-repository rows: EG-DECISION-ENGINE-R137 — the context policy, window budget, over-window margin and decomposition plan the harness receives.
