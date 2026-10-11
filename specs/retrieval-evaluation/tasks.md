@@ -6,3 +6,4 @@
 - [ ] Implement citation and moved-section negative cases plus latency/update-cost collection.
 - [ ] Predeclare held-out acceptance budgets; run paired comparisons and publish inconclusive results as such.
 - [ ] Run focused/full tests and CCCC, jscpd, Dupehound, KISS review; add exact-revision receipts before status change.
+- [ ] Gate retrieval proposals from the study pipeline on a paired `AU-RETRIEVAL-R001` result in `tests/retrieval/test_study_admission.py`. Closes AU-RETRIEVAL-R002.

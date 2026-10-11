@@ -66,7 +66,20 @@
     "AU-HARNESS-R018.4",
     "AU-HARNESS-R018.5",
     "AU-HARNESS-R018.6",
-    "AU-HARNESS-R018.7"
+    "AU-HARNESS-R018.7",
+    "AU-HARNESS-R019",
+    "AU-HARNESS-R019.1",
+    "AU-HARNESS-R019.2",
+    "AU-HARNESS-R019.3",
+    "AU-HARNESS-R019.4",
+    "AU-HARNESS-R019.5",
+    "AU-HARNESS-R019.6",
+    "AU-HARNESS-R019.7",
+    "AU-HARNESS-R019.8",
+    "AU-HARNESS-R019.9",
+    "AU-HARNESS-R019.10",
+    "AU-HARNESS-R019.11",
+    "AU-HARNESS-R019.12"
   ],
   "requirements": [
     {
@@ -632,6 +645,111 @@
     {
       "id": "AU-HARNESS-R018.7",
       "title": "End-to-end proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R019",
+      "title": "Studied sources become compared, admitted proposals",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R019.1",
+        "AU-HARNESS-R019.2",
+        "AU-HARNESS-R019.3",
+        "AU-HARNESS-R019.4",
+        "AU-HARNESS-R019.5",
+        "AU-HARNESS-R019.6",
+        "AU-HARNESS-R019.7",
+        "AU-HARNESS-R019.8",
+        "AU-HARNESS-R019.9",
+        "AU-HARNESS-R019.10",
+        "AU-HARNESS-R019.11",
+        "AU-HARNESS-R019.12"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R019.1",
+      "title": "Locate and wire the study attach point",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R019.2",
+      "title": "Typed `StudySource` and `FeatureRecord`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R019.3",
+      "title": "Study intake deduplicates by content digest",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R019.4",
+      "title": "Batch study scales to ten times the source count",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R019.5",
+      "title": "Capability comparison matrix against the platform",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R019.6",
+      "title": "Matrix report lists every feature with its verdict",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R019.7",
+      "title": "Gap features become proposals only",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R019.8",
+      "title": "One open proposal per feature blocks duplicates",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R019.9",
+      "title": "Admission requires a measured lift",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R019.10",
+      "title": "Admission is a governed decision, not an AU choice",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R019.11",
+      "title": "Research goals drive source discovery",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R019.12",
+      "title": "Background study yields to interactive work",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
