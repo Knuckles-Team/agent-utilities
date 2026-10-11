@@ -12,7 +12,7 @@ An external contributor can run a focused test and a deterministic PR gate witho
 2. **P0 — honest green.** The `tiny` profile gateway returns correct authorization status and is covered by both success and forbidden action tests. Bootstrap isolation tests patch stable public seams, not deleted functions. Connector packages required by widget/ingest tests are declared and provisioned.
 3. **P0 — right boundary.** Connector validation consumes the engine's composed `GraphSchema` and returns typed errors. AU never treats its own shapes pack as the source of schema authority.
 4. **P1 — complete type coverage.** All tests enter mypy coverage in reviewable directory batches. Errors are fixed with meaningful types; `Any`, blanket ignores, or fresh exclusions are not a substitute for a resolved contract.
-5. **P1 — useful gates.** Time based liveness obligations are checked predictably in hosted CI or a scheduled job; ordinary local commits are not blocked solely because time elapsed. Documentation is published through GitHub Pages; a stale `/docs` directory or a documentation deployment gate cannot block unrelated code. Privacy, security, functional, and duplication checks remain actionable and runnable in cloud sessions.
+5. **P1 — useful gates.** Time based liveness obligations are checked predictably in hosted CI or a scheduled job. Ordinary local commits are not blocked solely because time elapsed. Documentation is published through GitHub Pages. A stale `/docs` directory or a documentation deployment gate cannot block unrelated code. Privacy, security, functional, and duplication checks remain actionable and runnable in cloud sessions.
 
 ## Functional requirements
 
@@ -23,7 +23,7 @@ An external contributor can run a focused test and a deterministic PR gate witho
 | QUAL-03 | Use composed engine `GraphSchema` for connector validation; remove AU shape authority. | AU-QUAL-R003 | contract and schema drift tests |
 | QUAL-04 | Repair placement mining, trace miner, claim flywheel, ingestion, observability, widget and assimilation benchmark failures with causal tests rather than skips. | AU-QUAL-R004 | exact test list and run |
 | QUAL-05 | Include `tests/` in mypy and resolve its errors in small owned batches without new ignores, casts to `Any`, or exclusions. | AU-QUAL-R005 | mypy output and config diff |
-| QUAL-06 | Give liveness deferrals a visible owner and review date; expired entries fail a deterministic hosted/scheduled check with a useful message. | AU-QUAL-R001, AU-QUAL-R002 | time frozen unit tests + CI run |
+| QUAL-06 | Give liveness deferrals a visible owner and review date. Expired entries fail a deterministic hosted/scheduled check with a useful message. | AU-QUAL-R001, AU-QUAL-R002 | time frozen unit tests + CI run |
 | QUAL-07 | Keep PR gates hermetic and proportional: provisionable fixtures, source/contract quality, privacy and duplication. Require live stack proof only for release or a spec that explicitly needs it. | AU-QUAL-R004 | CI workflow + fresh fork run |
 
 An unrelated documentation deployment or ambient environment check cannot be a merge blocker. Removing such a blocker does not waive a test that detects behavior, authorization, privacy or source duplication. Required tests must identify the prerequisite they provision and clean it up afterward.

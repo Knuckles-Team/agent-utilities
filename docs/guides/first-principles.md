@@ -334,4 +334,4 @@ python -m pytest tests/unit/core/test_config_helpers.py \
 - [Registry Cache Detailed review](registry-cache.md) — Focused cache architecture and performance analysis
 - [Process Lifecycle Management](process-lifecycle.md) — Sidecar cleanup and signal handling
 - [Emergent Architecture](emergent-architecture.md) — CONCEPT:AU-KG.query.object-graph-mapper through CONCEPT:AU-ORCH.adapter.hot-cache-invalidation (OGM, Swarm, Self-Model, Attention)
-- [Architecture](plan.md) — Full system architecture with routing diagrams
+- [Architecture](architecture.md) — Full system architecture with routing diagrams

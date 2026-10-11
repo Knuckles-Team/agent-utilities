@@ -88,6 +88,8 @@ repos:
     stages: [pre-commit, pre-push, manual]
   - id: spec-status
   - id: spec-decomposition
+  - id: spec-standard
+  - id: ste-staged
   - id: spec-trailers
     stages: [pre-push]
     args: ["--base-ref", "origin/main"]

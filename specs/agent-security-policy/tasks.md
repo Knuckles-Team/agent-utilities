@@ -12,4 +12,4 @@
 | T8 | all | Run test matrix, CCCC/jscpd/Dupehound and privacy checks; capture exact commit, hosted result, and cross-owner acceptance. | Open — hosted-result/cross-owner acceptance capture not yet done; `delivery_state` remains ahead of `acceptance_state`. |
 | T9 | AU-SEC-R009 | Add a static/automated review confirming no learned probability, similarity score, or other model-derived confidence value grants or extends authorization in AU or epistemic-graph; every authorization decision traces to an explicit policy or approval record. | [x] LANDED (AU portion) — `agent_utilities/security/authority_audit.py` + `tests/unit/security/test_authority_audit.py` statically audit every AU authorization-decision path. The epistemic-graph portion is out of scope for this repo/PR. |
 
-Tasks may be split across PRs. Mark a row **LANDED** only after its code reaches default branch; mark **ACCEPTED** only after required evidence and owner contract checks are linked.
+Tasks may be split across PRs. Mark a row **LANDED** only after its code reaches default branch. Mark **ACCEPTED** only after required evidence and owner contract checks are linked.

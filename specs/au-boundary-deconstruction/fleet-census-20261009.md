@@ -108,7 +108,7 @@ reflects their intended post-merge state for those four repos.
 | Connector | Migration PR | Remaining violators |
 |---|---|---|
 | technitium-dns-mcp | n/a | none found |
-| tunnel-manager | n/a | `scripts/check_env_var_drift.py:29` `from agent_utilities.mcp import check_env_var_drift` — dev-tooling CI gate script (sys.path-hacks to a sibling checkout at dev time), not shipped package code; no production-package violation |
+| tunnel-manager | n/a | `scripts/check_env_var_drift.py:29` `from agent_utilities.mcp import check_env_var_drift` — dev-tooling CI gate script (sys.path-hacks to a sibling checkout at dev time), not shipped package code. No production-package violation |
 | twenty-mcp | n/a | `twenty_mcp/mcp/mcp_graphql.py:75` `from agent_utilities.mcp.context_helpers import (...)` — bare, no SDK-gap rationale comment |
 | uptime-kuma-agent | n/a | none found |
 | vaultwarden-mcp | n/a | `vaultwarden_mcp/api/api_client_base.py:27` `from agent_utilities.core.transport_security import ResolvedTLSProfile` — bare, no SDK-gap rationale comment |

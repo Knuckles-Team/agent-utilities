@@ -32,7 +32,7 @@ Every AU→EG call carries a verified principal and tenant, graph, purpose, poli
 
 #### Semantic migration
 
-Inventory each AU TTL and parsing call. Associate it with an EG core source or a certified connector pack source. Publish the destination first; verify semantic graph parity and composed digest; then switch AU callers to IRI/digest requests and remove the AU file/parser. The cutover cannot leave two writable ontology authorities. Dynamic schema conflicts are atomic and typed. Schema drift classification runs in the SDK sync runner, while EG owns shape rendering, candidate validation and activation; AU only asks for an agent review when policy requires one.
+Inventory each AU TTL and parsing call. Associate it with an EG core source or a certified connector pack source. Publish the destination first. Verify semantic graph parity and composed digest. Then switch AU callers to IRI/digest requests and remove the AU file/parser. The cutover cannot leave two writable ontology authorities. Dynamic schema conflicts are atomic and typed. Schema drift classification runs in the SDK sync runner, while EG owns shape rendering, candidate validation and activation. AU only asks for an agent review when policy requires one.
 
 #### Failure handling
 
@@ -40,4 +40,4 @@ Reject absent tenant/graph, stale digest, schema conflict, malformed claim, deni
 
 #### Simplicity and quality
 
-Delete adapters that only rename the same EG method. Keep one DTO conversion at the AU API/composition edge. CCCC highlights oversized client facades to split by use case; jscpd and dupehound catch copied wire logic; KISS review rejects a second registry or optional backend. Use Ruff/mypy/Pytest plus normal repo hooks.
+Delete adapters that only rename the same EG method. Keep one DTO conversion at the AU API/composition edge. CCCC highlights oversized client facades to split by use case. Jscpd and dupehound catch copied wire logic. KISS review rejects a second registry or optional backend. Use Ruff/mypy/Pytest plus normal repo hooks.

@@ -19,4 +19,4 @@ AU runs model-backed agents and compiles context by calling one generated, versi
 
 ## Acceptance
 
-No forbidden semantic imports or owned files remain in AU; generated-client conformance, positive and negative served tests, old-caller closure and normal quality gates pass at the same merged head. Built source on a lane is not acceptance.
+No forbidden semantic imports or owned files remain in AU. Generated-client conformance, positive and negative served tests, old-caller closure and normal quality gates pass at the same merged head. Built source on a lane is not acceptance.

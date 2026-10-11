@@ -13,7 +13,7 @@ An agent can execute the same authorized graph task through a typed epistemic-gr
 | FR-1 | Produce a tracked inventory of each AU graph implementation and live caller, with one of retain-agent, migrate-engine, migrate-SDK, migrate-GraphOS or delete-unused, plus replacement API and decision evidence. | All tracked `knowledge_graph/` Python modules have one disposition; unknowns block deletion. |
 | FR-2 | For each duplicate graph operation, invoke one pinned generated EG API from AU's existing application port; preserve tenant, actor, graph, revision, time budget, result shape and typed error semantics. | Positive and denial tests compare old/new behavior on the same synthetic graph before old code is removed. |
 | FR-3 | Delete AU graph compute, OWL/SPARQL and deterministic reasoning paths only after the replacement is reachable from a real agent request. | Import, script and dependency census finds no remaining AU graph authority or fallback; served caller proof identifies the route. |
-| FR-4 | Reject incompatible client digest or denied scope before any write; do not silently route to an AU fallback on EG outage. | Negative tests show zero side effects and stable failure codes. |
+| FR-4 | Reject incompatible client digest or denied scope before any write. Do not silently route to an AU fallback on EG outage. | Negative tests show zero side effects and stable failure codes. |
 
 ## Design and test traceability
 

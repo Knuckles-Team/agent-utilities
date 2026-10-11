@@ -8,4 +8,4 @@
 | RETIRE-4 | FR-3 | Inspect imports, scripts and dependencies after cutover; invoke real GraphOS→AU agent route. | No duplicate AU owner or dead caller; live path reaches EG once. |
 | RETIRE-5 | FR-4 | Mismatched digest, spoofed tenant, denied actor, timeout and unavailable EG. | Fail before side effect or fallback; retryability/receipt is explicit. |
 
-Capture exact merged revision, fixture digest and command output for every row. Full AU tests and CCCC, differential jscpd and Dupehound must pass under the repository's pinned configuration; source-only parity is not served acceptance.
+Capture exact merged revision, fixture digest and command output for every row. Full AU tests and CCCC, differential jscpd and Dupehound must pass under the repository's pinned configuration. Source-only parity is not served acceptance.

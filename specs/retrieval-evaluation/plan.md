@@ -2,7 +2,7 @@
 
 ## Existing wiring and authority
 
-Reuse `agent_utilities/knowledge_graph/retrieval/evaluation_corpus.py` for frozen query/doc sets, `hierarchical_document_retriever.py` for hierarchy, `context_compiler.py` for agent context, and `agent_utilities/harness/citation_tracker.py` for citation scoring. The current `HybridRetriever.retrieve_hybrid()` is a comparison input while production retrieval authority migrates to EG; do not add another durable search index in AU. The actual served EG hybrid baseline uses the public EG client and disposable engine, with same snapshot and actor scope. Offline lexical results must be labelled surrogate evidence.
+Reuse `agent_utilities/knowledge_graph/retrieval/evaluation_corpus.py` for frozen query/doc sets, `hierarchical_document_retriever.py` for hierarchy, `context_compiler.py` for agent context, and `agent_utilities/harness/citation_tracker.py` for citation scoring. The current `HybridRetriever.retrieve_hybrid()` is a comparison input while production retrieval authority migrates to EG. Do not add another durable search index in AU. The actual served EG hybrid baseline uses the public EG client and disposable engine, with same snapshot and actor scope. Offline lexical results must be labelled surrogate evidence.
 
 ## Corpus and metrics
 
@@ -10,7 +10,7 @@ Use a checked-in fixture manifest with `corpus_version`, document IDs, revision/
 
 ## Integration and failure boundaries
 
-CLI/harness evaluation → corpus loader → tenant-filtered candidate provider → each baseline → common metric scorer → report. Use EG's public generated client for served retrieval and EG visibility policy; AU receives typed search results and compiles answers. Denied or missing visibility, stale document hash, unavailable EG, malformed tree, missing gold span or mismatched corpus digest fail explicitly. Never silently substitute BM25 for a served hybrid result. A planned trained selector needs its own model artifact, training split, license and revision before comparison; lexical heuristics must retain their own label.
+CLI/harness evaluation → corpus loader → tenant-filtered candidate provider → each baseline → common metric scorer → report. Use EG's public generated client for served retrieval and EG visibility policy. AU receives typed search results and compiles answers. Denied or missing visibility, stale document hash, unavailable EG, malformed tree, missing gold span or mismatched corpus digest fail explicitly. Never silently substitute BM25 for a served hybrid result. A planned trained selector needs its own model artifact, training split, license and revision before comparison. Lexical heuristics must retain their own label.
 
 ## Decision and quality
 

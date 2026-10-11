@@ -1,6 +1,6 @@
 # Evidence: agent control plane
 
-**Delivery:** PARTIAL. **Acceptance:** NOT VERIFIED. Existing AU routing, topology and training modules are source evidence only. The target `agent_utilities/layers/` and `agent_utilities/decide/` implementation directories were absent in the checkout inspected for this spec; related work may exist on unmerged branches and must be re-evaluated by exact merged head.
+**Delivery:** PARTIAL. **Acceptance:** NOT VERIFIED. Existing AU routing, topology and training modules are source evidence only. The target `agent_utilities/layers/` and `agent_utilities/decide/` implementation directories were absent in the checkout inspected for this spec. Related work may exist on unmerged branches and must be re-evaluated by exact merged head.
 
 | Requirement | Current source observation | Acceptance evidence required |
 |---|---|---|

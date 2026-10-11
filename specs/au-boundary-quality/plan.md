@@ -5,7 +5,7 @@
 3. Replace connector shape validation with engine-composed schema input and pin its typed contract across AU, SDK, and engine.
 4. Repair each remaining AU failure group with deterministic fixtures. Seed benchmark randomness at the relevant owner seam; do not lower assertions to hide failure.
 5. Fix test typing by directory, then remove the mypy test exclusion and run the complete suite. Keep a reviewable before/after error count.
-6. Provision missing CI tools and local services in workflow jobs. Move time-triggered liveness to an always visible hosted/scheduled check; remove the obsolete documentation deployment blocker and ensure Pages publishing is independently reported.
+6. Provision missing CI tools and local services in workflow jobs. Move time-triggered liveness to an always visible hosted/scheduled check. Remove the obsolete documentation deployment blocker and ensure Pages publishing is independently reported.
 7. Run exact revision focused tests, full repository gates, fresh fork CI and release-only live certification as applicable. Record results by requirement.
 
 The gate migration is complete only when a contributor who has no sibling repository or private deployment can obtain the same PR result. Existing security and privacy assertions stay active.
@@ -24,7 +24,7 @@ Gate output distinguishes `PASS`, `FAIL`, and `SETUP ERROR` while keeping CI red
 
 ### Boundary contracts
 
-AU sends connector validation through the engine client with a versioned `GraphSchema` digest and receives a typed validation result. SDK owns connector payload and checkpoint, engine owns composed schema and validation rules, AU owns orchestration and presentation of the outcome. A mismatched digest returns conflict/drift; no AU local shapes pack is consulted for authority. The `tiny` gateway maps denied engine operations to a non-success status and preserves error code; a wrapper may not turn a returned failure payload into HTTP 200.
+AU sends connector validation through the engine client with a versioned `GraphSchema` digest and receives a typed validation result. SDK owns connector payload and checkpoint, engine owns composed schema and validation rules, AU owns orchestration and presentation of the outcome. A mismatched digest returns conflict/drift. No AU local shapes pack is consulted for authority. The `tiny` gateway maps denied engine operations to a non-success status and preserves error code. A wrapper may not turn a returned failure payload into HTTP 200.
 
 ### Quality design
 

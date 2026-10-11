@@ -30,8 +30,8 @@ AU owns task mapping proposals, L3 agent-graph orchestration, L4 `HarnessPort`/`
 | AC-03 | Use `AgentAssemble` for the L3 graph and `Decide` for legal-option selection; consume generated clients and no Python shadow solver. | AU-CONTROL-R001 | deterministic fixture and source gate |
 | AC-04 | Negotiate the entire RunSpec before start; verify actual startup tool and skill exposure, strict budgets, policy, isolation and fidelity. | AU-CONTROL-R001 | five-adapter conformance kit |
 | AC-05 | Carry topology plan, stop rule and `SubagentAllowance` into node execution; enforce narrow-only continuation and fence loss. | AU-CONTROL-R007, AU-CONTROL-R015, AU-CONTROL-R018, AU-CONTROL-R019 | topology and cancellation tests |
-| AC-06 | Emit launch, step, tool, usage, artifact, receipt and terminal events through the EG durable contract; mark gaps and uncertain outcomes explicitly. | AU-CONTROL-R001 | replay and fault tests |
-| AC-07 | Use independently evaluated outcomes for any learned routing term; exploration defaults off and is forbidden for sensitive or irreversible work. | AU-CONTROL-R020 | calibration and negative fixtures |
+| AC-06 | Emit launch, step, tool, usage, artifact, receipt and terminal events through the EG durable contract. Mark gaps and uncertain outcomes explicitly. | AU-CONTROL-R001 | replay and fault tests |
+| AC-07 | Use independently evaluated outcomes for any learned routing term. Exploration defaults off and is forbidden for sensitive or irreversible work. | AU-CONTROL-R020 | calibration and negative fixtures |
 | AC-08 | Store built, role and assembled agents in one Agent Library. Expose list, get and save through the web API and the intent router. Save every solved assembly for reuse, and publish it after its decision commits. | AU-CONTROL-R024–AU-CONTROL-R026 | library, intent-router and assembly-binding tests |
 | AC-11 | Compose one structured task plan from EG assembly, the EG topology decision, capability search, guardrails and workflow lookup. Cite provenance per element. Name every missing port as a gap. | AU-CONTROL-R027 | `tests/unit/decide/test_task_planner.py` |
 | AC-12 | Route a bare planning `ask` to the task planner. Keep a hinted `ask` on its declared route. | AU-CONTROL-R028 | `tests/unit/knowledge_graph/test_virtual_graph.py` routing cases |
@@ -42,6 +42,6 @@ AU owns task mapping proposals, L3 agent-graph orchestration, L4 `HarnessPort`/`
 
 ## Completion measure
 
-All five supported harness families pass one shared conformance kit; a served end-to-end fixture proves `AgentAssemble → Decide → DecisionCommit → admission → run → terminal receipt`; no alternate AU topology success store or unauthorized fallback remains. Each requirement has exact merged-head CI evidence in `evidence.md`. Source presence alone is not acceptance.
+All five supported harness families pass one shared conformance kit. A served end-to-end fixture proves `AgentAssemble → Decide → DecisionCommit → admission → run → terminal receipt`. No alternate AU topology success store or unauthorized fallback remains. Each requirement has exact merged-head CI evidence in `evidence.md`. Source presence alone is not acceptance.
 
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.

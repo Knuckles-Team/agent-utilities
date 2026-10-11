@@ -1,6 +1,6 @@
 # Tasks and status
 
-**Legend:** TODO = no accepted implementation proof; IN PROGRESS = linked change under review; IMPLEMENTED = code at merged head with source proof; VERIFIED = acceptance tests at that head; ACCEPTED = owner sign-off and release proof. A task is not completed by a draft branch.
+**Legend:** TODO = no accepted implementation proof. IN PROGRESS = linked change under review. IMPLEMENTED = code at merged head with source proof. VERIFIED = acceptance tests at that head. ACCEPTED = owner sign-off and release proof. A task is not completed by a draft branch.
 
 | Task | IDs | State | Done when |
 |---|---|---|---|
@@ -17,8 +17,8 @@
 | File-level owners for partly covered packages | AU-BOUNDARY-R046 | TODO | no tracked file without an owner; no requirement by description only |
 | Engine-facing adapters and caches | AU-BOUNDARY-R047 | TODO | differential tests against the engine; no second store or kernel |
 | Domain models, shapes, assets and skill content | AU-BOUNDARY-R048 | TODO | each directory placed; pack or skill validation in the receiving repository |
-| Governed write-back execution | AU-BOUNDARY-R049 | IN PROGRESS | `run_writeback` calls every sink through the SDK `DurableWritableConnector`; the governed and existing write-back suites pass at the merged head |
-| Governed write-back on the EG ledger | AU-BOUNDARY-R049 | TODO | live applies use `EpistemicGraphWriteBackLedger` once graph-os serves the EG `WriteBack` operation; a restart test proves receipt replay |
+| Governed write-back execution | AU-BOUNDARY-R049 | IN PROGRESS | `run_writeback` calls every sink through the SDK `DurableWritableConnector`. The governed and existing write-back suites pass at the merged head |
+| Governed write-back on the EG ledger | AU-BOUNDARY-R049 | TODO | live applies use `EpistemicGraphWriteBackLedger` once graph-os serves the EG `WriteBack` operation. A restart test proves receipt replay |
 | Permanent owner guard | AU-BOUNDARY-R038 | TODO | generated manifest, CI gate and exact-head check |
 | Quality gates and evidence | all of the above | TODO | CCCC, KISS, Dupehound, jscpd, language linters and the full test suite pass at the merged head and the result is recorded in [evidence.md](evidence.md) |
 
@@ -64,11 +64,11 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R048.9:** Assign and act on one disposition for `data/`
 - [ ] **AU-BOUNDARY-R048.10:** Assign and act on one disposition for `protocols/voice_supply_chain/`
 - [ ] **AU-BOUNDARY-R048.11:** Assign and act on one disposition for each skill-content directory under `skills/`
-- [ ] **AU-BOUNDARY-R005.1:** A-E connector import census (PR #150, `79dc21bab`) that moved R005 to LANDED; `status.json`'s `landed_in` SHA is wrong (points at the unrelated `AU-HARNESS-R005.1` merge, not an A-E connector change).
+- [ ] **AU-BOUNDARY-R005.1:** A-E connector import census (PR #150, `79dc21bab`) that moved R005 to LANDED. `status.json`'s `landed_in` SHA is wrong (points at the unrelated `AU-HARNESS-R005.1` merge, not an A-E connector change).
 - [ ] **AU-BOUNDARY-R005.2:** Migrate `ansible-tower-mcp`, `audiobookshelf-mcp`, `ciso-assistant-api`, `data-science-mcp` off the banned AU imports the census missed.
-- [ ] **AU-BOUNDARY-R007.1:** K-O connector import census (PR #150, `79dc21bab`) that moved R007 to LANDED; `status.json`'s `landed_in` SHA is wrong (points at the unrelated `AU-HARNESS-R005.1` merge, not a K-O connector change).
+- [ ] **AU-BOUNDARY-R007.1:** K-O connector import census (PR #150, `79dc21bab`) that moved R007 to LANDED. `status.json`'s `landed_in` SHA is wrong (points at the unrelated `AU-HARNESS-R005.1` merge, not a K-O connector change).
 - [ ] **AU-BOUNDARY-R007.2:** Migrate `keycloak-agent`, `langfuse-agent`, `leanix-agent`, `microsoft-agent`, `opensearch-mcp` off the banned AU imports the census missed.
-- [ ] **AU-BOUNDARY-R008.1:** P-S connector import census (PR #150, `79dc21bab`) that moved R008 to LANDED; `status.json`'s `landed_in` SHA is wrong (points at the unrelated `AU-HARNESS-R005.1` merge, not a P-S connector change).
+- [ ] **AU-BOUNDARY-R008.1:** P-S connector import census (PR #150, `79dc21bab`) that moved R008 to LANDED. `status.json`'s `landed_in` SHA is wrong (points at the unrelated `AU-HARNESS-R005.1` merge, not a P-S connector change).
 - [ ] **AU-BOUNDARY-R008.2:** Migrate `paperless-ngx-mcp`, `pulselink-mcp`, `repository-manager`, `rom-manager`, `systems-manager` off the banned AU imports the census missed.
 - [ ] **AU-BOUNDARY-R001.1:** Record that PR #23 (`aa5eba73e0f7`) shipped only boundary gate scripts, not the gateway deletion; `status.json`'s LANDED is wrong.
 - [ ] **AU-BOUNDARY-R001.2:** Delete `agent_utilities/gateway/api.py`.
