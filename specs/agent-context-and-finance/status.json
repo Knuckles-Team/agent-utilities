@@ -92,7 +92,7 @@
     },
     {
       "id": "AU-CONTEXT-R005.1",
-      "title": "Retrieval/decide-layer work lands under a commit that disclaims this row; no finance-scheduling or flip-explainer code ships",
+      "title": "Retrieval/decide-layer work lands under a commit that disclaims this row. No finance-scheduling or flip-explainer code ships",
       "delivery_state": "LANDED",
       "landed_in": [
         "88c61dc9164c"
