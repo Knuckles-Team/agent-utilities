@@ -145,7 +145,7 @@ Cross-repository rows: GRAPHOS-HOST — serve the registry and disclose tools on
 
 The decision: the gate checks the given set at call time. The rejected alternative is a prompt instruction not to call unseen tools, which a model can ignore. R031 and R032 stay unchanged.
 
-## The harness executes the given fan-out in parallel and returns results (AU-CONTROL-R043)
+## The harness runs the given fan-out in parallel and returns results (AU-CONTROL-R043)
 
 Data flow: `served fork fan-out -> _fork_fanout (engine_surface_tools.py:1694) -> received SubtaskSet check -> one sandbox per subtask -> FanoutResult -> aggregation -> trace events`.
 

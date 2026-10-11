@@ -996,7 +996,7 @@
     },
     {
       "id": "AU-CONTROL-R043",
-      "title": "The harness executes the given fan-out in parallel and returns results",
+      "title": "The harness runs the given fan-out in parallel and returns results",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],

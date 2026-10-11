@@ -33,4 +33,4 @@ Checkboxes represent accepted deliverables, not merely files authored. Keep them
 - [ ] AC-20: The harness holds run output uncommitted and applies the verdict it receives. Closes AU-CONTROL-R040.
 - [ ] AC-21: The harness runs agent runtimes isolated and enforces the quota it receives. Closes AU-CONTROL-R041.
 - [ ] AC-22: The harness loads only the tools it is given during a run. Closes AU-CONTROL-R042.
-- [ ] AC-23: The harness executes the given fan-out in parallel and returns results. Closes AU-CONTROL-R043.
+- [ ] AC-23: The harness runs the given fan-out in parallel and returns results. Closes AU-CONTROL-R043.
