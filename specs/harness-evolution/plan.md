@@ -98,6 +98,40 @@ Decisions:
 
 Cross-repository rows: the `EG` row for the `HarnessConfig` decision kind supplies the committed answer. The `EG` run-trace vocabulary row owns the trace field names. The `EG` typed-pack rows own `contextWindowTokens`, `shellProficiency`, `stoppingBehaviour` and `shellCentric`, and the `EG` run-trace rows own the measured-fact write that R018 feeds. The `GRAPHOS-A2A` admission row supplies the context budget. The `SDK-CONNECTOR-CONTROL` row for the `read_only` tool contract supplies the parallel marker. Client rows in webui, terminal and geniusbot read the trace.
 
+## Context quality and large outputs (AU-HARNESS-R013.10 to R013.19)
+
+Data flow: `run_agent` (`agent_runner.py:702`) -> `ContextManager.before_model_request` -> judge score -> regenerate or keep raw block -> model request. A tool result above `large_output_chars` -> run variable store -> stub in request -> read-slice tool.
+
+Types: `SummaryNode` (text, source message ids, parent) and a run variable (name, size, content). Attach point: the manager hook replacing `capabilities/memento.py:243`, and the store beside `ToolOutputEviction` (`capabilities/eviction.py:28`). Failure: a twice-failed summary keeps the raw block; a bad slice returns `slice_out_of_range`.
+
+Reused: the manager of `AU-HARNESS-R013` and the truncation guard of `AU-HARNESS-R016.6`. New: the judge call, the node graph and the variable store. Decision: pointers to originals instead of discarding them, because compaction must stay reversible. Rejected: lossy summaries without pointers.
+
+## Parallel workspace (AU-HARNESS-R020)
+
+Data flow: `_dispatch_parallel_batch` (`graph/_router_impl.py:1677`) -> `parallel_batch_processor` (`_router_impl.py:1772`) -> `ParallelWorkspace` -> worker slots -> synthesizer -> trace.
+
+Types: `ParallelWorkspace`, `WorkerSlot`, a frozen result schema. Failure: schema violations are refused and count toward the breaker. Reused: the existing batch dispatch. New: the workspace and the strategy choice. Decision: synthesis by reference over typed objects. Rejected: concatenating worker text into a prompt, which grows the context with worker count.
+
+## Evaluation gates (AU-HARNESS-R021)
+
+Data flow: evaluation round -> `ContinuousEvaluationEngine.evaluate` (`harness/continuous_evaluation_engine.py:1103`) -> `eval_gates` -> `EvalGateReport` -> graph evidence.
+
+Types: `EvalGateReport` with accuracy, safety error rate, judge score, independent outcome, divergence and verdict. Failure: `refuse` stops promotion. Reused: the evaluation engine and the ablation report. New: the safety measure, divergence check and bounds check. Decision: report safety apart from accuracy. Rejected: one blended score, which hides a safety regression behind an accuracy gain.
+
+References:
+- arXiv:2606.04923 — Wang et al., "Reproducing, Analyzing, and Detecting Reward Hacking in Rubric-Based Reinforcement Learning" (2026)
+- arXiv:2605.04039 — Wind et al., "Safety and accuracy follow different scaling laws in clinical large language models" (2026)
+- arXiv:2605.04003 — Hoang et al., "Physics-Grounded Multi-Agent Architecture for Traceable, Risk-Aware Human-AI Decision Support in Manufacturing" (2026)
+
+## Run experience (AU-HARNESS-R022)
+
+Data flow: `run_agent` -> `record_outcome` (`harness_record.py`) -> distiller -> `ExperienceRecord` and `SkillCandidate` -> `SkillGraphPipeline` (`knowledge_graph/distillation/skill_graph_pipeline.py:836`) -> retrieval in the next run.
+
+Types: `ExperienceRecord`, `SkillCandidate`. Failure: `insufficient_evidence` refusal. Reused: the skill graph pipeline. New: the distiller call in `record_outcome`, which creates that call site. Decision: knowledge accumulates in the graph with no parameter change. Rejected: fine-tuning per run, which costs more and cannot be reverted.
+
+References:
+- arXiv:2603.12056 — Jiang et al., "XSkill: Continual Learning from Experience and Skills in Multimodal Agents" (2026)
+
 ## Design
 
 ### Existing AU wiring and migration boundary
