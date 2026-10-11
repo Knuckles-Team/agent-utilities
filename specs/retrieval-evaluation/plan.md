@@ -28,3 +28,39 @@ Decision: a declared budget bounds cost and makes the stop reason auditable. The
 
 References:
 - arXiv:2606.06036 — Ji et al., "Memory is Reconstructed, Not Retrieved: Graph Memory for LLM Agents" (2026)
+
+## Insufficient evidence and strict fallback (AU-RETRIEVAL-R004)
+
+Data flow: `served executable_rag action -> _analysis_action_executable_rag (mcp/tools/analysis_tools.py:2280) -> HybridRetriever.retrieve_executable (hybrid_retriever.py:1917) -> ExecutableRagProgram.run (executable_rag.py:236) -> _retrieve_with_repair (executable_rag.py:198) -> answer step (executable_rag.py:256) -> answer or RetrievalAbstention -> StepTrace`.
+
+Types: `EvidenceSufficiency`, `FallbackPolicy`, and the `RetrievalAbstention` of R003.4. Failure: `strict` abstains after `max_repairs` rounds.
+
+Existing code: `knowledge_graph/retrieval/executable_rag.py:87`, `executable_rag.py:198`, `executable_rag.py:236`, `hybrid_retriever.py:1917`, `hybrid_retriever.py:1957`, `mcp/tools/analysis_tools.py:2294`. Reachable today: yes, for repair; no, for a typed verdict or strict abstention.
+
+Reused: the k boost and mode fallback. New: the typed verdict, the policy and the abstention. Decision: the policy is explicit per call. The rejected alternative is always abstaining, which loses useful partial answers.
+
+## Calibrated confidence margin for stopping (AU-RETRIEVAL-R005)
+
+Data flow: `served query -> engine_query.py:1509 -> IterativeQueryExpander.run (iterative_expansion.py:168) -> IterativeStopper.update (adaptive_stopping.py:151) -> StopDecision(reason, margin) -> trace`. The reconstruction path calls `update` at `active_reconstruction.py:282` from `entity_context.py:153`.
+
+Types: `RoundConfidence` and the `margin` field on `StopDecision`. Failure: a missing confidence keeps the repeat-only rule. The stop reason is traced.
+
+Existing code: `adaptive_stopping.py:39`, `adaptive_stopping.py:80`, `adaptive_stopping.py:151`, `iterative_expansion.py:171`, `iterative_expansion.py:229`, `active_reconstruction.py:237`, `active_reconstruction.py:282`, `engine_query.py:1509`. Reachable today: yes for the repeat rule; no for the margin, because no caller passes a confidence.
+
+Decision: a fixed calibration table keeps the rule training-free. The rejected alternative is a learned stopping head, which needs training data and a model artifact.
+
+References:
+- arXiv:2606.13814 — Kieback et al., "TASR: Training-Free Adaptive Stopping for Iterative Retrieval" (2026)
+
+## Prior-versus-evidence arbitration (AU-RETRIEVAL-R006)
+
+Data flow: `served executable_rag action -> retrieve_executable (hybrid_retriever.py:1917) -> ExecutableRagProgram.run answer step (executable_rag.py:256) -> arbiter -> chosen candidate or RetrievalAbstention -> trace`.
+
+Types: `ArbitrationInput`, `ArbitrationResult`, and the classes `parametric` and `retrieved` added to `EvidenceClass` (`api/agent_control_contracts.py:73`). Failure: a missing prior probe skips arbitration and records that.
+
+Existing code: `agent_control_contracts.py:73`, `search_synthesis/shortcut_risks.py:42`, `executable_rag.py:256`, `hybrid_retriever.py:1917`. Reachable today: no. Search terms with no hit: `arbitrat`, `parametric`, `trust margin`, `closed-book`, `prior_answer`. The arbiter is new.
+
+Decision: a fixed margin keeps the choice training-free and auditable. The rejected alternative is always trusting retrieval, which fails when retrieval returns a wrong passage.
+
+References:
+- arXiv:2606.08397 — Xu et al., "TrustMargin: Training-Free Arbitration between Parametric Memory and Retrieved Evidence in Large Language Models" (2026)
