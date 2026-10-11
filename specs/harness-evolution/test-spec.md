@@ -84,8 +84,12 @@ Quality: run the repository's configured CCCC, jscpd and Dupehound gates and `py
 | Capability comparison matrix against the platform. | test_study_compare.py fake sources | AU must not keep a private capability inventory. |
 | Matrix report lists every feature with its verdict. | test_study_compare.py fake sources | A study with no extractable feature reports `no_features`, not an empty success. |
 | Gap features become proposals only. | test_study_propose.py fake sources | AU edits no repository, spec or prompt. AU promotes no proposal. |
-| One open proposal per feature blocks duplicates. | test_study_propose.py fake sources | `study_propose.propose` must skip a gap whose feature digest has an open or rejected proposal, and must return the existing proposal ID. |
+| One open proposal per feature blocks duplicates. | test_study_propose.py fake sources | `study_propose.propose` must skip a gap whose feature digest has an open or rejected proposal. It must return the existing proposal ID. |
 | Admission requires a measured lift. | test_study_admit.py fake sources | A refusal names the missing measurement. |
 | Admission is a governed decision, not an AU choice. | test_study_admit.py fake sources | AU must not rank or accept proposals itself. |
 | Research goals drive source discovery. | test_study_discover.py fake sources | It must stop at a per-run source cap of 50. |
 | Background study yields to interactive work. | test_study_batch.py fake sources | `run_batch` pauses under interactive load. It resumes from its cursor without repeats |
+| Summary quality, lossless summary nodes and oversize output variables | scripted run, fake judge | A poor summary regenerates once and a second failure keeps the raw block. Oversize output never enters a request raw. |
+| Parallel workers share a typed workspace | four fake workers | A schema violation is refused. A conflict is recorded. The breaker stops new workers after three failures. |
+| Evaluation gates separate safety from accuracy | scripted round | Accuracy gain with a safety regression is held. Divergent judge and outcome trends are refused as evidence. |
+| Run experience becomes reusable skills | three scripted runs | Three successes scaffold one skill. A candidate with too few rollouts is refused. |
