@@ -30,8 +30,7 @@
 Checkboxes represent accepted deliverables, not merely files authored. Keep them open until their stated proofs pass.
 - [ ] AC-19: Declare the isolation value and limit record for model-written code. Record both in the run trace. Prove the escalation through the metric-scoring loop. Closes AU-CONTROL-R038.
 - [ ] AC-20: Create the branch call site in the fork fan-out. Add typed refusal and audit evidence. Prove it through the served fan-out operation. Closes AU-CONTROL-R039.
-- [ ] AC-20: Run output is held as a reviewable proposal until accepted. Closes AU-CONTROL-R040.
-- [ ] AC-21: Agent runtimes run isolated, with quotas, signals and graceful stop. Closes AU-CONTROL-R041.
-- [ ] AC-22: Tools are disclosed on demand and an undisclosed tool cannot be called. Closes AU-CONTROL-R042.
-- [ ] AC-23: A task splits into independent subtasks that run in parallel and aggregate. Closes AU-CONTROL-R043.
-- [ ] AC-24: A planner composes skills by decompose, retrieve and compose. Closes AU-CONTROL-R044.
+- [ ] AC-20: The harness holds run output uncommitted and applies the verdict it receives. Closes AU-CONTROL-R040.
+- [ ] AC-21: The harness runs agent runtimes isolated and enforces the quota it receives. Closes AU-CONTROL-R041.
+- [ ] AC-22: The harness loads only the tools it is given during a run. Closes AU-CONTROL-R042.
+- [ ] AC-23: The harness executes the given fan-out in parallel and returns results. Closes AU-CONTROL-R043.

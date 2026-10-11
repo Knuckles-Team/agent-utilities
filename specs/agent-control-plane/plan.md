@@ -109,48 +109,53 @@ Failure: a rung without snapshot support returns `BranchRefusal`. A host that ca
 
 Decision: the warm registry owns every parent, so a branch is one more registered parent. The rejected alternative is a per-call snapshot cache, which duplicates parent lifetime rules.
 
-## Run output is held as a reviewable proposal until accepted (AU-CONTROL-R040)
+## The harness holds run output uncommitted and applies the verdict it receives (AU-CONTROL-R040)
 
-Data flow: `execute_agent -> open proposal (new) -> run tools write to the layer -> FsCarrier.snapshot (carrier.py:121) -> RunEventLog.append (kernel.py:160) -> accept | release | discard -> base tree`.
+Data flow: `execute_agent -> hold layer (new) -> run tools write to the layer -> FsCarrier.snapshot (carrier.py:121) -> RunEventLog.append (kernel.py:160) -> verdict from graph-os -> apply | drop -> base tree`.
 
-Existing code: `agent_utilities/runtime/run_vcs/kernel.py:145`, `agent_utilities/runtime/run_vcs/carrier.py:101`, `agent_utilities/runtime/run_vcs/run_session.py:39`, `agent_utilities/runtime/run_vcs/run_commit.py:30`, `agent_utilities/knowledge_graph/enrichment/writeback/approval.py:47`. Reachable today: no for the carrier; yes for replay only. Search terms: Overlay, Proposal, Changeset, Staged, accept_proposal, discard, run_vcs.
+Existing code: `agent_utilities/runtime/run_vcs/kernel.py:145`, `agent_utilities/runtime/run_vcs/carrier.py:101`, `agent_utilities/runtime/run_vcs/run_session.py:39`, `agent_utilities/runtime/run_vcs/run_commit.py:30`. Reachable today: no for the carrier; yes for replay only.
 
-The decision: the layer is the unit of review. The rejected alternative is a write-through tree with an undo list, which changes files before acceptance. Write-back approval (`approval.py:47`) is reused for the review queue pattern; the proposal here is a separate record.
+Moves to GRAPHOS-HOST: the accept or reject admission of a proposal. Moves to EG-DECISION-ENGINE: the run's durable record. Existing code that implements a moved part: `agent_utilities/knowledge_graph/enrichment/writeback/approval.py:47` (approval queue).
 
-## Agent runtimes run isolated, with quotas, signals and graceful stop (AU-CONTROL-R041)
+Cross-repository rows: GRAPHOS-HOST — admit or reject a proposal and return the verdict; EG-DECISION-ENGINE — store the run's durable record.
 
-Data flow: `served fork fan-out -> _fork_fanout (engine_surface_tools.py:1694) -> backend start with RuntimeQuota (container_fork_backend.py) -> signal handler -> grace timer -> kill group -> StopReason -> run trace`.
+The decision: the harness applies only a received verdict. The rejected alternative is a harness-side review queue, which decides admission outside graph-os.
 
-Existing code: `agent_utilities/rlm/sandboxes/container_fork_backend.py:54`, `agent_utilities/core/cgroup_resources.py:52`, `agent_utilities/rlm/sandboxes/_bridge.py:287`, `agent_utilities/deployment/skill_validation.py:590`. Reachable today: no for quotas and signal handling; the PID 1 expiry is reached through the backend. Search terms: SIGTERM, graceful, kill, rlimit, cgroup, ResourceLimits.
+## The harness runs agent runtimes isolated and enforces the quota it receives (AU-CONTROL-R041)
+
+Data flow: `served fork fan-out -> _fork_fanout (engine_surface_tools.py:1694) -> backend start with received RuntimeQuota (container_fork_backend.py) -> signal handler -> grace timer -> kill group -> StopReason -> trace events`.
+
+Existing code: `agent_utilities/rlm/sandboxes/container_fork_backend.py:54`, `agent_utilities/core/cgroup_resources.py:52`, `agent_utilities/rlm/sandboxes/_bridge.py:287`, `agent_utilities/deployment/skill_validation.py:590`. Reachable today: no for quotas and signal handling; the PID 1 expiry is reached through the backend.
+
+Moves to EG-DECISION-ENGINE: the quota values. No agent-utilities code implements them today.
+
+Cross-repository rows: EG-DECISION-ENGINE — produce the quota values for a run.
 
 The decision: the runtime owns its own stop. The rejected alternative is a supervisor that only kills on timeout, which loses in-flight results. `ResourceLimits` of AU-CONTROL-R038.1 is reused for the call-count limit.
 
-## Tools are disclosed on demand and an undisclosed tool cannot be called (AU-CONTROL-R042)
+## The harness loads only the tools it is given during a run (AU-CONTROL-R042)
 
-Data flow: `execute_agent -> build agent (factory.py:973) -> catalog-only prompt -> fleet_relevance_search (fleet_tool_search.py:54) -> DisclosureSet -> tool call gate -> tool`.
+Data flow: `execute_agent -> build agent (factory.py:973) -> given tools from graph-os -> DisclosureSet -> tool call gate -> tool`.
 
-Existing code: `agent_utilities/capabilities/fleet_tool_search.py:54`, `agent_utilities/capabilities/fleet_tool_search.py:84`, `agent_utilities/capabilities/fleet_tool_search.py:198`, `agent_utilities/agent/factory.py:529`. Reachable today: no for the fleet capability; yes for deferred local toolsets. Search terms: disclos, progressive, defer_loading, tool_search, lazy_mount.
+Existing code: `agent_utilities/capabilities/fleet_tool_search.py:54`, `agent_utilities/capabilities/fleet_tool_search.py:84`, `agent_utilities/capabilities/fleet_tool_search.py:198`, `agent_utilities/agent/factory.py:529`. Reachable today: no for the fleet capability; yes for deferred local toolsets.
 
-The decision: the gate checks the disclosure set at call time. The rejected alternative is a prompt instruction not to call unseen tools, which a model can ignore. R031 and R032 own `find` and `act` ranking and stay unchanged.
+Moves to GRAPHOS-HOST: the tool registry and on-demand disclosure. Moves to EG-DECISION-ENGINE: tool choice. Existing code that implements a moved part: `agent_utilities/capabilities/fleet_tool_search.py:54` (relevance search) and `:84`.
 
-## A task splits into independent subtasks that run in parallel and aggregate (AU-CONTROL-R043)
+Cross-repository rows: GRAPHOS-HOST — serve the registry and disclose tools on demand; EG-DECISION-ENGINE — choose the tools for a run.
 
-Data flow: `served fork fan-out -> _fork_fanout (engine_surface_tools.py:1694) -> SubtaskSet check -> one sandbox per subtask -> AggregationOperator (coordination.py:255) -> AggregateResult -> trace`.
+The decision: the gate checks the given set at call time. The rejected alternative is a prompt instruction not to call unseen tools, which a model can ignore. R031 and R032 stay unchanged.
 
-Existing code: `agent_utilities/graph/coordination.py:51`, `agent_utilities/graph/coordination.py:255`, `agent_utilities/graph/hierarchical_coordination.py:65`, `agent_utilities/graph/planning/__init__.py:165`, `agent_utilities/mcp/tools/engine_surface_tools.py:1694`. Reachable today: no for aggregation of fan-out results. Search terms: decompose, subtask, aggregate, fan_out, gather, council.
+## The harness executes the given fan-out in parallel and returns results (AU-CONTROL-R043)
 
-The decision: subtasks share nothing, so aggregation is the only join. The rejected alternative is a shared scratchpad between agents, which couples failures. Topology width stays with AU-CONTROL-R007. References: [arXiv:2605.15132] Rose et al., APWA.
+Data flow: `served fork fan-out -> _fork_fanout (engine_surface_tools.py:1694) -> received SubtaskSet check -> one sandbox per subtask -> FanoutResult -> aggregation -> trace events`.
+
+Existing code: `agent_utilities/graph/coordination.py:51`, `agent_utilities/graph/coordination.py:255`, `agent_utilities/graph/hierarchical_coordination.py:65`, `agent_utilities/mcp/tools/engine_surface_tools.py:1694`. Reachable today: no for aggregation of fan-out results.
+
+Moves to EG-DECISION-ENGINE: decomposition into independent subtasks and routing to specialists. Existing code that implements a moved part: `agent_utilities/graph/planning/__init__.py:165` (decomposition).
+
+Cross-repository rows: EG-DECISION-ENGINE — decompose the task, route the subtasks and set the independence flag.
+
+The decision: subtasks share nothing, so aggregation is the only join. The rejected alternative is a shared scratchpad between agents, which couples failures. Width stays with AU-CONTROL-R007. References: [arXiv:2605.15132] Rose et al., APWA.
 
 References:
 - arXiv:2605.15132 — Rose et al., "APWA: A Distributed Architecture for Parallelizable Agentic Workflows" (2026)
-
-## A planner composes skills by decompose, retrieve and compose (AU-CONTROL-R044)
-
-Data flow: `ask -> TaskPlanner.plan (task_planner.py:211) -> split -> metadata retrieval over SkillCatalogEntry (graph_core.py:813) -> granularity feedback -> dependency order -> TaskPlan`.
-
-Existing code: `agent_utilities/decide/consumers/task_planner.py:193`, `agent_utilities/decide/consumers/task_planner.py:211`, `agent_utilities/gateway/schemas/graph_core.py:813`, `agent_utilities/graph/planning/__init__.py:165`. Reachable today: yes for `TaskPlanner.plan`; no for metadata skill retrieval. Search terms: retrieve_skill, skill_index, SkillRetriev, decompose, Subtask.
-
-The decision: retrieval reads metadata only, so the library size does not grow the prompt. The rejected alternative is a body embedding of every skill, which costs more and drifts. R027 stays the one planner.
-
-References:
-- arXiv:2606.18051 — Gao, "Compositional Skill Routing for LLM Agents: Decompose, Retrieve, and Compose" (2026)

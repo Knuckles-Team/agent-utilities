@@ -45,33 +45,27 @@
 Fresh checkout: `python3 scripts/uv_workspace.py doctor`. Install locked extras using the repository helper, then run `python3 scripts/uv_workspace.py run --all-extras pytest tests/unit tests/orchestration -q` and the focused new conformance tests. Tests must provide fake EG/gateway/provider adapters and temporary directories. Ordinary PR checks must need no pre-existing deployment, vendor account or GPU. Live certification is a separately labelled optional environment test with captured receipts.
 
 Quality: run `python3 scripts/safe_precommit_all_files.py` through the repo lease wrapper when the shared runner is available, plus the configured CCCC, jscpd and Dupehound gates. `pyproject.toml` pins Dupehound 0.1.2 (similarity 0.85, 40-token minimum) and jscpd 5.0.16 (50-token/5-line minimum, mild mode). Use configured differential exclusions and no new duplicate findings. CCCC uses the repository's current hook configuration. Do not invent a numeric threshold. Apply KISS: reuse EG decision/capacity, existing graph entry points and one adapter conformance suite. Reject a second optimizer, event store or scheduler. A local missing tool is reported as not run, never pass.
-| R040.1 Model. | unit, fake engine | `tests/unit/runtime/test_workspace_proposal.py::test_state_values_closed`. |
-| R040.2 Behavior. | unit, fake engine | `tests/unit/runtime/test_workspace_proposal.py::test_accept_release_discard`. |
-| R040.3 Wiring. | unit, fake engine | `tests/unit/test_execute_agent_proposal.py::test_run_opens_proposal`. |
-| R040.4 Refusal. | unit, fake engine | `tests/unit/runtime/test_workspace_proposal.py::test_accept_refusals_typed`. |
-| R040.5 Evidence. | unit, fake engine | `tests/unit/runtime/test_workspace_proposal.py::test_transition_events_logged`. |
-| R040.6 Hot-path proof. | unit, fake engine | `tests/integration/test_execute_agent_proposal_served.py::test_no_change_before_accept`. |
+| R040.1 Model. | unit, fake engine | `tests/unit/runtime/test_workspace_proposal.py::test_holds_paths_and_digests`. |
+| R040.2 Behavior. | unit, fake engine | `tests/unit/runtime/test_workspace_proposal.py::test_apply_accept_drop_reject`. |
+| R040.3 Wiring. | unit, fake engine | `tests/unit/test_execute_agent_proposal.py::test_run_holds_layer`. |
+| R040.4 Refusal. | unit, fake engine | `tests/unit/runtime/test_workspace_proposal.py::test_base_moved_refused`. |
+| R040.5 Evidence. | unit, fake engine | `tests/unit/runtime/test_workspace_proposal.py::test_apply_events_emitted`. |
+| R040.6 Hot-path proof. | unit, fake engine | `tests/integration/test_execute_agent_proposal_served.py::test_no_change_before_verdict`. |
 | R041.1 Model. | unit, fake engine | `tests/unit/rlm/test_runtime_quota.py::test_stop_reasons_closed`. |
 | R041.2 Behavior. | unit, fake engine | `tests/unit/rlm/test_runtime_quota.py::test_term_then_kill_after_grace`. |
 | R041.3 Wiring. | unit, fake engine | `tests/unit/test_fork_fanout_quota.py::test_quota_reaches_backend`. |
 | R041.4 Refusal. | unit, fake engine | `tests/unit/rlm/test_runtime_quota.py::test_over_host_limit_refused`. |
 | R041.5 Evidence. | unit, fake engine | `tests/unit/rlm/test_runtime_quota.py::test_stop_evidence_recorded`. |
 | R041.6 Hot-path proof. | unit, fake engine | `tests/integration/test_fork_fanout_served.py::test_signal_ignored_is_killed`. |
-| R042.1 Model. | unit, fake engine | `tests/unit/capabilities/test_disclosure_set.py::test_only_search_adds`. |
-| R042.2 Behavior. | unit, fake engine | `tests/unit/capabilities/test_disclosure_set.py::test_search_discloses_top_results`. |
-| R042.3 Wiring. | unit, fake engine | `tests/unit/test_agent_factory_disclosure.py::test_fleet_capability_attached`. |
+| R042.1 Model. | unit, fake engine | `tests/unit/capabilities/test_disclosure_set.py::test_only_received_ids_added`. |
+| R042.2 Behavior. | unit, fake engine | `tests/unit/capabilities/test_disclosure_set.py::test_loads_given_tools`. |
+| R042.3 Wiring. | unit, fake engine | `tests/unit/test_agent_factory_disclosure.py::test_given_tools_loaded`. |
 | R042.4 Refusal. | unit, fake engine | `tests/unit/capabilities/test_disclosure_set.py::test_undisclosed_call_refused`. |
 | R042.5 Evidence. | unit, fake engine | `tests/unit/capabilities/test_disclosure_set.py::test_disclosure_counts_traced`. |
 | R042.6 Hot-path proof. | unit, fake engine | `tests/integration/test_execute_agent_disclosure_served.py::test_undisclosed_tool_refused`. |
-| R043.1 Model. | unit, fake engine | `tests/unit/graph/test_subtask_set.py::test_independence_flag_required`. |
+| R043.1 Model. | unit, fake engine | `tests/unit/graph/test_subtask_set.py::test_received_set_holds_flag`. |
 | R043.2 Behavior. | unit, fake engine | `tests/unit/graph/test_subtask_set.py::test_no_cross_agent_messages`. |
-| R043.3 Wiring. | unit, fake engine | `tests/unit/test_fork_fanout_aggregate.py::test_results_aggregated`. |
-| R043.4 Refusal. | unit, fake engine | `tests/unit/graph/test_subtask_set.py::test_shared_input_refused`. |
-| R043.5 Evidence. | unit, fake engine | `tests/unit/graph/test_subtask_set.py::test_aggregation_provenance`. |
-| R043.6 Hot-path proof. | unit, fake engine | `tests/integration/test_fork_fanout_served.py::test_parallel_subtasks_aggregate`. |
-| R044.1 Model. | unit, fake engine | `tests/unit/test_skill_routing.py::test_encoding_metadata_only`. |
-| R044.2 Behavior. | unit, fake engine | `tests/unit/test_skill_routing.py::test_feedback_corrects_granularity`. |
-| R044.3 Wiring. | unit, fake engine | `tests/unit/test_skill_routing.py::test_plan_calls_retrieval`. |
-| R044.4 Refusal. | unit, fake engine | `tests/unit/test_skill_routing.py::test_cycle_and_gap_typed`. |
-| R044.5 Evidence. | unit, fake engine | `tests/unit/test_skill_routing.py::test_plan_cites_skill_and_round`. |
-| R044.6 Hot-path proof. | unit, fake engine | `tests/integration/test_ask_skill_routing_served.py::test_plan_composes_skills`. |
+| R043.3 Wiring. | unit, fake engine | `tests/unit/test_fork_fanout_aggregate.py::test_results_returned`. |
+| R043.4 Refusal. | unit, fake engine | `tests/unit/graph/test_subtask_set.py::test_unflagged_set_refused`. |
+| R043.5 Evidence. | unit, fake engine | `tests/unit/graph/test_subtask_set.py::test_result_provenance`. |
+| R043.6 Hot-path proof. | unit, fake engine | `tests/integration/test_fork_fanout_served.py::test_parallel_subtasks_returned`. |

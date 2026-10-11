@@ -103,14 +103,7 @@
     "AU-CONTROL-R043.3",
     "AU-CONTROL-R043.4",
     "AU-CONTROL-R043.5",
-    "AU-CONTROL-R043.6",
-    "AU-CONTROL-R044",
-    "AU-CONTROL-R044.1",
-    "AU-CONTROL-R044.2",
-    "AU-CONTROL-R044.3",
-    "AU-CONTROL-R044.4",
-    "AU-CONTROL-R044.5",
-    "AU-CONTROL-R044.6"
+    "AU-CONTROL-R043.6"
   ],
   "requirements": [
     {
@@ -832,7 +825,7 @@
     },
     {
       "id": "AU-CONTROL-R040",
-      "title": "Run output is held as a reviewable proposal until accepted",
+      "title": "The harness holds run output uncommitted and applies the verdict it receives",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -889,7 +882,7 @@
     },
     {
       "id": "AU-CONTROL-R041",
-      "title": "Agent runtimes run isolated, with quotas, signals and graceful stop",
+      "title": "The harness runs agent runtimes isolated and enforces the quota it receives",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -946,7 +939,7 @@
     },
     {
       "id": "AU-CONTROL-R042",
-      "title": "Tools are disclosed on demand and an undisclosed tool cannot be called",
+      "title": "The harness loads only the tools it is given during a run",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1003,7 +996,7 @@
     },
     {
       "id": "AU-CONTROL-R043",
-      "title": "A task splits into independent subtasks that run in parallel and aggregate",
+      "title": "The harness executes the given fan-out in parallel and returns results",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1053,63 +1046,6 @@
     },
     {
       "id": "AU-CONTROL-R043.6",
-      "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-CONTROL-R044",
-      "title": "A planner composes skills by decompose, retrieve and compose",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
-      "rollup_of": [
-        "AU-CONTROL-R044.1",
-        "AU-CONTROL-R044.2",
-        "AU-CONTROL-R044.3",
-        "AU-CONTROL-R044.4",
-        "AU-CONTROL-R044.5",
-        "AU-CONTROL-R044.6"
-      ]
-    },
-    {
-      "id": "AU-CONTROL-R044.1",
-      "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-CONTROL-R044.2",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-CONTROL-R044.3",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-CONTROL-R044.4",
-      "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-CONTROL-R044.5",
-      "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-CONTROL-R044.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
