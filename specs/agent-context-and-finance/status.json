@@ -71,7 +71,7 @@
     },
     {
       "id": "AU-CONTEXT-R004",
-      "title": "Context sizing solves a certified multi-resolution knapsack",
+      "title": "Context compilation applies engine budgets and preserves source bounds",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "88c61dc9164c",
