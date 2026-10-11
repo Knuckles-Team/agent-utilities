@@ -24,6 +24,7 @@
 - [ ] AC-14 follow-up: Add server descriptions to the fleet catalog in graph-os so `find` ranks a server before its first probe.
 - [x] AC-15: Run the declared default on a read-only action tie and send an unmatched `ask` to the NL planner. Closes AU-CONTROL-R033, AU-CONTROL-R034.
 - [ ] AC-17: Carry, sign, verify and require `harness_config` in the envelope and obtain it from the engine `HarnessConfig` decision. Closes AU-CONTROL-R035.3 to AU-CONTROL-R035.7, AU-CONTROL-R036.
+- [ ] AC-18: Fill unmet skill-workflow tool slots from the fleet catalog and refuse when none is admissible, wired into workflow execution. Closes AU-CONTROL-R037.
 - [ ] Run the quality and served tests in `test-spec.md`; record merged-head results in `evidence.md`.
 
 Checkboxes represent accepted deliverables, not merely files authored. Keep them open until their stated proofs pass.

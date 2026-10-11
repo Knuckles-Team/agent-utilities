@@ -54,7 +54,14 @@
     "AU-CONTROL-R036.4",
     "AU-CONTROL-R036.5",
     "AU-CONTROL-R036.6",
-    "AU-CONTROL-R036.7"
+    "AU-CONTROL-R036.7",
+    "AU-CONTROL-R037",
+    "AU-CONTROL-R037.1",
+    "AU-CONTROL-R037.2",
+    "AU-CONTROL-R037.3",
+    "AU-CONTROL-R037.4",
+    "AU-CONTROL-R037.5",
+    "AU-CONTROL-R037.6"
   ],
   "requirements": [
     {
@@ -598,6 +605,63 @@
     },
     {
       "id": "AU-CONTROL-R036.7",
+      "title": "End-to-end proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R037",
+      "title": "Skill workflow templates run through one orchestrate call and fill tool gaps by search",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-CONTROL-R037.1",
+        "AU-CONTROL-R037.2",
+        "AU-CONTROL-R037.3",
+        "AU-CONTROL-R037.4",
+        "AU-CONTROL-R037.5",
+        "AU-CONTROL-R037.6"
+      ]
+    },
+    {
+      "id": "AU-CONTROL-R037.1",
+      "title": "Typed gap model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R037.2",
+      "title": "Detect unmet slots",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R037.3",
+      "title": "Fill from the committed ranking",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R037.4",
+      "title": "Refuse instead of inventing a tool",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R037.5",
+      "title": "Wire into workflow execution",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R037.6",
       "title": "End-to-end proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

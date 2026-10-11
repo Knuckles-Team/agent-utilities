@@ -76,3 +76,13 @@ For swarm work, a committed `TopologyPlan` names width/rounds, `StopRule`, lease
 ### Contracts and migration
 
 Consume only the public generated EG client and wire versions pinned in `pyproject.toml`/lock. Add contract golden vectors for RunSpec and event normalization; retain old-record decode support where the public contract requires it. Introduce adapters behind `HarnessPort`, route one production path through them, then delete obsolete selectors and local success writes in the same accepted tree. The [harness-evolution](../harness-evolution/spec.md) spec consumes terminal, independently evaluated runs and must not create a second scheduler.
+
+## Skill workflow tool-gap filling (AU-CONTROL-R037)
+
+Data flow: `workflow template slots -> find_workflow_gaps / fill_workflow_gaps (decide/consumers/workflow_gaps.py) -> execute_workflow (orchestration/engine.py:2407) -> assembled agent graph`.
+
+Attach point: `graph_orchestrate` (`mcp/tools/analysis_tools.py:4223`) reaches `execute_workflow`. The first child row locates the exact call and wires it.
+
+Reuse: `assemble_mapped` (`decide/consumers/assembly.py:220`) builds the graph. The `find` ranking supplies candidates.
+
+Decision: the engine's committed choice fills each slot. The rejected alternative is an LLM that proposes a substitute tool, which creates a second selector.
