@@ -1174,7 +1174,7 @@
     },
     {
       "id": "AU-SEMANTIC-R029",
-      "title": "Evolution runs assign a stronger model only to high-impact stages",
+      "title": "Evolution runs apply a received per-stage model allocation and record cost in the trace",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],

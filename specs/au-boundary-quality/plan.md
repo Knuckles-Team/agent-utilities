@@ -40,12 +40,14 @@ Data flow: `red_team_assess (mcp/harness_server.py:574) -> RedTeamRunner.assess 
 
 Types: `ProbeResult` and `RedTeamReport` gain fields. `AttackProbe`, `ATTACK_CATALOG`, `SafetyAccuracyScorer` and `DeceptionScorer` are reused. The verdict set, the transform field and the evidence write are new.
 
-Failure: a probe without a scorer verdict abstains. A target error stays a defended probe and records its reason. Abstention never counts toward the defense rate.
+Failure: a probe without a received scorer verdict abstains. A target error stays a defended probe and records its reason. Abstention never counts toward the defense rate.
 
-Decision: abstention is a first-class verdict on the existing result type. The rejected alternative is a separate report type for unscored runs.
+Decision: abstention is a local verdict on the existing result type; the engine owns the records and verdicts. The rejected alternative is a separate report type for unscored runs.
 
 Search terms used: red_team, RedTeamRunner, Scorer, Attack, abstain, Verdict.
 Existing code: `agent_utilities/harness/red_team.py:44`, `:56`, `:141`, `:149`, `:175`; `agent_utilities/mcp/harness_server.py:574`, `:594`; `agent_utilities/capabilities/kg_audit_sink.py:385`. Reachable today: assess yes through the served tool, run no, evidence write no.
+Moves to EG-DECISION-ENGINE: scorer selection and verdicts in `agent_utilities/harness/reliability_scorers.py` (`SafetyAccuracyScorer`, `DeceptionScorer`); attack, transform and scorer records in `red_team.py` `ATTACK_CATALOG`.
+Cross-repository rows: GRAPHOS-HOST — serve the security-evaluation operation; EG-DECISION-ENGINE — attack, transform and scorer records and the verdict.
 
 ### References
 

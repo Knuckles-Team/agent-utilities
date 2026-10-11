@@ -149,7 +149,7 @@
     },
     {
       "id": "AU-QUAL-R009",
-      "title": "Red-team runs record attack, transform and scorer as trace evidence and abstain without a verdict",
+      "title": "Red-team runs execute the received probe sequence and emit trace events, and abstain without a scorer verdict",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],

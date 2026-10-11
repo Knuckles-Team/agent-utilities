@@ -221,7 +221,7 @@
     },
     {
       "id": "AU-SEC-R012",
-      "title": "Tool actions after untrusted content need governed approval, and the run records the influence",
+      "title": "Tool actions after untrusted content pause until the harness receives an approval, and the run records the influence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],

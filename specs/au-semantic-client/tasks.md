@@ -109,7 +109,7 @@ The task owner records a separate verdict per ID even when multiple IDs share a 
 
 - [ ] **AU-SEMANTIC-R029:** Deliver the rollup row by delivering its six children.
 - [ ] **AU-SEMANTIC-R029.1:** Deliver the model row; proved by `tests/unit/harness/test_stage_model_allocation.py::test_stage_allocation_fields`.
-- [ ] **AU-SEMANTIC-R029.2:** Deliver the behavior row; proved by `tests/unit/harness/test_stage_model_allocation.py::test_policy_chooses_by_impact`.
+- [ ] **AU-SEMANTIC-R029.2:** Deliver the behavior row; proved by `tests/unit/harness/test_stage_model_allocation.py::test_applies_received_allocation`.
 - [ ] **AU-SEMANTIC-R029.3:** Deliver the wiring row; proved by `tests/unit/harness/test_stage_model_allocation.py::test_cycle_calls_allocation`.
 - [ ] **AU-SEMANTIC-R029.4:** Deliver the refusal row; proved by `tests/unit/harness/test_stage_model_allocation.py::test_budget_exhausted_refuses`.
 - [ ] **AU-SEMANTIC-R029.5:** Deliver the evidence row; proved by `tests/unit/harness/test_stage_model_allocation.py::test_allocation_in_trace`.

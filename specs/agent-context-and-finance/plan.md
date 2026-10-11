@@ -45,8 +45,10 @@ Data flow: `context_compiler_serving.py:565 -> compile_model_context (core/conte
 
 Types: `WindowFit` and `ContextOverWindow` are new. `ContextSizer`, `Capacity`, `TokenCounter` and `fit_to_budget` (`context_knapsack.py:422`) are reused. The check shares the sizer's tokenizer so the count matches the knapsack.
 
-Failure: an uncountable prompt abstains. An over-window prompt never truncates silently. The recursive decomposition and its depth and cost budget belong to the `AU-HARNESS` rollup; this spec only detects and hands off.
+Failure: an uncountable prompt abstains. An over-window prompt never truncates silently. The context policy, window budget and any decomposition plan come from the engine; this spec only applies the received budget and hands the prompt back.
 
 Decision: detect once at the sizing scope, where the tokenizer and capacity already live. The rejected alternative is a second counter inside the decomposition code, and that count drifts from the knapsack count.
 
 Existing code: `agent_utilities/knowledge_graph/retrieval/context_knapsack.py:303`, `:98`, `:422`; `agent_utilities/core/contextual_model.py:752`. Reachable today: yes for knapsack sizing, no for whole-prompt fit.
+Moves to EG-DECISION-ENGINE: the knapsack item selection and package choice in `context_knapsack.py:422` (`fit_to_budget`); the engine decides the context policy and budget.
+Cross-repository rows: EG-DECISION-ENGINE — the context policy, window budget, over-window margin and decomposition plan the harness receives.

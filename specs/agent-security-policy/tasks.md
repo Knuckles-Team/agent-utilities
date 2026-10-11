@@ -17,7 +17,7 @@ Tasks may be split across PRs. Mark a row **LANDED** only after its code reaches
 
 - [ ] **AU-SEC-R012:** Deliver the rollup row by delivering its six children.
 - [ ] **AU-SEC-R012.1:** Deliver the model row; proved by `tests/unit/security/test_tainted_action_gate.py::test_influence_model_fields`.
-- [ ] **AU-SEC-R012.2:** Deliver the behavior row; proved by `tests/unit/security/test_tainted_action_gate.py::test_tainted_run_requires_approval`.
+- [ ] **AU-SEC-R012.2:** Deliver the behavior row; proved by `tests/unit/security/test_tainted_action_gate.py::test_tainted_run_pauses_for_approval`.
 - [ ] **AU-SEC-R012.3:** Deliver the wiring row; proved by `tests/unit/security/test_tainted_action_gate.py::test_requires_approval_reads_taint`.
 - [ ] **AU-SEC-R012.4:** Deliver the refusal row; proved by `tests/unit/security/test_tainted_action_gate.py::test_missing_taint_fails_closed`.
 - [ ] **AU-SEC-R012.5:** Deliver the evidence row; proved by `tests/unit/security/test_tainted_action_gate.py::test_influence_in_tool_call_record`.

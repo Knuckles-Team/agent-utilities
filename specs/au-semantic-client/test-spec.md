@@ -13,7 +13,7 @@ Start from a fresh public checkout: run `python3 scripts/uv_workspace.py doctor`
 Record CCCC complexity delta, jscpd and dupehound differential duplicate findings, KISS review, Ruff/mypy, exact commit and hosted CI URL in `evidence.md`. An unrun test has no pass status.
 
 - **AU-SEMANTIC-R029.1:** `tests/unit/harness/test_stage_model_allocation.py::test_stage_allocation_fields`.
-- **AU-SEMANTIC-R029.2:** `tests/unit/harness/test_stage_model_allocation.py::test_policy_chooses_by_impact`.
+- **AU-SEMANTIC-R029.2:** `tests/unit/harness/test_stage_model_allocation.py::test_applies_received_allocation`.
 - **AU-SEMANTIC-R029.3:** `tests/unit/harness/test_stage_model_allocation.py::test_cycle_calls_allocation`.
 - **AU-SEMANTIC-R029.4:** `tests/unit/harness/test_stage_model_allocation.py::test_budget_exhausted_refuses`.
 - **AU-SEMANTIC-R029.5:** `tests/unit/harness/test_stage_model_allocation.py::test_allocation_in_trace`.

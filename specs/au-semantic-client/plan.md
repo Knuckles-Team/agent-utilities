@@ -44,16 +44,18 @@ Delete adapters that only rename the same EG method. Keep one DTO conversion at 
 
 ## Stage model allocation (AU-SEMANTIC-R029)
 
-Data flow: `_analysis_action_evolve_variants (mcp/tools/analysis_tools.py:976) -> run_evolution_cycle (harness/agentic_evolution_engine.py:316) -> stage allocation -> route_model (decide/consumers/routing.py:58) -> served policy -> run trace`.
+Data flow: `_analysis_action_evolve_variants (mcp/tools/analysis_tools.py:976) -> run_evolution_cycle (harness/agentic_evolution_engine.py:316) -> stage allocation -> received allocation -> run trace`.
 
-Types: `StageAllocation` and `RunBudget` are new. `route_model`, `route_model_by_observed_cost` (`routing.py:135`, no production caller today) and `select_model_for_step` (`core/resource_optimizer.py:232`, called from `graph/executor.py:258`) are reused. The policy decision stays served; this client only asks.
+Types: `StageAllocation` and `RunBudget` are new. `route_model` and `select_model_for_step` decide today and move to the engine. The allocation decision stays in the engine; this client only applies it.
 
-Failure: an exhausted budget refuses. An unreachable policy abstains and never picks the strongest model.
+Failure: an exhausted budget refuses. A missing allocation abstains and never picks the strongest model.
 
-Decision: ask the served policy per stage. The rejected alternative is a fixed local tier table, and that table duplicates the policy.
+Decision: apply the received allocation per stage. The rejected alternative is a fixed local tier table, and that table duplicates the engine decision.
 
 Search terms used: select_model, route_model, model_router, RunBudget, stage_model, squeeze.
 Existing code: `agent_utilities/decide/consumers/routing.py:58`, `:135`; `agent_utilities/core/resource_optimizer.py:232`; `agent_utilities/core/model_router.py:111`; `agent_utilities/harness/agentic_evolution_engine.py:316`. Reachable today: per-role routing yes, per-stage allocation in evolution runs no.
+Moves to EG-DECISION-ENGINE: model choice in `agent_utilities/decide/consumers/routing.py:58`, `:135` and `agent_utilities/core/resource_optimizer.py:232`.
+Cross-repository rows: EG-DECISION-ENGINE — the per-stage model allocation and run budget the harness receives.
 
 ### References
 
