@@ -20,7 +20,14 @@
     "AU-SEC-R011.3",
     "AU-SEC-R011.4",
     "AU-SEC-R011.5",
-    "AU-SEC-R011.6"
+    "AU-SEC-R011.6",
+    "AU-SEC-R012",
+    "AU-SEC-R012.1",
+    "AU-SEC-R012.2",
+    "AU-SEC-R012.3",
+    "AU-SEC-R012.4",
+    "AU-SEC-R012.5",
+    "AU-SEC-R012.6"
   ],
   "requirements": [
     {
@@ -207,6 +214,63 @@
     },
     {
       "id": "AU-SEC-R011.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEC-R012",
+      "title": "Tool actions after untrusted content pause until the harness receives an approval, and the run records the influence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEC-R012.1",
+        "AU-SEC-R012.2",
+        "AU-SEC-R012.3",
+        "AU-SEC-R012.4",
+        "AU-SEC-R012.5",
+        "AU-SEC-R012.6"
+      ]
+    },
+    {
+      "id": "AU-SEC-R012.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEC-R012.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEC-R012.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEC-R012.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEC-R012.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEC-R012.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

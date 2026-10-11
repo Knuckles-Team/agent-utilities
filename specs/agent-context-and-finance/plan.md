@@ -38,3 +38,17 @@ Stale source, missing citation, unknown tokenizer, budget overrun, uncalibrated 
 ### Quality
 
 Preserve one owner for every calculation and transport. Apply CCCC to route/context complexity, jscpd and dupehound to copied finance/retrieval code, and KISS to avoid second ranking/approval engines. Pin generated contracts and use normal Ruff, mypy, Pytest and repository hooks.
+
+## Whole-prompt window fit (AU-CONTEXT-R004.1 to R004.6)
+
+Data flow: `context_compiler_serving.py:565 -> compile_model_context (core/contextual_model.py:752) -> sizing_scope (context_knapsack.py:341) -> window check -> WindowFit -> ContextOverWindow | compiled bundle -> run trace`.
+
+Types: `WindowFit` and `ContextOverWindow` are new. `ContextSizer`, `Capacity`, `TokenCounter` and `fit_to_budget` (`context_knapsack.py:422`) are reused. The check shares the sizer's tokenizer so the count matches the knapsack.
+
+Failure: an uncountable prompt abstains. An over-window prompt never truncates silently. The engine sets the context policy, window budget and decomposition plan. This spec applies the budget and returns the prompt.
+
+Decision: detect once at the sizing scope, where the tokenizer and capacity already live. The rejected alternative is a second counter inside the decomposition code, and that count drifts from the knapsack count.
+
+Existing code: `agent_utilities/knowledge_graph/retrieval/context_knapsack.py:303`, `:98`, `:422`; `agent_utilities/core/contextual_model.py:752`. Reachable today: yes for knapsack sizing, no for whole-prompt fit.
+Moves to EG-DECISION-ENGINE: the knapsack item selection and package choice in `context_knapsack.py:422` (`fit_to_budget`); the engine decides the context policy and budget.
+Cross-repository rows: EG-DECISION-ENGINE — the context policy, window budget, over-window margin and decomposition plan the harness receives.

@@ -8,6 +8,12 @@
     "AU-CONTEXT-R002",
     "AU-CONTEXT-R003",
     "AU-CONTEXT-R004",
+    "AU-CONTEXT-R004.1",
+    "AU-CONTEXT-R004.2",
+    "AU-CONTEXT-R004.3",
+    "AU-CONTEXT-R004.4",
+    "AU-CONTEXT-R004.5",
+    "AU-CONTEXT-R004.6",
     "AU-CONTEXT-R005",
     "AU-CONTEXT-R005.1",
     "AU-CONTEXT-R005.2",
@@ -66,7 +72,7 @@
     {
       "id": "AU-CONTEXT-R004",
       "title": "Context sizing solves a certified multi-resolution knapsack",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "88c61dc9164c",
         "c563cef1f530"
@@ -74,7 +80,57 @@
       "verified_by": [
         "tests/retrieval/test_context_knapsack.py:143",
         "tests/retrieval/test_context_knapsack.py:40"
+      ],
+      "rollup_of": [
+        "AU-CONTEXT-R004.1",
+        "AU-CONTEXT-R004.2",
+        "AU-CONTEXT-R004.3",
+        "AU-CONTEXT-R004.4",
+        "AU-CONTEXT-R004.5",
+        "AU-CONTEXT-R004.6"
       ]
+    },
+    {
+      "id": "AU-CONTEXT-R004.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTEXT-R004.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTEXT-R004.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTEXT-R004.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTEXT-R004.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTEXT-R004.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-CONTEXT-R005",
