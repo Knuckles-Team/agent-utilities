@@ -45,7 +45,7 @@ Data flow: `context_compiler_serving.py:565 -> compile_model_context (core/conte
 
 Types: `WindowFit` and `ContextOverWindow` are new. `ContextSizer`, `Capacity`, `TokenCounter` and `fit_to_budget` (`context_knapsack.py:422`) are reused. The check shares the sizer's tokenizer so the count matches the knapsack.
 
-Failure: an uncountable prompt abstains. An over-window prompt never truncates silently. The engine supplies the context policy, window budget and decomposition plan. This spec applies the budget and hands the prompt back.
+Failure: an uncountable prompt abstains. An over-window prompt never truncates silently. The engine sets the context policy, window budget and decomposition plan. This spec applies the budget and returns the prompt.
 
 Decision: detect once at the sizing scope, where the tokenizer and capacity already live. The rejected alternative is a second counter inside the decomposition code, and that count drifts from the knapsack count.
 
