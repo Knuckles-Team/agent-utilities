@@ -35,6 +35,12 @@
 | R036.5 Wire into the producers. | unit, fake engine | `tests/unit/test_agent_dispatch.py::test_producer_calls_decision_before_envelope`. |
 | R036.6 Trace the decision. | unit, fake engine | `tests/unit/test_decide_harness_config.py::test_decision_id_in_envelope_and_trace`. |
 | R036.7 End-to-end proof. | unit, fake engine | `tests/harness/test_runloop_envelope_e2e.py::test_decision_to_signed_envelope_to_run`. |
+| R037.1 Typed gap model. | unit, fake engine | `tests/unit/test_workflow_gaps.py::test_gap_model_fields`. |
+| R037.2 Detect unmet slots. | unit, fake engine | `tests/unit/test_workflow_gaps.py::test_unmet_slot_becomes_gap`. |
+| R037.3 Fill from the committed ranking. | unit, fake engine | `tests/unit/test_workflow_gaps.py::test_fill_applies_committed_choice`. |
+| R037.4 Refuse instead of inventing a tool. | unit, fake engine | `tests/unit/test_workflow_gaps.py::test_no_candidate_refuses_with_slot`. |
+| R037.5 Wire into workflow execution. | unit, fake engine | `tests/unit/test_workflow_gaps.py::test_execute_workflow_fills_gaps_first`. |
+| R037.6 End-to-end proof. | unit, fake engine | `tests/harness/test_workflow_gap_e2e.py::test_gap_filled_then_refused`. |
 
 Fresh checkout: `python3 scripts/uv_workspace.py doctor`. Install locked extras using the repository helper, then run `python3 scripts/uv_workspace.py run --all-extras pytest tests/unit tests/orchestration -q` and the focused new conformance tests. Tests must provide fake EG/gateway/provider adapters and temporary directories. Ordinary PR checks must need no pre-existing deployment, vendor account or GPU. Live certification is a separately labelled optional environment test with captured receipts.
 
