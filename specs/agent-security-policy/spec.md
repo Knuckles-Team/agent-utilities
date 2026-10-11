@@ -18,13 +18,13 @@ An operator, service principal, approver, and agent need predictable identity an
 
 | ID | Requirement | Source | Evidence required |
 |---|---|---|---|
-| SEC-01 | Mint a server-owned actor/session only from validated claims, retaining audience, tenant, expiry, scope and policy revision; prohibit request supplied session authority. | AU-SEC-R001, AU-SEC-R008 | unit + gateway contract tests |
+| SEC-01 | Mint a server-owned actor/session only from validated claims, retaining audience, tenant, expiry, scope and policy revision. Prohibit request supplied session authority. | AU-SEC-R001, AU-SEC-R008 | unit + gateway contract tests |
 | SEC-02 | Restrict local process authority to packaged `tiny` stdio, no external endpoint/identity, and expiry bounded renewal; deny network reuse. | AU-SEC-R001 | positive/negative profile tests |
 | SEC-03 | Fail closed with typed error on missing control view; never substitute a content graph. | AU-SEC-R002 | injected backend failure test |
 | SEC-04 | Consume the canonical classed scope registry; regenerate and verify AU projection with exact values. | AU-SEC-R008 | generator diff + scope parity |
 | SEC-05 | Request, approve, revoke, and expire elevation through typed, tenant scoped operations; enforce two distinct actors and audit every transition. AU orchestrates only, with durable lease and final authorization in the engine. | AU-SEC-R005, AU-SEC-R006 | contract + end to end policy tests |
-| SEC-06 | A tool guard denial stays a denial; approval can satisfy only a declared approval requirement and cannot override RBAC or engine policy. | AU-SEC-R006 | tool execution negative tests |
-| SEC-07 | Evolve guardrail profiles through a governed decision: bounded tightening may auto apply; loosening requires a live approval; reject missing bounds or stale evidence. | AU-SEC-R007 | decision and replay tests |
+| SEC-06 | A tool guard denial stays a denial. Approval can satisfy only a declared approval requirement and cannot override RBAC or engine policy. | AU-SEC-R006 | tool execution negative tests |
+| SEC-07 | Evolve guardrail profiles through a governed decision: bounded tightening may auto apply. Loosening requires a live approval. Reject missing bounds or stale evidence. | AU-SEC-R007 | decision and replay tests |
 | SEC-08 | Subscribe AU caches to invalidation, bound TTL by declared volatility class, and allow learned change rates to shorten TTL only. | AU-SEC-R003 | event, loss, and clock tests |
 | SEC-09 | Treat schema drift as a typed, fail-closed result at the SDK/engine seam, quarantine without checkpoint advance, and never load AU-owned SHACL as authority. | AU-SEC-R004 | connector contract tests |
 

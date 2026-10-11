@@ -7,7 +7,7 @@
 3. Generate scope projection and contract tests from the engine-owned registry. Remove obsolete hand-maintained allowlist values after parity is proven.
 4. Implement elevation request orchestration against a typed engine lease API. Connect the actual graph-os/A2A/chat execution paths and tool guard to the final engine decision. Coordinate browser presentation in its owner repository.
 5. Implement guardrail proposal and activation with current decision/approval plumbing, immutable evidence, revision check, and audit. Connect cache invalidation and drift quarantine to real event/connector paths.
-6. Run focused, contract, full repository and hosted gates on the exact candidate commit; record evidence and update delivery state per requirement.
+6. Run focused, contract, full repository and hosted gates on the exact candidate commit. Record evidence and update delivery state per requirement.
 
 ## Integration rule
 

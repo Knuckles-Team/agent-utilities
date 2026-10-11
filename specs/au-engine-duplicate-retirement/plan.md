@@ -14,7 +14,7 @@ For each operation, implement and test the EG call, rewire a live caller, then r
 
 ## Failure and security
 
-Treat caller identity as server-verified. A payload cannot select another tenant or grant graph authority. Digest mismatch, unsupported operation, timeout, authorization denial and EG outage fail closed; no local fallback engine, dual write or guessed result. Compare error code, retryability, trace and receipt fields at the public entry point.
+Treat caller identity as server-verified. A payload cannot select another tenant or grant graph authority. Digest mismatch, unsupported operation, timeout, authorization denial and EG outage fail closed. No local fallback engine, dual write or guessed result. Compare error code, retryability, trace and receipt fields at the public entry point.
 
 ## Quality and release
 

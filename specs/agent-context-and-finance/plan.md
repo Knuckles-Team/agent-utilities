@@ -21,7 +21,7 @@ flowchart LR
 
 ### Reuse and ownership
 
-Reuse `agent_utilities/knowledge_graph/retrieval/context_compiler.py`, `context_plane.py` and `capability_index.py` for agent-side composition, but replace local retrieval-engine authority with generated EG methods. Reuse `agent_utilities/domains/finance/{trading_swarm,investor_debate,research_autopilot,persona_heuristics}.py` only for agent roles. `agent_utilities/domains/finance` currently also contains deterministic math and feed modules; migrate their behavior to EG/SDK, then delete copies. Reuse the existing AU orchestration capacity and approval ports; introduce a typed port only when no current one expresses the contract.
+Reuse `agent_utilities/knowledge_graph/retrieval/context_compiler.py`, `context_plane.py` and `capability_index.py` for agent-side composition, but replace local retrieval-engine authority with generated EG methods. Reuse `agent_utilities/domains/finance/{trading_swarm,investor_debate,research_autopilot,persona_heuristics}.py` only for agent roles. `agent_utilities/domains/finance` currently also contains deterministic math and feed modules. Migrate their behavior to EG/SDK, then delete copies. Reuse the existing AU orchestration capacity and approval ports. Introduce a typed port only when no current one expresses the contract.
 
 ### Context interface
 

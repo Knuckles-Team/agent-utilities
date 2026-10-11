@@ -10,7 +10,7 @@ The AU source-freeze input is canonical JSON (sorted keys, UTF-8, no nondetermin
 
 ## Cross-repository and live evidence
 
-EG's independently produced freeze receipt supplies the matching generated schema/API digest and its own artifact/engine evidence. The AU compatibility gate compares contract digests and pinned API version; AU never copies an EG source tree or assumes a sibling checkout. Runtime observations reference exact deployed artifact digest, schema/data identity, principal/tenant scope and capture time. A missing live environment produces `NOT_RUN` for release qualification, not a fabricated pass; pure source/contract CI remains runnable on a fresh public runner.
+EG's independently produced freeze receipt supplies the matching generated schema/API digest and its own artifact/engine evidence. The AU compatibility gate compares contract digests and pinned API version. AU never copies an EG source tree or assumes a sibling checkout. Runtime observations reference exact deployed artifact digest, schema/data identity, principal/tenant scope and capture time. A missing live environment produces `NOT_RUN` for release qualification, not a fabricated pass. Pure source/contract CI remains runnable on a fresh public runner.
 
 ## Failure, security and quality
 

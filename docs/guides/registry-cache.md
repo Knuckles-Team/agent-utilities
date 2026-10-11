@@ -127,5 +127,5 @@ The cache integrates at these specific locations in the codebase:
 ## Related Documentation
 
 - [First Principles Architecture](first-principles.md) — Complete CONCEPT:AU-ORCH.adapter.hot-cache-invalidation through CONCEPT:AU-ECO.messaging.native-backend-abstraction overview
-- [Architecture](plan.md) — Full system architecture
+- [Architecture](architecture.md) — Full system architecture
 - [Emergent Architecture](emergent-architecture.md) — Self-Model and Workspace Attention

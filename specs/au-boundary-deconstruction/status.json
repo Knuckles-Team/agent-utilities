@@ -1441,11 +1441,11 @@
     },
     {
       "id": "AU-BOUNDARY-R015.1",
-      "title": "RETIRED: nothing landed; the remaining scope lives in the sibling rows",
+      "title": "RETIRED: nothing landed. The remaining scope lives in the sibling rows",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "nothing landed; the remaining scope lives in the sibling rows"
+      "retired_reason": "nothing landed. The remaining scope lives in the sibling rows"
     },
     {
       "id": "AU-BOUNDARY-R015.2",
@@ -1678,11 +1678,11 @@
     },
     {
       "id": "AU-BOUNDARY-R024.1",
-      "title": "RETIRED: nothing landed; the remaining scope lives in the sibling rows",
+      "title": "RETIRED: nothing landed. The remaining scope lives in the sibling rows",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "nothing landed; the remaining scope lives in the sibling rows"
+      "retired_reason": "nothing landed. The remaining scope lives in the sibling rows"
     },
     {
       "id": "AU-BOUNDARY-R024.2",

@@ -1382,3 +1382,7 @@ exclude_lines = [
 [tool.bandit]
 exclude_dirs = ["build", "dist", ".venv", "tests"]
 skips = ["B101"]
+
+[tool.pipelines_hooks.ste]
+paths = ["README.md", "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "CHANGELOG.md", "docs", "specs"]
+exempt = ["specs/_template/*"]

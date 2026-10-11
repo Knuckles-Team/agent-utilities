@@ -2,9 +2,9 @@
 
 | Behavior | Positive | Refusal |
 |---|---|---|
-| Source cut | Same RDF dataset meaning and source identity after EG publication; AU asks by IRI | Unknown source, duplicate protected term and stale composed digest fail atomically |
+| Source cut | Same RDF dataset meaning and source identity after EG publication. AU asks by IRI | Unknown source, duplicate protected term and stale composed digest fail atomically |
 | Generated client | `OntologyInspect`, schema list and validation call the served method with exact types | Wrong contract generation and hand-crafted unknown field fail before write |
-| Claims | Agent candidate claim retains provenance and RunSpec digest; EG durable receipt is observed | Claim with forged tenant, missing source or invalid shape is rejected |
+| Claims | Agent candidate claim retains provenance and RunSpec digest. EG durable receipt is observed | Claim with forged tenant, missing source or invalid shape is rejected |
 | Legacy removal | Public agent execution still reaches current EG method after old import deletion | Import census fails on `rdflib`, `pyshacl`, `owlrl`, `owlready2`, local graph writer or duplicate DTO |
 | Memory and retrieval | Scoped current data survives restart through EG and honors invalidation | Cross-tenant read, untrusted historical row, stale cache and owner outage fail closed |
 
