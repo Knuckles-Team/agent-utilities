@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-HARNESS",
   "owner_repo": "agent-utilities",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-HARNESS-R001",
     "AU-HARNESS-R002",
@@ -15,7 +15,58 @@
     "AU-HARNESS-R008",
     "AU-HARNESS-R009",
     "AU-HARNESS-R010",
-    "AU-HARNESS-R011"
+    "AU-HARNESS-R011",
+    "AU-HARNESS-R012",
+    "AU-HARNESS-R012.1",
+    "AU-HARNESS-R012.2",
+    "AU-HARNESS-R012.3",
+    "AU-HARNESS-R012.4",
+    "AU-HARNESS-R012.5",
+    "AU-HARNESS-R013",
+    "AU-HARNESS-R013.1",
+    "AU-HARNESS-R013.2",
+    "AU-HARNESS-R013.3",
+    "AU-HARNESS-R013.4",
+    "AU-HARNESS-R013.5",
+    "AU-HARNESS-R013.6",
+    "AU-HARNESS-R013.7",
+    "AU-HARNESS-R013.8",
+    "AU-HARNESS-R013.9",
+    "AU-HARNESS-R014",
+    "AU-HARNESS-R014.1",
+    "AU-HARNESS-R014.2",
+    "AU-HARNESS-R014.3",
+    "AU-HARNESS-R014.4",
+    "AU-HARNESS-R014.5",
+    "AU-HARNESS-R015",
+    "AU-HARNESS-R015.1",
+    "AU-HARNESS-R015.2",
+    "AU-HARNESS-R015.3",
+    "AU-HARNESS-R015.4",
+    "AU-HARNESS-R016",
+    "AU-HARNESS-R016.1",
+    "AU-HARNESS-R016.2",
+    "AU-HARNESS-R016.3",
+    "AU-HARNESS-R016.4",
+    "AU-HARNESS-R016.5",
+    "AU-HARNESS-R016.6",
+    "AU-HARNESS-R016.7",
+    "AU-HARNESS-R016.8",
+    "AU-HARNESS-R017",
+    "AU-HARNESS-R017.1",
+    "AU-HARNESS-R017.2",
+    "AU-HARNESS-R017.3",
+    "AU-HARNESS-R017.4",
+    "AU-HARNESS-R017.5",
+    "AU-HARNESS-R017.6",
+    "AU-HARNESS-R018",
+    "AU-HARNESS-R018.1",
+    "AU-HARNESS-R018.2",
+    "AU-HARNESS-R018.3",
+    "AU-HARNESS-R018.4",
+    "AU-HARNESS-R018.5",
+    "AU-HARNESS-R018.6",
+    "AU-HARNESS-R018.7"
   ],
   "requirements": [
     {
@@ -168,6 +219,421 @@
         "b15fd573cb5b",
         "e9a23c4a2f57"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R012",
+      "title": "Run-loop configuration comes from the envelope only",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R012.1",
+        "AU-HARNESS-R012.2",
+        "AU-HARNESS-R012.3",
+        "AU-HARNESS-R012.4",
+        "AU-HARNESS-R012.5"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R012.1",
+      "title": "`HarnessConfig` model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R012.2",
+      "title": "Carry the config on `HarnessRequest`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R012.3",
+      "title": "`run_agent` accepts and applies the config",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R012.4",
+      "title": "Worker reads the envelope field",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R012.5",
+      "title": "End-to-end proof of the envelope path",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R013",
+      "title": "Context manager with elision and summarization",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R013.1",
+        "AU-HARNESS-R013.2",
+        "AU-HARNESS-R013.3",
+        "AU-HARNESS-R013.4",
+        "AU-HARNESS-R013.5",
+        "AU-HARNESS-R013.6",
+        "AU-HARNESS-R013.7",
+        "AU-HARNESS-R013.8",
+        "AU-HARNESS-R013.9"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R013.1",
+      "title": "Reuse decision: one implementation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R013.2",
+      "title": "Token counter against the budget",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R013.3",
+      "title": "Region split",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R013.4",
+      "title": "Elision at the soft threshold",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R013.5",
+      "title": "Summarization at the hard threshold",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R013.6",
+      "title": "Policy gating",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R013.7",
+      "title": "Typed `context_overflow` termination",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R013.8",
+      "title": "Mechanism counters",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R013.9",
+      "title": "End-to-end proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R014",
+      "title": "Plan scaffold as run state",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R014.1",
+        "AU-HARNESS-R014.2",
+        "AU-HARNESS-R014.3",
+        "AU-HARNESS-R014.4",
+        "AU-HARNESS-R014.5"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R014.1",
+      "title": "`PlanState` model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R014.2",
+      "title": "`update_plan` tool",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R014.3",
+      "title": "Per-turn injection outside history",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R014.4",
+      "title": "Planner boundary",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R014.5",
+      "title": "End-to-end proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R015",
+      "title": "Action space applied at tool registration",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R015.1",
+        "AU-HARNESS-R015.2",
+        "AU-HARNESS-R015.3",
+        "AU-HARNESS-R015.4"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R015.1",
+      "title": "Registration filter",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R015.2",
+      "title": "`shell_only` mode",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R015.3",
+      "title": "Call-time refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R015.4",
+      "title": "End-to-end proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R016",
+      "title": "Run guards",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R016.1",
+        "AU-HARNESS-R016.2",
+        "AU-HARNESS-R016.3",
+        "AU-HARNESS-R016.4",
+        "AU-HARNESS-R016.5",
+        "AU-HARNESS-R016.6",
+        "AU-HARNESS-R016.7",
+        "AU-HARNESS-R016.8"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R016.1",
+      "title": "Stuck reminder",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R016.2",
+      "title": "Stuck termination",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R016.3",
+      "title": "Post-edit diagnostics",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R016.4",
+      "title": "Read-before-write",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R016.5",
+      "title": "Tool errors as observations",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R016.6",
+      "title": "Result truncation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R016.7",
+      "title": "Parallel read-only tools",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R016.8",
+      "title": "End-to-end proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R017",
+      "title": "Run trace with termination reason and counters",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R017.1",
+        "AU-HARNESS-R017.2",
+        "AU-HARNESS-R017.3",
+        "AU-HARNESS-R017.4",
+        "AU-HARNESS-R017.5",
+        "AU-HARNESS-R017.6"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R017.1",
+      "title": "`TerminationReason` enum",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R017.2",
+      "title": "Map existing exits",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R017.3",
+      "title": "Counters",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R017.4",
+      "title": "Write through `_record_execution_trace`",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R017.5",
+      "title": "Non-native path",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R017.6",
+      "title": "End-to-end proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R018",
+      "title": "Matched ablation runner",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R018.1",
+        "AU-HARNESS-R018.2",
+        "AU-HARNESS-R018.3",
+        "AU-HARNESS-R018.4",
+        "AU-HARNESS-R018.5",
+        "AU-HARNESS-R018.6",
+        "AU-HARNESS-R018.7"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R018.1",
+      "title": "Arm and task-set types",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R018.2",
+      "title": "Paired execution",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R018.3",
+      "title": "Exact McNemar test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R018.4",
+      "title": "Benjamini-Hochberg correction",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R018.5",
+      "title": "Report",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R018.6",
+      "title": "Governed proposal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R018.7",
+      "title": "End-to-end proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     }
   ]

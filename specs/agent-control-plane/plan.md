@@ -31,6 +31,18 @@
 
 **Live wiring.** graph-os installs the planner ports and the cross-source catalog at startup. Until then, the planner runs over the installed assembler, and the cross-source route stays inactive.
 
+## Harness configuration on the envelope (AU-CONTROL-R035.3 to AU-CONTROL-R036)
+
+Data flow: `committed HarnessConfig decision -> decide_harness_config (decide/consumers/harness_config.py) -> producer (core/sessions.py:1231, mcp/tools/job_tools.py:89, integrations/git_resolver.py:234) -> AgentTurnEnvelope.harness_config (agent_dispatch.py:471) -> DispatchCarrier signature (agent_dispatch.py:180) -> enqueue_agent_turn (:737) -> worker verify (:350) -> run_agent`.
+
+Model selection today runs `route_model` (`decide/consumers/routing.py:58`), `decide.choose` (`decide/__init__.py:67`), `DecisionRunner.choose` (`decide/runner.py:218`) and the transport (`decide/transport.py:28`). The new consumer uses the same runner and transport. It differs in one respect: the answer is a structured `HarnessConfigAnswer`, not one option id. AU applies it unchanged.
+
+Already present: `allowed_tool_subset` is on the carrier (`agent_dispatch.py:210`) and on the envelope (`:509`), signed and checked at `:445`. New: the `harness_config` field, its signature binding, the verify argument, the absent-field refusal and the decision consumer.
+
+Decisions: the field is typed, not a free map, so the signature digest is canonical. Rejected: AU computing the config from model facts. That would be a second selector beside the engine. An abstention stops the enqueue, because a guess would bypass the decision ladder.
+
+Depends on the `EG` row for the `HarnessConfig` decision kind and the `GRAPHOS-A2A` admission row that supplies the context budget. Unblocks `AU-HARNESS-R012`.
+
 ## Design
 
 ### Reuse and live wiring

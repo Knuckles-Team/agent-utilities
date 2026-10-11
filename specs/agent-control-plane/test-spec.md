@@ -23,6 +23,18 @@
 | Unapproved mapping, row budget, credential ref, undiscovered field | unit negative | uncovered class with no reads. Incomplete report. Refused connection. Refused mapping |
 | Fleet hit for "list Docker containers" | unit, `tests/unit/test_intent_fleet_ranking_and_ties.py` | fleet row ranks first; server named; `how_to_call` uses `fleet.call`; failed probe reported as `fleet_error` |
 | Read-only action tie and unmatched `ask` | unit, `tests/unit/test_intent_fleet_ranking_and_ties.py` | tie runs the declared default. No read default refuses. Unmatched `ask` routes to `nl_query`. Pinned calls never fall back |
+| R035.3 Typed `harness_config` envelope field. | unit, fake engine | `tests/unit/test_agent_dispatch.py::test_envelope_carries_harness_config`. |
+| R035.4 Sign the field. | unit, fake engine | `tests/unit/test_agent_dispatch.py::test_signature_covers_harness_config`. |
+| R035.5 Reject a changed field. | unit, fake engine | `tests/unit/test_agent_dispatch.py::test_verify_rejects_tampered_harness_config`. |
+| R035.6 Refuse an absent field. | unit, fake engine | `tests/unit/test_agent_dispatch_worker.py::test_absent_harness_config_refused`. |
+| R035.7 Producers set the field. | unit, fake engine | `tests/unit/test_agent_dispatch.py::test_producers_enqueue_with_committed_config`. |
+| R036.1 Name the shared path. | unit, fake engine | `tests/unit/test_decide_harness_config.py::test_consumer_uses_shared_runner_and_transport`. |
+| R036.2 Typed answer model. | unit, fake engine | `tests/unit/test_decide_harness_config.py::test_answer_model_matches_contract_fixture`. |
+| R036.3 Request function. | unit, fake engine | `tests/unit/test_decide_harness_config.py::test_request_inputs_and_answer_mapping`. |
+| R036.4 Abstention is not a guess. | unit, fake engine | `tests/unit/test_decide_harness_config.py::test_abstention_carries_missing_fact`. |
+| R036.5 Wire into the producers. | unit, fake engine | `tests/unit/test_agent_dispatch.py::test_producer_calls_decision_before_envelope`. |
+| R036.6 Trace the decision. | unit, fake engine | `tests/unit/test_decide_harness_config.py::test_decision_id_in_envelope_and_trace`. |
+| R036.7 End-to-end proof. | unit, fake engine | `tests/harness/test_runloop_envelope_e2e.py::test_decision_to_signed_envelope_to_run`. |
 
 Fresh checkout: `python3 scripts/uv_workspace.py doctor`. Install locked extras using the repository helper, then run `python3 scripts/uv_workspace.py run --all-extras pytest tests/unit tests/orchestration -q` and the focused new conformance tests. Tests must provide fake EG/gateway/provider adapters and temporary directories. Ordinary PR checks must need no pre-existing deployment, vendor account or GPU. Live certification is a separately labelled optional environment test with captured receipts.
 
