@@ -61,3 +61,16 @@ Types: `ScreenVerdict` with source, closed reason and rule identifier. The injec
 Failure: a failed screen stops the call before any model or tool runs. A scanner error counts as a failed screen and never as a pass.
 
 Decision: one screen policy serves both sources, so the rule sets cannot drift apart. The rejected alternative is a separate tool-output policy with its own patterns.
+
+## Approval after untrusted content (AU-SEC-R012)
+
+Data flow: `execute_agent (api/agent_control_plane.py:361) -> tool result enters run -> taint mark -> tool call -> _requires_approval (security/tool_guard.py:383) -> ApprovalRequiredToolset (:464) -> tool-call record (capabilities/kg_audit_sink.py:113)`.
+
+Types: `ContentInfluence` and `ActionClass` are new. `ApprovalRequiredToolset`, the policy decision at `tool_guard.py:383` and `ToolCallRecord` are reused. This rollup extends the screening of `AU-SEC-R011`: that rollup refuses bad text, this one governs actions after untrusted text.
+
+Failure: a missing taint record counts as tainted. A denied approval stops the action and records the outcome.
+
+Decision: taint lives on the run and feeds the existing approval decision. The rejected alternative is a second approval engine for tainted runs.
+
+Search terms used: untrusted, taint, influence, ApprovalRequiredToolset, requires_approval.
+Existing code: `agent_utilities/security/tool_guard.py:383`, `:464`; `agent_utilities/agent/factory.py:1054`; `agent_utilities/capabilities/kg_audit_sink.py:113`, `:540`. Reachable today: approval yes, taint input no.

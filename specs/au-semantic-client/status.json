@@ -108,7 +108,14 @@
     "AU-SEMANTIC-R026",
     "AU-SEMANTIC-R027",
     "AU-SEMANTIC-R027.1",
-    "AU-SEMANTIC-R028"
+    "AU-SEMANTIC-R028",
+    "AU-SEMANTIC-R029",
+    "AU-SEMANTIC-R029.1",
+    "AU-SEMANTIC-R029.2",
+    "AU-SEMANTIC-R029.3",
+    "AU-SEMANTIC-R029.4",
+    "AU-SEMANTIC-R029.5",
+    "AU-SEMANTIC-R029.6"
   ],
   "requirements": [
     {
@@ -1163,6 +1170,63 @@
       "landed_in": [
         "12e4a7fe9749"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R029",
+      "title": "Evolution runs assign a stronger model only to high-impact stages",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEMANTIC-R029.1",
+        "AU-SEMANTIC-R029.2",
+        "AU-SEMANTIC-R029.3",
+        "AU-SEMANTIC-R029.4",
+        "AU-SEMANTIC-R029.5",
+        "AU-SEMANTIC-R029.6"
+      ]
+    },
+    {
+      "id": "AU-SEMANTIC-R029.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R029.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R029.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R029.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R029.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEMANTIC-R029.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     }
   ]

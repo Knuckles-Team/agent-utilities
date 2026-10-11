@@ -15,3 +15,10 @@
 | DOC-1 | 07 | Change code with no docs change. Run CI. Separately simulate Pages publish failure | Code result follows code tests. Publication job reports its own status. |
 
 Run configured Ruff/mypy, `scripts/check_complexity_staged.py` (CCCC), `scripts/check_dupehound.py`, configured jscpd differential hook, relevant privacy checks and full `pytest` after focused tests. Respect current configured thresholds; do not claim success for a missing binary. Release-only live tests require an explicitly provisioned environment and are recorded separately. Each requirement needs an exact commit and CI run URL before acceptance.
+
+- **AU-QUAL-R009.1:** `tests/unit/harness/test_red_team_evidence.py::test_probe_result_verdict_fields`.
+- **AU-QUAL-R009.2:** `tests/unit/harness/test_red_team_evidence.py::test_no_scorer_abstains`.
+- **AU-QUAL-R009.3:** `tests/unit/harness/test_red_team_evidence.py::test_assess_writes_trace_evidence`.
+- **AU-QUAL-R009.4:** `tests/unit/harness/test_red_team_evidence.py::test_all_abstained_is_not_pass`.
+- **AU-QUAL-R009.5:** `tests/unit/harness/test_red_team_evidence.py::test_evidence_reproduces`.
+- **AU-QUAL-R009.6:** `tests/integration/test_red_team_assess_served.py::test_served_assess_records_evidence`.

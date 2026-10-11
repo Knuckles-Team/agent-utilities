@@ -41,3 +41,20 @@ Reject absent tenant/graph, stale digest, schema conflict, malformed claim, deni
 #### Simplicity and quality
 
 Delete adapters that only rename the same EG method. Keep one DTO conversion at the AU API/composition edge. CCCC highlights oversized client facades to split by use case. Jscpd and dupehound catch copied wire logic. KISS review rejects a second registry or optional backend. Use Ruff/mypy/Pytest plus normal repo hooks.
+
+## Stage model allocation (AU-SEMANTIC-R029)
+
+Data flow: `_analysis_action_evolve_variants (mcp/tools/analysis_tools.py:976) -> run_evolution_cycle (harness/agentic_evolution_engine.py:316) -> stage allocation -> route_model (decide/consumers/routing.py:58) -> served policy -> run trace`.
+
+Types: `StageAllocation` and `RunBudget` are new. `route_model`, `route_model_by_observed_cost` (`routing.py:135`, no production caller today) and `select_model_for_step` (`core/resource_optimizer.py:232`, called from `graph/executor.py:258`) are reused. The policy decision stays served; this client only asks.
+
+Failure: an exhausted budget refuses. An unreachable policy abstains and never picks the strongest model.
+
+Decision: ask the served policy per stage. The rejected alternative is a fixed local tier table, and that table duplicates the policy.
+
+Search terms used: select_model, route_model, model_router, RunBudget, stage_model, squeeze.
+Existing code: `agent_utilities/decide/consumers/routing.py:58`, `:135`; `agent_utilities/core/resource_optimizer.py:232`; `agent_utilities/core/model_router.py:111`; `agent_utilities/harness/agentic_evolution_engine.py:316`. Reachable today: per-role routing yes, per-stage allocation in evolution runs no.
+
+### References
+
+- arXiv:2604.07725 — Maheswaran et al., "Squeeze Evolve: Unified Multi-Model Orchestration for Verifier-Free Evolution" (2026)

@@ -14,3 +14,11 @@
 
 Tasks may be split across PRs. Mark a row **LANDED** only after its code reaches default branch. Mark **ACCEPTED** only after required evidence and owner contract checks are linked.
 | T10 | AU-SEC-R011 | Add the typed screen verdict, the tool-output screen call site, the approval-required refusal and the served proof. | Open. |
+
+- [ ] **AU-SEC-R012:** Deliver the rollup row by delivering its six children.
+- [ ] **AU-SEC-R012.1:** Deliver the model row; proved by `tests/unit/security/test_tainted_action_gate.py::test_influence_model_fields`.
+- [ ] **AU-SEC-R012.2:** Deliver the behavior row; proved by `tests/unit/security/test_tainted_action_gate.py::test_tainted_run_requires_approval`.
+- [ ] **AU-SEC-R012.3:** Deliver the wiring row; proved by `tests/unit/security/test_tainted_action_gate.py::test_requires_approval_reads_taint`.
+- [ ] **AU-SEC-R012.4:** Deliver the refusal row; proved by `tests/unit/security/test_tainted_action_gate.py::test_missing_taint_fails_closed`.
+- [ ] **AU-SEC-R012.5:** Deliver the evidence row; proved by `tests/unit/security/test_tainted_action_gate.py::test_influence_in_tool_call_record`.
+- [ ] **AU-SEC-R012.6:** Deliver the hot-path proof row; proved by `tests/integration/test_tainted_action_served.py::test_served_tainted_egress_pauses`.

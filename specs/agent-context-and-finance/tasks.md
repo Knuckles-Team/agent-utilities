@@ -37,3 +37,10 @@ re-implemented. The orchestrator should re-audit `status.json` against
 - [x] **AU-CONTEXT-R005.1:** Landed_in `88c61dc9164c` delivers R001-R004 only and explicitly disclaims R005..R008; no `flip_explainer.py` or finance scheduler exists on `origin/main`. Documentation-only child recording the mislanding; no further code required.
 - [ ] **AU-CONTEXT-R005.2:** Build `flip_explainer.py` (math-first, cited-source claims) and the finance backfill/scan scheduler; graph-os hosts the user-facing scheduling surface.
 - [ ] **AU-CONTEXT-R007.2.1:** Remaining scope of R007.2 (same BLOCKED-on-epistemic-graph status as above): delete `agent_utilities/domains/finance/**` (excluding `trading_swarm`, `debate_engine`, `investor_debate`, `research_autopilot`, `persona_heuristics`), delete `agent_utilities/knowledge_graph/orchestration/engine_finance.py`, remove the local-fallback branch in `agent_utilities/api/finance_delegation.py`, and shrink the pinned baseline in `tests/unit/finance/test_r007_finance_module_boundary.py`. Blocked on `EG-FINANCE-PRIMITIVES-R016` (Pine-parity fixtures currently cover only ATR/SuperTrend; missing SMA, EMA, 200-week SMA, 20/21 band, Heikin-Ashi).
+
+- [ ] **AU-CONTEXT-R004.1:** Deliver the model row; proved by `tests/unit/knowledge_graph/retrieval/test_context_window_fit.py::test_window_fit_fields`.
+- [ ] **AU-CONTEXT-R004.2:** Deliver the behavior row; proved by `tests/unit/knowledge_graph/retrieval/test_context_window_fit.py::test_over_window_margin_default`.
+- [ ] **AU-CONTEXT-R004.3:** Deliver the wiring row; proved by `tests/unit/knowledge_graph/retrieval/test_context_window_fit.py::test_compile_model_context_checks_fit`.
+- [ ] **AU-CONTEXT-R004.4:** Deliver the refusal row; proved by `tests/unit/knowledge_graph/retrieval/test_context_window_fit.py::test_over_window_returns_typed_handoff`.
+- [ ] **AU-CONTEXT-R004.5:** Deliver the evidence row; proved by `tests/unit/knowledge_graph/retrieval/test_context_window_fit.py::test_fit_verdict_in_trace`.
+- [ ] **AU-CONTEXT-R004.6:** Deliver the hot-path proof row; proved by `tests/integration/test_context_window_fit_served.py::test_served_over_window_prompt`.

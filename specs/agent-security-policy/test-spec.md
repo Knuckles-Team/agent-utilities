@@ -15,3 +15,10 @@
 | DRIFT-1 | 09 | Compatible/incompatible connector schema with SDK fixture | Incompatible report quarantines; checkpoint unchanged until disposition. |
 
 Unit tests run from a fresh clone without a live environment. Contract tests may start disposable local services. A live-path claim requires a provisioned engine/gateway and exact revision. The required quality evidence is `scripts/check_complexity_staged.py` (CCCC: no new cyclomatic >10 or cognitive >15 and no regression), `scripts/check_dupehound.py` (configured 0.85 similarity, 40 tokens), and the `clone-jscpd-diff` hook from `.config/pre-commit.yaml` (jscpd 5.0.16, 50 tokens, 5 lines), plus relevant Ruff, mypy, liveness, privacy, and repository all-files/hosted CI. The current gate configuration is authoritative if these commands change. KISS review must show reuse of current identity, policy, decision, and cache seams and removal of superseded paths. Record failed/unavailable gates accurately.
+
+- **AU-SEC-R012.1:** `tests/unit/security/test_tainted_action_gate.py::test_influence_model_fields`.
+- **AU-SEC-R012.2:** `tests/unit/security/test_tainted_action_gate.py::test_tainted_run_requires_approval`.
+- **AU-SEC-R012.3:** `tests/unit/security/test_tainted_action_gate.py::test_requires_approval_reads_taint`.
+- **AU-SEC-R012.4:** `tests/unit/security/test_tainted_action_gate.py::test_missing_taint_fails_closed`.
+- **AU-SEC-R012.5:** `tests/unit/security/test_tainted_action_gate.py::test_influence_in_tool_call_record`.
+- **AU-SEC-R012.6:** `tests/integration/test_tainted_action_served.py::test_served_tainted_egress_pauses`.

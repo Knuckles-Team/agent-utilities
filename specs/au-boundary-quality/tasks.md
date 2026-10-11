@@ -17,3 +17,11 @@
 **Grandchild split recorded (rapid-delivery, 2026-10-09):** `AU-QUAL-R005.2` is further split per-directory, since the real mypy-config diff across all of `tests/` exceeds one bounded PR. `AU-QUAL-R005.2.1` narrows the mypy pre-commit hook's `exclude` regex to carve `tests/unit/patterns/` back into coverage (`.config/pre-commit.yaml`), with its bound test at `tests/unit/quality/test_mypy_config_includes_patterns_dir.py`. Every other `tests/unit/*` and `tests/*` directory remains excluded and is deferred to further `AU-QUAL-R005.2.n` grandchildren (e.g. `tests/unit/core`, `tests/unit/knowledge_graph`, `tests/unit/mcp`, ...), unshipped here.
 
 Mark `LANDED` by default-branch commit and `ACCEPTED` only when exact-run evidence satisfies the row. An interim source fix may leave another row `BUILDING`.
+
+- [ ] **AU-QUAL-R009:** Deliver the rollup row by delivering its six children.
+- [ ] **AU-QUAL-R009.1:** Deliver the model row; proved by `tests/unit/harness/test_red_team_evidence.py::test_probe_result_verdict_fields`.
+- [ ] **AU-QUAL-R009.2:** Deliver the behavior row; proved by `tests/unit/harness/test_red_team_evidence.py::test_no_scorer_abstains`.
+- [ ] **AU-QUAL-R009.3:** Deliver the wiring row; proved by `tests/unit/harness/test_red_team_evidence.py::test_assess_writes_trace_evidence`.
+- [ ] **AU-QUAL-R009.4:** Deliver the refusal row; proved by `tests/unit/harness/test_red_team_evidence.py::test_all_abstained_is_not_pass`.
+- [ ] **AU-QUAL-R009.5:** Deliver the evidence row; proved by `tests/unit/harness/test_red_team_evidence.py::test_evidence_reproduces`.
+- [ ] **AU-QUAL-R009.6:** Deliver the hot-path proof row; proved by `tests/integration/test_red_team_assess_served.py::test_served_assess_records_evidence`.
