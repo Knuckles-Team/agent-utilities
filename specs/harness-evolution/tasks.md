@@ -16,6 +16,13 @@
 - [ ] HE-14: Propose a `harness` field on the EG `AgentGraphNode` contract so published L3 graphs carry the selection.
 - [ ] HE-15: Update the `agent_utilities/layers/` row in the boundary coverage inventory for the new harness modules.
 - [ ] HE-16: Schedule run-outcome prompt evolution through the existing optimization sweep and record propose-only `PromptVersion` candidates with trace provenance. Closes AU-HARNESS-R011.
+- [ ] HE-17: Run-loop configuration from the envelope, with every child row of AU-HARNESS-R012. Closes AU-HARNESS-R012.
+- [ ] HE-18: Context manager, with every child row of AU-HARNESS-R013. Closes AU-HARNESS-R013.
+- [ ] HE-19: Plan scaffold, with every child row of AU-HARNESS-R014. Closes AU-HARNESS-R014.
+- [ ] HE-20: Action space, with every child row of AU-HARNESS-R015. Closes AU-HARNESS-R015.
+- [ ] HE-21: Run guards, with every child row of AU-HARNESS-R016. Closes AU-HARNESS-R016.
+- [ ] HE-22: Run trace, with every child row of AU-HARNESS-R017. Closes AU-HARNESS-R017.
+- [ ] HE-23: Matched ablation runner, with every child row of AU-HARNESS-R018. Closes AU-HARNESS-R018.
 - [ ] Run all fixtures and quality checks in `test-spec.md`; record exact merged-head evidence in `evidence.md`.
 
 Checkboxes close only after acceptance evidence. A design, branch, source file or local green test alone is not a completed deliverable.

@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-CONTROL",
   "owner_repo": "agent-utilities",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-CONTROL-R001",
     "AU-CONTROL-R002",
@@ -41,7 +41,20 @@
     "AU-CONTROL-R034",
     "AU-CONTROL-R035",
     "AU-CONTROL-R035.1",
-    "AU-CONTROL-R035.2"
+    "AU-CONTROL-R035.2",
+    "AU-CONTROL-R035.3",
+    "AU-CONTROL-R035.4",
+    "AU-CONTROL-R035.5",
+    "AU-CONTROL-R035.6",
+    "AU-CONTROL-R035.7",
+    "AU-CONTROL-R036",
+    "AU-CONTROL-R036.1",
+    "AU-CONTROL-R036.2",
+    "AU-CONTROL-R036.3",
+    "AU-CONTROL-R036.4",
+    "AU-CONTROL-R036.5",
+    "AU-CONTROL-R036.6",
+    "AU-CONTROL-R036.7"
   ],
   "requirements": [
     {
@@ -453,14 +466,19 @@
     {
       "id": "AU-CONTROL-R035",
       "title": "The signed agent-dispatch envelope carries an enforced allowed-tool-subset field",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "8c6fb318c5d3"
       ],
       "verified_by": [],
       "rollup_of": [
         "AU-CONTROL-R035.1",
-        "AU-CONTROL-R035.2"
+        "AU-CONTROL-R035.2",
+        "AU-CONTROL-R035.3",
+        "AU-CONTROL-R035.4",
+        "AU-CONTROL-R035.5",
+        "AU-CONTROL-R035.6",
+        "AU-CONTROL-R035.7"
       ]
     },
     {
@@ -484,6 +502,106 @@
         "tests/unit/test_agent_dispatch.py:1345",
         "tests/unit/test_agent_dispatch.py:1363"
       ]
+    },
+    {
+      "id": "AU-CONTROL-R035.3",
+      "title": "Typed `harness_config` envelope field",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R035.4",
+      "title": "Sign the field",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R035.5",
+      "title": "Reject a changed field",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R035.6",
+      "title": "Refuse an absent field",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R035.7",
+      "title": "Producers set the field",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R036",
+      "title": "Obtain `harness_config` from the engine's `HarnessConfig` decision",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-CONTROL-R036.1",
+        "AU-CONTROL-R036.2",
+        "AU-CONTROL-R036.3",
+        "AU-CONTROL-R036.4",
+        "AU-CONTROL-R036.5",
+        "AU-CONTROL-R036.6",
+        "AU-CONTROL-R036.7"
+      ]
+    },
+    {
+      "id": "AU-CONTROL-R036.1",
+      "title": "Name the shared path",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R036.2",
+      "title": "Typed answer model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R036.3",
+      "title": "Request function",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R036.4",
+      "title": "Abstention is not a guess",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R036.5",
+      "title": "Wire into the producers",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R036.6",
+      "title": "Trace the decision",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R036.7",
+      "title": "End-to-end proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }

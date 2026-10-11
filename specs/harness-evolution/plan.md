@@ -46,6 +46,58 @@ Extension point: a LangGraph or other runtime adds one class with `name` and `ru
 
 Live wiring: the default registry holds only `native`. An operator registers `ClaudeCodeHarness` with a written graph-os MCP configuration. A node then sets `harness="claude-code"` and `harness_workspace` to a worktree. The MCP configuration references the token through an environment variable, never as a literal value.
 
+## Run-loop mechanisms (AU-HARNESS-R012 to AU-HARNESS-R018)
+
+Data flow, in call order:
+
+```text
+engine Decide(HarnessConfig) -> decide_harness_config (AU-CONTROL-R036) -> AgentTurnEnvelope.harness_config
+  (agent_dispatch.py:471, signed by DispatchCarrier :180) -> enqueue_agent_turn (:737)
+  -> _run_agent_turn_kind (agent_dispatch_worker.py:1764) -> verify (agent_dispatch.py:350)
+  -> run_agent (agent_runner.py:702) -> HarnessRuntime
+  -> capabilities (composition.py:32): ContextManager, plan injection, guards
+  -> _stream_agent_run (agent_runner.py:471) -> agent.run / run_stream
+  -> _record_execution_trace_ordered (agent_runner.py:5453) -> engine run trace
+```
+
+Types and fields: `HarnessConfig` and `TerminationReason` are new. The field names follow the cross-repository brief: `context_policy`, `soft_threshold`, `hard_threshold`, `recent_window_fraction`, `plan_scaffold`, `action_space`, the allowed tool subset, and the trace names `terminationReason`, `peakContextTokens`, `contextBudgetTokens`, `elisionCount`, `summarizationCount`, `turnCount`, `toolCallCount`, `costUsd`.
+
+Attach points:
+
+- **Configuration.** `run_agent` builds one `HarnessRuntime` after `validate_tool_contract` at `agent_runner.py:783`. The native adapter (`harness_native.py:116`) passes the request config. The claude-code adapter ignores context and plan fields and records that in its outcome.
+- **Context manager.** It is a pydantic-ai capability on `before_model_request`, the hook `MementoCompaction` uses at `memento.py:243`. The default composition at `composition.py:102` swaps one capability for the other.
+- **Plan scaffold.** The same hook appends the plan to the outgoing request. The `update_plan` tool registers with the other tools.
+- **Action space.** Tool filtering happens where `run_agent` hands tools to the agent. The execution-time check reuses the carrier rule at `agent_dispatch.py:445`.
+- **Guards.** They wrap tool execution through `after_tool_execute`, the hook `ToolOutputEviction` uses at `eviction.py:41`.
+- **Trace.** `_record_execution_trace` (`agent_runner.py:5305`) gains the counters. No second store exists.
+
+Failure and refusal behaviour:
+
+- Absent `harness_config` gives a typed `refused` outcome with reason `harness_config_absent`.
+- A provider length error or a history above budget after both mechanisms gives `context_overflow` with partial output.
+- A tool outside the allowed set returns a `tool_not_allowed` observation and never runs.
+- Identical failing calls past the second limit give `stuck`.
+- A usage limit breach gives `step_budget`. Any other exception gives `error`.
+
+Reused code:
+
+- `enforce_tool_pair_safety` (`capabilities/compaction/_shared.py:61`) keeps tool calls and returns together.
+- `ToolOutputEviction` (`capabilities/eviction.py:28`) stays for single oversized results.
+- The L5 writer and `UsageRecorder` stay the only trace and cost path (`harness_record.py`).
+- `readOnlyHint` parsing (`mcp/connector_surface.py:73`) supplies the parallel-execution marker.
+
+New code: `harness_config.py`, `harness_runtime.py`, `harness_plan.py`, the `ContextManager` capability, the guards module and `harness/ablation.py`. No McNemar or paired-ablation code exists; `harness/hote_tri_evolution.py:224` ablates skill evolution and is not reused.
+
+Decisions:
+
+- **Replace, not add, compaction.** Rejected: keep `MementoCompaction` beside the new manager. Two sets of thresholds conflict and break the one-implementation rule.
+- **No recall tool.** Rejected: a tool that restores elided content. The source study measured a median of zero calls and no accuracy gain. A later measured need may add one through a new row.
+- **Plan scaffold is run state.** Rejected: reuse the `AU-CONTROL-R027` plan. That plan is engine-built and composes agents. The scaffold is a list the model edits during one run, and it composes nothing.
+- **Config only from the envelope.** Rejected: local defaults when the field is absent. A hidden default is a second policy table.
+- **Paper thresholds are defaults.** The values 0.6, 0.85 and 0.3 are initial defaults a measured value may replace. The code must not treat them as facts.
+
+Cross-repository rows: the `EG` row for the `HarnessConfig` decision kind supplies the committed answer. The `EG` run-trace vocabulary row owns the trace field names. The `EG` typed-pack rows own `contextWindowTokens`, `shellProficiency`, `stoppingBehaviour` and `shellCentric`, and the `EG` run-trace rows own the measured-fact write that R018 feeds. The `GRAPHOS-A2A` admission row supplies the context budget. The `SDK-CONNECTOR-CONTROL` row for the `read_only` tool contract supplies the parallel marker. Client rows in webui, terminal and geniusbot read the trace.
+
 ## Design
 
 ### Existing AU wiring and migration boundary
