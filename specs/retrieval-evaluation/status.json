@@ -111,7 +111,7 @@
     },
     {
       "id": "AU-RETRIEVAL-R004",
-      "title": "Insufficient evidence requests more retrieval, then abstains under strict fallback",
+      "title": "The generation loop requests more evidence when told it is insufficient, then abstains with a typed refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -168,7 +168,7 @@
     },
     {
       "id": "AU-RETRIEVAL-R005",
-      "title": "Iterative retrieval stops on answer repeat plus a calibrated confidence margin",
+      "title": "The iterative loop stops when the engine's stop verdict says so",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -225,7 +225,7 @@
     },
     {
       "id": "AU-RETRIEVAL-R006",
-      "title": "Answer step arbitrates between model prior and retrieved evidence",
+      "title": "The answer step applies the engine's arbitration verdict",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
