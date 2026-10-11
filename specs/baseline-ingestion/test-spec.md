@@ -1,6 +1,6 @@
 # AU-BASELINE — Test specification
 
-Status: BUILDING. Governing spec: [spec.md](spec.md).
+Governing spec: [spec.md](spec.md).
 
 | Test ID | Requirement | Level | Setup and input | Expected observation | Evidence |
 |---|---|---|---|---|---|

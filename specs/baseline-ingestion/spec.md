@@ -1,6 +1,6 @@
 # AU-BASELINE — Baseline ingestion and served ontology content
 
-Status: BUILDING. Owner: agent-utilities.
+Owner: agent-utilities.
 Cross-repo IDs: SDK-CONNECTOR-CONTROL (ontology resource helper), SDK-SOURCE-INGEST (source ingest boundary),
 EG-DECISION-ENGINE-R030 (decision-based ingestion lane routing).
 Public provenance: the pull request that adds this spec.
