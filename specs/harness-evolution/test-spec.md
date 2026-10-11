@@ -94,6 +94,6 @@ Quality: run the repository's configured CCCC, jscpd and Dupehound gates and `py
 | Evaluation gates separate safety from accuracy | scripted round | Accuracy gain with a safety regression is held. Divergent judge and outcome trends are refused as evidence. |
 | Run experience becomes reusable skills | three scripted runs | Three successes scaffold one skill. A candidate with too few rollouts is refused. |
 | Replay of a received run program | scripted engine program, then a changed state | The replay uses no model call. A changed state returns control to the agent. |
-| Spans for agent, tool and step | scripted served run, in-memory exporter | One connected trace holds agent, tool, step and diagram spans. |
+| Spans for agent, tool and step | scripted served run, in-memory exporter | One trace holds agent, tool, step and diagram spans. |
 | Revertible edits with predictions | two scripted edits, scripted verdicts | A falsified verdict reverts only its recorded files. |
 | Parallel-map primitives and recursive decomposition | prompt of 3 times the window, scripted limits | The answer fits the received limits. A model-written loop is refused. |
