@@ -30,7 +30,7 @@
 Checkboxes represent accepted deliverables, not merely files authored. Keep them open until their stated proofs pass.
 - [ ] AC-19: Declare the isolation value and limit record for model-written code. Record both in the run trace. Prove the escalation through the metric-scoring loop. Closes AU-CONTROL-R038.
 - [ ] AC-20: Create the branch call site in the fork fan-out. Add typed refusal and audit evidence. Prove it through the served fan-out operation. Closes AU-CONTROL-R039.
-- [ ] AC-20: The harness holds run output uncommitted and applies the verdict it receives. Closes AU-CONTROL-R040.
+- [ ] AC-20: Implement and contract-test the admitted/apply, rejected/local-drop and abstained/hold adapter. Unavailable responses and refusals preserve the held proposal without filesystem effects. Closes AU-CONTROL-R040.
 - [ ] AC-21: The harness runs agent runtimes isolated and enforces the quota it receives. Closes AU-CONTROL-R041.
 - [ ] AC-22: The harness loads only the tools it is given during a run. Closes AU-CONTROL-R042.
 - [ ] AC-23: The harness runs the given fan-out in parallel and returns results. Closes AU-CONTROL-R043.

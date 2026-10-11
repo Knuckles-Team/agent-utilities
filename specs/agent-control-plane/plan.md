@@ -111,15 +111,15 @@ Decision: the warm registry owns every parent, so a branch is one more registere
 
 ## The harness holds run output uncommitted and applies the verdict it receives (AU-CONTROL-R040)
 
-Data flow: `execute_agent -> hold layer (new) -> run tools write to the layer -> FsCarrier.snapshot (carrier.py:121) -> RunEventLog.append (kernel.py:160) -> verdict from graph-os -> apply | drop -> base tree`.
+Data flow: `execute_agent -> hold layer (new) -> run tools write to the layer -> FsCarrier.snapshot (carrier.py:121) -> RunEventLog.append (kernel.py:160) -> HeldItemVerdict from graph-os -> apply | drop local layer | keep held -> base tree`.
 
 Existing code: `agent_utilities/runtime/run_vcs/kernel.py:145`, `agent_utilities/runtime/run_vcs/carrier.py:101`, `agent_utilities/runtime/run_vcs/run_session.py:39`, `agent_utilities/runtime/run_vcs/run_commit.py:30`. Reachable today: no for the carrier; yes for replay only.
 
-Moves to GRAPHOS-A2A: the accept or reject admission of a proposal. Moves to EG-DECISION-ENGINE: the run's durable record. Existing code that implements a moved part: `agent_utilities/knowledge_graph/enrichment/writeback/approval.py:47` (approval queue).
+Moves to GRAPHOS-A2A: the admission outcome of a proposal. Moves to EG-DECISION-ENGINE: the run's durable record. Existing code that implements a moved part: `agent_utilities/knowledge_graph/enrichment/writeback/approval.py:47` (approval queue).
 
-Cross-repository rows: GRAPHOS-A2A-R006 — admit or reject a proposal and return the verdict; EG-DECISION-ENGINE-R133 — store the run's durable record.
+Cross-repository rows: GRAPHOS-A2A-R006 — return the admitted, rejected or abstained outcome for a proposal; EG-DECISION-ENGINE-R133 — store the run's durable record.
 
-The decision: the harness applies only a received verdict. The rejected alternative is a harness-side review queue, which decides admission outside graph-os.
+The adapter preserves `HeldItemVerdict.outcome` and `verdict_ref`. `admitted` applies the layer; `rejected` discards only the local layer. `abstained`, unavailable responses and typed refusals preserve the held proposal with no filesystem effect. The engine retains the authoritative held-item record. The harness makes no admission decision. The rejected alternative is a harness-side review queue, which decides admission outside graph-os.
 
 ## The harness runs agent runtimes isolated and enforces the quota it receives (AU-CONTROL-R041)
 

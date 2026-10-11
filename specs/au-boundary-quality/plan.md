@@ -36,13 +36,13 @@ Moving a time-sensitive liveness check out of local pre-commit requires a hosted
 
 ## Red-team trace evidence (AU-QUAL-R009)
 
-Data flow: `red_team_assess (mcp/harness_server.py:574) -> RedTeamRunner.assess (harness/red_team.py:149) -> scorers (harness/reliability_scorers.py) -> ProbeResult -> audit sink record (capabilities/kg_audit_sink.py:385) -> run trace`.
+Data flow: `red_team_assess (mcp/harness_server.py:574) -> RedTeamRunner.assess (harness/red_team.py:149) -> probe observations -> EG-DECISION-ENGINE-R138 -> received ProbeVerdict -> ProbeResult -> audit sink record (capabilities/kg_audit_sink.py:385) -> run trace`.
 
-Types: `ProbeResult` and `RedTeamReport` gain fields. `AttackProbe`, `ATTACK_CATALOG`, `SafetyAccuracyScorer` and `DeceptionScorer` are reused. The verdict set, the transform field and the evidence write are new.
+Types: `ProbeResult` and `RedTeamReport` gain fields. `AttackProbe`, `ATTACK_CATALOG`, `SafetyAccuracyScorer` and `DeceptionScorer` are reused. The engine verdict is optional and uses `resisted`, `compromised` or `inconclusive`. Execution status and reason are separate local observation fields.
 
-Failure: a probe without a received scorer verdict abstains. A target error stays a defended probe and records its reason. Abstention never counts toward the defense rate.
+Failure: a missing verdict records an execution abstention with reason `no_scorer_verdict`. A target error records `probe_execution_failed` without inventing a scoring verdict. Execution abstentions and engine `inconclusive` verdicts do not enter defense-rate counts. With no conclusive verdicts, the rate stays absent.
 
-Decision: abstention is a local verdict on the existing result type; the engine owns the records and verdicts. The rejected alternative is a separate report type for unscored runs.
+Decision: the harness records execution inability separately from the unchanged engine scoring verdict. The engine owns scoring, verdicts and their records. The rejected alternative is a separate report type for unscored runs.
 
 Search terms used: red_team, RedTeamRunner, Scorer, Attack, abstain, Verdict.
 Existing code: `agent_utilities/harness/red_team.py:44`, `:56`, `:141`, `:149`, `:175`; `agent_utilities/mcp/harness_server.py:574`, `:594`; `agent_utilities/capabilities/kg_audit_sink.py:385`. Reachable today: assess yes through the served tool, run no, evidence write no.

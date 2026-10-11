@@ -45,12 +45,12 @@
 Fresh checkout: `python3 scripts/uv_workspace.py doctor`. Install locked extras using the repository helper, then run `python3 scripts/uv_workspace.py run --all-extras pytest tests/unit tests/orchestration -q` and the focused new conformance tests. Tests must provide fake EG/gateway/provider adapters and temporary directories. Ordinary PR checks must need no pre-existing deployment, vendor account or GPU. Live certification is a separately labelled optional environment test with captured receipts.
 
 Quality: run `python3 scripts/safe_precommit_all_files.py` through the repo lease wrapper when the shared runner is available, plus the configured CCCC, jscpd and Dupehound gates. `pyproject.toml` pins Dupehound 0.1.2 (similarity 0.85, 40-token minimum) and jscpd 5.0.16 (50-token/5-line minimum, mild mode). Use configured differential exclusions and no new duplicate findings. CCCC uses the repository's current hook configuration. Do not invent a numeric threshold. Apply KISS: reuse EG decision/capacity, existing graph entry points and one adapter conformance suite. Reject a second optimizer, event store or scheduler. A local missing tool is reported as not run, never pass.
-| R040.1 Model. | unit, fake engine | `tests/unit/runtime/test_workspace_proposal.py::test_holds_paths_and_digests`. |
-| R040.2 Behavior. | unit, fake engine | `tests/unit/runtime/test_workspace_proposal.py::test_apply_accept_drop_reject`. |
+| R040.1 Model. | contract, fake producer | `tests/unit/runtime/test_workspace_proposal.py::test_holds_paths_and_digests` asserts the exact producer outcome set and preserves `verdict_ref`. |
+| R040.2 Behavior. | contract, fake producer | `tests/unit/runtime/test_workspace_proposal.py::test_admission_outcome_adapter` covers admitted/apply, rejected/local-drop and abstained/hold. It asserts that unavailable and refused responses preserve the held layer and base tree. |
 | R040.3 Wiring. | unit, fake engine | `tests/unit/test_execute_agent_proposal.py::test_run_holds_layer`. |
 | R040.4 Refusal. | unit, fake engine | `tests/unit/runtime/test_workspace_proposal.py::test_base_moved_refused`. |
 | R040.5 Evidence. | unit, fake engine | `tests/unit/runtime/test_workspace_proposal.py::test_apply_events_emitted`. |
-| R040.6 Hot-path proof. | unit, fake engine | `tests/integration/test_execute_agent_proposal_served.py::test_no_change_before_verdict`. |
+| R040.6 Hot-path proof. | served, fake producer; all three outcomes plus unavailable and refusal | `tests/integration/test_execute_agent_proposal_served.py::test_no_change_before_verdict`. |
 | R041.1 Model. | unit, fake engine | `tests/unit/rlm/test_runtime_quota.py::test_stop_reasons_closed`. |
 | R041.2 Behavior. | unit, fake engine | `tests/unit/rlm/test_runtime_quota.py::test_term_then_kill_after_grace`. |
 | R041.3 Wiring. | unit, fake engine | `tests/unit/test_fork_fanout_quota.py::test_quota_reaches_backend`. |
