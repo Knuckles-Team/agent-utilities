@@ -22,3 +22,9 @@ Unit tests run from a fresh clone without a live environment. Contract tests may
 - **AU-SEC-R012.4:** `tests/unit/security/test_tainted_action_gate.py::test_missing_taint_fails_closed`.
 - **AU-SEC-R012.5:** `tests/unit/security/test_tainted_action_gate.py::test_influence_in_tool_call_record`.
 - **AU-SEC-R012.6:** `tests/integration/test_tainted_action_served.py::test_served_tainted_egress_pauses`.
+
+## Producer contract coverage
+
+AU-SEC-R012 consumes EG-SRC-AUTH-R011 and GRAPHOS-A2A-R005.
+
+Harness tests assert receipt and application of these contracts. They do not prove producer decisions, storage or admission.

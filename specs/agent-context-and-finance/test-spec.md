@@ -16,3 +16,9 @@ From a public checkout run `python3 scripts/uv_workspace.py doctor`, focused `py
 - **AU-CONTEXT-R004.4:** `tests/unit/knowledge_graph/retrieval/test_context_window_fit.py::test_over_window_returns_typed_handoff`.
 - **AU-CONTEXT-R004.5:** `tests/unit/knowledge_graph/retrieval/test_context_window_fit.py::test_fit_verdict_in_trace`.
 - **AU-CONTEXT-R004.6:** `tests/integration/test_context_window_fit_served.py::test_served_over_window_prompt`.
+
+## Producer contract coverage
+
+AU-CONTEXT-R004 consumes EG-DECISION-ENGINE-R137.
+
+Harness tests assert receipt and application of these contracts. They do not prove producer decisions, storage or admission.

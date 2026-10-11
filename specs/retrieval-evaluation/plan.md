@@ -37,7 +37,7 @@ Existing code: `knowledge_graph/retrieval/executable_rag.py:87`, `executable_rag
 
 Moves to EG: the marker test `_is_insufficient` (`executable_rag.py:87`) and the k boost and mode switch in `_retrieve_with_repair` (`executable_rag.py:198`) decide sufficiency and retrieval. The default answerer at `hybrid_retriever.py:1957` also needs the verdict.
 
-Cross-repository rows: EG-RETRIEVAL — the sufficiency verdict, the fallback policy and the round limit.
+Cross-repository rows: EG-FEDERATED-QUERY-R081 — the sufficiency verdict, the fallback policy and the round limit.
 
 ## Stop verdict for iterative retrieval (AU-RETRIEVAL-R005)
 
@@ -47,7 +47,7 @@ Existing code: `adaptive_stopping.py:39`, `adaptive_stopping.py:80`, `adaptive_s
 
 Moves to EG: `IterativeStopper` and its `answer_repeat` rule (`adaptive_stopping.py:80`, `adaptive_stopping.py:151`) decide when to stop. The calibrated margin also belongs to the engine.
 
-Cross-repository rows: EG-RETRIEVAL — the stop verdict with reason, calibrated margin and threshold.
+Cross-repository rows: EG-FEDERATED-QUERY-R082 — the stop verdict with reason, calibrated margin and threshold.
 
 References:
 - arXiv:2606.13814 — Kieback et al., "TASR: Training-Free Adaptive Stopping for Iterative Retrieval" (2026)
@@ -60,7 +60,7 @@ Existing code: `executable_rag.py:256`, `hybrid_retriever.py:1917`, `search_synt
 
 Moves to EG: the closed-book probe in `shortcut_risks.py:42` is the nearest prior probe. The `EvidenceClass` vocabulary (`agent_control_contracts.py:73`) gains `parametric` and `retrieved`. Arbitration and its margin belong to the engine.
 
-Cross-repository rows: EG-RETRIEVAL — the arbitration verdict, the margin, the prior probe and the evidence classes.
+Cross-repository rows: EG-FEDERATED-QUERY-R083 — the arbitration verdict, the margin, the prior probe and the evidence classes.
 
 References:
 - arXiv:2606.08397 — Xu et al., "TrustMargin: Training-Free Arbitration between Parametric Memory and Retrieved Evidence in Large Language Models" (2026)

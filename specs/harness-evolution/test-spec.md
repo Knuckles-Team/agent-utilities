@@ -97,3 +97,9 @@ Quality: run the repository's configured CCCC, jscpd and Dupehound gates and `py
 | Spans for agent, tool and step | scripted served run, in-memory exporter | One trace holds agent, tool, step and diagram spans. |
 | Revertible edits with predictions | two scripted edits, scripted verdicts | A falsified verdict reverts only its recorded files. |
 | Parallel-map primitives and recursive decomposition | prompt of 3 times the window, scripted limits | The answer fits the received limits. A model-written loop is refused. |
+
+## Producer contract coverage
+
+AU-HARNESS-R023 consumes EG-DECISION-ENGINE-R135 and GRAPHOS-A2A-R006. AU-HARNESS-R024 consumes EG-ORCH-VOCAB-R013. AU-HARNESS-R025 and R026 consume EG-DECISION-ENGINE-R136 and R137 respectively.
+
+Harness tests assert receipt and application of these contracts. They do not prove producer decisions, storage or admission.

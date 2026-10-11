@@ -74,5 +74,5 @@ Decision: the run carries the received taint mark and pauses on the existing app
 
 Search terms used: untrusted, taint, influence, ApprovalRequiredToolset, requires_approval.
 Existing code: `agent_utilities/security/tool_guard.py:383`, `:464`; `agent_utilities/agent/factory.py:1054`; `agent_utilities/capabilities/kg_audit_sink.py:113`, `:540`. Reachable today: approval yes, taint input no.
-Moves to GRAPHOS-HOST: the approval decision in `_requires_approval` (`agent_utilities/security/tool_guard.py:383`).
-Cross-repository rows: EG-TRUST — the taint mark on content; GRAPHOS-HOST — the approval admission for a gated action.
+Moves to GRAPHOS-A2A: the approval decision in `_requires_approval` (`agent_utilities/security/tool_guard.py:383`).
+Cross-repository rows: EG-SRC-AUTH-R011 — the taint mark on content; GRAPHOS-A2A-R005 — the approval admission for a gated action.

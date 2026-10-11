@@ -18,3 +18,9 @@ Record CCCC complexity delta, jscpd and dupehound differential duplicate finding
 - **AU-SEMANTIC-R029.4:** `tests/unit/harness/test_stage_model_allocation.py::test_budget_exhausted_refuses`.
 - **AU-SEMANTIC-R029.5:** `tests/unit/harness/test_stage_model_allocation.py::test_allocation_in_trace`.
 - **AU-SEMANTIC-R029.6:** `tests/integration/test_stage_allocation_served.py::test_served_evolve_variants_allocation`.
+
+## Producer contract coverage
+
+AU-SEMANTIC-R029 consumes EG-DECISION-ENGINE-R136.
+
+Harness tests assert receipt and application of these contracts. They do not prove producer decisions, storage or admission.

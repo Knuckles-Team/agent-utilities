@@ -55,7 +55,7 @@ Decision: apply the received allocation per stage. The rejected alternative is a
 Search terms used: select_model, route_model, model_router, RunBudget, stage_model, squeeze.
 Existing code: `agent_utilities/decide/consumers/routing.py:58`, `:135`; `agent_utilities/core/resource_optimizer.py:232`; `agent_utilities/core/model_router.py:111`; `agent_utilities/harness/agentic_evolution_engine.py:316`. Reachable today: per-role routing yes, per-stage allocation in evolution runs no.
 Moves to EG-DECISION-ENGINE: model choice in `agent_utilities/decide/consumers/routing.py:58`, `:135` and `agent_utilities/core/resource_optimizer.py:232`.
-Cross-repository rows: EG-DECISION-ENGINE — the per-stage model allocation and run budget the harness receives.
+Cross-repository rows: EG-DECISION-ENGINE-R136 — the per-stage model allocation and run budget the harness receives.
 
 ### References
 

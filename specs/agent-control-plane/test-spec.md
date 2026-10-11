@@ -69,3 +69,9 @@ Quality: run `python3 scripts/safe_precommit_all_files.py` through the repo leas
 | R043.4 Refusal. | unit, fake engine | `tests/unit/graph/test_subtask_set.py::test_unflagged_set_refused`. |
 | R043.5 Evidence. | unit, fake engine | `tests/unit/graph/test_subtask_set.py::test_result_provenance`. |
 | R043.6 Hot-path proof. | unit, fake engine | `tests/integration/test_fork_fanout_served.py::test_parallel_subtasks_returned`. |
+
+## Producer contract coverage
+
+AU-CONTROL-R040 and R041 consume EG-DECISION-ENGINE-R133; admission belongs to GRAPHOS-A2A-R006. AU-CONTROL-R042 and R043 consume EG-DECISION-ENGINE-R134. Tool registry and disclosure contracts belong to GRAPHOS-FLEET-R011 and GRAPHOS-FLEET-R029.
+
+Harness tests assert receipt and application of these contracts. They do not prove producer decisions, storage or admission.

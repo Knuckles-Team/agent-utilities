@@ -22,3 +22,9 @@ Run configured Ruff/mypy, `scripts/check_complexity_staged.py` (CCCC), `scripts/
 - **AU-QUAL-R009.4:** `tests/unit/harness/test_red_team_evidence.py::test_all_abstained_is_not_pass`.
 - **AU-QUAL-R009.5:** `tests/unit/harness/test_red_team_evidence.py::test_evidence_reproduces`.
 - **AU-QUAL-R009.6:** `tests/integration/test_red_team_assess_served.py::test_served_assess_records_evidence`.
+
+## Producer contract coverage
+
+AU-QUAL-R009 consumes EG-DECISION-ENGINE-R138. Its served security-evaluation operation requires a GRAPHOS-OPS producer requirement before consumer acceptance.
+
+Harness tests assert receipt and application of these contracts. They do not prove producer decisions, storage or admission.
