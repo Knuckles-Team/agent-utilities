@@ -2,9 +2,10 @@
   "schema_version": 2,
   "spec_id": "AU-RETRIEVAL",
   "owner_repo": "agent-utilities",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "AU-RETRIEVAL-R001"
+    "AU-RETRIEVAL-R001",
+    "AU-RETRIEVAL-R002"
   ],
   "requirements": [
     {
@@ -14,6 +15,13 @@
       "landed_in": [
         "64d317c9e385"
       ],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R002",
+      "title": "Studied retrieval techniques enter only through the benchmark",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     }
   ]

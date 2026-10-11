@@ -4,14 +4,14 @@
 |---|---|---|
 | All controls omitted. Capture-only enabled | unit + provider fake | capture/train/promote default false. Capture alone emits no trainer job or pointer change |
 | Closed/unversioned provider, no chosen-token probabilities | capability negatives | typed refusal; no fabricated training row |
-| Terminal valid capture and replay | fixed token ids, masks, frozen `log_q`, verifier, held blobs | exact digest match, masked non-policy tokens, immutable sampler identity |
+| Terminal valid capture and replay. | fixed token ids, masks, frozen `log_q`, verifier, held blobs. | exact digest match, masked non-policy tokens, immutable sampler identity. |
 | Incomplete/mismatched arrays, missing reward, dead blob holder | capture negatives | trace may persist, trainer eligibility false |
 | External trainer absent/failed/cancelled | injected dispatch and A2A fake | no serving pointer movement; recoverable receipt, no duplicate job |
 | Held-out regression or unsupported replay mass | promotion negative | promotion denied; old immutable version remains served |
 | Duplicate evidence signal | served EG in-memory contract | one Gap and one WorkItem, stable idempotency key |
 | Offer with open dependency, cooldown, over-budget or other tenant | decision contract | candidate excluded with reason; no AU fallback sort |
 | Decide unavailable, commit replay mismatch, claim fence lost | integration fault | no execution and no second scheduler |
-| Proposal missing approval, stale base, dirty tree, path escape, gate failure, uncertain remote result | graph-os/RM contract fakes | no unauthorized commit; pending proposal with typed reason |
+| Proposal missing approval, stale base, dirty tree, path escape, gate failure, uncertain remote result. | graph-os/RM contract fakes. | no unauthorized commit; pending proposal with typed reason. |
 | L4 conformance | native adapter with injected runner. Claude Code adapter with fake executable | both satisfy `HarnessPort`. Outcome names the port, keeps the run identifier and uses a known status |
 | Native envelope | injected `run_agent` returning the run-summary envelope | summary requested; JSON output parsed; degraded failure text kept; outcome marked recorded |
 | Native timeout | runner slower than `timeout_s` | typed `timeout` outcome |
@@ -76,3 +76,16 @@
 Fresh checkout: `python3 scripts/uv_workspace.py doctor`, then focused `python3 scripts/uv_workspace.py run --all-extras pytest tests/harness tests/unit -q`. New tests must inject fake EG, graph-os, provider, trainer and repository-manager boundaries. Normal PR CI needs no live graph, vendor credentials, model server, GPU or private network. Optional live certification records exact receipts and is not a prerequisite for contribution PRs unless the changed contract requires it.
 
 Quality: run the repository's configured CCCC, jscpd and Dupehound gates and `python3 scripts/safe_precommit_all_files.py` through the lease wrapper when available. Configured Dupehound is 0.1.2 with similarity 0.85 and 40-token minimum; jscpd is 5.0.16 with 50-token/5-line minimum and mild mode. Honor actual configured differential filters; require zero **new** duplicate findings. CCCC uses the configured hook threshold, not an invented score. Apply KISS by extending `SubstrateTrainer`, native WorkItem, EG Decide and existing Loop controller, and deleting replacement authority. Missing optional tooling is recorded as not run, never as a pass.
+| Studied sources become compared, admitted proposals. | tests/harness/test_study_pipeline.py fake sources | AU must not write code, specs or prompts from a study directly. |
+| Locate and wire the study attach point. | test_study_pipeline.py fake sources | The first child locates the entry beside `agent_utilities/harness/assimilation_benchmark.py` and wires `study_pipeline.run_study` into the e |
+| Typed `StudySource` and `FeatureRecord`. | test_study_models.py fake sources | Records without an evidence span are refused. |
+| Study intake deduplicates by content digest. | test_study_intake.py fake sources | It must not copy the source body into the graph; it stores the digest and locator. |
+| Batch study scales to ten times the source count. | test_study_batch.py fake sources | One failed source must not stop the batch and yields a typed failure row. |
+| Capability comparison matrix against the platform. | test_study_compare.py fake sources | AU must not keep a private capability inventory. |
+| Matrix report lists every feature with its verdict. | test_study_compare.py fake sources | A study with no extractable feature reports `no_features`, not an empty success. |
+| Gap features become proposals only. | test_study_propose.py fake sources | AU edits no repository, spec or prompt. AU promotes no proposal. |
+| One open proposal per feature blocks duplicates. | test_study_propose.py fake sources | `study_propose.propose` must skip a gap whose feature digest has an open or rejected proposal, and must return the existing proposal ID. |
+| Admission requires a measured lift. | test_study_admit.py fake sources | A refusal names the missing measurement. |
+| Admission is a governed decision, not an AU choice. | test_study_admit.py fake sources | AU must not rank or accept proposals itself. |
+| Research goals drive source discovery. | test_study_discover.py fake sources | It must stop at a per-run source cap of 50. |
+| Background study yields to interactive work. | test_study_batch.py fake sources | `run_batch` pauses under interactive load. It resumes from its cursor without repeats |

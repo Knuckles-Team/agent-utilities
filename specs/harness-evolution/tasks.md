@@ -16,7 +16,7 @@
 - [ ] HE-14: Propose a `harness` field on the EG `AgentGraphNode` contract so published L3 graphs carry the selection.
 - [ ] HE-15: Update the `agent_utilities/layers/` row in the boundary coverage inventory for the new harness modules.
 - [ ] HE-16: Schedule run-outcome prompt evolution through the existing optimization sweep and record propose-only `PromptVersion` candidates with trace provenance. Closes AU-HARNESS-R011.
-- [ ] HE-17: Run-loop configuration from the envelope, with every child row of AU-HARNESS-R012. Closes AU-HARNESS-R012.
+- [ ] HE-24: Run-loop configuration from the envelope, with every child row of AU-HARNESS-R019. Closes AU-HARNESS-R019.
 - [ ] HE-18: Context manager, with every child row of AU-HARNESS-R013. Closes AU-HARNESS-R013.
 - [ ] HE-19: Plan scaffold, with every child row of AU-HARNESS-R014. Closes AU-HARNESS-R014.
 - [ ] HE-20: Action space, with every child row of AU-HARNESS-R015. Closes AU-HARNESS-R015.
@@ -26,3 +26,16 @@
 - [ ] Run all fixtures and quality checks in `test-spec.md`; record exact merged-head evidence in `evidence.md`.
 
 Checkboxes close only after acceptance evidence. A design, branch, source file or local green test alone is not a completed deliverable.
+- [ ] HE-25: Studied sources become compared, admitted proposals. A study turns a source into a feature record, a comparison and a proposal. Closes AU-HARNESS-R019.
+- [ ] HE-26: Locate and wire the study attach point. The first child locates the entry beside `agent_utilities/harness/assimilation_benchmark.py` and wires `study_pipeline.run_study` into the evolution sweep.. Closes AU-HARNESS-R019.1.
+- [ ] HE-27: Typed `StudySource` and `FeatureRecord`. `agent_utilities/harness/study_models.py` defines `StudySource` (kind, locator, content digest) and `FeatureRecord` (source, claim, mechanism, evidence span). Closes AU-HARNESS-R019.2.
+- [ ] HE-28: Study intake deduplicates by content digest. `study_intake.fetch_once` fetches each source through its declared contract (scholarx for papers, archive for pages) and skips a digest already studied. Closes AU-HARNESS-R019.3.
+- [ ] HE-29: Batch study scales to ten times the source count. `study_batch.run_batch` processes sources in bounded concurrency set by the compute governor. Closes AU-HARNESS-R019.4.
+- [ ] HE-30: Capability comparison matrix against the platform. `study_compare.compare` asks the engine for matching capabilities per feature and returns a verdict of `covered`, `gap` or `exceeds`. Closes AU-HARNESS-R019.5.
+- [ ] HE-31: Matrix report lists every feature with its verdict. `study_compare.render_matrix` emits one row per feature and source, including `covered` rows. Closes AU-HARNESS-R019.6.
+- [ ] HE-32: Gap features become proposals only. `study_propose.propose` records each `gap` as a proposal node linked by `was_derived_from` to its feature records. Closes AU-HARNESS-R019.7.
+- [ ] HE-33: One open proposal per feature blocks duplicates. `study_propose.propose` must skip a gap whose feature digest has an open or rejected proposal, and must return the existing proposal ID.. Closes AU-HARNESS-R019.8.
+- [ ] HE-34: Admission requires a measured lift. `study_admit.admit` must refuse a reviewed proposal that lacks a baseline-versus-candidate benchmark result from the assimilation benchmark suite. Closes AU-HARNESS-R019.9.
+- [ ] HE-35: Admission is a governed decision, not an AU choice. `study_admit.admit` sends the benchmark result to the engine decision service and applies the returned verdict. Closes AU-HARNESS-R019.10.
+- [ ] HE-36: Research goals drive source discovery. `study_discover.discover` reads active goals from the engine and queries declared feeds, scholarx and prompt folders for new sources. Closes AU-HARNESS-R019.11.
+- [ ] HE-37: Background study yields to interactive work. `study_batch.run_batch` must pause when the compute governor reports interactive load, and resume from its cursor without repeating a source.. Closes AU-HARNESS-R019.12.

@@ -11,3 +11,4 @@
 | RETRIEVAL-7 | FR-4 | Request an untrained selector or unavailable external dataset. | Explicit NOT_EVALUATED, no trained-model or production gain claim. |
 
 Store run manifests, exact merged SHA, fixture digest and command output as public receipts. Focused tests and the repository CCCC, jscpd, Dupehound and full Python gates remain pending until implementation.
+| RETRIEVAL-8 | FR-5 | Submit a studied technique with no paired benchmark result. | Admission refused; the missing result is named. |
