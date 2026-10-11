@@ -130,6 +130,8 @@
     "AU-BOUNDARY-R013.6",
     "AU-BOUNDARY-R013.7",
     "AU-BOUNDARY-R013.8",
+    "AU-BOUNDARY-R013.9",
+    "AU-BOUNDARY-R013.10",
     "AU-BOUNDARY-R014",
     "AU-BOUNDARY-R014.1",
     "AU-BOUNDARY-R014.2",
@@ -1269,7 +1271,7 @@
     {
       "id": "AU-BOUNDARY-R013",
       "title": "Restrict graph-os to AU's public API only",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "4a5540dd2e3d",
         "5b4e8d0a31d0"
@@ -1285,7 +1287,9 @@
         "AU-BOUNDARY-R013.5",
         "AU-BOUNDARY-R013.6",
         "AU-BOUNDARY-R013.7",
-        "AU-BOUNDARY-R013.8"
+        "AU-BOUNDARY-R013.8",
+        "AU-BOUNDARY-R013.9",
+        "AU-BOUNDARY-R013.10"
       ]
     },
     {
@@ -1375,6 +1379,20 @@
       "verified_by": [
         "tests/unit/test_api_elevation.py:18"
       ]
+    },
+    {
+      "id": "AU-BOUNDARY-R013.9",
+      "title": "Export `LiveArtifactStore`, `get_live_artifact_store`, `LiveArtifact` from `agent_utilities.api.live_artifacts` with an import test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R013.10",
+      "title": "Export `RefreshService`, `RefreshResult` from `agent_utilities.api.live_artifacts` with an import test",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R014",
