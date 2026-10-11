@@ -149,7 +149,7 @@
     },
     {
       "id": "AU-QUAL-R009",
-      "title": "Red-team runs execute the received probe sequence and emit trace events, and abstain without a scorer verdict",
+      "title": "Red-team runs follow the received probe sequence and emit trace events, and abstain without a scorer verdict",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
