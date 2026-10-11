@@ -124,7 +124,6 @@
     "AU-HARNESS-R023.5",
     "AU-HARNESS-R023.6",
     "AU-HARNESS-R023.7",
-    "AU-HARNESS-R023.8",
     "AU-HARNESS-R024",
     "AU-HARNESS-R024.1",
     "AU-HARNESS-R024.2",
@@ -1116,7 +1115,7 @@
     },
     {
       "id": "AU-HARNESS-R023",
-      "title": "Successful runs compile into verified replayable programs",
+      "title": "Replay a received run program against observed state",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1127,8 +1126,7 @@
         "AU-HARNESS-R023.4",
         "AU-HARNESS-R023.5",
         "AU-HARNESS-R023.6",
-        "AU-HARNESS-R023.7",
-        "AU-HARNESS-R023.8"
+        "AU-HARNESS-R023.7"
       ]
     },
     {
@@ -1154,34 +1152,27 @@
     },
     {
       "id": "AU-HARNESS-R023.4",
-      "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-HARNESS-R023.5",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-HARNESS-R023.6",
+      "id": "AU-HARNESS-R023.5",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-HARNESS-R023.7",
+      "id": "AU-HARNESS-R023.6",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-HARNESS-R023.8",
+      "id": "AU-HARNESS-R023.7",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
@@ -1189,7 +1180,7 @@
     },
     {
       "id": "AU-HARNESS-R024",
-      "title": "Every agent call, tool call and orchestration step is traced end to end",
+      "title": "Emit a span for every agent call, graph step and tool call",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1254,7 +1245,7 @@
     },
     {
       "id": "AU-HARNESS-R025",
-      "title": "Every harness edit is revertible and paired with a prediction",
+      "title": "Make each harness edit a revertible change that carries a declared prediction",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1319,7 +1310,7 @@
     },
     {
       "id": "AU-HARNESS-R026",
-      "title": "The engine bounds long-input work with parallel-map primitives and recursive decomposition",
+      "title": "Execute parallel-map primitives and recursive decomposition within received limits",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],

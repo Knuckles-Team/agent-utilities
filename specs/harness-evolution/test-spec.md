@@ -23,7 +23,7 @@
 | L5 recording | patched RunTrace writer and usage recorder | non-native outcome written once with `harness:<name>` mode; native outcome not written again |
 | Parallel engine dispatch | `AgentSpec(harness="claude-code")` with a fake port | node runs through the port and returns its result |
 | Successful approved proposal | public contract integration | exact commit/gate/receipt digests; Gap resolves only after receipt re-ingest |
-| Agent with 10 new outcomes, 3 failures (AU-HARNESS-R011) | graph double + fake optimizer | one `PromptVersion` proposal, parent hash of the baseline, 10 `was_derived_from` edges, prompt file unchanged, cursor advanced |
+| Agent with 10 new outcomes, 3 failures (AU-HARNESS-R011) | graph double + fake optimizer | One `PromptVersion` proposal. Parent hash of the baseline. 10 `was_derived_from` edges. Prompt file unchanged. Cursor advanced. |
 | Pending proposal, too few outcomes, no failures, other agent's traces | graph double | no optimizer call and no new version |
 | Optimizer returns no candidate; graph write refused | graph double | status `error`; cursor and versions unchanged |
 | Default optimizer | fake engine serving `optimize_program` | native `bootstrap_few_shot` compiled state recorded on the proposal |
@@ -93,7 +93,7 @@ Quality: run the repository's configured CCCC, jscpd and Dupehound gates and `py
 | Parallel workers share a typed workspace | four fake workers | A schema violation is refused. A conflict is recorded. The breaker stops new workers after three failures. |
 | Evaluation gates separate safety from accuracy | scripted round | Accuracy gain with a safety regression is held. Divergent judge and outcome trends are refused as evidence. |
 | Run experience becomes reusable skills | three scripted runs | Three successes scaffold one skill. A candidate with too few rollouts is refused. |
-| Successful runs compile into admitted replayable programs | three runs, then a changed state | A fourth run uses no model call. A changed state returns control to the agent. |
-| Every agent, tool and orchestration step is traced | scripted served run, in-memory exporter | One connected trace holds agent, tool, step and diagram spans. |
-| Harness edits are revertible and paired with predictions | two scripted edits | A falsified prediction reverts only its recorded files. |
-| Parallel-map primitives and recursive decomposition | prompt of 3 times the window | The answer fits the budget. A model-written loop is refused. |
+| Replay of a received run program | scripted engine program, then a changed state | The replay uses no model call. A changed state returns control to the agent. |
+| A span for every agent, tool and orchestration step | scripted served run, in-memory exporter | One connected trace holds agent, tool, step and diagram spans. |
+| Harness edits are revertible and paired with predictions | two scripted edits, scripted verdicts | A falsified verdict reverts only its recorded files. |
+| Parallel-map primitives and recursive decomposition | prompt of 3 times the window, scripted limits | The answer fits the received limits. A model-written loop is refused. |
