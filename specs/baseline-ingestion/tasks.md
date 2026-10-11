@@ -1,6 +1,6 @@
 # AU-BASELINE — Implementation tasks
 
-Status: BUILDING. Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
+Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
 
 - [x] Inventory the daemon start, the durable queue, the skill, prompt and code ingest paths, and the SDK content helper.
 - [x] Add the stage-to-class table and task routing (`AU-BASELINE-R004`).

@@ -1,6 +1,6 @@
 # AU-BASELINE — Design and implementation plan
 
-Status: BUILDING. Governing spec: [spec.md](spec.md).
+Governing spec: [spec.md](spec.md).
 
 ## Existing system and reuse
 
