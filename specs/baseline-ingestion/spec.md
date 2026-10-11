@@ -1,4 +1,4 @@
-# AU-BASELINE-001 — Baseline ingestion and served ontology content
+# AU-BASELINE — Baseline ingestion and served ontology content
 
 Status: BUILDING. Owner: agent-utilities.
 Cross-repo IDs: SDK-CONNECTOR-CONTROL (ontology resource helper), SDK-SOURCE-INGEST (source ingest boundary),

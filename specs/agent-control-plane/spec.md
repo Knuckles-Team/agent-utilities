@@ -1,6 +1,6 @@
-# Agent control plane
+# AU-CONTROL — Agent control plane
 
-**Owner:** agent-utilities (AU) · **Stable ID:** `AU-CONTROL-001`
+**Owner:** agent-utilities (AU) · **Stable ID:** `AU-CONTROL`
 **Delivery:** PARTIAL · **Acceptance:** NOT VERIFIED · **Scope IDs:** AU-CONTROL-R001, AU-CONTROL-R002–AU-CONTROL-R006, AU-CONTROL-R007, AU-CONTROL-R008, AU-CONTROL-R009–AU-CONTROL-R020 (AU portions), AU-CONTROL-R024–AU-CONTROL-R026, AU-CONTROL-R027–AU-CONTROL-R030, AU-CONTROL-R031–AU-CONTROL-R034, AU-CONTROL-R035. See [requirements.md](requirements.md) for the definition of every requirement ID and [status.json](status.json) for its delivery state and evidence.
 
 ## Outcome and actors

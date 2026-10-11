@@ -1,4 +1,4 @@
-# AU-BASELINE-001 — Implementation tasks
+# AU-BASELINE — Implementation tasks
 
 Status: BUILDING. Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md).
 

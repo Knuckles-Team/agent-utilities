@@ -1,5 +1,7 @@
 # agent-utilities specifications
 
+These specs follow the ecosystem [spec standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/spec-standard.md): one owning spec per capability, extend an existing spec before creating one, audits and reviews land in the owning spec, one ID and title form, one file set. The `spec-standard` gate enforces it.
+
 This tracked `specs/` directory is the public build contract for **AU** owned work. Every
 spec must contain the behavior, architecture, interfaces, tests, quality gates, and acceptance
 criteria needed to implement it from this repository. External program notes may inform a draft,
@@ -64,16 +66,16 @@ bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuck
 
 ## Local specifications
 
-- [`AU-CONTEXT-001`](agent-context-and-finance/spec.md) — agent context and finance orchestration.
-- [`AU-CONTROL-001`](agent-control-plane/spec.md) — agent control plane and workflows.
-- [`AU-SEC-01`](agent-security-policy/spec.md) — agent security and policy boundary.
-- [`AU-BOUNDARY-001`](au-boundary-deconstruction/spec.md) — move non-agent ownership to the right repository.
-- [`AU-QUAL-01`](au-boundary-quality/spec.md) — quality and acceptance of the AU boundary.
-- [`AU-DEV-001`](au-developer-environment/spec.md) — developer environment and release setup.
-- [`AU-INTEGRATION-001`](au-integration-reliability/spec.md) — reliability of live integrations.
-- [`AU-SEMANTIC-001`](au-semantic-client/spec.md) — semantic client behavior.
-- [`AU-HARNESS-001`](harness-evolution/spec.md) — harness improvement and evaluation.
-- [`AU-RETIRE-001`](au-engine-duplicate-retirement/spec.md) — retire duplicate graph authority after per-operation parity.
-- [`AU-RETRIEVAL-001`](retrieval-evaluation/spec.md) — public, reproducible structure-aware retrieval evaluation.
-- [`AU-FREEZE-001`](release-evidence-freeze/spec.md) — exact-revision AU source and release evidence freeze.
-- [`AU-BASELINE-001`](baseline-ingestion/spec.md) — baseline ingestion after boot and served ontology content.
+- [`AU-CONTEXT`](agent-context-and-finance/spec.md) — agent context and finance orchestration.
+- [`AU-CONTROL`](agent-control-plane/spec.md) — agent control plane and workflows.
+- [`AU-SEC`](agent-security-policy/spec.md) — agent security and policy boundary.
+- [`AU-BOUNDARY`](au-boundary-deconstruction/spec.md) — move non-agent ownership to the right repository.
+- [`AU-QUAL`](au-boundary-quality/spec.md) — quality and acceptance of the AU boundary.
+- [`AU-DEV`](au-developer-environment/spec.md) — developer environment and release setup.
+- [`AU-INTEGRATION`](au-integration-reliability/spec.md) — reliability of live integrations.
+- [`AU-SEMANTIC`](au-semantic-client/spec.md) — semantic client behavior.
+- [`AU-HARNESS`](harness-evolution/spec.md) — harness improvement and evaluation.
+- [`AU-RETIRE`](au-engine-duplicate-retirement/spec.md) — retire duplicate graph authority after per-operation parity.
+- [`AU-RETRIEVAL`](retrieval-evaluation/spec.md) — public, reproducible structure-aware retrieval evaluation.
+- [`AU-FREEZE`](release-evidence-freeze/spec.md) — exact-revision AU source and release evidence freeze.
+- [`AU-BASELINE`](baseline-ingestion/spec.md) — baseline ingestion after boot and served ontology content.

@@ -1,4 +1,4 @@
-# AU-CONTROL-001 requirements
+# AU-CONTROL requirements
 
 | ID | Requirement | Verification |
 |---|---|---|

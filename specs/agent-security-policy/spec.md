@@ -1,4 +1,4 @@
-# Agent security and governed policy — AU-SEC-01
+# AU-SEC — Agent security and governed policy
 
 **Owner:** agent-utilities. **Delivery:** partial source implementation; **acceptance:** pending. This status describes the repository as inspected, not a release certification. Source obligations: AU-SEC-R001, AU-SEC-R002, AU-SEC-R003, AU-SEC-R004, AU-SEC-R005, AU-SEC-R006, AU-SEC-R007, AU-SEC-R008. See [requirements.md](requirements.md) for the definition of every requirement ID (including AU-SEC-R009) and [status.json](status.json) for its delivery state and evidence.
 

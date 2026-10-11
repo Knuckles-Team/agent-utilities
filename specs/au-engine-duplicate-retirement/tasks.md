@@ -1,4 +1,4 @@
-# AU-RETIRE-001 — Tasks
+# AU-RETIRE — Tasks
 
 - [x] Enumerate AU graph modules, symbols and real callers; assign one owner disposition and record native EG parity gaps (AU-RETIRE-R001).
 - [x] AU-RETIRE-R001.1: census, `graph_compute.py` and `formal_reasoning_core.py` (2026-10-08): neither is a safe deletion target yet; no disposition assigned, no code cut.

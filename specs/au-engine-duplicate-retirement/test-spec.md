@@ -1,4 +1,4 @@
-# AU-RETIRE-001 — Test contract
+# AU-RETIRE — Test contract
 
 | ID | Requirements | Setup and action | Expected result |
 |---|---|---|---|

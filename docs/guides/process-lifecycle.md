@@ -108,5 +108,5 @@ DEBUG - Cleaned up child process 12346
 ## Related Documentation
 
 - [Configuration](configuration.md) — Server startup flags and environment variables
-- [Architecture](architecture.md) — Server endpoint architecture
+- [Architecture](plan.md) — Server endpoint architecture
 - [First Principles Architecture](first-principles.md) — Full CONCEPT:AU-ORCH.adapter.hot-cache-invalidation through CONCEPT:AU-ECO.messaging.native-backend-abstraction overview

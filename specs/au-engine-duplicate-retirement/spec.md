@@ -1,4 +1,4 @@
-# AU-RETIRE-001 — Retire duplicate graph engine authority in AU
+# AU-RETIRE — Retire duplicate graph engine authority in AU
 
 **Owner:** agent-utilities. **Status:** SPECIFIED; acceptance NOT_AUDITED. **Related public owner:** epistemic-graph owns durable graph execution and native OWL/SPARQL/compute. This AU spec owns only AU deletion, caller migration, and parity proof.
 
@@ -24,7 +24,7 @@ An agent can execute the same authorized graph task through a typed epistemic-gr
 | FR-3 | [Cutover](plan.md#cutover) | RETIRE-4 |
 | FR-4 | [Failure and security](plan.md#failure-and-security) | RETIRE-5 |
 
-The per-directory outcome of this audit is published as the [deletion and relocation inventory](../au-boundary-deconstruction/coverage.md#deletion-and-relocation-inventory).
+The per-directory outcome of this audit is published as the [deletion and relocation inventory](../au-boundary-deconstruction/plan.md#deletion-and-relocation-inventory).
 
 Success means one graph authority, no AU copy, and exact-revision parity evidence. Creating this spec alone does not establish that result.
 

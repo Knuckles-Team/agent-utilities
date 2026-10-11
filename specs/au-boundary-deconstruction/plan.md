@@ -15,3 +15,312 @@ The new module `knowledge_graph/enrichment/writeback/governed.py` adapts AU sink
 A dry run registers its change set in a temporary `FileWriteBackLedger`, because it records no effect. A live apply uses one `FileWriteBackLedger` directory per change set under `runtime_dir()/writeback-ledger`. `FileAuditReservation` writes the audit reservation in the same directory before the sink call. The EG-backed `EpistemicGraphWriteBackLedger` replaces the file ledger when graph-os serves the EG `WriteBack` operation. graph-os needs no code change: it serves `graph_writeback` from the AU tool registry. GRAPHOS-FLEET-R003 remains the graph-os obligation for a typed, previewed write-back operation.
 
 Known limits: each invocation is a new change set, so the SDK idempotency key does not deduplicate a repeated call. Sink-level external-id stamps still deduplicate creations. The source version comes from the caller signals `expected_source_version` and `current_source_version`, or it is `unversioned`.
+
+## Design
+
+### Boundaries
+
+```mermaid
+flowchart LR
+  Client["Browser, CLI, agent package"] --> Host[graph-os served host]
+  Host --> API[agent_utilities.api]
+  API --> App[AU agent application]
+  App --> EGC[Generated EG client]
+  Host --> EGC
+  Host --> SDK[Connector SDK runner]
+  SDK --> EGC
+  EGC --> EG[EG durable authority]
+```
+
+AU layers are pure versioned application contracts, domain policy, use cases, protocols, runtime adapters, and composition. Dependencies point inward. Only composition chooses concrete model, EG client, harness and clock adapters. The graph-os server admits authenticated requests, then calls an AU API method; it does not import AU internals. The SDK fetches source data and submits generated EG requests; no AU connector wrapper remains. EG alone commits graph, job, memory and usage facts.
+
+### Existing wiring to reuse
+
+- `agent_utilities/api/` is the AU public integration boundary. Extend it with narrow typed methods rather than exposing `knowledge_graph/core/engine.py` or `mcp/kg_server.py`.
+- `agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py` already illustrates a thin engine adapter. Reuse generated `epistemic_graph` client types and digest checks, then retire duplicated backend dispatch branches.
+- `agent_utilities/knowledge_graph/retrieval/context_compiler.py` is retained as application context composition; graph search/ranking moves to EG methods.
+- `agent_utilities/observability/` retains agent telemetry emission while durable trace and usage records live in EG.
+- `graph-os` already owns gateway and fleet composition. Compare each AU-only gateway module and drifted duplicate before deleting it; port unique behavior only to its legal host.
+
+### Cutover algorithm
+
+1. Pin a released EG client contract and enumerate consumers using AST imports plus runtime registry/script discovery. Build a machine-readable operation and module inventory with public paths only.
+2. For each old entry point, write a typed new-owner request/result and a contract test. Include identity, tenant, graph, purpose, policy version, timeout, idempotency key, source digest and outcome receipt where relevant.
+3. Wire one real public caller through the new route. Run a parity fixture against old and new behavior, including refusal cases. Move data only with verified tenant/source binding.
+4. Delete the AU duplicate, stale tests and dependency declarations atomically with the caller cut. The owner-manifest check fails if imports, scripts or stale route registration remain.
+5. Regenerate all owner manifests and public API references from source authority. Document intentional drops with a reason and a test proving the old operation is unavailable.
+
+### Failure behavior
+
+Contract mismatch, unknown tenant, absent authorization, duplicate idempotency key with different payload, corrupt legacy record, unsupported operation, or unavailable owner service fails closed with typed errors. No local fallback reads a different state authority. Retryable transport failure may retry only an idempotent request with the same key.
+
+### Design constraints
+
+Keep one owner per capability. Check copied code with jscpd and dupehound and use CCCC complexity reports to split oversized cutover adapters. Apply KISS by deleting obsolete wrappers rather than creating a second translation registry. Every change needs the language-native lint/type/test gate and this repository's normal pre-commit gate.
+
+### Recorded owners for deletion rollups
+
+#### AU-BOUNDARY-R002.3.1: ephemeral loopback OIDC certification authority
+
+Finding (graph-os `main` at `9095a5c`, read-only search): graph-os has NO replacement for `EphemeralLoopbackOidcAuthority`, `AUTHORITY_MODE`, `DEFAULT_TOKEN_TTL_SECONDS` or `validated_token_ttl_seconds`. `git grep -n -i "loopback.*oidc\|certification_oidc" -- graph_os` prints nothing. The only related graph-os code is `graph_os/deployment/doctor_certification.py`, which merely reports the `ephemeral-https-loopback` authority mode, and `specs/public-ingress-identity` IN-05, which specifies a fake OIDC issuer fixture but delivers no module.
+
+Result: no graph-os owner exists yet, so this row stays SPECIFIED. Cross-repo dependency: graph-os must first own an authority (a new graph-os module, or a reviewed decision that the skill-certification flow is deleted) before `AU-BOUNDARY-R002.3.2` to `AU-BOUNDARY-R002.3.5` can proceed. Do not delete `certification_oidc.py` until then.
+
+#### AU-BOUNDARY-R013.9 and R013.10: Live Artifact public export
+
+One new module `agent_utilities/api/live_artifacts.py` re-exports the store (`LiveArtifactStore`, `get_live_artifact_store`, `LiveArtifact`) and the refresh service (`RefreshService`, `RefreshResult`) from `agent_utilities/knowledge_graph/live_artifacts/`. It follows the same pattern as the other `agent_utilities.api` modules: plain re-exports, no wrapper logic. Because `store.py` relocates to the epistemic graph under AU-BOUNDARY-R045, the public names stay stable and only the import behind them moves.
+
+## Coverage
+
+This map routes each AU capability to the specification that owns it and, in the second half, routes each AU package directory to the requirement that removes, relocates or keeps it. A mention here is a routing decision, not acceptance. The sibling specs contain the complete AU behavior, design and test contract. A capability can have a separate owner implementation in another public repository; AU completion still requires its own caller and deletion proof.
+
+| AU capability or disposition | Native spec | Requirement definitions |
+|---|---|---|
+| Agent execution, routing, swarm, task claims | [`agent-control-plane`](../agent-control-plane/spec.md) | [requirements](../agent-control-plane/requirements.md) |
+| Harness capture, training, work market and governed change | [`harness-evolution`](../harness-evolution/spec.md) | [requirements](../harness-evolution/requirements.md) |
+| Security, identity, guardrails and cache invalidation | [`agent-security-policy`](../agent-security-policy/spec.md) | [requirements](../agent-security-policy/requirements.md) |
+| Portable tests, liveness and type coverage | [`au-boundary-quality`](../au-boundary-quality/spec.md) | [requirements](../au-boundary-quality/requirements.md) |
+| Semantic schema and generated EG client | [`au-semantic-client`](../au-semantic-client/spec.md) | [requirements](../au-semantic-client/requirements.md) |
+| Served, connector, graph and state authority cuts | [`au-boundary-deconstruction`](spec.md) | [requirements](requirements.md) |
+| Cross-cutting audit of duplicate graph engine code | [`au-engine-duplicate-retirement`](../au-engine-duplicate-retirement/spec.md) | [requirements](../au-engine-duplicate-retirement/requirements.md) |
+| Retrieval/context and finance agent roles | [`agent-context-and-finance`](../agent-context-and-finance/spec.md) | [requirements](../agent-context-and-finance/requirements.md) |
+| Public contributor environment and skill lifecycle | [`au-developer-environment`](../au-developer-environment/spec.md) | [requirements](../au-developer-environment/requirements.md) |
+| Final composition, ontology/SHACL/OWL clean cut, public application control plane and public documentation | [`au-integration-reliability`](../au-integration-reliability/spec.md) | [requirements](../au-integration-reliability/requirements.md) |
+
+Where a capability has more than one owner, the native AU spec describes its own boundary and explicit input/output contract; it does not make another repository's implementation state an AU acceptance claim. Each contributor must confirm the current source tree and evidence at the exact head before moving a task state.
+
+### Deletion and relocation inventory
+
+One row per directory in the top two levels under `agent_utilities/`. It states what this spec and [`au-engine-duplicate-retirement`](../au-engine-duplicate-retirement/spec.md) say happens to that directory, and which requirement in [requirements.md](requirements.md) or the [retirement requirements](../au-engine-duplicate-retirement/requirements.md) covers it. The cut is complete when every row has a disposition other than "undecided" and every covering requirement is delivered.
+
+How to read it:
+
+- **Approx. lines** counts every tracked file under the directory, including data files and any child directory that has its own row. The package totals 1,973 tracked files and about 802,000 lines.
+- **Disposition** is taken from the requirement text. "Split" means the requirements send different files to different owners. "Undecided" means neither spec names the directory or its files; the note then states only what the directory contains. A directory marked "undecided" is not thereby kept: no requirement says so either.
+- A requirement that deletes an AU copy because another repository already owns the behavior is shown as a relocation to that repository.
+- "AU-RETIRE-R001 (inventory obligation only)" marks a `knowledge_graph/` directory that AU-RETIRE-R001 requires to receive a disposition but for which no requirement states one.
+- Short paths in requirement text such as `core/…`, `enrichment/…`, `ontology/…` and `kg/…` are read as relative to `agent_utilities/knowledge_graph/` where no directory of that name with that file exists directly under `agent_utilities/`.
+
+| Directory | Approx. lines | Disposition | Covering requirement ID(s) | Notes |
+|---|---:|---|---|---|
+| `agent_utilities/` | 802,061 | split: relocate to agent-connector-sdk (`base_utilities.py`); relocate to graph-os (`release_catalogs.py`); keep in AU (package metadata and small helpers) | AU-BOUNDARY-R010, AU-BOUNDARY-R014, AU-BOUNDARY-R046 | Count is the whole package; 12 files sit directly here (2,060 lines). The 10 remaining top-level files (681 lines) are package metadata and small helpers: `__init__.py`, `__main__.py`, `api_utilities.py`, `content.py`, `file_safety.py`, `nested_context.py`, `_version.py`, two JSON catalogs and `py.typed`. |
+| `agent_utilities/agent/` | 2,203 | keep in AU | AU-BOUNDARY-R043 | Agent factory, registry builder, sampling profiles and capability resolver; retained agent-execution surface. 2 of 8 modules import `knowledge_graph` and must reach it only through the engine's public client. |
+| `agent_utilities/agent_chat/` | 54 | keep in AU | AU-BOUNDARY-R043 | One chat-input parser module and a README; retained runtime and developer tooling. |
+| `agent_utilities/analysis/` | 287 | keep in AU | AU-BOUNDARY-R043 | A single `analyzer.py` module; retained runtime and developer tooling. |
+| `agent_utilities/api/` | 1,737 | keep in AU | AU-BOUNDARY-R013, AU-BOUNDARY-R019 | The public integration boundary. R013 widens it for graph-os; R019 keeps the single typed engine composition here. R017 expects a messaging module here that does not exist yet. |
+| `agent_utilities/automation/` | 2,644 | split: relocate to agent-connector-sdk (`worldmodel_pipeline.py`, `feed_sources.py`, `file_watcher.py`); keep in AU (`research_pipeline.py`, `__init__.py`) | AU-BOUNDARY-R025, AU-BOUNDARY-R046 | `research_pipeline.py` (1,517 lines) is the LLM-driven research workflow piece and stays with the retained agent surface. |
+| `agent_utilities/caching/` | 898 | keep in AU | AU-BOUNDARY-R047 | Semantic cache and prompt cache modules; becomes a thin client over the engine, with no second cache authority. 2 of 3 modules import `knowledge_graph`. |
+| `agent_utilities/capabilities/` | 5,799 | keep in AU | AU-BOUNDARY-R043 | Agent capability implementations (governed dynamic workflow, output repair, guardrails, checkpointing, model fallback); retained agent-execution surface. `kg_audit_sink.py` and `eg_history_source.py` read or write graph state and must do so only through the engine's public client. |
+| `agent_utilities/capabilities/compaction/` | 100 | keep in AU | AU-BOUNDARY-R043 | Context-compaction helpers for agent runs; retained agent-execution surface. |
+| `agent_utilities/claude_harness/` | 930 | keep in AU | AU-BOUNDARY-R043 | Coding-harness guard modules: a fence, a pre-tool-use check and an unattended runner; retained runtime and developer tooling. |
+| `agent_utilities/cli/` | 1,190 | keep in AU | AU-BOUNDARY-R043 | The unified `agent-utilities` command line entry point; retained runtime and developer tooling. It imports `governance/`, which R037 relocates, so that import must be removed or repointed. |
+| `agent_utilities/core/` | 36,947 | split: relocate to agent-connector-sdk (6 modules); relocate to graph-os (9 modules); relocate to epistemic-graph (3 modules); `config.py` split three ways; keep in AU (35 modules) | AU-BOUNDARY-R010, AU-BOUNDARY-R014, AU-BOUNDARY-R016, AU-BOUNDARY-R020, AU-BOUNDARY-R046 | Count includes the three child rows. 54 files sit directly here. The 35 modules that stay (15,441 lines) are model factory and providers, model routing and concurrency, schedulers, sessions, embedding utilities and resource budgeting, matching the agent/model third of the `config.py` split. |
+| `agent_utilities/core/checkpoint/` | 769 | keep in AU | AU-BOUNDARY-R043 | One checkpoint manager module; retained agent-execution surface. It uses a SQL store and imports `knowledge_graph`, which must become a thin client over the engine rather than a second durable store. |
+| `agent_utilities/core/execution/` | 984 | keep in AU | AU-BOUNDARY-R043 | Unified execution contract package: protocol, adapters, provider proxy, stream handlers; retained agent-execution surface. |
+| `agent_utilities/core/registry/` | 3,118 | split: delete as duplicate of engine (`kg_adapter.py`); keep in AU (`package_adapter.py`, `package_types.py`, `plugin_adapter.py`, `service_adapter.py`) | AU-BOUNDARY-R019, AU-BOUNDARY-R046 | `kg_adapter.py` (1,802 lines) is replaced by the engine composition in `api/`. The service, package and plugin adapters (4 files, 1,316 lines) are non-graph registry plumbing and stay. |
+| `agent_utilities/data/` | 16 | relocate to graph-os, together with its consumers | AU-BOUNDARY-R048 | One 16-line MCP configuration JSON file, read by `server/routers/interop.py` and `mcp/check_env_var_drift.py`. Operator ruling 2026-10-03: moves with those consumers in a later wave; not moved now. |
+| `agent_utilities/data_prep/` | 4,481 | relocate to agent-connector-sdk | AU-BOUNDARY-R024 | Named wholesale as `data_prep/**`. |
+| `agent_utilities/data_prep/certification/` | 643 | relocate to agent-connector-sdk | AU-BOUNDARY-R024 | Covered by the parent glob. |
+| `agent_utilities/decide/` | 4,182 | keep in AU | AU-CONTROL-R010, AU-CONTROL-R015, AU-CONTROL-R019 | AU's consumers of the engine's Decide layer: decision points that keep their old rule as the deterministic fallback, the reference topology templates (`topology/templates.py`), the topology consumer (`consumers/topology.py`) and the narrow-only swarm continuation point (`consumers/continuation.py`). |
+| `agent_utilities/deployment/` | 19,006 | relocate to graph-os | AU-BOUNDARY-R002 | Named wholesale as `deployment/**`; the console scripts that target it go with it. |
+| `agent_utilities/domains/` | 13,947 | split: see child rows | AU-BOUNDARY-R041, AU-BOUNDARY-R048 | Count includes the five child rows; only a 53-line `__init__.py` sits directly here. `domains/finance/` is split under R041 and a sibling spec; `domains/government/`, `domains/hr/`, `domains/law/` and `domains/medical/` relocate to epistemic-graph under R048. |
+| `agent_utilities/domains/finance/` | 12,991 | split: delete (12 modules that produced fabricated data); remainder undecided in these two specs | AU-BOUNDARY-R041 | R041 names 12 of the 45 modules. The other 33 (about 9,950 lines) are outside these two specs; [`agent-context-and-finance`](../agent-context-and-finance/spec.md) owns the remaining finance cut. |
+| `agent_utilities/domains/government/` | 92 | relocate to epistemic-graph | AU-BOUNDARY-R048 | Typed domain models only; moves as a typed domain pack, then is deleted from AU. |
+| `agent_utilities/domains/hr/` | 570 | relocate to epistemic-graph | AU-BOUNDARY-R048 | Typed domain models and a workforce manager module; moves as a typed domain pack, then is deleted from AU. The MCP tool `mcp/tools/analysis_tools.py` that reads the workforce manager moves separately to graph-os with MCP tool hosting (R003). |
+| `agent_utilities/domains/law/` | 134 | relocate to epistemic-graph | AU-BOUNDARY-R048 | Typed domain models only; moves as a typed domain pack, then is deleted from AU. |
+| `agent_utilities/domains/medical/` | 107 | relocate to epistemic-graph | AU-BOUNDARY-R048 | Typed domain models only; moves as a typed domain pack, then is deleted from AU. |
+| `agent_utilities/ecosystem/` | 4,619 | split: relocate to graph-os (`hook_installer.py`, `agent_manager_dashboard.py`); relocate to agent-connector-sdk (`ea_clients.py`, `media/`); relocate to epistemic-graph (`ard_federation.py`, `ard_registry.py`); keep in AU (9 modules) | AU-BOUNDARY-R014, AU-BOUNDARY-R024, AU-BOUNDARY-R025, AU-BOUNDARY-R028, AU-BOUNDARY-R046 | The 9 modules that stay (2,237 lines) are `__init__.py`, `agents_md_reflector.py`, `bridge.py`, `config_staleness_auditor.py`, `governance_agent.py`, `governance_workflow.py`, `lint_enforcement_hook.py`, `permission_policy.py` and `plugin_bundle.py`. |
+| `agent_utilities/ecosystem/media/` | 777 | relocate to agent-connector-sdk | AU-BOUNDARY-R025 | Named wholesale as `ecosystem/media/**`. |
+| `agent_utilities/gateway/` | 13,940 | relocate to graph-os | AU-BOUNDARY-R001 | Named wholesale; the AU copy is deleted after AU-only behavior is ported. |
+| `agent_utilities/gateway/schemas/` | 2,604 | relocate to graph-os | AU-BOUNDARY-R001 | `graph_analyze` is AU-only; `graph_core` is a drifted duplicate to reconcile. |
+| `agent_utilities/gateway/widgets/` | 4,540 | relocate to graph-os | AU-BOUNDARY-R001 | 73 widget modules; the `gateway-widgets` extra is removed with them. |
+| `agent_utilities/gateway_client/` | 320 | relocate to graph-os | AU-BOUNDARY-R014 | Named wholesale as `gateway_client/**`. |
+| `agent_utilities/governance/` | 11,993 | relocate to repository-manager; relocate to epistemic-graph (`relational_authority.py`) | AU-BOUNDARY-R037, AU-BOUNDARY-R028 | The destination is repository-manager, which is none of the three target repositories. The `relational_authority.json` data file next to the module is not named. |
+| `agent_utilities/graph/` | 26,425 | keep in AU | AU-BOUNDARY-R043 | The agent execution state machine (executor, router, planner, parallel engine, verification); not a graph database. Retained agent-execution surface. 20 of 40 direct modules import `knowledge_graph` and must reach it only through the engine's public client. Count includes the four child rows. |
+| `agent_utilities/graph/planning/` | 486 | keep in AU | AU-BOUNDARY-R043 | Planning package for the agent state machine; retained agent-execution surface. |
+| `agent_utilities/graph/reactive/` | 844 | keep in AU | AU-BOUNDARY-R043 | Reactive dispatch, budgets and an engine subscription module; retained agent-execution surface. |
+| `agent_utilities/graph/reasoning/` | 1,898 | keep in AU | AU-BOUNDARY-R043 | Prompt-level reasoning strategies (chain, tree and graph of thought, ReAct); retained agent-execution surface. |
+| `agent_utilities/graph/routing/` | 1,871 | keep in AU | AU-BOUNDARY-R043 | Routing strategies and capability enrichers for the agent router; retained agent-execution surface. |
+| `agent_utilities/harness/` | 28,964 | keep in AU | AU-BOUNDARY-R043 | Evaluation, optimization and self-improvement harness (78 direct files, 27,128 lines); retained evaluation and self-improvement surface. Includes trace, state and memory modules that hold durable records; the sibling [`harness-evolution`](../harness-evolution/spec.md) spec covers harness behavior in detail. |
+| `agent_utilities/harness/memorydata/` | 1,836 | keep in AU | AU-BOUNDARY-R043 | Benchmark adapter for the served memory stack, with seven YAML configurations; retained evaluation surface. |
+| `agent_utilities/harness/policy_evolution/` | 540 | keep in AU | AU-BOUNDARY-R043, AU-HARNESS-R001, AU-HARNESS-R002 | Capability-gated policy-trajectory capture (`capture.py`) and the external, leased training-job path (`training.py`); retained self-improvement surface under `harness/` (R043). The sibling [`harness-evolution`](../harness-evolution/spec.md) requirements AU-HARNESS-R001 (capture) and AU-HARNESS-R002 (external training) state its behavior. |
+| `agent_utilities/httpsupport/` | 2,089 | relocate to agent-connector-sdk | AU-BOUNDARY-R010 | Named wholesale as `httpsupport/**`; deleted in AU once connectors use the SDK. |
+| `agent_utilities/ingestion/` | 1,479 | relocate to agent-connector-sdk | AU-BOUNDARY-R025 | Named as the top-level `ingestion/**`. |
+| `agent_utilities/ingestion/agent_sources/` | 1,174 | relocate to agent-connector-sdk | AU-BOUNDARY-R025 | Covered by the parent glob. |
+| `agent_utilities/integrations/` | 257 | keep in AU | AU-BOUNDARY-R043 | One git issue and pull-request resolver module; retained runtime and developer tooling. |
+| `agent_utilities/knowledge_graph/` | 347,980 | split by child row; direct files: delete as duplicate of engine (`facade.py`); relocate to epistemic-graph (2 worker modules); relocate to graph-os (`readiness.py`); relocate to agent-connector-sdk (`governance_import.py`); keep in AU (`__main__.py`); remainder undecided | AU-BOUNDARY-R014, AU-BOUNDARY-R018, AU-BOUNDARY-R020, AU-BOUNDARY-R024, AU-BOUNDARY-R045, AU-RETIRE-R001 | Count is the whole subtree. 17 files sit directly here; 11 (about 3,650 lines) are still not named: the workflow store and compilers, the process-plan compiler, migrations, `_engine_protocol.py`, `durable_execution_kg.py` and `ontology.lock`. |
+| `agent_utilities/knowledge_graph/actions/` | 1,837 | delete as duplicate of engine | AU-BOUNDARY-R022 | Deleted once native engine coverage is proven. |
+| `agent_utilities/knowledge_graph/adaptation/` | 5,281 | keep in AU | AU-BOUNDARY-R045 | Failure analysis, feedback, belief revision, contradiction detection, skill evolution and remediation playbooks; retained as policy/proposal orchestration. `belief_revision.py`'s deterministic confidence-propagation math is flagged for a later review of whether that specific calculation belongs in the epistemic graph instead. |
+| `agent_utilities/knowledge_graph/argumentation/` | 871 | delete as duplicate of engine | AU-BOUNDARY-R022 | Deleted once native engine coverage is proven. |
+| `agent_utilities/knowledge_graph/assimilation/` | 4,807 | relocate to epistemic-graph | AU-BOUNDARY-R027 | Named wholesale. |
+| `agent_utilities/knowledge_graph/backends/` | 12,810 | split: delete as duplicate of engine (`sparql/`); relocate to epistemic-graph (10 federation backends); keep in AU (`epistemic_graph_backend.py`, `base.py`, `__init__.py`) | AU-BOUNDARY-R032, AU-BOUNDARY-R033, AU-BOUNDARY-R045, AU-RETIRE-R001 | `epistemic_graph_backend.py` was previously kept only by design.md with no requirement ID; R045 is now its formal inventory owner. `base.py` defines the `GraphBackend` ABC that `epistemic_graph_backend.py` implements, and the 1,065-line `__init__.py` is the `create_backend()` factory that constructs it; both stay in AU as the retained backend's own infrastructure under R045, and may shrink further once R032/R033 finish moving every other backend out. AU-RETIRE-R001 also names `backends/owl/`, which does not exist. |
+| `agent_utilities/knowledge_graph/core/` | 69,181 | split: delete as duplicate of engine (33 modules, including `fleet_catalog_tables.py`); relocate to epistemic-graph (26 modules, including `markov_regime.py`); relocate to agent-connector-sdk (6 modules); relocate to graph-os (2 modules); remainder undecided | AU-BOUNDARY-R014, AU-BOUNDARY-R018, AU-BOUNDARY-R019, AU-BOUNDARY-R020, AU-BOUNDARY-R021, AU-BOUNDARY-R022, AU-BOUNDARY-R024, AU-BOUNDARY-R025, AU-BOUNDARY-R030, AU-BOUNDARY-R045, AU-RETIRE-R001, AU-RETIRE-R005, AU-RETIRE-R008 | 68 of 93 modules are now named. `fleet_catalog_tables.py` (2,790 lines) duplicates the engine's native fleet catalog and deletes; `markov_regime.py` duplicates epistemic-graph finance math and relocates alongside the domain/finance cut. The remaining 25 unnamed modules (about 7,800 lines) include `source_catalog.py` (1,004), `optimal_execution.py`, `nl_planner.py`, `ecosystem_topology.py`, `materialization.py`, `table_ingest.py` and `archimate_layer.py`. |
+| `agent_utilities/knowledge_graph/distillation/` | 7,491 | keep in AU | AU-BOUNDARY-R045 | Skill-graph distillation pipeline, skill synthesizer, deduplicator and an LSH index; propose-only skill generation and loop orchestration. Source reads, skill publication and durable graph writes must go through the agent-connector-sdk and epistemic-graph public ports rather than a local implementation. |
+| `agent_utilities/knowledge_graph/domain_packs/` | 1,650 | relocate to epistemic-graph | AU-BOUNDARY-R031, AU-BOUNDARY-R045 | Mapping evaluation, pack validation and graph schema authority (`dsl.py`, `pack_loader.py`, `domain_pack.py` and the rest); moves once the shared pack loader is cut over to engine-generated types. The agent-connector-sdk supplies source records and manifest transport. |
+| `agent_utilities/knowledge_graph/enrichment/` | 18,839 | split: relocate to agent-connector-sdk (extractors, write-back, git history, source adapters); relocate to epistemic-graph (6 deterministic modules); keep in AU (`cards.py`, `synthesize.py`, `distill.py`, `topic_classifier.py`, `pipeline.py`, `models.py`) | AU-BOUNDARY-R026, AU-BOUNDARY-R027, AU-BOUNDARY-R045, AU-RETIRE-R002, AU-RETIRE-R004, AU-RETIRE-R005, AU-RETIRE-R008 | The 6 modules that stay (about 6,040 lines together) are the LLM-driven card generation, synthesis and topic-classification workflow and its orchestration and data models; everything else in the directory now has a named destination. |
+| `agent_utilities/knowledge_graph/etl/` | 1,600 | relocate to epistemic-graph | AU-BOUNDARY-R027 | Named wholesale. |
+| `agent_utilities/knowledge_graph/extraction/` | 5,724 | split: relocate to agent-connector-sdk (readers, PDF); relocate to epistemic-graph (`schema_discovery.py`); keep in AU (fact extractor, structure router, job manager, candidate claims, ontology grounding, extraction schema, note-sync module) | AU-BOUNDARY-R025, AU-BOUNDARY-R030, AU-BOUNDARY-R045 | The 10 modules that stay (3,879 lines) are the model-backed LLM fact- and claim-extraction workflow that AU-BOUNDARY-R023 already says AU retains; R045 is now their formal inventory owner. |
+| `agent_utilities/knowledge_graph/id_management/` | 369 | delete as duplicate of engine | AU-BOUNDARY-R022 | Deleted once native engine coverage is proven. |
+| `agent_utilities/knowledge_graph/infra/` | 711 | relocate to epistemic-graph | AU-BOUNDARY-R028 | Named wholesale. |
+| `agent_utilities/knowledge_graph/ingestion/` | 29,521 | split: relocate to epistemic-graph (commit and derivation half, including `manifest.py`, `staged_pipeline.py`, `batch_orchestrator.py`); relocate to agent-connector-sdk (10 source modules, plus `skill_classification.py`'s `SKILL.md` frontmatter write); delete as duplicate of engine (the fleet skill/prompt harvest modules); `engine.py` dissolved | AU-BOUNDARY-R022, AU-BOUNDARY-R023, AU-BOUNDARY-R024, AU-BOUNDARY-R025, AU-BOUNDARY-R045, AU-RETIRE-R006, AU-RETIRE-R007, AU-RETIRE-R008 | R023 names the directory and lists 14 modules; R024 and R025 name 10 more. The fleet skill/prompt harvest modules (about 400 lines) duplicate native fleet skill handling and delete. `manifest.py` (durable delta-ingestion checkpoint) and `staged_pipeline.py` (the non-blocking stage-queue decomposition of `engine.ingest`) are durable commit/queue infrastructure for `engine.py` and relocate alongside it under R023. `batch_orchestrator.py` owns the KG-side fan-out, idempotency and backpressure for enterprise repository ingestion (its companion remote enumeration already lives in repository-manager) and relocates under R023 too. `skill_classification.py` splits: its source-of-truth write (the skill's own `SKILL.md` frontmatter) is a content-pack mutation that belongs with the agent-connector-sdk's pack write-back; its durable-override fallback calls `core.fleet_catalog_tables.write_skill_classification_override`, which duplicates the engine's native fleet catalog (R022) and must move there instead once that module deletes. The AU-RETIRE requirements change `engine.py` and `embedding_admission.py` before they move. |
+| `agent_utilities/knowledge_graph/integrations/` | 2,419 | split: relocate to agent-connector-sdk (connector certification, attestation and its CLI); delete as duplicate of engine (legacy SPARQL sync and ingestor) | AU-BOUNDARY-R011, AU-BOUNDARY-R032 | Fully covered. |
+| `agent_utilities/knowledge_graph/kb/` | 3,702 | split: relocate to agent-connector-sdk (`x_ingestion.py`); keep in AU (`entity_claim_extractor.py`); split (`ingestion.py`: parse/transport to the SDK, extraction to AU, graph write to epistemic-graph); remainder undecided | AU-BOUNDARY-R025, AU-BOUNDARY-R045 | `entity_claim_extractor.py` (521 lines) is AU's model-backed candidate-claim extraction. `x_ingestion.py` (509 lines) is source transport and moves to the SDK. `ingestion.py` (764 lines) itself chains parse, Pydantic AI extraction, embedding and graph write, so it splits by step rather than moving whole. The other 8 files (about 1,908 lines) remain undecided. |
+| `agent_utilities/knowledge_graph/live_artifacts/` | 414 | split: relocate to epistemic-graph (`store.py`); keep in AU (`models.py`, `refresh.py`, `kg_source.py`, `__init__.py`) | AU-BOUNDARY-R045 | `store.py` keeps a process-local index and a best-effort writer through the legacy graph-write path; durable artifact authority belongs to the epistemic graph. `models.py` and `refresh.py` are rendering and refresh policy and stay. `kg_source.py` is a read-only resolver that queries the KG and shapes the result for the gateway's artifact-refresh route; it holds no durable state of its own and stays alongside `refresh.py`. `__init__.py` is the package's export surface; it re-exports `LiveArtifactStore`/`get_live_artifact_store` from `store.py` today and needs that import repointed to the epistemic-graph client once `store.py` relocates. |
+| `agent_utilities/knowledge_graph/maintenance/` | 1,801 | delete as duplicate of engine | AU-BOUNDARY-R022 | Deleted once native engine coverage is proven. |
+| `agent_utilities/knowledge_graph/memory/` | 13,347 | relocate to epistemic-graph | AU-BOUNDARY-R040, AU-BOUNDARY-R027 | Everything moves; `timeseries/` under R027, the rest under R040. AU keeps only a thin engine client. |
+| `agent_utilities/knowledge_graph/neural/` | 911 | relocate to epistemic-graph | AU-BOUNDARY-R034 | Named wholesale. |
+| `agent_utilities/knowledge_graph/ontology/` | 69,600 | split: relocate to epistemic-graph (object model, emitters behind pack compilation); relocate to agent-connector-sdk (connector manifest files, `sync_conflict`); files kept for AU typing not listed | AU-BOUNDARY-R029, AU-BOUNDARY-R030, AU-BOUNDARY-R011, AU-BOUNDARY-R045 | Largest directory after `core`. R029 excepts "the files kept for AU's own semantic typing" without listing them; R045 is now the formal owner of that unlisted remainder. `leanix_metamodel` is sent to the SDK by R029 and behind engine pack compilation by R030. |
+| `agent_utilities/knowledge_graph/orchestration/` | 6,187 | split: delete as duplicate of engine (8 `engine_*` modules); keep in AU (`research_orchestrator.py`, `research_subagent.py`, `data_analyst.py`, `voi_budget_controller.py`, `__init__.py`) | AU-BOUNDARY-R018, AU-BOUNDARY-R045 | The 5 modules that stay (1,300 lines) are the LLM-driven research loop's orchestrator, subagent, data analyst and value-of-information budget controller. |
+| `agent_utilities/knowledge_graph/pipeline/` | 3,925 | delete as duplicate of engine | AU-BOUNDARY-R045 | Phased pipeline: scan, parse, embedding, SHACL check, sync, communities, centrality; plus document ingest, update and deletion. Legacy graph sync, parse and document-writer behavior that the agent-connector-sdk's source lifecycle and the epistemic graph's index/derivation path already cover; AU proves live callers and replacement behavior before deleting. |
+| `agent_utilities/knowledge_graph/quantum/` | 276 | relocate to epistemic-graph | AU-BOUNDARY-R028 | Named wholesale. |
+| `agent_utilities/knowledge_graph/research/` | 19,712 | split: relocate to epistemic-graph (`placement_mining.py`); keep in AU (research loop controller, change publisher, evolution state, evidence, promotion governance, artifact compiler subpackage) | AU-BOUNDARY-R028, AU-BOUNDARY-R045 | The 36 modules that stay (17,567 lines) are the LLM-driven research loop, evolution state and claim flywheel; retained under the same behavioral carve-out as `distillation/` and `enrichment/`. |
+| `agent_utilities/knowledge_graph/retrieval/` | 49,120 | split: relocate to epistemic-graph (18 retrieval engines); keep in AU (`capability_index.py`, `context_compiler.py`); remainder undecided | AU-BOUNDARY-R034, AU-BOUNDARY-R045 | `capability_index.py` and `context_compiler.py` are the "context compilation and the capability index" R034 already says AU retains, now named. 29 further modules (about 7,400 lines: context planes, query analysis, evaluation corpus, score checks) plus one generated JSON catalog (29,070 lines) remain undecided. |
+| `agent_utilities/knowledge_graph/search/` | 2,473 | relocate to epistemic-graph | AU-BOUNDARY-R034 | Named wholesale. |
+| `agent_utilities/knowledge_graph/search_synthesis/` | 786 | keep in AU | AU-BOUNDARY-R045 | Search-task synthesis over the graph: question formulation, evidence subgraph, shortcut-risk checks; an adversarial research workspace. `evidence_subgraph.py` must read the epistemic graph through a typed, tenant-scoped client instead of raw unscoped Cypher. |
+| `agent_utilities/knowledge_graph/schema_drift/` | 1584 | relocate to agent-connector-sdk sync and the engine | AU-BOUNDARY-R035 | Source-record contract gate for connector sync: drift classification, quarantine and approved repair. Placed with the other drift handling under R035. |
+| `agent_utilities/knowledge_graph/security/` | 2,462 | relocate to epistemic-graph | AU-BOUNDARY-R028 | Named wholesale. |
+| `agent_utilities/knowledge_graph/shapes/` | 670 | relocate to epistemic-graph | AU-BOUNDARY-R045 | Eight SHACL shape files in Turtle; no Python. Ontology shape content belongs with the epistemic graph's pack compilation, matching the Turtle shapes already moving under the semantic-authority cut. |
+| `agent_utilities/knowledge_graph/standardization/` | 1,322 | split: relocate to epistemic-graph; `drift.py` to agent-connector-sdk sync and the engine | AU-BOUNDARY-R028, AU-BOUNDARY-R035 | R028 moves everything except drift handling; R035 places drift handling. |
+| `agent_utilities/knowledge_graph/streams/` | 504 | relocate to epistemic-graph | AU-BOUNDARY-R027 | Named wholesale. |
+| `agent_utilities/knowledge_graph/virtual_graph/` | 889 | keep in AU | AU-CONTROL-R029, AU-CONTROL-R030 | Cross-source report planning over ontology-selected virtual mappings. The control-plane spec owns it. Live source reads stay behind typed contracts; no credentials are stored. |
+| `agent_utilities/kvcache/` | 6,097 | keep in AU | AU-BOUNDARY-R047 | Remote key-value cache connector for the engine: eligibility, tiering, remote backend, checkpointing; becomes a thin client with no second cache authority. |
+| `agent_utilities/layers/` | 198 | keep in AU | AU-CONTROL-R018 | Typed cross-layer clients (L0-L3, L5) over the engine's generated contract. R018 also places run-specification negotiation here (`contracts.py`, `negotiation.py`), which does not exist yet. |
+| `agent_utilities/mcp/` | 70,511 | split: relocate to graph-os (legacy host, action manifest, multiplexer family, host-only modules including `check_env_var_drift.py`, `readme_env_vars.py`, `readme_mcp_examples.py`, `readme_tools.py`, `env_policy.py`, `env_sources.py`); relocate to agent-connector-sdk (9 toolkit modules); keep in AU (`toolset_factory`, `tool_specs`, `agent_manager`) | AU-BOUNDARY-R003, AU-BOUNDARY-R004, AU-BOUNDARY-R010 | Count includes `mcp/tools`. 38 files sit directly here. The environment-variable drift checker and README generators are host-only tooling named in R004's "host-only modules" set and move to graph-os with it. |
+| `agent_utilities/mcp/tools/` | 34,738 | relocate to graph-os | AU-BOUNDARY-R003 | Named wholesale as `mcp/tools/**`; every action is mapped to a graph-os operation or dropped with a reason. `analysis_tools.py` reads `domains/hr/workforce_manager.py` (see the `domains/hr/` row), so that import moves with it. |
+| `agent_utilities/measurement/` | 1,611 | keep in AU | AU-BOUNDARY-R043 | Measurement harness for benchmark and check runs: provenance, load checks, copy integrity; retained evaluation surface. |
+| `agent_utilities/media/` | 1,695 | keep in AU | AU-BOUNDARY-R047 | Media sidecar delegation for audio, image, PDF and video; becomes a thin client, no second media authority. All 7 modules import `knowledge_graph` and must reach it only through the engine's public client. |
+| `agent_utilities/messaging/` | 13,819 | split: relocate to graph-os (`agent_channel.py`, `daemon.py`, `service.py`, `router.py`, `inbox.py`, `bus_inbox.py`); split (`bus.py`: presence/subscription/command-planning policy stays AU behind `agent_utilities.api.messaging`, durable append/cursor/depth authority moves to epistemic-graph); keep in AU (`bus_log.py` adapter); remainder undecided | AU-BOUNDARY-R017 | The 6 named graph-os modules are the channel adapter, daemon, service, host router and inbox/polling pieces R017 assigns by role. `bus.py` itself combines the AU-retained policy with the durable broadcast that becomes epistemic-graph authority, so it splits rather than moves whole. 17 further direct modules (`alert_intake.py`, `backfill.py`, `base.py`, `bus_privacy.py`, `capabilities.py`, `coalescer.py`, `commands.py`, `enrichment.py`, `federation.py`, `governed_send.py`, `intake_lease.py`, `kg_ingest.py`, `models.py`, `registry.py`, `render.py`, `voice.py`, `__init__.py`) remain undecided. The two `orchestration/` modules R017 names (`agent_bus.py`, `messaging_handler.py`) do not exist yet; `orchestration/action_policy.py` is the closest existing match for the retained `ActionPolicy`. |
+| `agent_utilities/messaging/backends/` | 3,423 | relocate to graph-os | AU-BOUNDARY-R017, AU-BOUNDARY-R046 | The 17 channel adapters (`discord.py`, `googlechat.py`, `googlemeet.py`, `imessage.py`, `irc.py`, `line.py`, `matrix.py`, `mattermost.py`, `nextcloud.py`, `signal.py`, `slack.py`, `synology.py`, `teams.py`, `telegram.py`, `twitch.py`, `voicecall.py`, `whatsapp.py`) plus `__init__.py`'s backend registry move together; R046 is the formal owner of this by-path listing. |
+| `agent_utilities/models/` | 18,833 | split: relocate to epistemic-graph (graph-schema DTOs replaced by generated types); keep in AU (`model_registry.py`, `company.py`, `company_brain.py`, `goal.py`, `execution_manifest.py`, `model_profile.py`, `sdd.py`, `agent.py`, `imodel.py`, `mcp.py`, `project.py`, `prompt.py`, `scheduling.py`, `tool_score.py`, `usage.py`) | AU-BOUNDARY-R031, AU-BOUNDARY-R046 | 10 direct modules plus `schema_packs/` move to the epistemic graph. The 15 modules that stay (about 4,694 lines) are non-graph agent, execution and scheduling models. |
+| `agent_utilities/models/domains/` | 438 | relocate to epistemic-graph | AU-BOUNDARY-R048 | Domain-specific graph models (finance, infrastructure, enterprise, RLM); moves as typed domain packs alongside `domains/government/`, `domains/hr/`, `domains/law/` and `domains/medical/`. |
+| `agent_utilities/models/schema_packs/` | 505 | relocate to epistemic-graph | AU-BOUNDARY-R031 | Named wholesale. |
+| `agent_utilities/numeric/` | 789 | keep in AU | AU-BOUNDARY-R047 | One 789-line thin adapter over the engine's numeric kernel; already the thin-client shape R047 requires. |
+| `agent_utilities/observability/` | 17,558 | split: relocate to graph-os (`gateway_metrics.py`, `gateway_health.py`, `runtime_health.py`, `health.py`, `health_ingest.py`); relocate to epistemic-graph (`trace_ontology.py`, `self_ingest.py`, `audit_logger.py`); keep in AU (telemetry emission, per design.md); remainder undecided | AU-BOUNDARY-R014, AU-BOUNDARY-R028, AU-BOUNDARY-R046 | The 5 named graph-os files are the health and metrics modules R014 previously described without listing. The 3 named epistemic-graph files are unchanged. The other 24 files (about 14,970 lines, including roughly 910 lines design.md implies go to the SDK) remain undecided. |
+| `agent_utilities/ontology/` | 189 | relocate to epistemic-graph | AU-BOUNDARY-R048 | No direct files other than a package init; mirrors the child row. |
+| `agent_utilities/ontology/shapes/` | 189 | relocate to epistemic-graph | AU-BOUNDARY-R048 | One SHACL shape file in Turtle; ontology shape content belongs with the epistemic graph. |
+| `agent_utilities/orchestration/` | 41,801 | split: relocate to graph-os (`fleet_reconciler.py`, `fleet_autoscaler.py`, `fleet_actuation.py`, `fleet_health.py`, `fleet_observation.py`, `scaling_authority.py`, `scaling_intent_reconciler.py`, `scaling_signal_authority.py`, `scaling_signals.py`, `deploy_watch.py`); keep in AU (agent runner, dispatch and activation workers, durable execution, action policy, and the remaining modules) | AU-BOUNDARY-R044 | 55 modules total. The 10 named modules (fleet, scaling and deployment behavior) move to graph-os; the agent runner (6,348 lines) and its planning code stay, per the fleet/scaling/deployment ruling. 23 modules import `knowledge_graph` and must reach it only through the engine's public client. |
+| `agent_utilities/patterns/` | 1,680 | keep in AU | AU-BOUNDARY-R043 | Agentic design-pattern implementations (prompt chain, exploration, prioritization, test-driven loops); retained agent-execution surface. |
+| `agent_utilities/policies/` | 562 | keep in AU | AU-BOUNDARY-R043 | A 15-line `__init__.py`; mirrors the child row. |
+| `agent_utilities/policies/engineering_rules/` | 547 | keep in AU | AU-BOUNDARY-R043 | 13 Markdown rule summaries; no Python. Retained prompts/pricing/policy content. |
+| `agent_utilities/pricing/` | 505 | keep in AU | AU-BOUNDARY-R043 | Model pricing catalog and normalization; retained prompts/pricing/policy content. |
+| `agent_utilities/prompting/` | 2,667 | keep in AU | AU-BOUNDARY-R043 | Structured prompt builder, provider adapter and a JSON schema; retained prompts/pricing/policy content. |
+| `agent_utilities/prompts/` | 4,576 | keep in AU | AU-BOUNDARY-R043 | About 97 agent role prompts as JSON, plus one loader module; retained prompts/pricing/policy content. |
+| `agent_utilities/protocols/` | 24,023 | split by child row; direct files: relocate to graph-os (A2A, ACP, AG-UI); delete (`a2a_epistemic.py`, `universal_connector.py`) | AU-BOUNDARY-R011, AU-BOUNDARY-R015 | All 7 non-empty direct modules are named. Count includes the four child rows. |
+| `agent_utilities/protocols/enterprise/` | 436 | relocate to epistemic-graph | AU-BOUNDARY-R028 | Named wholesale. |
+| `agent_utilities/protocols/epistemic_operations/` | 6,277 | delete as duplicate of engine | AU-BOUNDARY-R012 | The second engine projection. |
+| `agent_utilities/protocols/source_connectors/` | 11,532 | relocate to agent-connector-sdk | AU-BOUNDARY-R011 | Deleted in AU once the SDK owns cursors, conflict handling, mapping and certification. |
+| `agent_utilities/protocols/voice_supply_chain/` | 708 | relocate to epistemic-graph, as native Rust alongside its Piper text-to-speech crate | AU-BOUNDARY-R048 | Voice-model acquisition (pinned fetch, sha256 verification, quarantine, license records). Operator ruling 2026-10-03: a design task for the engine's owner; code is not moved or changed by this ruling. |
+| `agent_utilities/rlm/` | 7,848 | keep in AU | AU-BOUNDARY-R043 | Recursive language model runtime: REPL, prompt optimizer, evaluation-set optimizer; retained evaluation and self-improvement surface. Count includes the two child rows. |
+| `agent_utilities/rlm/benchmarks/` | 966 | keep in AU | AU-BOUNDARY-R043 | Long-context benchmark tasks and scoreboard; retained evaluation surface. |
+| `agent_utilities/rlm/sandboxes/` | 3,377 | keep in AU | AU-BOUNDARY-R043 | Code sandbox backends (container, microVM, WASM, local) behind one contract; retained evaluation surface. |
+| `agent_utilities/runtime/` | 3,981 | keep in AU | AU-BOUNDARY-R043 | Developer-workspace runtime for the coding agent: workspaces, events, bridge, computer-use tier; retained runtime and developer tooling. |
+| `agent_utilities/runtime/run_vcs/` | 1,288 | keep in AU | AU-BOUNDARY-R043 | Version control of agent runs: kernel, commits, replay; retained runtime and developer tooling. |
+| `agent_utilities/sdd/` | 2,573 | split: relocate to agent-connector-sdk (`watcher.py`); keep in AU (`__init__.py`, `orchestrator.py`) | AU-BOUNDARY-R025, AU-BOUNDARY-R003, AU-BOUNDARY-R046 | R003 first removes one function from `watcher.py`. The 1,294-line `__init__.py` (DSTDD design/spec/plan/task persistence to the agent's `.specify` directory) and `orchestrator.py` (the SDD/TDD workflow orchestration layer over it) are agent planning and development tooling with no serving, storage-authority or connector role; they stay with AU's retained orchestration surface. R046 is their formal inventory owner. |
+| `agent_utilities/security/` | 15,365 | split: relocate to epistemic-graph (admission, permissions, entitlements; plus `threat_defense_engine.py`'s topological-analogy graph-propagation path); relocate to graph-os (request identity, auth, error surface, middleware); relocate to agent-connector-sdk (`secrets_client.py`, `cli_secrets.py`, `oauth_client_credentials.py`, `source_credentials.py`, `credential_provider.py`, `oidc_discovery.py`, `http_boundary.py`, `brain_context.py`, `actor_identity.py`); keep in AU (`guardrails.py`, `tool_guard.py`, `sandboxed_executor.py`, and `threat_defense_engine.py`'s pattern-based scanning) | AU-BOUNDARY-R010, AU-BOUNDARY-R014, AU-BOUNDARY-R021, AU-BOUNDARY-R022, AU-BOUNDARY-R046 | 27 of 42 direct modules are now named. The 9 named SDK modules are the "duplicated `security/**` modules" R010 previously described without listing. `guardrails.py` (PII sanitization primitives) and `tool_guard.py` (agent tool-approval middleware) are in-process agent-safety policy and stay. `sandboxed_executor.py` is agent code-sandboxing infrastructure, the same family as the retained `rlm/sandboxes/` (R043), and stays. `threat_defense_engine.py` splits: its pattern-based prompt-injection scanner and risk classification stay in AU, but it imports `knowledge_graph.core.analogy_engine` (`TopologicalAnalogyEngine`, deleted as a duplicate of the engine under R022) for OWL risk-propagation (`propagatesRiskTo`); that graph-propagation path moves to the epistemic graph alongside R022's deletion of the analogy engine it depends on. |
+| `agent_utilities/server/` | 7,223 | relocate to graph-os | AU-BOUNDARY-R015 | Named wholesale as `server/**`. |
+| `agent_utilities/server/routers/` | 3,626 | relocate to graph-os | AU-BOUNDARY-R015 | Covered by the parent glob. |
+| `agent_utilities/skills/` | 15,911 | split: relocate to graph-os (`runtime_validation.py`, `validation.py`); keep in AU (`__init__.py`, `agent-utilities-development/`); remainder relocated to graph-os or deleted (see child rows) | AU-BOUNDARY-R002, AU-BOUNDARY-R046, AU-BOUNDARY-R048 | The two named files are the validation modules R002 describes as "the moved `skills/` subpackages" without listing by path; only 3 files sit directly here (not 4 as previously estimated). Operator ruling 2026-10-03 resolved every previously-undecided child row under this directory. |
+| `agent_utilities/skills/agent-utilities-development/` | 853 | keep in AU | AU-BOUNDARY-R048 | Skill content (Markdown instructions, agent YAML, assets); no Python package. Operator ruling 2026-10-03: keep; a content rewrite for a shrinking library is a later task. |
+| `agent_utilities/skills/fleet_harness/` | 1,202 | relocate to graph-os | AU-BOUNDARY-R002 | The only Python subpackage under `skills/`; matched to R002 by description, not by path. |
+| `agent_utilities/skills/skill_graphs/` | 1,327 | relocate to graph-os | AU-BOUNDARY-R002 | Skill content; includes one deployment script. Named explicitly alongside `fleet_harness/` as moving with skill certification. |
+| `agent_utilities/tools/` | 6,344 | keep in AU | AU-BOUNDARY-R043 | Agent tool implementations (knowledge, code intelligence, git, workspace, scheduler, memory); retained agent-execution surface. 8 of 32 modules import `knowledge_graph` and must reach it only through the engine's public client. |
+| `agent_utilities/tools/browser/` | 878 | keep in AU | AU-BOUNDARY-R043 | Browser automation tools; retained agent-execution surface. |
+| `agent_utilities/usage/` | 2,113 | relocate to epistemic-graph | AU-BOUNDARY-R036 | The local store moves; AU keeps only event emission. |
+| `agent_utilities/usage/backends/` | 977 | relocate to epistemic-graph | AU-BOUNDARY-R036 | The SQLite and SQL analytics stores. |
+| `agent_utilities/workflows/` | 3,240 | keep in AU | AU-BOUNDARY-R043 | Workflow catalog and runner, skill compiler and an engine sync module; retained agent-execution surface. |
+
+#### Requirements that own the open rows
+
+The rows marked undecided or covered only in part are not left to chance. Each is owned by a
+requirement that must record the decision and prove it:
+
+- `AU-BOUNDARY-R042` — the inventory itself: every directory has one disposition and the tree check enforces it.
+- `AU-BOUNDARY-R043` — agent execution, evaluation, runtime tooling, prompts, pricing and policy packages.
+- `AU-BOUNDARY-R044` — fleet, scaling and deployment modules inside `orchestration/`.
+- `AU-BOUNDARY-R045` — `knowledge_graph/` packages with no disposition or without file-level owners.
+- `AU-BOUNDARY-R046` — the other partly covered packages, file by file.
+- `AU-BOUNDARY-R047` — `kvcache/`, `numeric/`, `caching/` and `media/`.
+- `AU-BOUNDARY-R048` — domain models, shapes, assets and skill content.
+
+The path corrections listed below for messaging, the finance task module and the duplicate-engine
+modules have been applied to the requirement text.
+
+#### Directories with no covering requirement
+
+None remain. The 17 directories this section used to list (about 8,558 lines:
+`images/`, `data/`, `protocols/voice_supply_chain/`, and 14 `skills/`
+subdirectories) had no disposition from either spec, the private review
+behind this pass, or an owner ruling. An operator ruling on 2026-10-03
+resolved every one of them:
+
+- `data/` relocates to graph-os together with its consumers (`server/
+  routers/interop.py`, `mcp/check_env_var_drift.py`); not moved in this pass.
+- `images/` (`geniusbot.png`) was confirmed unreferenced by any runtime path
+  (checked `ecosystem/media/gateway.py`, `governance/merge_queue.py`,
+  `mcp/tools/engine_tools.py`, every `SKILL.md`, and every doc — geniusbot
+  ships its own copy at `geniusbot/img/geniusbot.png`) and was deleted.
+- `protocols/voice_supply_chain/` relocates to epistemic-graph as native Rust
+  alongside its Piper text-to-speech crate; a design task for the engine's
+  owner, not moved or changed here.
+- `skills/agent-utilities-deployment/` was deleted, superseded by graph-os's
+  own `graphos-deployment` skill.
+- `skills/agent-utilities-development/` keeps in AU; a content rewrite for a
+  shrinking library is a later task.
+- `skills/agent-utilities-evolution/` and `skills/agent-utilities-self-
+  evolution/` were merged into one skill and moved to graph-os as
+  `graph-os-evolution`.
+- `skills/agent-utilities-source-integration/`, `skills/autonomous-
+  contribution/`, and the 7 `skills/graph-*` domain skills (`graph-engine-
+  and-modalities`, `graph-ingestion-and-integration`, `graph-modeling-and-
+  mutation`, `graph-orchestration-and-automation`, `graph-query-and-
+  explanation`, `graph-research-and-analysis`, `graph-runtime-and-
+  governance`) moved to graph-os as-is: their content already drives
+  graph-os's own served MCP tools.
+- `skills/workflows/` (26 files, including a bundled Helm chart) was found to
+  be a drifted duplicate of graph-os's existing `graphos-genesis` +
+  `graphos-deployment` skill pair, which is current and more accurate (it
+  references the real chart at `deploy/helm/graph-os` and the real
+  `graphos-deployment` handoff, where `workflows/agent-os-genesis` named a
+  stale `agent-utilities-deployment` handoff and bundled its own, now
+  redundant, copy of the chart). Nothing from it was ported; the directory
+  was deleted.
+
+Every other directory formerly in this group now has a disposition. The retained agent-execution, evaluation, runtime-tooling and prompts/pricing/policy directories are named directly in AU-BOUNDARY-R043's own text and are marked keep in AU; the engine-facing adapters and caches are named in AU-BOUNDARY-R047's text and are also kept in AU as thin clients; `orchestration/` splits under AU-BOUNDARY-R044 (fleet, scaling and deploy-watch modules to graph-os, the agent runner and planning code retained); the domain-model directories (`domains/government/`, `domains/hr/`, `domains/law/`, `domains/medical/`, `models/domains/`) relocate to epistemic-graph under AU-BOUNDARY-R048; and `skills/skill_graphs/` relocates to graph-os under AU-BOUNDARY-R002.
+
+The six `knowledge_graph/` directories previously covered only by the AU-RETIRE-R001 inventory obligation now each have a disposition under AU-BOUNDARY-R045: `knowledge_graph/distillation/` and `knowledge_graph/adaptation/` keep in AU, `knowledge_graph/pipeline/` deletes as a duplicate of the engine, `knowledge_graph/search_synthesis/` keeps in AU, `knowledge_graph/shapes/` relocates to epistemic-graph, and `knowledge_graph/live_artifacts/` splits, every file now named.
+
+#### Directories covered only in part
+
+A requirement names some files in these directories; the remainder has no stated owner. Counts are files directly in the directory.
+
+| Directory | Files without a stated owner | Lines | What is missing |
+|---|---:|---:|---|
+| `knowledge_graph/retrieval/` | 29 | about 7,400 (plus one 29,070-line generated JSON catalog) | `capability_index.py` and `context_compiler.py` are now named as AU-BOUNDARY-R034's "context compilation and the capability index". The remaining context planes, query analysis, evaluation corpus and score checks, plus the generated catalog, still have no stated owner. |
+| `observability/` | 24 | about 14,970 | The 5 health/metrics modules and the 3 epistemic-graph modules are now named by path. The rest, including an estimated 910 lines design.md implies belong to the agent-connector-sdk, are still assigned by description only. |
+| `knowledge_graph/core/` | 25 | about 7,800 | `fleet_catalog_tables.py` and `markov_regime.py` are now named. `source_catalog.py`, `optimal_execution.py`, `nl_planner.py`, `ecosystem_topology.py`, `materialization.py`, `table_ingest.py`, `archimate_layer.py` and the remaining modules are still unassigned. |
+| `domains/finance/` | 33 | 9,948 | Outside these two specs; the finance cut is owned by [`agent-context-and-finance`](../agent-context-and-finance/spec.md). |
+| `messaging/` | 17 | about 9,200 minus the 6 modules now named for graph-os | AU-BOUNDARY-R017 now names the channel adapter, daemon, service, router and inbox modules for graph-os, and `bus.py` as a split between AU-retained policy and epistemic-graph durable authority. `alert_intake.py`, `backfill.py`, `base.py`, `bus_privacy.py`, `capabilities.py`, `coalescer.py`, `commands.py`, `enrichment.py`, `federation.py`, `governed_send.py`, `intake_lease.py`, `kg_ingest.py`, `models.py`, `registry.py`, `render.py`, `voice.py` and `__init__.py` are still unassigned. |
+| `knowledge_graph/kb/` | 8 | about 1,908 | `entity_claim_extractor.py`, `x_ingestion.py` and `ingestion.py` are now named. The other 8 files in the directory are still unassigned. |
+| `knowledge_graph/` (direct files) | 11 | about 3,650 | `__main__.py` is now named as keep in AU. The workflow store, compilers, migrations, `_engine_protocol.py`, `durable_execution_kg.py` and `ontology.lock` are still unassigned. |
+| `knowledge_graph/ontology/` | not listed | — | AU-BOUNDARY-R029 excepts "the files kept for AU's own semantic typing" without listing them (directory total 69,600 lines); AU-BOUNDARY-R045 is now its formal inventory owner. |
+
+#### Requirements that name paths not in the tree
+
+| Requirement | Path as written | Finding |
+|---|---|---|
+| AU-RETIRE-R001 | `core/owl_bridge.py` | No such file; no tracked file under `agent_utilities/` has `owl` in its name. |
+| AU-RETIRE-R001 | `backends/owl/` | No such directory; `knowledge_graph/backends/` contains only `sparql/` and `contrib/` as subdirectories. |
+| AU-BOUNDARY-R017 | `orchestration/agent_bus.py` | No such file. The `AgentBus` class is in `messaging/bus.py`. |
+| AU-BOUNDARY-R017 | `orchestration/messaging_handler.py` | No such file. `ActionPolicy` is defined in `orchestration/action_policy.py`. |
+| AU-BOUNDARY-R017 | `agent_utilities.api.messaging` | Does not exist yet; `api/` has no messaging module. This is a module the requirement creates. |
+| AU-BOUNDARY-R035 | `candidate.py`, `contract_store`, `activation` | No schema-drift package with these modules is in the tree. The only drift module is `knowledge_graph/standardization/drift.py`. The requirement is written for a package that has not been merged. |
+| AU-BOUNDARY-R002 | "the moved `skills/` subpackages" | `deployment/` has no `skills/` subdirectory. The only match is the top-level `agent_utilities/skills/`, whose single Python subpackage is `fleet_harness/`. |
+| AU-BOUNDARY-R041 | `quant_tasks` | Not in `domains/finance/`; the only file of that name is `knowledge_graph/core/quant_tasks.py`. |
+| AU-BOUNDARY-R041 | candle rule sets, Merton-KMV specifics, sentiment lexicon | These are not modules. The content sits inside `domains/finance/` modules the requirement does not list (`credit_quality.py`, `pattern_classifier.py`, `visual_ta.py`, `kronos_forecaster.py`, `sentiment_fusion.py`). |
+
+Two further inconsistencies, where the paths exist:
+
+- `leanix_metamodel` is relocated to agent-connector-sdk by AU-BOUNDARY-R029 and placed behind engine pack compilation by AU-BOUNDARY-R030.
+- AU-BOUNDARY-R030 writes `core/ontology_publisher.py` and `extraction/schema_discovery.py`, AU-BOUNDARY-R026 writes `enrichment/git_history` and `enrichment/source_adapters`, and the AU-RETIRE requirements write `core/…`, `enrichment/…` and `ingestion/…`; all of these exist only under `agent_utilities/knowledge_graph/`.
+
+Every console script and packaging extra named by a requirement (`graph-os`, `graph-os-daemon`, `agent-utilities-acp`, `agent-utilities-messaging`, `kg-ingest-worker`, `graph-os-analytics-worker`, `setup-databases`, `graph-os-certify-connector`, `gateway-widgets`) is declared in `pyproject.toml`. All other paths named by the two specs resolve to tracked files.

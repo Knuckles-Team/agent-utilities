@@ -1,4 +1,4 @@
-# AU-SEMANTIC-001 requirements
+# AU-SEMANTIC requirements
 
 | ID | Requirement | Verification |
 |---|---|---|

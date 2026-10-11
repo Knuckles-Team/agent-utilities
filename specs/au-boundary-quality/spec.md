@@ -1,4 +1,4 @@
-# Reproducible AU boundary and quality gates — AU-QUAL-01
+# AU-QUAL — Reproducible AU boundary and quality gates
 
 **Owner:** agent-utilities. **Delivery:** partial; **acceptance:** pending. Work item IDs: AU-QUAL-R001, AU-QUAL-R002, AU-QUAL-R003, AU-QUAL-R004, AU-QUAL-R005. See [requirements.md](requirements.md) for the definition of every requirement ID (including AU-QUAL-R006 and AU-QUAL-R007) and [status.json](status.json) for its delivery state and evidence. This is a buildable contract for making the Python control plane green from a fresh clone and in a cloud contribution session.
 

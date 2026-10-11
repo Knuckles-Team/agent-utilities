@@ -1,4 +1,4 @@
-# AU-BOUNDARY-001 requirements
+# AU-BOUNDARY requirements
 
 | ID | Requirement | Verification |
 |---|---|---|

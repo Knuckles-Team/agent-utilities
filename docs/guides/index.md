@@ -121,7 +121,7 @@ Watching the system run and keeping it safe while it does.
 
 Lighter-weight companions to the full architecture reference — good starting points before the deep dives.
 
-- [Architecture](architecture.md)
+- [Architecture](plan.md)
 - [Agentic Harness Engineering (AHE) — Architecture](AHE_ARCHITECTURE.md)
 - [Capability-Based Architecture Guide](capability_architecture.md)
 - [Capabilities (Self-Healing Patterns)](capabilities.md)

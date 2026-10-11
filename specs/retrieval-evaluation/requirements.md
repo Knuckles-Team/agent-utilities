@@ -1,4 +1,4 @@
-# AU-RETRIEVAL-001 requirements
+# AU-RETRIEVAL requirements
 
 | ID | Requirement | Verification |
 |---|---|---|
