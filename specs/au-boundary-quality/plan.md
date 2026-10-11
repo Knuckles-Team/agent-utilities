@@ -32,7 +32,7 @@ Mypy expansion is staged by test directory with one baseline report per batch an
 
 ### Migration and risks
 
-Moving a time-sensitive liveness check out of local pre-commit requires a hosted/scheduled job that cannot miss expiry on a no-change day. If GitHub scheduled workflows are unreliable, combine a daily schedule with the normal PR check. Record the time and frozen clock in tests. Keep security and privacy gates in the PR path; replace ambient private-service assumptions with provisioned fixtures. When a test cannot be made hermetic, move it into an explicit live certification stage and state why the remaining contract tests still cover the PR boundary.
+Moving a time-sensitive liveness check out of local pre-commit requires a hosted/scheduled job that cannot miss expiry on a no-change day. If GitHub scheduled workflows are unreliable, combine a daily schedule with the normal PR check. Record the time and frozen clock in tests. Keep security and privacy gates in the PR path; replace ambient private-service assumptions with provisioned fixtures. When a test cannot be made hermetic, move it into an explicit live certification stage. State why the remaining contract tests still cover the PR boundary.
 
 ## Red-team trace evidence (AU-QUAL-R009)
 
