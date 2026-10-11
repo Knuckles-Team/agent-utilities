@@ -12,7 +12,28 @@
     "AU-RETRIEVAL-R003.3",
     "AU-RETRIEVAL-R003.4",
     "AU-RETRIEVAL-R003.5",
-    "AU-RETRIEVAL-R003.6"
+    "AU-RETRIEVAL-R003.6",
+    "AU-RETRIEVAL-R004",
+    "AU-RETRIEVAL-R004.1",
+    "AU-RETRIEVAL-R004.2",
+    "AU-RETRIEVAL-R004.3",
+    "AU-RETRIEVAL-R004.4",
+    "AU-RETRIEVAL-R004.5",
+    "AU-RETRIEVAL-R004.6",
+    "AU-RETRIEVAL-R005",
+    "AU-RETRIEVAL-R005.1",
+    "AU-RETRIEVAL-R005.2",
+    "AU-RETRIEVAL-R005.3",
+    "AU-RETRIEVAL-R005.4",
+    "AU-RETRIEVAL-R005.5",
+    "AU-RETRIEVAL-R005.6",
+    "AU-RETRIEVAL-R006",
+    "AU-RETRIEVAL-R006.1",
+    "AU-RETRIEVAL-R006.2",
+    "AU-RETRIEVAL-R006.3",
+    "AU-RETRIEVAL-R006.4",
+    "AU-RETRIEVAL-R006.5",
+    "AU-RETRIEVAL-R006.6"
   ],
   "requirements": [
     {
@@ -83,6 +104,177 @@
     },
     {
       "id": "AU-RETRIEVAL-R003.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R004",
+      "title": "The generation loop requests more evidence when told it is insufficient, then abstains with a typed refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-RETRIEVAL-R004.1",
+        "AU-RETRIEVAL-R004.2",
+        "AU-RETRIEVAL-R004.3",
+        "AU-RETRIEVAL-R004.4",
+        "AU-RETRIEVAL-R004.5",
+        "AU-RETRIEVAL-R004.6"
+      ]
+    },
+    {
+      "id": "AU-RETRIEVAL-R004.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R004.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R004.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R004.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R004.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R004.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R005",
+      "title": "The iterative loop stops when the engine's stop verdict says so",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-RETRIEVAL-R005.1",
+        "AU-RETRIEVAL-R005.2",
+        "AU-RETRIEVAL-R005.3",
+        "AU-RETRIEVAL-R005.4",
+        "AU-RETRIEVAL-R005.5",
+        "AU-RETRIEVAL-R005.6"
+      ]
+    },
+    {
+      "id": "AU-RETRIEVAL-R005.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R005.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R005.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R005.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R005.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R005.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R006",
+      "title": "The answer step applies the engine's arbitration verdict",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-RETRIEVAL-R006.1",
+        "AU-RETRIEVAL-R006.2",
+        "AU-RETRIEVAL-R006.3",
+        "AU-RETRIEVAL-R006.4",
+        "AU-RETRIEVAL-R006.5",
+        "AU-RETRIEVAL-R006.6"
+      ]
+    },
+    {
+      "id": "AU-RETRIEVAL-R006.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R006.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R006.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R006.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R006.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R006.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
