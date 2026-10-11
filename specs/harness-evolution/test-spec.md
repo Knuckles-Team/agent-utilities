@@ -4,14 +4,14 @@
 |---|---|---|
 | All controls omitted. Capture-only enabled | unit + provider fake | capture/train/promote default false. Capture alone emits no trainer job or pointer change |
 | Closed/unversioned provider, no chosen-token probabilities | capability negatives | typed refusal; no fabricated training row |
-| Terminal valid capture and replay | fixed token ids, masks, frozen `log_q`, verifier, held blobs | exact digest match, masked non-policy tokens, immutable sampler identity |
+| Terminal valid capture and replay. | fixed token ids, masks, frozen `log_q`, verifier, held blobs. | exact digest match, masked non-policy tokens, immutable sampler identity. |
 | Incomplete/mismatched arrays, missing reward, dead blob holder | capture negatives | trace may persist, trainer eligibility false |
 | External trainer absent/failed/cancelled | injected dispatch and A2A fake | no serving pointer movement; recoverable receipt, no duplicate job |
 | Held-out regression or unsupported replay mass | promotion negative | promotion denied; old immutable version remains served |
 | Duplicate evidence signal | served EG in-memory contract | one Gap and one WorkItem, stable idempotency key |
 | Offer with open dependency, cooldown, over-budget or other tenant | decision contract | candidate excluded with reason; no AU fallback sort |
 | Decide unavailable, commit replay mismatch, claim fence lost | integration fault | no execution and no second scheduler |
-| Proposal missing approval, stale base, dirty tree, path escape, gate failure, uncertain remote result | graph-os/RM contract fakes | no unauthorized commit; pending proposal with typed reason |
+| Proposal missing approval, stale base, dirty tree, path escape, gate failure, uncertain remote result. | graph-os/RM contract fakes. | no unauthorized commit; pending proposal with typed reason. |
 | L4 conformance | native adapter with injected runner. Claude Code adapter with fake executable | both satisfy `HarnessPort`. Outcome names the port, keeps the run identifier and uses a known status |
 | Native envelope | injected `run_agent` returning the run-summary envelope | summary requested; JSON output parsed; degraded failure text kept; outcome marked recorded |
 | Native timeout | runner slower than `timeout_s` | typed `timeout` outcome |
