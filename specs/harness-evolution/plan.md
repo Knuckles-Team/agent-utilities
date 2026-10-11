@@ -137,3 +137,13 @@ AU creates a proposal with repository, exact base commit, path allowlist, patch 
 ### Security and observability
 
 Tenant and auth scopes are checked at the EG boundary (`policy:capture-write`, `work:offer-write`, `evolution:proposal-write` and receipt-specific actions), then at graph-os dispatch. The run trace records sampler/offer/decision/claim/proposal/validation/materialization IDs with digests and high-watermarks. An uncertain trainer or Git dispatch reconciles by idempotency key and external receipt before any retry. No secrets, raw prompt corpora or checkpoint bytes enter a spec or unprotected graph field.
+
+## Study pipeline (AU-HARNESS-R019)
+
+Data flow: source locator -> `study_intake.fetch_once` -> `study_compare.compare` -> `study_propose.propose` -> `study_admit.admit` -> engine verdict.
+
+Attach point: the first child row locates and wires it beside `agent_utilities/harness/assimilation_benchmark.py` and the evolution sweep.
+
+Reused: the assimilation benchmark suite, `citation_tracker.py`, the compute governor and the propose-only pattern of `AU-HARNESS-R011`.
+
+Decision: the engine decides capability matches and admission, and AU only runs the steps. Rejected: an AU-side capability inventory, which adds a second store and a second decider.
