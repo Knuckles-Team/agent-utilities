@@ -212,7 +212,7 @@ Data flow: evolution round -> `AegisLoop` (`harness/aegis_loop.py:91`) -> `Harne
 
 Types: `HarnessEditRecord`, `DeclaredPrediction`. Attach point: `AegisLoop`, reached from the evolution sweep. Failure: a missing prediction refuses the edit. Reused: `HarnessGate` (`harness/harness_gate.py:114`). New: prediction, file-level revert.
 Existing code: `agent_utilities/harness/harness_gate.py:127`, `agent_utilities/harness/aegis_loop.py:274`, `agent_utilities/harness/edit_engine.py:457`, `agent_utilities/core/registry/kg_adapter.py:660`. Reachable today: yes for the gate, no for predictions.
-Cross-repository rows: EG-DECISION-ENGINE — must return the keep-or-revert verdict from the prediction and the next round outcomes, and store the edit record.
+Cross-repository rows: EG-DECISION-ENGINE — must return the keep-or-revert verdict from the prediction and the next round outcomes. It must also store the edit record.
 Moves to EG-DECISION-ENGINE: verdict rule and record store (no code in agent-utilities yet).
 Decision: the harness applies the received verdict, including revert on unverified. Rejected: an AU-side verdict rule, which adds a second decider.
 
@@ -227,7 +227,7 @@ Types: `MapPrimitive`, `DecompositionBudget`. Attach point: the sandbox namespac
 Existing code: `agent_utilities/rlm/repl.py:470`, `agent_utilities/rlm/repl.py:972`, `agent_utilities/core/model_concurrency.py:296`, `agent_utilities/rlm/config.py:60`. Reachable today: `run_full_rlm` yes, `run_parallel_sub_calls` no production caller.
 Cross-repository rows: EG-DECISION-ENGINE — must decide depth, item, cost and concurrency limits and the over-window threshold.
 Moves to EG-DECISION-ENGINE: limit values (`agent_utilities/rlm/config.py:60` holds a depth default today).
-Decision: the harness executes the loop and the engine supplies the limits. Rejected: model-written loops, which cannot guarantee termination.
+Decision: the harness loops and the engine supplies the limits. Rejected: model-written loops, which cannot guarantee termination.
 
 References:
 - arXiv:2512.24601 — Zhang et al., "Recursive Language Models" (2026)

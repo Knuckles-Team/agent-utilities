@@ -1310,7 +1310,7 @@
     },
     {
       "id": "AU-HARNESS-R026",
-      "title": "Execute parallel-map primitives and recursive decomposition within received limits",
+      "title": "Apply parallel-map primitives and recursive decomposition within received limits",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
