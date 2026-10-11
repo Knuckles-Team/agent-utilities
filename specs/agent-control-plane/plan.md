@@ -121,7 +121,7 @@ The decision: the layer is the unit of review. The rejected alternative is a wri
 
 Data flow: `served fork fan-out -> _fork_fanout (engine_surface_tools.py:1694) -> backend start with RuntimeQuota (container_fork_backend.py) -> signal handler -> grace timer -> kill group -> StopReason -> run trace`.
 
-Existing code: `agent_utilities/rlm/sandboxes/container_fork_backend.py:54`, `agent_utilities/core/cgroup_resources.py:52`, `agent_utilities/rlm/sandboxes/_bridge.py:287`, `agent_utilities/deployment/skill_validation.py:590`. Reachable today: no for quotas and signal handling; the PID 1 timeout is reached through the backend. Search terms: SIGTERM, graceful, terminate, rlimit, cgroup, ResourceLimits.
+Existing code: `agent_utilities/rlm/sandboxes/container_fork_backend.py:54`, `agent_utilities/core/cgroup_resources.py:52`, `agent_utilities/rlm/sandboxes/_bridge.py:287`, `agent_utilities/deployment/skill_validation.py:590`. Reachable today: no for quotas and signal handling; the PID 1 expiry is reached through the backend. Search terms: SIGTERM, graceful, kill, rlimit, cgroup, ResourceLimits.
 
 The decision: the runtime owns its own stop. The rejected alternative is a supervisor that only kills on timeout, which loses in-flight results. `ResourceLimits` of AU-CONTROL-R038.1 is reused for the call-count limit.
 
