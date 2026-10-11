@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "spec_id": "AU-SEC-01",
+  "spec_id": "AU-SEC",
   "owner_repo": "agent-utilities",
   "delivery_state": "LANDED",
   "requirement_ids": [
