@@ -181,3 +181,47 @@ Attach point: the first child row locates and wires it beside `agent_utilities/h
 Reused: the assimilation benchmark suite, `citation_tracker.py`, the compute governor and the propose-only pattern of `AU-HARNESS-R011`.
 
 Decision: the engine decides capability matches and admission, and AU only runs the steps. Rejected: an AU-side capability inventory, which adds a second store and a second decider.
+
+## Verified run programs (AU-HARNESS-R023)
+
+Data flow: `run_agent` (`agent_runner.py:702`) -> program lookup by task signature -> `RunProgram` replay -> deviation -> agent path -> `record_outcome` (`harness_record.py`) -> compiler -> independent replay -> engine store.
+
+Types: `RunProgram`, `ProgramStep`, `ProgramStatus`. Attach point: `run_agent`, called by the dispatch worker and the graph nodes. Failure: a deviation returns control to the agent. Reused: `ReplayManifest` and `InteractionRecord` (`observability/replay_engine.py:20`, `:36`). New: preconditions, compiler, verifier.
+Existing code: `agent_utilities/observability/replay_engine.py:48`, `agent_utilities/orchestration/agent_runner.py:702`. Reachable today: no.
+Search terms used: replay, compiled, macro, record_trajectory, workflow_cache.
+Decision: the engine stores programs and the verifier is independent of the compiler. Rejected: self-verification by the compiler, which admits its own mistakes.
+
+References:
+- arXiv:2606.17929 — Li, "PreAct: Computer-Using Agents that Get Faster on Repeated Tasks" (2026)
+
+## End-to-end tracing (AU-HARNESS-R024)
+
+Data flow: served graph run -> `_dispatch_parallel_batch` (`graph/_router_impl.py:1677`) -> step span -> tool span -> `default_runtime_capabilities` instrumentation (`capabilities/composition.py:160`) -> exporter -> run trace `traceId`.
+
+Types: `RunSpanContract` with closed span kinds. Attach point: graph steps and the tool path. Failure: no collector gives one typed observation, and the run continues. Reused: `build_fleet_instrumentation` (`capabilities/telemetry_instrumentation.py:40`), `setup_otel` (`observability/custom_observability.py:850`). New: span kinds, step and tool spans, replay comparison.
+Existing code: `agent_utilities/capabilities/telemetry_instrumentation.py:40`, `agent_utilities/capabilities/composition.py:160`, `agent_utilities/observability/custom_observability.py:850`, `agent_utilities/observability/replay_engine.py:81`. Reachable today: yes for agent-call spans, no for graph-step spans and replay.
+Decision: one connected trace per run with a fixed contract. Rejected: separate agent and graph traces, which cannot show a regression across layers.
+
+## Revertible harness edits (AU-HARNESS-R025)
+
+Data flow: evolution round -> `AegisLoop` (`harness/aegis_loop.py:91`) -> `HarnessEditRecord` opened -> `apply_edits` (`harness/edit_engine.py:457`) -> next round outcomes -> verdict -> revert of recorded files -> graph record.
+
+Types: `HarnessEditRecord`, `DeclaredPrediction`. Attach point: `AegisLoop`, reached from the evolution sweep. Failure: a missing prediction refuses the edit. Reused: `HarnessGate` (`harness/harness_gate.py:114`). New: prediction, verdict, file-level revert.
+Existing code: `agent_utilities/harness/harness_gate.py:127`, `agent_utilities/harness/aegis_loop.py:274`, `agent_utilities/harness/edit_engine.py:457`, `agent_utilities/core/registry/kg_adapter.py:660`. Reachable today: yes for the gate, no for predictions.
+Decision: revert on unverified as well as falsified. Rejected: reverting on falsified only, which keeps edits that carry no evidence.
+
+References:
+- arXiv:2604.25850 — Lin et al., "Agentic Harness Engineering: Observability-Driven Automatic Evolution of Coding-Agent Harnesses" (2026)
+
+## Bounded map and decomposition (AU-HARNESS-R026)
+
+Data flow: planning step -> `_router_impl.py:811` -> `run_full_rlm` (`rlm/repl.py:972`) -> `MapPrimitive` -> `run_parallel_sub_calls` (`rlm/repl.py:470`) -> result slots -> combined answer -> run trace.
+
+Types: `MapPrimitive`, `DecompositionBudget`. Attach point: the sandbox namespace in `run_full_rlm`. Failure: a typed `budget_exhausted` result. Reused: `map_concurrent` (`core/model_concurrency.py:296`), `RLMConfig.max_depth` (`rlm/config.py:60`). New: budget, primitives, loop refusal.
+Existing code: `agent_utilities/rlm/repl.py:470`, `agent_utilities/rlm/repl.py:972`, `agent_utilities/core/model_concurrency.py:296`, `agent_utilities/rlm/config.py:60`. Reachable today: `run_full_rlm` yes, `run_parallel_sub_calls` no production caller.
+This rollup merges two requirements that state one capability: bounded work over inputs larger than the window.
+Decision: the engine supplies the loop. Rejected: model-written loops, which cannot guarantee termination.
+
+References:
+- arXiv:submit/7269166 — Ehrlich et al., "LCM: Lossless Context Management" (2026)
+- arXiv:2512.24601 — Zhang et al., "Recursive Language Models" (2026)

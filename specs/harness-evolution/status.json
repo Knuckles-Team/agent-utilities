@@ -115,7 +115,40 @@
     "AU-HARNESS-R022.4",
     "AU-HARNESS-R022.5",
     "AU-HARNESS-R022.6",
-    "AU-HARNESS-R022.7"
+    "AU-HARNESS-R022.7",
+    "AU-HARNESS-R023",
+    "AU-HARNESS-R023.1",
+    "AU-HARNESS-R023.2",
+    "AU-HARNESS-R023.3",
+    "AU-HARNESS-R023.4",
+    "AU-HARNESS-R023.5",
+    "AU-HARNESS-R023.6",
+    "AU-HARNESS-R023.7",
+    "AU-HARNESS-R023.8",
+    "AU-HARNESS-R024",
+    "AU-HARNESS-R024.1",
+    "AU-HARNESS-R024.2",
+    "AU-HARNESS-R024.3",
+    "AU-HARNESS-R024.4",
+    "AU-HARNESS-R024.5",
+    "AU-HARNESS-R024.6",
+    "AU-HARNESS-R024.7",
+    "AU-HARNESS-R025",
+    "AU-HARNESS-R025.1",
+    "AU-HARNESS-R025.2",
+    "AU-HARNESS-R025.3",
+    "AU-HARNESS-R025.4",
+    "AU-HARNESS-R025.5",
+    "AU-HARNESS-R025.6",
+    "AU-HARNESS-R025.7",
+    "AU-HARNESS-R026",
+    "AU-HARNESS-R026.1",
+    "AU-HARNESS-R026.2",
+    "AU-HARNESS-R026.3",
+    "AU-HARNESS-R026.4",
+    "AU-HARNESS-R026.5",
+    "AU-HARNESS-R026.6",
+    "AU-HARNESS-R026.7"
   ],
   "requirements": [
     {
@@ -1076,6 +1109,274 @@
     },
     {
       "id": "AU-HARNESS-R022.7",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R023",
+      "title": "Successful runs compile into verified replayable programs",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R023.1",
+        "AU-HARNESS-R023.2",
+        "AU-HARNESS-R023.3",
+        "AU-HARNESS-R023.4",
+        "AU-HARNESS-R023.5",
+        "AU-HARNESS-R023.6",
+        "AU-HARNESS-R023.7",
+        "AU-HARNESS-R023.8"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R023.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R023.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R023.3",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R023.4",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R023.5",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R023.6",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R023.7",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R023.8",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R024",
+      "title": "Every agent call, tool call and orchestration step is traced end to end",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R024.1",
+        "AU-HARNESS-R024.2",
+        "AU-HARNESS-R024.3",
+        "AU-HARNESS-R024.4",
+        "AU-HARNESS-R024.5",
+        "AU-HARNESS-R024.6",
+        "AU-HARNESS-R024.7"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R024.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R024.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R024.3",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R024.4",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R024.5",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R024.6",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R024.7",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R025",
+      "title": "Every harness edit is revertible and paired with a prediction",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R025.1",
+        "AU-HARNESS-R025.2",
+        "AU-HARNESS-R025.3",
+        "AU-HARNESS-R025.4",
+        "AU-HARNESS-R025.5",
+        "AU-HARNESS-R025.6",
+        "AU-HARNESS-R025.7"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R025.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R025.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R025.3",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R025.4",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R025.5",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R025.6",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R025.7",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R026",
+      "title": "The engine bounds long-input work with parallel-map primitives and recursive decomposition",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R026.1",
+        "AU-HARNESS-R026.2",
+        "AU-HARNESS-R026.3",
+        "AU-HARNESS-R026.4",
+        "AU-HARNESS-R026.5",
+        "AU-HARNESS-R026.6",
+        "AU-HARNESS-R026.7"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R026.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R026.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R026.3",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R026.4",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R026.5",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R026.6",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R026.7",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

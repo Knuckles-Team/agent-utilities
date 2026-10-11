@@ -93,3 +93,7 @@ Quality: run the repository's configured CCCC, jscpd and Dupehound gates and `py
 | Parallel workers share a typed workspace | four fake workers | A schema violation is refused. A conflict is recorded. The breaker stops new workers after three failures. |
 | Evaluation gates separate safety from accuracy | scripted round | Accuracy gain with a safety regression is held. Divergent judge and outcome trends are refused as evidence. |
 | Run experience becomes reusable skills | three scripted runs | Three successes scaffold one skill. A candidate with too few rollouts is refused. |
+| Successful runs compile into admitted replayable programs | three runs, then a changed state | A fourth run uses no model call. A changed state returns control to the agent. |
+| Every agent, tool and orchestration step is traced | scripted served run, in-memory exporter | One connected trace holds agent, tool, step and diagram spans. |
+| Harness edits are revertible and paired with predictions | two scripted edits | A falsified prediction reverts only its recorded files. |
+| Parallel-map primitives and recursive decomposition | prompt of 3 times the window | The answer fits the budget. A model-written loop is refused. |
