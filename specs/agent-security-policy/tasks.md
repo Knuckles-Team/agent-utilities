@@ -13,3 +13,4 @@
 | T9 | AU-SEC-R009 | Add a static/automated review confirming no learned probability, similarity score, or other model-derived confidence value grants or extends authorization in AU or epistemic-graph; every authorization decision traces to an explicit policy or approval record. | [x] LANDED (AU portion) — `agent_utilities/security/authority_audit.py` + `tests/unit/security/test_authority_audit.py` statically audit every AU authorization-decision path. The epistemic-graph portion is out of scope for this repo/PR. |
 
 Tasks may be split across PRs. Mark a row **LANDED** only after its code reaches default branch. Mark **ACCEPTED** only after required evidence and owner contract checks are linked.
+| T10 | AU-SEC-R011 | Add the typed screen verdict, the tool-output screen call site, the approval-required refusal and the served proof. | Open. |

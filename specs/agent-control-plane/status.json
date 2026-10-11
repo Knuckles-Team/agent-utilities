@@ -61,7 +61,21 @@
     "AU-CONTROL-R037.3",
     "AU-CONTROL-R037.4",
     "AU-CONTROL-R037.5",
-    "AU-CONTROL-R037.6"
+    "AU-CONTROL-R037.6",
+    "AU-CONTROL-R038",
+    "AU-CONTROL-R038.1",
+    "AU-CONTROL-R038.2",
+    "AU-CONTROL-R038.3",
+    "AU-CONTROL-R038.4",
+    "AU-CONTROL-R038.5",
+    "AU-CONTROL-R038.6",
+    "AU-CONTROL-R039",
+    "AU-CONTROL-R039.1",
+    "AU-CONTROL-R039.2",
+    "AU-CONTROL-R039.3",
+    "AU-CONTROL-R039.4",
+    "AU-CONTROL-R039.5",
+    "AU-CONTROL-R039.6"
   ],
   "requirements": [
     {
@@ -663,6 +677,120 @@
     {
       "id": "AU-CONTROL-R037.6",
       "title": "End-to-end proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R038",
+      "title": "Model-written code runs only in a restricted interpreter",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-CONTROL-R038.1",
+        "AU-CONTROL-R038.2",
+        "AU-CONTROL-R038.3",
+        "AU-CONTROL-R038.4",
+        "AU-CONTROL-R038.5",
+        "AU-CONTROL-R038.6"
+      ]
+    },
+    {
+      "id": "AU-CONTROL-R038.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R038.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R038.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R038.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R038.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R038.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R039",
+      "title": "Fan-out sandboxes branch from a warmed parent and refuse typed",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-CONTROL-R039.1",
+        "AU-CONTROL-R039.2",
+        "AU-CONTROL-R039.3",
+        "AU-CONTROL-R039.4",
+        "AU-CONTROL-R039.5",
+        "AU-CONTROL-R039.6"
+      ]
+    },
+    {
+      "id": "AU-CONTROL-R039.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R039.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R039.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R039.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R039.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R039.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

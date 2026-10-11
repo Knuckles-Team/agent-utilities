@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "AU-SEC",
   "owner_repo": "agent-utilities",
-  "delivery_state": "LANDED",
+  "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-SEC-R001",
     "AU-SEC-R002",
@@ -13,7 +13,14 @@
     "AU-SEC-R007",
     "AU-SEC-R008",
     "AU-SEC-R009",
-    "AU-SEC-R010"
+    "AU-SEC-R010",
+    "AU-SEC-R011",
+    "AU-SEC-R011.1",
+    "AU-SEC-R011.2",
+    "AU-SEC-R011.3",
+    "AU-SEC-R011.4",
+    "AU-SEC-R011.5",
+    "AU-SEC-R011.6"
   ],
   "requirements": [
     {
@@ -147,6 +154,63 @@
       "verified_by": [
         "tests/unit/knowledge_graph/core/test_tenant_registry_control_graph.py:187"
       ]
+    },
+    {
+      "id": "AU-SEC-R011",
+      "title": "Task and tool text is screened before it enters a prompt",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-SEC-R011.1",
+        "AU-SEC-R011.2",
+        "AU-SEC-R011.3",
+        "AU-SEC-R011.4",
+        "AU-SEC-R011.5",
+        "AU-SEC-R011.6"
+      ]
+    },
+    {
+      "id": "AU-SEC-R011.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEC-R011.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEC-R011.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEC-R011.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEC-R011.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SEC-R011.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }

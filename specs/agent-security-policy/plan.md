@@ -51,3 +51,13 @@ Return 401 for absent/invalid identity, 403 for valid but forbidden identity, an
 ### Developer setup
 
 Fresh clone: install Python and `uv` as declared by this repository, run `python3 scripts/uv_workspace.py doctor`, then `python3 scripts/uv_workspace.py run --all-extras pytest tests/unit/security -q`. Unit and contract suites must use local fixtures and provision only their declared dependencies. A served integration test that needs an engine must start or provision its own disposable fixture and fail with a clear missing-dependency reason; ordinary PR checks must not depend on a private network or a running deployment.
+
+## Input and tool-output screening (AU-SEC-R011)
+
+Data flow: `execute_agent (api/agent_control_plane.py:361) -> _prepare_agent_task (:348) -> screen_and_redact_agent_task (orchestration/task_guard.py:32) -> capability resolution`; tool results `-> output screen (capabilities/composition.py:147) -> next model step`.
+
+Types: `ScreenVerdict` with source, closed reason and rule identifier. The injection scanner, the redaction guard and `TaskInjectionRejected` are reused. The tool-output screen and the approval-required refusal are new.
+
+Failure: a failed screen stops the call before any model or tool runs. A scanner error counts as a failed screen and never as a pass.
+
+Decision: one screen policy serves both sources, so the rule sets cannot drift apart. The rejected alternative is a separate tool-output policy with its own patterns.

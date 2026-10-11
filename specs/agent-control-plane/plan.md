@@ -86,3 +86,25 @@ Attach point: `graph_orchestrate` (`mcp/tools/analysis_tools.py:4223`) reaches `
 Reuse: `assemble_mapped` (`decide/consumers/assembly.py:220`) builds the graph. The `find` ranking supplies candidates.
 
 Decision: the engine's committed choice fills each slot. The rejected alternative is an LLM that proposes a substitute tool, which creates a second selector.
+
+## Restricted interpreter for model-written code (AU-CONTROL-R038)
+
+Data flow: `metric-scoring run loop -> _run_metric_isolated (agent_utilities/harness/online_scoring.py:70) -> Router.select (rlm/sandboxes/router.py:59) -> Sandbox.execute (rlm/sandboxes/base.py:147) -> SandboxResult or SandboxRejected -> next tier`.
+
+Types: `SandboxCapabilities` (`base.py:44`) gains `isolation`; `ResourceLimits` holds wall time, memory and call count. The backends and the router already exist and are reused. The new work is the closed isolation value, the limit record and the trace fields.
+
+Attach point: the chain loop at `online_scoring.py:106`, and the same loop at `change_synthesis.py:276`.
+
+Failure: a rejected construct escalates to the next tier. An exhausted chain returns a typed refusal and never runs the code unrestricted.
+
+Decision: host-controlled helpers are the only door out of the interpreter. The rejected alternative is a deny-list over a general interpreter, which fails open on a name the list misses.
+
+## Fan-out sandbox branching (AU-CONTROL-R039)
+
+Data flow: `served fork fan-out -> _fork_fanout (mcp/tools/engine_surface_tools.py:1694) -> ForkableSandbox.branch (rlm/sandboxes/base.py:222) -> warm registry -> new parent handle -> audit and metric`.
+
+Types: `BranchRequest`, `BranchResult` and `BranchRefusal` with a closed reason set. `ForkableSandbox.execute` and the warm registry are reused. The call from `_fork_fanout` to `branch` is new.
+
+Failure: a rung without snapshot support returns `BranchRefusal`. A host that cannot be reached returns `host_unavailable`. Neither path silently cold-starts.
+
+Decision: the warm registry owns every parent, so a branch is one more registered parent. The rejected alternative is a per-call snapshot cache, which duplicates parent lifetime rules.
