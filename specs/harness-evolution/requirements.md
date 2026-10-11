@@ -1,4 +1,4 @@
-# AU-HARNESS-001 requirements
+# AU-HARNESS requirements
 
 | ID | Requirement | Verification |
 |---|---|---|

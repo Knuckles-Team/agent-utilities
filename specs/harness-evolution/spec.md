@@ -1,6 +1,6 @@
-# Harness evolution and governed work
+# AU-HARNESS — Harness evolution and governed work
 
-**Owner:** agent-utilities (AU) · **Stable ID:** `AU-HARNESS-001`
+**Owner:** agent-utilities (AU) · **Stable ID:** `AU-HARNESS`
 **Delivery:** PARTIAL · **Acceptance:** NOT VERIFIED · **Scope IDs:** AU-HARNESS-R001–AU-HARNESS-R011 (AU portions). See [requirements.md](requirements.md) for the definition of every requirement ID and [status.json](status.json) for its delivery state and evidence.
 
 ## Outcome

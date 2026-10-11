@@ -1,6 +1,6 @@
-# Public AU development environment and skill lifecycle
+# AU-DEV — Public AU development environment and skill lifecycle
 
-**ID:** AU-DEV-001 · **Owner:** agent-utilities · **Delivery:** SPECIFIED; acceptance NOT AUDITED.
+**ID:** AU-DEV · **Owner:** agent-utilities · **Delivery:** SPECIFIED; acceptance NOT AUDITED.
 **Items:** AU-DEV-R001 (AU skill portion), AU-DEV-R002 (AU source move), AU-DEV-R003; supports every other AU spec. See [requirements.md](requirements.md) for the definition of every requirement ID and [status.json](status.json) for its delivery state and evidence.
 
 ## Outcome

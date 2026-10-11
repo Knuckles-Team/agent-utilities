@@ -238,3 +238,7 @@ shared `main` by hand. The queue validates the
 candidate as merged and retains a recovery reference before pruning. Pushes,
 tags, releases, deployments, and destructive cleanup require explicit scope
 from the user.
+
+## Specs: extend first
+
+Before any code change, find the spec row that owns the behavior (`git grep -n "<term>" -- specs`) and cite its ID in the commit `Spec:` trailer. Before any new spec text, extend the owning spec: a child row, a new rollup at the end of that spec, or a dated `plan.md` "Amendments" entry. Create a new spec only for a capability that no spec owns. Audits, reviews and carry-overs land in the owning spec and never get a spec directory. Reuse an existing function, module or store before adding one. The rules are the ecosystem [spec standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/spec-standard.md).

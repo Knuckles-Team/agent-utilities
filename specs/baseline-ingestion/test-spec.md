@@ -1,4 +1,4 @@
-# AU-BASELINE-001 — Test specification
+# AU-BASELINE — Test specification
 
 Status: BUILDING. Governing spec: [spec.md](spec.md).
 

@@ -1,4 +1,4 @@
-# AU-FREEZE-001 — Design
+# AU-FREEZE — Design
 
 ## Existing wiring and source of truth
 

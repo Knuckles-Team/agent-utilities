@@ -1,4 +1,4 @@
-# AU-FREEZE-001 requirements
+# AU-FREEZE requirements
 
 | ID | Requirement | Verification |
 |---|---|---|

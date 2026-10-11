@@ -30,7 +30,7 @@ The Company Brain treats **humans, AI agents, automated services, and hybrid hum
 
 | Document | Description |
 |:---------|:------------|
-| [Architecture](architecture.md) | Full architectural detailed review: state graph, mixin composition, backend abstraction, 5-Pillar integration |
+| [Architecture](plan.md) | Full architectural detailed review: state graph, mixin composition, backend abstraction, 5-Pillar integration |
 | [Concurrency Control](concurrency.md) | Version vectors, Compare-And-Swap, graph-level locking, multi-writer safety |
 | [Multi-Tenancy](multi_tenancy.md) | Tenant isolation, hierarchies, scoped queries, membership management |
 | [Conflict Resolution](conflict_resolution.md) | Contradiction detection, merge strategies, source arbitration |

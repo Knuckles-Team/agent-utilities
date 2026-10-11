@@ -1,4 +1,4 @@
-# AU-FREEZE-001 — Tasks
+# AU-FREEZE — Tasks
 
 - [ ] Inventory current freeze schemas, manifest/lock/version authorities and release gate callers.
 - [ ] Make AU source input deterministic and bind artifact plus mandatory test/scanner receipts to its digest.

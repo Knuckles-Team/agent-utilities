@@ -1,4 +1,4 @@
-# AU-RETRIEVAL-001 — Test contract
+# AU-RETRIEVAL — Test contract
 
 | ID | Requirements | Setup and action | Expected result |
 |---|---|---|---|

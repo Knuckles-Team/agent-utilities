@@ -1,4 +1,4 @@
-# AU-BASELINE-001 — Design and implementation plan
+# AU-BASELINE — Design and implementation plan
 
 Status: BUILDING. Governing spec: [spec.md](spec.md).
 

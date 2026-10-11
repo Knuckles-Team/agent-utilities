@@ -1,6 +1,6 @@
-# AU boundary deconstruction
+# AU-BOUNDARY — AU boundary deconstruction
 
-**ID:** AU-BOUNDARY-001
+**ID:** AU-BOUNDARY
 **Owner:** agent-utilities
 **Delivery:** SPECIFIED; implementation and acceptance must be checked against an exact merged commit.
 **Requirements:** AU-BOUNDARY-R001–AU-BOUNDARY-R041. Every requirement ID is defined in [requirements.md](requirements.md); the delivery state and evidence of each are recorded in [status.json](status.json). AU-BOUNDARY-R038 owns the final boundary gate.
@@ -21,7 +21,7 @@ Agent Utilities exposes one agent execution application API. It no longer hosts 
 
 AU-BOUNDARY-R041 removes the finance modules that produced fabricated data; the remaining finance cut, AU-CONTEXT-R007, is specified in [`agent-context-and-finance`](../agent-context-and-finance/spec.md). Cuts may be grouped in PRs only when each ownership edge has a live caller and no dual authority remains.
 
-The [deliverable matrix](cutover-matrix.md) defines the concrete source cut, target behavior and acceptance focus for every requirement, and the [deletion and relocation inventory](coverage.md#deletion-and-relocation-inventory) maps every AU package directory to the requirement that removes, relocates or keeps it.
+The [deliverable matrix](cutover-matrix.md) defines the concrete source cut, target behavior and acceptance focus for every requirement, and the [deletion and relocation inventory](plan.md#deletion-and-relocation-inventory) maps every AU package directory to the requirement that removes, relocates or keeps it.
 
 ## Requirements
 

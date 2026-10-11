@@ -214,7 +214,7 @@ memory before the existing agent factory is called.
 - Add MCP tools to the operator's agent: see [Building MCP Servers](building-mcp-servers.md)
 - Add custom skills: place `.md` files in a directory and pass `--custom-skills-directory`
 - Deploy with Docker: see the operator's agent's `Dockerfile` and `compose.yaml`
-- Learn about the graph orchestration pipeline: see [Architecture](architecture.md)
+- Learn about the graph orchestration pipeline: see [Architecture](plan.md)
 
 
 ## Creating an Agent

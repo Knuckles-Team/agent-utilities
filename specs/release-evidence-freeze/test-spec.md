@@ -1,4 +1,4 @@
-# AU-FREEZE-001 — Test contract
+# AU-FREEZE — Test contract
 
 | ID | Requirement | Setup and action | Expected result |
 |---|---|---|---|
