@@ -75,7 +75,42 @@
     "AU-CONTROL-R039.3",
     "AU-CONTROL-R039.4",
     "AU-CONTROL-R039.5",
-    "AU-CONTROL-R039.6"
+    "AU-CONTROL-R039.6",
+    "AU-CONTROL-R040",
+    "AU-CONTROL-R040.1",
+    "AU-CONTROL-R040.2",
+    "AU-CONTROL-R040.3",
+    "AU-CONTROL-R040.4",
+    "AU-CONTROL-R040.5",
+    "AU-CONTROL-R040.6",
+    "AU-CONTROL-R041",
+    "AU-CONTROL-R041.1",
+    "AU-CONTROL-R041.2",
+    "AU-CONTROL-R041.3",
+    "AU-CONTROL-R041.4",
+    "AU-CONTROL-R041.5",
+    "AU-CONTROL-R041.6",
+    "AU-CONTROL-R042",
+    "AU-CONTROL-R042.1",
+    "AU-CONTROL-R042.2",
+    "AU-CONTROL-R042.3",
+    "AU-CONTROL-R042.4",
+    "AU-CONTROL-R042.5",
+    "AU-CONTROL-R042.6",
+    "AU-CONTROL-R043",
+    "AU-CONTROL-R043.1",
+    "AU-CONTROL-R043.2",
+    "AU-CONTROL-R043.3",
+    "AU-CONTROL-R043.4",
+    "AU-CONTROL-R043.5",
+    "AU-CONTROL-R043.6",
+    "AU-CONTROL-R044",
+    "AU-CONTROL-R044.1",
+    "AU-CONTROL-R044.2",
+    "AU-CONTROL-R044.3",
+    "AU-CONTROL-R044.4",
+    "AU-CONTROL-R044.5",
+    "AU-CONTROL-R044.6"
   ],
   "requirements": [
     {
@@ -790,6 +825,291 @@
     },
     {
       "id": "AU-CONTROL-R039.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R040",
+      "title": "Run output is held as a reviewable proposal until accepted",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-CONTROL-R040.1",
+        "AU-CONTROL-R040.2",
+        "AU-CONTROL-R040.3",
+        "AU-CONTROL-R040.4",
+        "AU-CONTROL-R040.5",
+        "AU-CONTROL-R040.6"
+      ]
+    },
+    {
+      "id": "AU-CONTROL-R040.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R040.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R040.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R040.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R040.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R040.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R041",
+      "title": "Agent runtimes run isolated, with quotas, signals and graceful stop",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-CONTROL-R041.1",
+        "AU-CONTROL-R041.2",
+        "AU-CONTROL-R041.3",
+        "AU-CONTROL-R041.4",
+        "AU-CONTROL-R041.5",
+        "AU-CONTROL-R041.6"
+      ]
+    },
+    {
+      "id": "AU-CONTROL-R041.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R041.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R041.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R041.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R041.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R041.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R042",
+      "title": "Tools are disclosed on demand and an undisclosed tool cannot be called",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-CONTROL-R042.1",
+        "AU-CONTROL-R042.2",
+        "AU-CONTROL-R042.3",
+        "AU-CONTROL-R042.4",
+        "AU-CONTROL-R042.5",
+        "AU-CONTROL-R042.6"
+      ]
+    },
+    {
+      "id": "AU-CONTROL-R042.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R042.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R042.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R042.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R042.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R042.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R043",
+      "title": "A task splits into independent subtasks that run in parallel and aggregate",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-CONTROL-R043.1",
+        "AU-CONTROL-R043.2",
+        "AU-CONTROL-R043.3",
+        "AU-CONTROL-R043.4",
+        "AU-CONTROL-R043.5",
+        "AU-CONTROL-R043.6"
+      ]
+    },
+    {
+      "id": "AU-CONTROL-R043.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R043.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R043.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R043.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R043.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R043.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R044",
+      "title": "A planner composes skills by decompose, retrieve and compose",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-CONTROL-R044.1",
+        "AU-CONTROL-R044.2",
+        "AU-CONTROL-R044.3",
+        "AU-CONTROL-R044.4",
+        "AU-CONTROL-R044.5",
+        "AU-CONTROL-R044.6"
+      ]
+    },
+    {
+      "id": "AU-CONTROL-R044.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R044.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R044.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R044.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R044.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R044.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
