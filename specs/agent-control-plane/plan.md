@@ -108,3 +108,54 @@ Types: `BranchRequest`, `BranchResult` and `BranchRefusal` with a closed reason 
 Failure: a rung without snapshot support returns `BranchRefusal`. A host that cannot be reached returns `host_unavailable`. Neither path silently cold-starts.
 
 Decision: the warm registry owns every parent, so a branch is one more registered parent. The rejected alternative is a per-call snapshot cache, which duplicates parent lifetime rules.
+
+## The harness holds run output uncommitted and applies the verdict it receives (AU-CONTROL-R040)
+
+Data flow: `execute_agent -> hold layer (new) -> run tools write to the layer -> FsCarrier.snapshot (carrier.py:121) -> RunEventLog.append (kernel.py:160) -> verdict from graph-os -> apply | drop -> base tree`.
+
+Existing code: `agent_utilities/runtime/run_vcs/kernel.py:145`, `agent_utilities/runtime/run_vcs/carrier.py:101`, `agent_utilities/runtime/run_vcs/run_session.py:39`, `agent_utilities/runtime/run_vcs/run_commit.py:30`. Reachable today: no for the carrier; yes for replay only.
+
+Moves to GRAPHOS-HOST: the accept or reject admission of a proposal. Moves to EG-DECISION-ENGINE: the run's durable record. Existing code that implements a moved part: `agent_utilities/knowledge_graph/enrichment/writeback/approval.py:47` (approval queue).
+
+Cross-repository rows: GRAPHOS-HOST — admit or reject a proposal and return the verdict; EG-DECISION-ENGINE — store the run's durable record.
+
+The decision: the harness applies only a received verdict. The rejected alternative is a harness-side review queue, which decides admission outside graph-os.
+
+## The harness runs agent runtimes isolated and enforces the quota it receives (AU-CONTROL-R041)
+
+Data flow: `served fork fan-out -> _fork_fanout (engine_surface_tools.py:1694) -> backend start with received RuntimeQuota (container_fork_backend.py) -> signal handler -> grace timer -> kill group -> StopReason -> trace events`.
+
+Existing code: `agent_utilities/rlm/sandboxes/container_fork_backend.py:54`, `agent_utilities/core/cgroup_resources.py:52`, `agent_utilities/rlm/sandboxes/_bridge.py:287`, `agent_utilities/deployment/skill_validation.py:590`. Reachable today: no for quotas and signal handling; the PID 1 expiry is reached through the backend.
+
+Moves to EG-DECISION-ENGINE: the quota values. No agent-utilities code implements them today.
+
+Cross-repository rows: EG-DECISION-ENGINE — produce the quota values for a run.
+
+The decision: the runtime owns its own stop. The rejected alternative is a supervisor that only kills on timeout, which loses in-flight results. `ResourceLimits` of AU-CONTROL-R038.1 is reused for the call-count limit.
+
+## The harness loads only the tools it is given during a run (AU-CONTROL-R042)
+
+Data flow: `execute_agent -> build agent (factory.py:973) -> given tools from graph-os -> DisclosureSet -> tool call gate -> tool`.
+
+Existing code: `agent_utilities/capabilities/fleet_tool_search.py:54`, `agent_utilities/capabilities/fleet_tool_search.py:84`, `agent_utilities/capabilities/fleet_tool_search.py:198`, `agent_utilities/agent/factory.py:529`. Reachable today: no for the fleet capability; yes for deferred local toolsets.
+
+Moves to GRAPHOS-HOST: the tool registry and on-demand disclosure. Moves to EG-DECISION-ENGINE: tool choice. Existing code that implements a moved part: `agent_utilities/capabilities/fleet_tool_search.py:54` (relevance search) and `:84`.
+
+Cross-repository rows: GRAPHOS-HOST — serve the registry and disclose tools on demand; EG-DECISION-ENGINE — choose the tools for a run.
+
+The decision: the gate checks the given set at call time. The rejected alternative is a prompt instruction not to call unseen tools, which a model can ignore. R031 and R032 stay unchanged.
+
+## The harness runs the given fan-out in parallel and returns results (AU-CONTROL-R043)
+
+Data flow: `served fork fan-out -> _fork_fanout (engine_surface_tools.py:1694) -> received SubtaskSet check -> one sandbox per subtask -> FanoutResult -> aggregation -> trace events`.
+
+Existing code: `agent_utilities/graph/coordination.py:51`, `agent_utilities/graph/coordination.py:255`, `agent_utilities/graph/hierarchical_coordination.py:65`, `agent_utilities/mcp/tools/engine_surface_tools.py:1694`. Reachable today: no for aggregation of fan-out results.
+
+Moves to EG-DECISION-ENGINE: decomposition into independent subtasks and routing to specialists. Existing code that implements a moved part: `agent_utilities/graph/planning/__init__.py:165` (decomposition).
+
+Cross-repository rows: EG-DECISION-ENGINE — decompose the task, route the subtasks and set the independence flag.
+
+The decision: subtasks share nothing, so aggregation is the only join. The rejected alternative is a shared scratchpad between agents, which couples failures. Width stays with AU-CONTROL-R007. References: [arXiv:2605.15132] Rose et al., APWA.
+
+References:
+- arXiv:2605.15132 — Rose et al., "APWA: A Distributed Architecture for Parallelizable Agentic Workflows" (2026)
