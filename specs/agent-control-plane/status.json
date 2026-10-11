@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "spec_id": "AU-CONTROL-001",
+  "spec_id": "AU-CONTROL",
   "owner_repo": "agent-utilities",
   "delivery_state": "LANDED",
   "requirement_ids": [

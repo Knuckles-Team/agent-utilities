@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "spec_id": "AU-FREEZE-001",
+  "spec_id": "AU-FREEZE",
   "owner_repo": "agent-utilities",
   "delivery_state": "LANDED",
   "requirement_ids": [
