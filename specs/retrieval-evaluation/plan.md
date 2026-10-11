@@ -15,3 +15,16 @@ CLI/harness evaluation → corpus loader → tenant-filtered candidate provider 
 ## Decision and quality
 
 Predeclare a held-out adoption criterion of Recall@1 improvement whose paired 95% confidence interval lower bound exceeds zero, no Recall@3 or nDCG regression, zero cross-tenant citations, and p95 latency/update-cost within explicitly published budgets. If sample size cannot support confidence, report inconclusive. KISS favors one common scorer and existing retrieval ports. Run focused evaluation tests, `python3 scripts/check_dupehound.py`, `python3 scripts/check_duplication.py diff` (jscpd), `python3 scripts/check_complexity_staged.py` (CCCC cyclomatic 10/cognitive 15 caps), and full AU tests. Record exact merged revision and served receipt; no invented green metrics.
+
+## Iterative memory expansion (AU-RETRIEVAL-R003)
+
+Data flow: `served memory retrieval -> retrieve_hybrid_budgeted (knowledge_graph/retrieval/hybrid_retriever.py:1898) -> memory expansion (cue -> tag -> content) -> answer or RetrievalAbstention -> retrieval trace`.
+
+Types: `ExpansionBudget`, `ExpansionPath` and `RetrievalAbstention`. The hybrid retriever and the token-budget cut are reused. The expansion loop and its call site are new.
+
+Failure: an exhausted budget abstains with the partial path. An unreachable graph returns the existing typed unavailable result.
+
+Decision: a declared budget bounds cost and makes the stop reason auditable. The rejected alternative is an unbounded walk with a score cut-off, which has no cost ceiling.
+
+References:
+- arXiv:2606.06036 — Ji et al., "Memory is Reconstructed, Not Retrieved: Graph Memory for LLM Agents" (2026)

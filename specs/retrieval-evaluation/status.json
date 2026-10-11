@@ -5,7 +5,14 @@
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-RETRIEVAL-R001",
-    "AU-RETRIEVAL-R002"
+    "AU-RETRIEVAL-R002",
+    "AU-RETRIEVAL-R003",
+    "AU-RETRIEVAL-R003.1",
+    "AU-RETRIEVAL-R003.2",
+    "AU-RETRIEVAL-R003.3",
+    "AU-RETRIEVAL-R003.4",
+    "AU-RETRIEVAL-R003.5",
+    "AU-RETRIEVAL-R003.6"
   ],
   "requirements": [
     {
@@ -20,6 +27,63 @@
     {
       "id": "AU-RETRIEVAL-R002",
       "title": "Studied retrieval techniques enter only through the benchmark",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R003",
+      "title": "Iterative memory expansion stops at a declared budget and abstains",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-RETRIEVAL-R003.1",
+        "AU-RETRIEVAL-R003.2",
+        "AU-RETRIEVAL-R003.3",
+        "AU-RETRIEVAL-R003.4",
+        "AU-RETRIEVAL-R003.5",
+        "AU-RETRIEVAL-R003.6"
+      ]
+    },
+    {
+      "id": "AU-RETRIEVAL-R003.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R003.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R003.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R003.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R003.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R003.6",
+      "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

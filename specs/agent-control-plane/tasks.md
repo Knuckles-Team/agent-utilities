@@ -28,3 +28,5 @@
 - [ ] Run the quality and served tests in `test-spec.md`; record merged-head results in `evidence.md`.
 
 Checkboxes represent accepted deliverables, not merely files authored. Keep them open until their stated proofs pass.
+- [ ] AC-19: Declare the isolation value and limit record for model-written code. Record both in the run trace. Prove the escalation through the metric-scoring loop. Closes AU-CONTROL-R038.
+- [ ] AC-20: Create the branch call site in the fork fan-out. Add typed refusal and audit evidence. Prove it through the served fan-out operation. Closes AU-CONTROL-R039.
