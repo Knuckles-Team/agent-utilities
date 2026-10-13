@@ -8,7 +8,7 @@ Every agent in the ecosystem ships up to three server types, all powered by `age
 
 | Server Type | Entry Point | Purpose |
 |---|---|---|
-| **Agent Server** | `agent_server.py` | Full graph-orchestrated AI agent with ACP/A2A/AG-UI endpoints |
+| **Agent Server** | `agent_server.py` | Full graph-orchestrated SI agent with ACP/A2A/AG-UI endpoints |
 | **MCP Server** | `mcp_server.py` | Standalone MCP tool server (stdio, SSE, or HTTP transport) |
 | **API Wrapper** | `api_wrapper.py` | Python SDK wrapping a third-party REST API (used internally by the MCP server) |
 
@@ -146,7 +146,7 @@ ctx_log(ctx, logger, "debug", f"Detail: {data}")
 ```
 This ensures diagnostic output is visible in:
 - Server process logs (for operators / container logs)
-- MCP client log console (for the AI agent / human user)
+- MCP client log console (for the SI agent / human user)
 
 ### `ctx_set_state(ctx, project, key, value)` / `ctx_get_state(ctx, project, key, default=None)`
 Store and retrieve session state with namespaced keys to prevent collisions:

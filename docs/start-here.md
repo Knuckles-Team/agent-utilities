@@ -1,6 +1,6 @@
 # Start Here — What agent-utilities Is & How to Use It
 
-> The single page to read first. If the operator are an AI agent or a developer who just
+> The single page to read first. If the operator are an SI agent or a developer who just
 > wants to *use* this, everything the operator need is below or one click away.
 
 > 🧰 **Install the skills first — they unlock how to use everything else.** After

@@ -26,7 +26,7 @@ To support 100,000+ employees and scale to true enterprise size, the architectur
 Furthermore, raw data ingestion (e.g., Active Directory, Workday, ServiceNow) is externalized to peripheral "spoke" agents. These webhooks use high-throughput asynchronous batched `UNWIND` logic directly into the central graph.
 
 ### High-Throughput Stream Ingestion & Shared Ephemeral Memory (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
-To scale to massive workloads (100K+ employees, tens of thousands of active codebases, and continuous AI chat streams), the system incorporates a unified stream hydration and cache fabric:
+To scale to massive workloads (100K+ employees, tens of thousands of active codebases, and continuous SI chat streams), the system incorporates a unified stream hydration and cache fabric:
 
 1. **High-Throughput Parallel Stream Hydration**: Consumes large data streams from external enterprise systems (ServiceNow incidents, GitLab repositories/pipelines, etc.) in parallel. Rather than relying on LLMs to translate unstructured text into graph representations, the pipeline use schema-compliant, rigid R2RML mappings. These map raw JSON structures directly to formal ontology classes (like `au:Incident`, `au:Repository`, `au:Pipeline`), guaranteeing zero hallucination, predictable execution paths, and complete semantic alignment.
 2. **Shared Ephemeral Cache Fabric**: Enables stateless, short-lived agents and communication channels to share context instantly. The cache fabric is powered by a standard connection URI supporting Redis and Valkey (`redis://` or `valkey://`) with serializable payloads, falling back to a structured local directory namespaces architecture.
@@ -516,7 +516,7 @@ turns. See [KG-2.15](2_epistemic_knowledge_graph/KG-2.15-Resilient_Retrieval.md)
 
 ### KG-2.17 — Memory Hygiene
 
-A maintenance pass that bounds growth without data loss: a decay scanner archives stale AI memory by
+A maintenance pass that bounds growth without data loss: a decay scanner archives stale SI memory by
 closing its bi-temporal `valid_to` (never removes; alerts high-confidence stale items), and a
 semantic-merge pass collapses near-duplicates (cosine ≥ 0.92). Exposed via `agent-utilities-memory
 hygiene`. See [KG-2.17](2_epistemic_knowledge_graph/KG-2.17-Memory_Hygiene.md). Extends KG-2.1/2.3.

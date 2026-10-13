@@ -3,7 +3,7 @@
 **CONCEPT:AU-KG.research.research-pipeline-runner — Company Operations Domain**
 **CONCEPT:AU-ECO.ui.company-infrastructure-orchestration — Company Infrastructure Orchestration**
 
-This guide walks through bootstrapping an autonomous AI-driven company
+This guide walks through bootstrapping an autonomous SI-driven company
 from scratch using the agent-utilities ecosystem.
 
 ## Prerequisites

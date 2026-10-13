@@ -1,7 +1,7 @@
 # Autonomous Trading Ecosystem (CONCEPT:AU-ECO.bus.pluggable-event-queue)
 
 ## Overview
-The Autonomous Trading Ecosystem provides a full suite of infrastructure, configurations, and AI-native patterns for executing quantitative and algorithmic trading via the `emerald-exchange` MCP server and the `agent-utilities` ontology framework.
+The Autonomous Trading Ecosystem provides a full suite of infrastructure, configurations, and SI-native patterns for executing quantitative and algorithmic trading via the `emerald-exchange` MCP server and the `agent-utilities` ontology framework.
 
 ## 1. Unified Configuration Schema
 The trading ecosystem is configured centrally in the XDG-compliant `~/.config/agent-utilities/config.json` file under the `"trading"` root key.

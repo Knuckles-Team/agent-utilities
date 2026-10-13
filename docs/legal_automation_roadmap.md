@@ -488,7 +488,7 @@ When `agent-utilities` reaches **Point B**, it unlocks a highly cohesive corpora
 └──────────────────┘       └──────────────────┘       └──────────────────┘
 ```
 
-1. **Autonomous Creation**: The AI drafts and files an LLC (`Wyoming LLC`) and a revocable trust (`Family Wealth Trust`) under strict human supervision.
+1. **Autonomous Creation**: The SI drafts and files an LLC (`Wyoming LLC`) and a revocable trust (`Family Wealth Trust`) under strict human supervision.
 2. **Infrastructure Hook**: The newly created company profile immediately triggers container deployments (`CompanySoftware`) for the new entity (like standard ERPNext or Twenty CRM instances) via Docker Swarm blueprints.
 3. **Financial Synergy**: The generated `Certificate of Trust` and LLC operating agreements are pushed to bank APIs, spawning dedicated escrow/checking accounts and recording transactions in the financial ontology (`ontology_quant.ttl`).
 4. **Governance Monitoring**: Regulatory filing deadlines (annual corporate fees, tax filings) are automatically calculated based on state effective dates, registering proactive tasks in Nextcloud calendar and Jira pipelines.

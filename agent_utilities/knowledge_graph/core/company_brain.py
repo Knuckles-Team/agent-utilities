@@ -65,7 +65,7 @@ class GraphConcurrencyManager:
 
     Provides version vectors on nodes, Compare-And-Swap (CAS) mutations,
     and configurable lock strategies. Wraps the existing KGVersionEngine
-    with multi-writer safety for concurrent human and AI actors.
+    with multi-writer safety for concurrent human and SI actors.
 
     Example::
 
@@ -197,7 +197,7 @@ class TenancyManager:
     CONCEPT:AU-KG.backend.company-brain-write-guard — Company Brain Infrastructure
 
     Provides tenant-scoped node/edge operations, hierarchical tenant
-    trees, and query-time tenant filtering. Supports humans, AI agents,
+    trees, and query-time tenant filtering. Supports humans, SI agents,
     and hybrid teams as tenant members.
 
     **The tenant tree here is IN-MEMORY and resets with the process.** For a
@@ -262,7 +262,7 @@ class TenancyManager:
         role: str = "member",
         granted_by: str = "system",
     ) -> TenantMembership:
-        """Add an actor (human, AI, or hybrid) to a tenant."""
+        """Add an actor (human, SI, or hybrid) to a tenant."""
         membership = TenantMembership(
             actor_id=actor_id,
             actor_type=actor_type,
@@ -386,7 +386,7 @@ class ConflictResolver:
 
     Detects when two actors write conflicting values to the same node
     and applies configurable merge strategies. Supports humans and AIs
-    equally — a human judgment and an AI inference are both evaluated
+    equally — a human judgment and an SI inference are both evaluated
     by the same strategy framework.
 
     Example::
@@ -543,7 +543,7 @@ class ProvenanceTracker:
 
     Wraps write operations with required provenance metadata. Tracks
     read audits, manages trust hierarchies, and enables provenance-gated
-    retrieval. All actors (human, AI, hybrid) generate identical
+    retrieval. All actors (human, SI, hybrid) generate identical
     provenance records.
     """
 
@@ -1061,8 +1061,8 @@ class CompanyBrain:
     CONCEPT:AU-KG.backend.company-brain-write-guard — Company Brain Infrastructure
 
     Composes all six infrastructure primitives into a single entry point.
-    The Company Brain is actor-agnostic: humans, AI agents, automated
-    services, and hybrid human+AI teams are all first-class participants
+    The Company Brain is actor-agnostic: humans, SI agents, automated
+    services, and hybrid human+SI teams are all first-class participants
     with identical capabilities and constraints.
 
     Example::
@@ -1071,7 +1071,7 @@ class CompanyBrain:
         # Create a tenant for a team
         brain.tenancy.create_tenant("data-science",
             created_by="director:sarah", created_by_type=ActorType.HUMAN)
-        # Add both human and AI members
+        # Add both human and SI members
         brain.tenancy.add_member("analyst:jane", ActorType.HUMAN, "data-science")
         brain.tenancy.add_member("agent:model-trainer", ActorType.AI_AGENT, "data-science")
         # Track concurrency

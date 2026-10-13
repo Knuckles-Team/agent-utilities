@@ -4,7 +4,7 @@ from __future__ import annotations
 """Code-correctness / security-audit gap track — the 4th discovery track.
 
 CONCEPT:AU-AHE.harness.audit-gap-detector — Wave-6 D1-ext (the "Macroscope-level" review,
-reframed as engine-native). An AI review runs over the **already-ingested code KG** — it
+reframed as engine-native). An SI review runs over the **already-ingested code KG** — it
 reads ``:CodeUnit``/``:Symbol`` nodes and their source straight from the graph (all
 codebases + specs + git-history are already ingested, so there is no fresh scan; the
 detector "naturally evolves within the epistemic-graph") — and detects the Macroscope

@@ -3,7 +3,7 @@
 
 CONCEPT:AU-AHE.harness.evolutionary-aggregation
 
-This module provides AI tools for autonomous self-improvement, allowing agents
+This module provides SI tools for autonomous self-improvement, allowing agents
 to trigger background optimization cycles (Lightning style) and propose
 new skills based on experience.
 """

@@ -2505,7 +2505,7 @@ def _is_retired_runtime_configuration_key(
 
 
 class AgentConfig(BaseSettings):
-    """Configuration schema for the AI Agent server.
+    """Configuration schema for the SI Agent server.
 
     Uses Pydantic BaseSettings to validate the XDG configuration projection and
     process-bound runtime values via canonical aliases. Covers LLM settings,
@@ -4312,7 +4312,7 @@ class AgentConfig(BaseSettings):
     kg_loop: bool = Field(default=False, alias="KG_LOOP")
     kg_loop_distill: bool = Field(default=False, alias="KG_LOOP_DISTILL")
     # Opt-in (LLM cost per code unit): the code-correctness/security-audit gap track
-    # (CONCEPT:AU-AHE.harness.audit-gap-detector, Wave-6 D1-ext) — an AI review over the
+    # (CONCEPT:AU-AHE.harness.audit-gap-detector, Wave-6 D1-ext) — an SI review over the
     # already-ingested code KG detects Macroscope finding-classes and files each as a
     # canonical :Gap flowing the SAME Gap→SDD→publish→resolved lifecycle. Default OFF:
     # the flywheel proposes, humans veto (no default-on autonomy).

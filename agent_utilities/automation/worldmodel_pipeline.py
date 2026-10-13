@@ -2,7 +2,7 @@
 
 The news/finance/tech sibling of the KG-2.6 research pipeline. Where the research
 pipeline acquires academic papers, this builds a *world model* from curated RSS
-items: an AI agent curates which FreshRSS feeds are subscribed (the
+items: an SI agent curates which FreshRSS feeds are subscribed (the
 ``freshrss_subscriptions`` MCP tool), and this runner decides which *items* are
 worth ingesting — only those relevant to the existing KG (taxonomy score OR
 concept-novelty), or that the agent explicitly deems worthy (``agent_force``).

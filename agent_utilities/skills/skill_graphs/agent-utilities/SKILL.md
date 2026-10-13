@@ -2,7 +2,7 @@
 name: agent-utilities
 skill_type: graph
 description: >-
-  The agent-utilities framework — a 5-pillar self-evolving AI architecture
+  The agent-utilities framework — a 5-pillar self-evolving SI architecture
   providing Knowledge Graph, Orchestration, Agentic Evolution, Ecosystem
   peripherals, and Agent OS. Install this skill to gain full context about
   how to use, develop for, and extend agent-utilities.
@@ -14,7 +14,7 @@ concept: AU-ECO.toolkit.self-documenting-plugin-bundle
 
 **CONCEPT:AU-ECO.toolkit.self-documenting-plugin-bundle — Self-Documenting Skill-Graph**
 
-agent-utilities is a self-evolving AI framework built on 5 pillars. This skill-graph
+agent-utilities is a self-evolving SI framework built on 5 pillars. This skill-graph
 provides agents (Antigravity, Claude Code, Windsurf, OpenCode) with complete context
 for using, developing, and extending the framework.
 

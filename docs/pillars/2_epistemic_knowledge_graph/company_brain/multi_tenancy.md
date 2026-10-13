@@ -9,7 +9,7 @@
 An organizational brain serves multiple teams, departments, and stakeholders. Without tenant isolation:
 - Engineering can see HR's compensation data
 - The trading desk can see compliance's investigation notes
-- A contractor AI agent can access internal strategy documents
+- A contractor SI agent can access internal strategy documents
 - A team's experimental models pollute another team's production state
 
 Multi-tenancy provides **namespace isolation** within the same graph, with **hierarchical inheritance** so parent organizations can see across their children.

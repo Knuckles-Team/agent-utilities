@@ -111,7 +111,7 @@ _KG_TO_ARCHIMATE: dict[str, tuple[ArchiMateLayerType, str]] = {
     "acceptance_criteria": (ArchiMateLayerType.MOTIVATION, "Requirement"),
     "design_guideline": (ArchiMateLayerType.MOTIVATION, "Principle"),
     "compliance_constraint": (ArchiMateLayerType.MOTIVATION, "Constraint"),
-    # Developer Harness & AI Optimization Patterns
+    # Developer Harness & SI Optimization Patterns
     "harness_extension_point": (ArchiMateLayerType.APPLICATION, "ApplicationInterface"),
     "context_file": (ArchiMateLayerType.TECHNOLOGY, "Artifact"),
     "hook": (ArchiMateLayerType.APPLICATION, "ApplicationFunction"),

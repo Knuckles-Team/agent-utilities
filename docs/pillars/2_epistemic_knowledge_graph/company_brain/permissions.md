@@ -124,6 +124,6 @@ visible = brain.permissions.filter_nodes(
 
 Permission checks apply identically in either case of actor type:
 - A **human analyst** is denied access to RESTRICTED nodes if not in the ACL
-- An **AI agent** gets the same denial
+- An **SI agent** gets the same denial
 - A **hybrid team** is evaluated by their combined actor_id
 - No actor type receives implicit elevated access
