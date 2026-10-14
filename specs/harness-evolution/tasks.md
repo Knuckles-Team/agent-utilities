@@ -18,7 +18,7 @@
 - [ ] HE-16: Schedule run-outcome prompt evolution through the existing optimization sweep and record propose-only `PromptVersion` candidates with trace provenance. Closes AU-HARNESS-R011.
 - [ ] HE-24: Run-loop configuration from the envelope, with every child row of AU-HARNESS-R019. Closes AU-HARNESS-R019.
 - [ ] HE-18: Context manager, with every child row of AU-HARNESS-R013. Closes AU-HARNESS-R013.
-- [ ] HE-19: Plan scaffold, with every child row of AU-HARNESS-R014. Closes AU-HARNESS-R014.
+- [ ] HE-19: Implement R014.1 through R014.5 scaffold state, then R014.6 through R014.11 public read and served acceptance. Bind GraphOS consumers after the AU producer exists. Closes AU-HARNESS-R014; all snapshot delivery remains TODO.
 - [ ] HE-20: Action space, with every child row of AU-HARNESS-R015. Closes AU-HARNESS-R015.
 - [ ] HE-21: Run guards, with every child row of AU-HARNESS-R016. Closes AU-HARNESS-R016.
 - [ ] HE-22: Run trace, with every child row of AU-HARNESS-R017. Closes AU-HARNESS-R017.
