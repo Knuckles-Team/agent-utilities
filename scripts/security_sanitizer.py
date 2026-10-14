@@ -15,7 +15,7 @@ MAX_SCAN_BYTES = 8 * 1024 * 1024
 SANITIZER_IGNORE_RE = re.compile(r"#\s*sanitizer:ignore\s*[-—:]\s*\S")
 
 # Config
-# llms.txt is the deliberate root-level AI entry index (llms-txt convention,
+# llms.txt is the deliberate root-level SI entry index (llms-txt convention,
 # like robots.txt) shipped by the docs/day-0 work — not garbage.
 # overrides.txt is the sanctioned uv dependency-override file (UV_OVERRIDE in
 # docker/Dockerfile, mirroring [tool.uv] override-dependencies) shipped by the

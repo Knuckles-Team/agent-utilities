@@ -1,6 +1,6 @@
 # Reference Agent Example
 
-This is a comprehensive end-to-end example demonstrating how to use agent-utilities to build a production-ready AI agent.
+This is a comprehensive end-to-end example demonstrating how to use agent-utilities to build a production-ready SI agent.
 
 ## Overview
 

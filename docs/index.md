@@ -1,6 +1,6 @@
 <section class="site-hero" aria-labelledby="agent-utilities-title">
   <p class="site-hero__eyebrow">Knuckles Team agent platform</p>
-  <h1 id="agent-utilities-title" class="site-hero__title">Coordinate AI agents without blurring system boundaries</h1>
+  <h1 id="agent-utilities-title" class="site-hero__title">Coordinate SI agents without blurring system boundaries</h1>
   <p class="site-hero__summary">
     Agent Utilities is the Python control plane for model selection, skills,
     teams, workflows, governed execution, evaluation, and outcome-driven

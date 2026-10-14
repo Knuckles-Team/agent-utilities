@@ -22,7 +22,7 @@ The Company Brain is the infrastructure layer that lets every app, agent, workfl
 
 ### Actor-Agnostic Design
 
-The Company Brain treats **humans, AI agents, automated services, and hybrid human+AI teams** as equal first-class participants. There is no hierarchy between organic and synthetic intelligence — every primitive applies the same rules in either case of who (or what) is interacting with the brain. An `ActorType` enum distinguishes them for provenance and audit purposes, but the infrastructure itself imposes no capability differences.
+The Company Brain treats **humans, SI agents, automated services, and hybrid human+SI teams** as equal first-class participants. There is no hierarchy between organic and synthetic intelligence — every primitive applies the same rules in either case of who (or what) is interacting with the brain. An `ActorType` enum distinguishes them for provenance and audit purposes, but the infrastructure itself imposes no capability differences.
 
 ---
 

@@ -1,6 +1,6 @@
 """Agent log ingestion (CONCEPT:AU-ECO.connector.agent-source-ingestion / ECO-4.42).
 
-Auto-detects installed AI coding agents, parses their session logs into the
+Auto-detects installed SI coding agents, parses their session logs into the
 normalized usage schema, and sinks them locally or pushes to a central engine.
 """
 

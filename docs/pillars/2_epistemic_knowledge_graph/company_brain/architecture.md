@@ -6,11 +6,11 @@
 
 ## The Problem: From Developer Brain to Company Brain
 
-Traditional knowledge graphs and RAG systems are designed for a single pattern: **one agent writes, one agent reads, context is reconstructed at query time**. This works for a developer's personal AI assistant. It does not work for an organization.
+Traditional knowledge graphs and RAG systems are designed for a single pattern: **one agent writes, one agent reads, context is reconstructed at query time**. This works for a developer's personal SI assistant. It does not work for an organization.
 
 An organization has:
 
-- **Multiple writers** — 50 AI agents, 200 humans, 30 automated services, all updating state simultaneously
+- **Multiple writers** — 50 SI agents, 200 humans, 30 automated services, all updating state simultaneously
 - **Multiple readers** — Every app, dashboard, workflow, and decision surface needs the same state
 - **Multiple tenants** — Engineering can't see HR's compensation data; the trading desk can't see compliance's investigation notes
 - **Conflicting interpretations** — Agent A says "this customer is low risk" while Agent B says "this customer is high risk"
@@ -109,14 +109,14 @@ brain = CompanyBrain(
 
 ### 1. Actor-Agnostic
 
-The Company Brain does not distinguish between human and AI intelligence in its infrastructure. Both are `actors` with:
+The Company Brain does not distinguish between human and SI actors in its infrastructure. Both are `actors` with:
 - An `actor_id` (unique identifier)
 - An `ActorType` (human, ai_agent, automated_service, hybrid_team, system)
 - Identical permission evaluation
 - Identical provenance tracking
 - Identical conflict resolution
 
-This means a human analyst and an AI agent writing to the same node are subject to the **exact same** concurrency control, conflict detection, and permission checks.
+This means a human analyst and an SI agent writing to the same node are subject to the **exact same** concurrency control, conflict detection, and permission checks.
 
 ### 2. Ontology-First
 
@@ -214,7 +214,7 @@ EventStreamIngester              ProvenanceTracker
 ```
 
 1. **External events** arrive via `EventStreamIngester` (webhooks, Kafka, CDC)
-2. **Actors** (human or AI) submit mutations via the engine
+2. **Actors** (human or SI) submit mutations via the engine
 3. **Concurrency control** checks version vectors and acquires locks
 4. **Conflict resolution** detects contradictions and applies merge strategies
 5. **Tenant scoping** ensures mutations land in the correct namespace
