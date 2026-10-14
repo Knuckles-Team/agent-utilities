@@ -32,5 +32,5 @@ Checkboxes represent accepted deliverables, not merely files authored. Keep them
 - [ ] AC-20: Create the branch call site in the fork fan-out. Add typed refusal and audit evidence. Prove it through the served fan-out operation. Closes AU-CONTROL-R039.
 - [ ] AC-20: Implement and contract-test the admitted/apply, rejected/local-drop and abstained/hold adapter. Unavailable responses and refusals preserve the held proposal without filesystem effects. Closes AU-CONTROL-R040.
 - [ ] AC-21: The harness runs agent runtimes isolated and enforces the quota it receives. Closes AU-CONTROL-R041.
-- [ ] AC-22: The harness loads only the tools it is given during a run. Closes AU-CONTROL-R042.
+- [ ] AC-22: Consume R134.2 selection and GraphOS-R011/R013/R029 schemas through the factory and call gate. Retire local ranking/registry authority after cutover. Require served positive, undisclosed-tool and upstream-refusal acceptance. Closes AU-CONTROL-R042; producer evidence alone is insufficient.
 - [ ] AC-23: The harness runs the given fan-out in parallel and returns results. Closes AU-CONTROL-R043.
