@@ -38,10 +38,3 @@ An operator sees one evidence-backed queue of gaps, can capture eligible open-we
 The same event cannot create two schedulable WorkItems; a repeated offer cannot bypass cooldown; dispatch without approval/client/service availability has zero Git or graph side effects; missing log probabilities never become invented values. Exact merged-head CI, receipt and manual-promotion evidence are needed before marking any requirement accepted. The [agent control plane](../agent-control-plane/spec.md) supplies RunSpec, conformance and L5 trace guarantees consumed here.
 
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
-
-
-## Planned current-plan read
-
-AU-HARNESS-R014.6 through R014.11 define the public read-only snapshot of the run scaffold.
-GraphOS projects that snapshot; terminal and desktop clients display it under their own acceptance rows.
-The producer, host binding and served proof remain SPECIFIED. This contract does not establish runtime availability.

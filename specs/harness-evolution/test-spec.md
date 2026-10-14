@@ -103,24 +103,3 @@ Quality: run the repository's configured CCCC, jscpd and Dupehound gates and `py
 AU-HARNESS-R023 consumes EG-DECISION-ENGINE-R135 and GRAPHOS-A2A-R006. AU-HARNESS-R024 consumes EG-ORCH-VOCAB-R013. AU-HARNESS-R025 and R026 consume EG-DECISION-ENGINE-R136 and R137 respectively.
 
 Harness tests assert receipt and application of these contracts. They do not prove producer decisions, storage or admission.
-
-
-## Planned current-plan snapshot acceptance
-
-These are future acceptance tests for AU-HARNESS-R014.6 through R014.11, not runtime evidence.
-Use a scripted model, fake clock and verified-session fixtures through the existing public control plane.
-
-| Row | Planned acceptance path | Required observation |
-|---|---|---|
-| R014.6 | `tests/harness/test_current_plan_read.py::test_snapshot_contract_and_empty_plan` | Strict round trip preserves item order and statuses. Available empty items differ from unavailable null. Unknown fields refuse. |
-| R014.7 | `tests/harness/test_current_plan_read.py::test_atomic_revision_and_expiry` | Revisions start at zero and advance once per accepted update. Concurrent reads see complete old or new lists. Invalid updates preserve revision. Lease and clock bound expiry. |
-| R014.8 | `tests/harness/test_current_plan_read.py::test_verified_caller_binding` | Same-caller reads succeed. Unknown, other-tenant and other-principal reads share unavailable output. Forged request authority refuses before state lookup. |
-| R014.9 | `tests/harness/test_current_plan_read.py::test_public_read_reaches_run_state` | The real public method reaches the injected adapter and the same state as the update tool. No private import in GraphOS. |
-| R014.10 | `tests/harness/test_current_plan_read.py::test_unavailable_has_no_items_or_effects` | Disabled, ended, expired and lost states expose no items. Missing port is unavailable. No model call, message read, mutation or text logging occurs. |
-| R014.11 | `tests/harness/test_current_plan_read_served.py::test_snapshot_through_run_and_graphos` | Enter `execute_agent`, update twice and read through served GraphOS `runs.get`. Observe increasing revisions, request injection and empty stored history. |
-
-The served fixture must use the actual AU application method and GraphOS invoke pipeline with injected session authority.
-Capture a successful snapshot, then advance time to expiry, deny refresh, switch runs and inject a regressing revision.
-Each consumer must clear prior protected items while preserving independently available run-trace fields.
-Terminal runs and unsupported harness adapters must return unavailable without reconstruction.
-TUI-RUNTIME-R010.6 and GENIUSBOT-CLIENT-R019.6 own their client delivery evidence; an AU unit pass cannot close them.
