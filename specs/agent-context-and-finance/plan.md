@@ -1,7 +1,7 @@
 # Plan
 
 1. Expose generated EG retrieval, context candidate, finance-core and Decide results plus SDK feed/write-back contracts with exact digest pins.
-2. Route AU context compilation through those results. Add tokenizer-exact package selection, provenance retention and invalidation checks.
+2. Route AU context compilation through those results. Apply EG context decisions with exact tokenizer counts, provenance retention and invalidation checks.
 3. Wire shadow re-embedding and admission feedback as governed proposals; EG activates only after independent receipts and rollback proof.
 4. Cut AU finance roles over to EG math and SDK feeds. Verify result parity on fixed public fixtures before deleting duplicated implementations.
 5. Expose explanation and paper workflows through graph-os. Keep live action behind a separate verified approval lease. Run full tests and publish exact-head evidence.
@@ -25,7 +25,7 @@ Reuse `agent_utilities/knowledge_graph/retrieval/context_compiler.py`, `context_
 
 ### Context interface
 
-`ContextRequest` contains verified principal/tenant/graph, task class, schema digest, RunSpec digest, tokenizer ID/version, token window, cost and latency ceilings, and cited source bounds. EG returns typed candidates with proof/claim class, source revision, rank receipt and invalidation epoch. AU chooses a package only from allowed candidates, with exact token counts and deterministic tie ordering. It records what was excluded and why. If source revision or invalidation epoch changes before use, AU re-queries or abstains.
+`ContextRequest` contains verified principal/tenant/graph, task class, schema digest, RunSpec digest, tokenizer ID/version, token window, cost and latency ceilings, and cited source bounds. EG returns typed candidates with proof/claim class, source revision, rank receipt and invalidation epoch. EG owns package choice and recursive planning. AU applies received choices with exact token counts and preserved source bounds. It records what was excluded and why. If source revision or invalidation epoch changes before use, AU re-queries or abstains.
 
 ### Finance interface
 
@@ -43,7 +43,7 @@ Preserve one owner for every calculation and transport. Apply CCCC to route/cont
 
 Data flow: `context_compiler_serving.py:565 -> compile_model_context (core/contextual_model.py:752) -> sizing_scope (context_knapsack.py:341) -> window check -> WindowFit -> ContextOverWindow | compiled bundle -> run trace`.
 
-Types: `WindowFit` and `ContextOverWindow` are new. `ContextSizer`, `Capacity`, `TokenCounter` and `fit_to_budget` (`context_knapsack.py:422`) are reused. The check shares the sizer's tokenizer so the count matches the knapsack.
+Types: `WindowFit` and `ContextOverWindow` are new. Reuse `ContextSizer`, `Capacity` and `TokenCounter` for counting and received-budget checks. The local selection in `fit_to_budget` (`context_knapsack.py:422`) remains migration work, not retained AU decision authority.
 
 Failure: an uncountable prompt abstains. An over-window prompt never truncates silently. The engine sets the context policy, window budget and decomposition plan. This spec applies the budget and returns the prompt.
 
@@ -52,3 +52,12 @@ Decision: detect once at the sizing scope, where the tokenizer and capacity alre
 Existing code: `agent_utilities/knowledge_graph/retrieval/context_knapsack.py:303`, `:98`, `:422`; `agent_utilities/core/contextual_model.py:752`. Reachable today: yes for knapsack sizing, no for whole-prompt fit.
 Moves to EG-DECISION-ENGINE: the knapsack item selection and package choice in `context_knapsack.py:422` (`fit_to_budget`); the engine decides the context policy and budget.
 Cross-repository rows: EG-DECISION-ENGINE-R137 — the context policy, window budget, over-window margin and decomposition plan the harness receives.
+
+
+### Producer and consumer boundary
+
+CONFIRMED: EG-DECISION-ENGINE-R137.1 defines the decision types; R137.2 owns thresholds, decomposition and limits. R137.3 owns served decision dispatch. AU-CONTEXT-R004 measures and applies that decision. AU-HARNESS-R026 owns bounded execution through `run_full_rlm`; this spec creates no second executor.
+
+DECIDED: retain tokenizer measurement and source-bound preservation in AU. Move local package choice from `fit_to_budget` to EG. Move depth policy from `rlm/config.py` under EG-R137; AU-HARNESS-R026 applies the received limit.
+
+BLOCKED for runtime cutover: require the generated R137 decision contract and served producer evidence. Pin the mapping from `WindowBudget.window_tokens` to `Capacity.tokens` and from `ParallelMapLimits.max_cost` to R026 `max_cost_usd`. The consumer must preserve `max_depth`, `max_items`, `max_model_calls` and the threshold without local overrides. Missing fields abstain. Existing local-knapsack evidence does not close this handoff.
