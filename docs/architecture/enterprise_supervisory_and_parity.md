@@ -1,6 +1,6 @@
 # Enterprise Parity, Supervisory Plane & Durable Execution
 
-Architecture decisions for running the ecosystem as an AI-first enterprise at
+Architecture decisions for running the ecosystem as an SI-first enterprise at
 scale: a single source of truth across the MCP and REST surfaces, a native
 supervisory plane, crash-safe durable execution, and cross-agent trace
 correlation. These records exist so the rationale survives as the surface grows.

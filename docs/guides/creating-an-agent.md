@@ -1,6 +1,6 @@
 # Creating an Agent with Python
 
-This guide walks the operator through creating a production-ready AI agent using
+This guide walks the operator through creating a production-ready SI agent using
 `agent-utilities`. The repository-local [reference agent](https://github.com/Knuckles-Team/agent-utilities/blob/main/examples/reference_agent/README.md)
 provides a runnable companion implementation.
 

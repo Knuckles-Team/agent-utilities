@@ -1,6 +1,6 @@
-# For AI Agents
+# For SI Agents {#for-ai-agents}
 
-If the operator are an AI agent (Claude Code, Cursor, Codex, or any other tool) that has been
+If the operator are an SI agent (Claude Code, Cursor, Codex, or any other tool) that has been
 pointed at this repository — to use it, deploy it, or work on it — the canonical
 instructions live outside this MkDocs site, in the repository root, so they load
 automatically into agent context:

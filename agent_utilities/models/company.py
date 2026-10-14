@@ -8,7 +8,7 @@ Provides Pydantic models for autonomous company operations including:
 - CompanyProfile: The top-level company entity
 - StrategicGoal: Measurable goals with KPI tracking
 - KPI: Key Performance Indicators
-- AgentDepartment: AI-staffed organizational units
+- AgentDepartment: SI-staffed organizational units
 - BenefitsPlan: Employee benefits administration
 - PayrollRecord: Payroll tracking
 - CompanyLicense: Business license management
@@ -33,7 +33,7 @@ from agent_utilities.models.knowledge_graph import (
 
 
 class CompanyProfile(RegistryNode):
-    """A company entity with all metadata for autonomous AI-driven operations.
+    """A company entity with all metadata for autonomous SI-driven operations.
 
     Maps to OWL class :Company in ontology_company.ttl.
     Inheriting companies can provide domain-specific ontologies via SPARQL federation.
@@ -116,7 +116,7 @@ class KPI(RegistryNode):
 
 
 class AgentDepartment(RegistryNode):
-    """An AI-staffed department with team config and automation level.
+    """An SI-staffed department with team config and automation level.
 
     Maps to OWL class :AgentDepartment in ontology_company.ttl.
     CONCEPT:AU-ORCH.execution.autonomous-department-orchestration — Autonomous Department Orchestration.

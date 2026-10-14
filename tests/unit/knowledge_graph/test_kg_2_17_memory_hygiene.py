@@ -60,7 +60,7 @@ def test_classify_exempt_human_and_procedural():
 
 @pytest.mark.concept(id="EG-KG.compute.compiled-semantic-reasoner")
 def test_classify_archive_vs_alert_vs_keep():
-    # Fresh AI memory → keep.
+    # Fresh SI memory → keep.
     assert (
         classify_node(
             {
@@ -256,7 +256,7 @@ class _MergeEngine:
 
 @pytest.mark.concept(id="EG-KG.compute.compiled-semantic-reasoner")
 def test_run_applies_merge_soft_retire_and_edge():
-    # Two identical-vector, similar-length AI memories → a merge group.
+    # Two identical-vector, similar-length SI memories → a merge group.
     rows = [
         {
             "id": "a",

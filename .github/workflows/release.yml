@@ -503,7 +503,10 @@ jobs:
   # ── STAGE 1.5: FULL-scope PRs (conftest/pyproject/lockfile/unmapped source
   # changes) get their own job with a real budget instead of sharing `gates`'
   # 10-minute PR timeout, which the ~21k-test suite cannot meet even under
-  # `-n auto` (AU #192). `gates` itself never runs the full suite for a PR
+  # `-n auto` (AU #192). The 30-minute budget was exceeded by a healthy full
+  # suite run (job timeout kill on PR #283, 2026-10-14), so this matches the
+  # 45-minute PR budget the fleet settled on for this suite class (EG #551).
+  # `gates` itself never runs the full suite for a PR
   # (see the fast-subset step's `if` above); this job picks up exactly the
   # cases that step skipped. On push to main / a release tag this job never
   # runs at all -- `gates` already runs the full suite unconditionally there.
@@ -512,7 +515,7 @@ jobs:
     needs: gates
     if: github.event_name == 'pull_request' && needs.gates.outputs.scope == 'FULL'
     runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - *gates-checkout
       - *sdk-checkout

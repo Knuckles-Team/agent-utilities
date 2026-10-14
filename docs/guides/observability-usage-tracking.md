@@ -1,7 +1,7 @@
 # Usage, Cost & Observability
 
 Track token usage, cost, model/tool/skill/db-call metrics, and Langfuse traces
-across **every AI coding agent the operator run** — and across this repository's own agent runtime —
+across **every SI coding agent the operator run** — and across this repository's own agent runtime —
 through one gateway API and native views in all three frontends (agent-webui,
 agent-terminal-ui, geniusbot).
 

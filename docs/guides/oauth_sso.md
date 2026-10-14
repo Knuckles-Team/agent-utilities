@@ -22,7 +22,7 @@ Every MCP server in the ecosystem supports three authentication patterns:
 
 ```mermaid
 sequenceDiagram
-    participant User as User / AI Client
+    participant User as User / SI Client
     participant IdP as OIDC Identity Provider
     participant MCP as FastMCP Server<br/>(any agent-mcp)
     participant MW as UserTokenMiddleware
@@ -371,7 +371,7 @@ The secrets engine (`agent_utilities.security.secrets_client`) integrates with H
 
 ```mermaid
 sequenceDiagram
-    participant User as User / AI Agent
+    participant User as User / SI Agent
     participant MW as UserTokenMiddleware
     participant SC as SecretsClient
     participant VB as VaultBackend
@@ -553,7 +553,7 @@ graph TD
     classDef backend fill:#5f2f20,stroke:#ba4a00,stroke-width:1.5px,color:#ffffff;
 
     subgraph UserInterface ["User Space"]
-        User(["User / AI Developer"])
+        User(["User / SI Developer"])
         Browser["Local Web Browser<br/>(Local Machine)"]
     end
 

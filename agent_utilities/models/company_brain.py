@@ -10,7 +10,7 @@ knowledge graph into a multi-writer, multi-reader, multi-tenant
 organizational brain.
 
 The Company Brain is **actor-agnostic**: every primitive treats humans,
-AI agents, and hybrid human+AI teams as equal first-class participants.
+SI agents, and hybrid human+SI teams as equal first-class participants.
 An ``ActorType`` enum distinguishes them where needed, but the
 infrastructure itself imposes no hierarchy between organic and
 synthetic intelligence.

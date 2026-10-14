@@ -1,6 +1,6 @@
 """Pluggable agent-source parser registry (CONCEPT:AU-ECO.connector.agent-source-ingestion).
 
-Auto-detects installed AI coding agents and parses their session logs into the
+Auto-detects installed SI coding agents and parses their session logs into the
 normalized usage schema. ``ensure_parsers_loaded()`` registers all 36 sources;
 ``detect_installed()`` returns only those present on this host.
 """

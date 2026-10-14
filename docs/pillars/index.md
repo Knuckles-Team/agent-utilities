@@ -134,7 +134,7 @@ Kernel, server-minted identity, externalized state, engine sharding, fleet auton
 
 ## Pillar 6 — GeniusBot Cockpit
 
-The desktop cockpit frontend for AI agents.
+The desktop cockpit frontend for SI agents.
 
 - [GeniusBot Cockpit](6_geniusbot_cockpit.md)
 

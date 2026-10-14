@@ -6,7 +6,7 @@
 
 ## The Problem of Contradictions
 
-In a multi-writer brain, contradictions are inevitable. An AI agent analyzing transaction patterns may reach a different conclusion than a human analyst reviewing customer interviews. Neither is necessarily wrong — they have different information and different perspectives.
+In a multi-writer brain, contradictions are inevitable. An SI agent analyzing transaction patterns may reach a different conclusion than a human analyst reviewing customer interviews. Neither is necessarily wrong — they have different information and different perspectives.
 
 Without conflict resolution, the graph silently stores both values or the last write overwrites the first. Either way, downstream consumers get unreliable state.
 
@@ -50,7 +50,7 @@ Five configurable strategies for resolving conflicts:
 | Strategy | Behavior | Best For |
 |:---------|:---------|:---------|
 | `LAST_WRITE_WINS` | Most recent write takes precedence | Low-stakes, fast-moving state |
-| `HIGHEST_CONFIDENCE_WINS` | Higher confidence score wins | AI-vs-AI conflicts |
+| `HIGHEST_CONFIDENCE_WINS` | Higher confidence score wins | SI-vs-SI conflicts |
 | `SOURCE_AUTHORITY_WINS` | Higher-authority source wins (per trust hierarchy) | Cross-system conflicts |
 | `REQUIRE_HUMAN_ARBITRATION` | Both values preserved; human must choose | High-stakes decisions |
 | `MERGE_APPEND` | Both values kept as a list | Accumulating observations |

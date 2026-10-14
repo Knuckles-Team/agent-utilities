@@ -58,7 +58,7 @@ All entities align to the **BFO upper ontology (ISO 21838-2)** and map to establ
 - **Succession planning**: Traverse `reportsTo` chains + `hasCompetency` to identify internal candidates
 - **Skills gap analysis**: Compare required `Competency` for open positions vs. existing workforce
 - **Compliance**: Ensure employees `holdsCredential` for activities they perform
-- **Agent augmentation**: AI agents query the org chart to route tasks to the right human
+- **Agent augmentation**: SI agents query the org chart to route tasks to the right human
 
 ---
 
@@ -152,7 +152,7 @@ All enterprise entities integrate with the existing Company Brain infrastructure
 | Company Brain Primitive | Enterprise Integration |
 |------------------------|----------------------|
 | **TenancyManager** | Departments map to tenants; `assignedToDepartment` ↔ tenant membership |
-| **ProvenanceTracker** | Every employee action generates provenance (human or AI equally) |
+| **ProvenanceTracker** | Every employee action generates provenance (human or SI equally) |
 | **DataLevelPermissions** | Compensation data is RESTRICTED; org charts are INTERNAL |
 | **ConflictResolver** | HR data from HRIS wins over agent inference (SOURCE_AUTHORITY_WINS) |
 | **EventStreamIngester** | HRIS webhooks, Slack messages, Jira updates → graph mutations |

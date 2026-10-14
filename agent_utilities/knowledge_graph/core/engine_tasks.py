@@ -3215,7 +3215,7 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
     def _tick_hygiene(self) -> None:
         """One memory-hygiene pass (CONCEPT:EG-KG.compute.compiled-semantic-reasoner).
 
-        Archives stale AI-generated memory by closing its bi-temporal ``valid_to`` (never deletes;
+        Archives stale SI-generated memory by closing its bi-temporal ``valid_to`` (never deletes;
         alerts high-confidence stale items) and merges near-duplicates. Run by the consolidated
         maintenance scheduler behind the shared foreground-throttle gate.
         """

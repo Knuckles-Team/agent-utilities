@@ -97,7 +97,7 @@ Per-service credentials and configuration are injected by the target platform's
 secret controller, not committed here.
 """
 
-AGENTS_TMPL = """# AGENTS.md - AI Agent Context
+AGENTS_TMPL = """# AGENTS.md - SI Agent Context
 
 ## Role in Agent OS Architecture
 The `{name}` service is an active operational MCP server running within the Swarm
@@ -107,7 +107,7 @@ overlay network (image selected by deployment configuration).
 - **Ecosystem Capability**: Model Context Protocol adapter exposed over
   streamable-http on port 8000.
 - **Network Access**: Resolved from the runtime service registry.
-- **Integration Layer**: AI agents reach it through GraphOS's `{name}` fleet
+- **Integration Layer**: SI agents reach it through GraphOS's `{name}` fleet
   tool surface to automate its domain.
 
 ### How to Interact
