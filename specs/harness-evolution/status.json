@@ -48,12 +48,6 @@
     "AU-HARNESS-R014.3",
     "AU-HARNESS-R014.4",
     "AU-HARNESS-R014.5",
-    "AU-HARNESS-R014.6",
-    "AU-HARNESS-R014.7",
-    "AU-HARNESS-R014.8",
-    "AU-HARNESS-R014.9",
-    "AU-HARNESS-R014.10",
-    "AU-HARNESS-R014.11",
     "AU-HARNESS-R015",
     "AU-HARNESS-R015.1",
     "AU-HARNESS-R015.2",
@@ -529,13 +523,7 @@
         "AU-HARNESS-R014.2",
         "AU-HARNESS-R014.3",
         "AU-HARNESS-R014.4",
-        "AU-HARNESS-R014.5",
-        "AU-HARNESS-R014.6",
-        "AU-HARNESS-R014.7",
-        "AU-HARNESS-R014.8",
-        "AU-HARNESS-R014.9",
-        "AU-HARNESS-R014.10",
-        "AU-HARNESS-R014.11"
+        "AU-HARNESS-R014.5"
       ]
     },
     {
@@ -569,48 +557,6 @@
     {
       "id": "AU-HARNESS-R014.5",
       "title": "End-to-end proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-HARNESS-R014.6",
-      "title": "Public snapshot model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-HARNESS-R014.7",
-      "title": "Revision and expiry",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-HARNESS-R014.8",
-      "title": "Caller authority",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-HARNESS-R014.9",
-      "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-HARNESS-R014.10",
-      "title": "Refusal and evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-HARNESS-R014.11",
-      "title": "Served proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
