@@ -22,10 +22,3 @@ From a public checkout run `python3 scripts/uv_workspace.py doctor`, focused `py
 AU-CONTEXT-R004 consumes EG-DECISION-ENGINE-R137.
 
 Harness tests assert receipt and application of these contracts. They do not prove producer decisions, storage or admission.
-
-
-### Planned context handoff acceptance
-
-Extend `test_served_over_window_prompt` through the served context compiler with a scripted R137 decision. Use a prompt at 0.9 of the window and a received fraction of 0.8. Assert a typed handoff, preserved source bounds and no silent truncation. A fitting prompt compiles unchanged. Missing decision fields or an uncountable tokenizer abstain.
-
-Pass the returned plan and limits to the R026 entry in `_router_impl.py`. Assert each limit survives unchanged, and a depth or cost breach stops execution. Inspect the trace for counts, verdict and tokenizer identity; it must contain no prompt text. This is planned consumer acceptance, not evidence that R137 or R026 is implemented or served-tested.
