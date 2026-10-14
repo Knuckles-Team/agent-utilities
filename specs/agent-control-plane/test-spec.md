@@ -72,6 +72,13 @@ Quality: run `python3 scripts/safe_precommit_all_files.py` through the repo leas
 
 ## Producer contract coverage
 
-AU-CONTROL-R040 and R041 consume EG-DECISION-ENGINE-R133; admission belongs to GRAPHOS-A2A-R006. AU-CONTROL-R042 and R043 consume EG-DECISION-ENGINE-R134. Tool registry and disclosure contracts belong to GRAPHOS-FLEET-R011 and GRAPHOS-FLEET-R029.
+AU-CONTROL-R040 and R041 consume EG-DECISION-ENGINE-R133; admission belongs to GRAPHOS-A2A-R006. AU-CONTROL-R042 and R043 consume EG-DECISION-ENGINE-R134. R042 consumes EG-DECISION-ENGINE-R134.2 without reranking. Registry, schema projection and disclosure contracts belong to GRAPHOS-FLEET-R011, GRAPHOS-FLEET-R013 and GRAPHOS-FLEET-R029.
 
 Harness tests assert receipt and application of these contracts. They do not prove producer decisions, storage or admission.
+
+
+### Planned disclosure handoff acceptance
+
+Extend `tests/integration/test_execute_agent_disclosure_served.py::test_undisclosed_tool_refused` through the served `execute_agent` operation and real factory. Script GraphOS `find` with two authorized tool schemas and a registry digest. Script EG-R134.2 to select one id, even when local relevance prefers the other. Assert only the selected schema enters the run and its call reaches GraphOS `act` once.
+
+Call the catalogued but undisclosed id; assert `tool_not_disclosed` and zero downstream calls. Exercise denied discovery, missing schema, inconsistent registry generation and engine refusal; assert no tool effect. Inspect loaded/refused counts on the run trace. These planned consumer tests do not prove producer ranking, authorization or registry storage.
