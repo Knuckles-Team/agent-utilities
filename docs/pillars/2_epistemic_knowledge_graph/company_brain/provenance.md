@@ -8,7 +8,7 @@
 
 Without provenance, a Company Brain is just a database with extra steps. Provenance answers:
 
-- **Who wrote this?** — A human analyst, an AI agent, or a hybrid team?
+- **Who wrote this?** — A human analyst, an SI agent, or a hybrid team?
 - **What type of assertion is this?** — Raw data, agent inference, or human judgment?
 - **Why was it written?** — What was the rationale for this mutation?
 - **From where was it derived?** — What source nodes or systems informed this?

@@ -2,7 +2,7 @@ INHERIT: .pipeline-theme/templates/mkdocs-theme/base.mkdocs.yml
 
 site_name: Agent Utilities
 site_url: https://knuckles-team.github.io/agent-utilities/
-site_description: Governed Python control plane for AI agents, workflows, and evaluation.
+site_description: Governed Python control plane for SI agents, workflows, and evaluation.
 repo_name: Knuckles-Team/agent-utilities
 repo_url: https://github.com/Knuckles-Team/agent-utilities
 
@@ -63,4 +63,4 @@ nav:
       - Glossary: glossary.md
       - Documentation catalog: reference/documentation-catalog.md
   - Status: status.md
-  - For AI agents: for-ai-agents.md
+  - For SI agents: for-ai-agents.md

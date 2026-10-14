@@ -135,13 +135,17 @@ The decision: the runtime owns its own stop. The rejected alternative is a super
 
 ## The harness loads only the tools it is given during a run (AU-CONTROL-R042)
 
-Data flow: `execute_agent -> build agent (factory.py:973) -> given tools from graph-os -> DisclosureSet -> tool call gate -> tool`.
+Data flow: `execute_agent -> GraphOS find -> EG selected ids -> GraphOS authorized schemas -> factory.py:973 -> DisclosureSet -> gate -> GraphOS act -> tool`.
 
 Existing code: `agent_utilities/capabilities/fleet_tool_search.py:54`, `agent_utilities/capabilities/fleet_tool_search.py:84`, `agent_utilities/capabilities/fleet_tool_search.py:198`, `agent_utilities/agent/factory.py:529`. Reachable today: no for the fleet capability; yes for deferred local toolsets.
 
 Moves to GRAPHOS-FLEET: the tool registry and on-demand disclosure. Moves to EG-DECISION-ENGINE: tool choice. Existing code that implements a moved part: `agent_utilities/capabilities/fleet_tool_search.py:54` (relevance search) and `:84`.
 
-Cross-repository rows: GRAPHOS-FLEET-R011 and GRAPHOS-FLEET-R029 — serve the registry and disclose tools on demand; EG-DECISION-ENGINE-R134 — choose the tools for a run.
+Cross-repository rows: GRAPHOS-FLEET-R011 owns canonical registry digests and authorized `find`. GRAPHOS-FLEET-R013 projects typed schemas, `graphos://` resources and the active digest. GRAPHOS-FLEET-R029 owns the intent surface: `find` discovers, `manage` mounts/releases and `act` dispatches. AU must not restore retired fleet meta-tools or per-session visibility middleware. EG-DECISION-ENGINE-R134.2 owns relevance filtering followed by R045 coverage-per-token selection; AU preserves that result.
+
+CONFIRMED: `fleet_relevance_search` in `fleet_tool_search.py:54` is the selection code named by EG-R134.2. `FleetToolset` at `:84` probes and mounts through the local multiplexer. That registry/disclosure responsibility moves to GraphOS-R011/R013/R029. Retain the AU adapter and call gate; remove local ranking and registry authority only after consumer cutover evidence.
+
+BLOCKED for runtime cutover: require served R134.2 selection and generated consumer contracts for selected ids, authorized schemas and registry generation. Pin their run/generation association before loading. A missing or inconsistent handoff must cause no tool call. GraphOS producer tests cannot close AU factory wiring or the served disclosure gate.
 
 The decision: the gate checks the given set at call time. The rejected alternative is a prompt instruction not to call unseen tools, which a model can ignore. R031 and R032 stay unchanged.
 

@@ -77,7 +77,7 @@ def ctx_log(
 
     This ensures that diagnostic output is visible in two places:
     • The server process logs (for operators / container logs).
-    • The MCP client log console (for the AI agent / human user).
+    • The MCP client log console (for the SI agent / human user).
 
     Args:
         ctx: FastMCP ``Context`` (may be ``None``).

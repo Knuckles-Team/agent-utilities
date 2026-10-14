@@ -2070,7 +2070,7 @@ SCHEMA = GraphSchemaDefinition(
                 "is_permanent": "BOOLEAN",
             },
         ),
-        # ── Enterprise / AI Factory Nodes (vendor-neutral) ─────────────────
+        # ── Enterprise / SI Factory Nodes (vendor-neutral) ─────────────────
         TableDefinition(
             name="Rack",
             columns={
@@ -4378,7 +4378,7 @@ SCHEMA = GraphSchemaDefinition(
                 {"from": "DDClient", "to": "HardwareNode"},
             ],
         ),
-        # Enterprise / AI Factory Relationships
+        # Enterprise / SI Factory Relationships
         RelDefinition(
             type="MOUNTED_IN",
             connections=[

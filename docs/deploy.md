@@ -1,6 +1,6 @@
 # One-link self-deploy
 
-agent-utilities is **self-deploying**: point any AI agent (Claude Code, Cursor,
+agent-utilities is **self-deploying**: point any SI agent (Claude Code, Cursor,
 Codex, Windsurf, …) at the repository and it knows how to set itself up — or run a
 single command the operator. There is one path for two very different operators:
 
@@ -43,7 +43,7 @@ curl -fsSL https://knuckles-team.github.io/agent-utilities/install.sh | sh -s --
    prebuilt wheel; Docker only above `tiny`).
 2. Installs agent-utilities (+ extras for the operator's profile) and the skill toolkit.
 3. Runs the **host preflight** for the operator's profile and any UI components the operator choose.
-4. Installs the skills into **every AI tool on the operator's host** and wires the `graph-os`
+4. Installs the skills into **every SI tool on the operator's host** and wires the `graph-os`
    MCP server into each — so the operator's agent immediately has the knowledge graph and the
    genesis skills.
 5. Hands off to a guided deployment that finishes the wiring.
@@ -58,7 +58,7 @@ curl -fsSL https://knuckles-team.github.io/agent-utilities/install.sh | sh -s --
 
 Optional UIs (add `--component`): `agent-webui`, `agent-terminal-ui`, `geniusbot`.
 
-## For AI agents
+## For SI agents {#for-ai-agents}
 
 The full deployment procedure lives in
 [`AGENTS.md` → Zero-to-deployed](https://github.com/Knuckles-Team/agent-utilities/blob/main/AGENTS.md#-zero-to-deployed-genesis--deploying-this-for-an-operator),

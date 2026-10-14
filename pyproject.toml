@@ -6,7 +6,7 @@ backend-path = ["."]
 [project]
 name = "agent-utilities"
 dynamic = ["version"]
-description = "GraphOS runtime for governed AI agents, orchestration, and the epistemic-graph knowledge engine"
+description = "GraphOS runtime for governed SI agents, orchestration, and the epistemic-graph knowledge engine"
 readme = "README.md"
 classifiers = [
     "Development Status :: 4 - Beta",

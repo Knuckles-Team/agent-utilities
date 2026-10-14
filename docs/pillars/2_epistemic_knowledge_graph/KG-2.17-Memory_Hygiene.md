@@ -3,14 +3,14 @@
 ## Overview
 
 Memory Hygiene is a maintenance pass that **bounds memory growth without destroying information**:
-a decay scanner archives stale AI-generated memory by closing its bi-temporal interval, and a
+a decay scanner archives stale SI-generated memory by closing its bi-temporal interval, and a
 semantic-merge pass collapses near-duplicates. Assimilated from memory-os
 (`scripts/decay_scanner.py`, `scripts/semantic_dedup.py`). Extends **KG-2.1 / KG-2.3**.
 
 ## How it works
 
 - **Decay scan.** Exponential decay with an importance-tiered half-life (90d if importance ≥ 0.3,
-  else 30d). Low-decay AI content is **archived** by setting KG-2.11 `valid_to` + `status=ARCHIVED`
+  else 30d). Low-decay SI content is **archived** by setting KG-2.11 `valid_to` + `status=ARCHIVED`
   — never hard-deleted, so as-of queries before the archival instant still see it. High-confidence
   stale items are **alerted** for review instead of archived; human/procedural memory is exempt.
 - **Semantic merge.** Near-duplicate memories (cosine ≥ 0.92) are merged with a cheap length-ratio

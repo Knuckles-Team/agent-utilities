@@ -4,7 +4,8 @@
 
 | Task | IDs | State | Evidence required |
 |---|---|---|---|
-| Retrieval path and context sizing | AU-CONTEXT-R001, AU-CONTEXT-R004 | [x] IMPLEMENTED at merged head | live AU→EG caller, cited/budgeted positive and refusal tests |
+| Retrieval path | AU-CONTEXT-R001 | [x] IMPLEMENTED at merged head | live AU→EG caller, cited positive and refusal tests |
+| Context decision consumer | AU-CONTEXT-R004 | TODO; legacy local sizing exists | generated R137 mapping, received-budget checks and served R026 handoff |
 | Shadow re-embed and admission proposals | AU-CONTEXT-R002, AU-CONTEXT-R003 | [x] IMPLEMENTED at merged head | lease, quality receipt, rollback and review proof |
 | Finance explanation and scheduler integration | AU-CONTEXT-R005 | TODO | math-first sourced explanation and served schedule |
 | Paper/live boundary and AU finance cut | AU-CONTEXT-R006, AU-CONTEXT-R007 | TODO | golden parity, deleted duplicate modules, approval refusal |

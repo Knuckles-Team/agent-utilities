@@ -1,7 +1,7 @@
 """
 x402 AI Payment Protocol — CONCEPT:AU-KG.research.research-pipeline-runner
 
-First-class module for autonomous AI agent payments using the x402
+First-class module for autonomous SI agent payments using the x402
 protocol (HTTP 402 challenge-response) with budget guards and KG provenance.
 
 Sources: x402 Open Standard (Coinbase), AgentPay SDK
@@ -106,7 +106,7 @@ class BudgetLimits:
 class PaymentGuard:
     """
     Budget enforcement and approval workflow for autonomous payments.
-    Prevents runaway spending by AI agents.
+    Prevents runaway spending by SI agents.
     """
 
     def __init__(self, limits: BudgetLimits | None = None):
@@ -182,7 +182,7 @@ class PaymentGuard:
 
 class X402PaymentClient:
     """
-    HTTP 402 challenge-response handler for autonomous AI agent payments.
+    HTTP 402 challenge-response handler for autonomous SI agent payments.
 
     Workflow:
     1. Agent requests a resource → receives HTTP 402 with PaymentChallenge

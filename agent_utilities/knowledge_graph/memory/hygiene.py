@@ -4,7 +4,7 @@ Assimilated from memory-os (ClaudioDrews/memory-os@a4ca094, scripts/decay_scanne
 scripts/semantic_dedup.py). A maintenance pass that bounds memory growth WITHOUT destroying
 information:
 
-- **Decay scan**: exponential decay with an importance-tiered half-life; low-decay AI-generated
+- **Decay scan**: exponential decay with an importance-tiered half-life; low-decay SI-generated
   memory is *archived* by setting KG-2.11 ``valid_to`` (never hard-deleted, so it stays
   as-of-queryable). High-confidence-but-stale items are *alerted* for review instead of archived;
   human/procedural memory is exempt.
@@ -164,7 +164,7 @@ class MemoryHygiene:
     def run(
         self, *, now: datetime | None = None, dry_run: bool = False
     ) -> dict[str, Any]:
-        """Scan memory nodes, archive stale AI content (set ``valid_to``), and report.
+        """Scan memory nodes, archive stale SI content (set ``valid_to``), and report.
 
         Archival is a soft close of the bi-temporal interval (KG-2.11) — the node is never
         deleted, so as-of queries before the archival instant still see it.
