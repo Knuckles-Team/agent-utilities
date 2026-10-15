@@ -13,6 +13,7 @@
     "AU-HARNESS-R006",
     "AU-HARNESS-R007",
     "AU-HARNESS-R008",
+    "AU-HARNESS-R008.1",
     "AU-HARNESS-R009",
     "AU-HARNESS-R010",
     "AU-HARNESS-R011",
@@ -83,6 +84,7 @@
     "AU-HARNESS-R018.5",
     "AU-HARNESS-R018.6",
     "AU-HARNESS-R018.7",
+    "AU-HARNESS-R018.8",
     "AU-HARNESS-R019",
     "AU-HARNESS-R019.1",
     "AU-HARNESS-R019.2",
@@ -138,6 +140,9 @@
     "AU-HARNESS-R024.5",
     "AU-HARNESS-R024.6",
     "AU-HARNESS-R024.7",
+    "AU-HARNESS-R024.8",
+    "AU-HARNESS-R024.9",
+    "AU-HARNESS-R024.10",
     "AU-HARNESS-R025",
     "AU-HARNESS-R025.1",
     "AU-HARNESS-R025.2",
@@ -153,7 +158,11 @@
     "AU-HARNESS-R026.4",
     "AU-HARNESS-R026.5",
     "AU-HARNESS-R026.6",
-    "AU-HARNESS-R026.7"
+    "AU-HARNESS-R026.7",
+    "AU-RETRIEVAL-R001",
+    "AU-RETRIEVAL-R001.1",
+    "AU-RETRIEVAL-R001.2",
+    "AU-RETRIEVAL-R001.3"
   ],
   "requirements": [
     {
@@ -270,11 +279,21 @@
     {
       "id": "AU-HARNESS-R008",
       "title": "Native harness over the pydantic-ai path",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "579815031bcd",
         "b15fd573cb5b"
       ],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R008.1"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R008.1",
+      "title": "MCP export producer-consumer contract",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -799,7 +818,8 @@
         "AU-HARNESS-R018.4",
         "AU-HARNESS-R018.5",
         "AU-HARNESS-R018.6",
-        "AU-HARNESS-R018.7"
+        "AU-HARNESS-R018.7",
+        "AU-HARNESS-R018.8"
       ]
     },
     {
@@ -847,6 +867,13 @@
     {
       "id": "AU-HARNESS-R018.7",
       "title": "End-to-end proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R018.8",
+      "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1245,7 +1272,10 @@
         "AU-HARNESS-R024.4",
         "AU-HARNESS-R024.5",
         "AU-HARNESS-R024.6",
-        "AU-HARNESS-R024.7"
+        "AU-HARNESS-R024.7",
+        "AU-HARNESS-R024.8",
+        "AU-HARNESS-R024.9",
+        "AU-HARNESS-R024.10"
       ]
     },
     {
@@ -1293,6 +1323,27 @@
     {
       "id": "AU-HARNESS-R024.7",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R024.8",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R024.9",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R024.10",
+      "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1423,6 +1474,39 @@
     {
       "id": "AU-HARNESS-R026.7",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R001",
+      "title": "Evaluation and feedback contracts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-RETRIEVAL-R001.1",
+        "AU-RETRIEVAL-R001.2",
+        "AU-RETRIEVAL-R001.3"
+      ]
+    },
+    {
+      "id": "AU-RETRIEVAL-R001.1",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R001.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-RETRIEVAL-R001.3",
+      "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
