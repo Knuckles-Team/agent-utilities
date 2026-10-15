@@ -103,7 +103,14 @@
     "AU-CONTROL-R043.3",
     "AU-CONTROL-R043.4",
     "AU-CONTROL-R043.5",
-    "AU-CONTROL-R043.6"
+    "AU-CONTROL-R043.6",
+    "AU-CONTROL-R044",
+    "AU-CONTROL-R044.1",
+    "AU-CONTROL-R044.2",
+    "AU-CONTROL-R044.3",
+    "AU-CONTROL-R044.4",
+    "AU-CONTROL-R044.5",
+    "AU-CONTROL-R044.6"
   ],
   "requirements": [
     {
@@ -426,7 +433,7 @@
     },
     {
       "id": "AU-CONTROL-R027",
-      "title": "Task planner answers \"How can I execute task X?\" as one structured plan",
+      "title": "The task planner answers a how-to-execute question as one structured plan",
       "delivery_state": "LANDED",
       "landed_in": [
         "5301b427a6a5",
@@ -1046,6 +1053,63 @@
     },
     {
       "id": "AU-CONTROL-R043.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R044",
+      "title": "The harness exposes file and shell tools that forward to the client",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-CONTROL-R044.1",
+        "AU-CONTROL-R044.2",
+        "AU-CONTROL-R044.3",
+        "AU-CONTROL-R044.4",
+        "AU-CONTROL-R044.5",
+        "AU-CONTROL-R044.6"
+      ]
+    },
+    {
+      "id": "AU-CONTROL-R044.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R044.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R044.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R044.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R044.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R044.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

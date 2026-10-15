@@ -82,3 +82,7 @@ Harness tests assert receipt and application of these contracts. They do not pro
 Extend `tests/integration/test_execute_agent_disclosure_served.py::test_undisclosed_tool_refused` through the served `execute_agent` operation and real factory. Script GraphOS `find` with two authorized tool schemas and a registry digest. Script EG-R134.2 to select one id, even when local relevance prefers the other. Assert only the selected schema enters the run and its call reaches GraphOS `act` once.
 
 Call the catalogued but undisclosed id; assert `tool_not_disclosed` and zero downstream calls. Exercise denied discovery, missing schema, inconsistent registry generation and engine refusal; assert no tool effect. Inspect loaded/refused counts on the run trace. These planned consumer tests do not prove producer ranking, authorization or registry storage.
+
+### Client-capability toolset acceptance
+
+Run `tests/integration/test_client_capability_toolset_run_loop.py::test_apply_patch_reaches_transport_only` through the ACP run loop with a fake `ClientCapabilityTransport`. Assert one transport call with the patch and no changed file on the host. Assert `client_capability_refused` when the transport is disconnected.

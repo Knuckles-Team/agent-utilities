@@ -163,3 +163,21 @@ The decision: subtasks share nothing, so aggregation is the only join. The rejec
 
 References:
 - arXiv:2605.15132 — Rose et al., "APWA: A Distributed Architecture for Parallelizable Agentic Workflows" (2026)
+
+## The harness exposes file and shell tools that forward to the client (AU-CONTROL-R044)
+
+Data flow: `ACP session -> session_config (protocols/acp_adapter.py:273) -> GraphACPDeps.transport -> run loop -> ClientCapabilityToolset tool -> ClientCapabilityTransport.call -> graph-os session -> client`.
+
+Types: `ClientCapabilityToolset`, `ClientCapabilityTransport`, `client_capability_refused`. The toolset reads the tool selection and limits from `HarnessConfig`.
+
+Attach point: `session_config` (`protocols/acp_adapter.py:273`), called by `PydanticAIACPAgent` for each new session. `build_swe_agent` (`orchestration/swe_agent.py:44`) is the second attach point for non-ACP runs.
+
+Failure behavior: a missing client, an unselected tool or a client refusal returns a typed refusal. No local fallback exists.
+
+Existing code: `agent_utilities/tools/swe_workspace_tools.py:51`, `agent_utilities/tools/swe_workspace_tools.py:69`, `agent_utilities/tools/swe_workspace_tools.py:87`, `agent_utilities/tools/swe_workspace_tools.py:100`, `agent_utilities/tools/swe_workspace_tools.py:143`, `agent_utilities/tools/tool_registry.py:247`, `agent_utilities/tools/tool_registry.py:323`, `agent_utilities/runtime/workspace.py:108`, `agent_utilities/orchestration/swe_agent.py:44`, `agent_utilities/orchestration/engine.py:1709`, `agent_utilities/protocols/acp_adapter.py:160`, `agent_utilities/protocols/acp_adapter.py:273`, `agent_utilities/core/execution/adapters/base.py:34`. Reachable today: no for client-capability forwarding. The local workspace tools are reachable only through `run_swe_task`. The default-off `DEFAULT_SWE_TOOLS` also reaches them. Search terms: read_file, write_file, apply_patch, run_command. More terms: search_files, edit_file, shell_tool. Protocol terms: client capability, fs/read_text_file, terminal/create, request_permission. The adapter file `core/execution/adapters/base.py` names only the `acp-json-rpc` stream format at `:34`.
+
+Reused: the `trace` decorator, `tool_version`, `PersistencePrivacyGuard` and the typed action names. New: the transport protocol, the five client-method tools and `apply_patch` and `search_files`.
+
+Cross-repository rows: GRAPHOS-ACP `CodingSessionAdmission` admits the workspace root, records the grant and forwards each request to the client. EG-DECISION-ENGINE `HarnessConfig` supplies tool selection and limits. TUI-RUNTIME `CodingSessionView` implements the client capabilities with path containment and approval.
+
+The decision: execution is a client call because the files live on the person's host. The rejected alternative is a cluster service that mounts or syncs the host checkout. It copies data and needs host credentials on the cluster.
