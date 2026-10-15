@@ -199,7 +199,48 @@
     "AU-HARNESS-R031.1",
     "AU-HARNESS-R031.2",
     "AU-HARNESS-R031.3",
-    "AU-HARNESS-R031.4"
+    "AU-HARNESS-R031.4",
+    "AU-HARNESS-R021.16",
+    "AU-HARNESS-R021.17",
+    "AU-HARNESS-R021.18",
+    "AU-HARNESS-R021.19",
+    "AU-HARNESS-R021.20",
+    "AU-HARNESS-R021.21",
+    "AU-HARNESS-R032",
+    "AU-HARNESS-R032.1",
+    "AU-HARNESS-R032.2",
+    "AU-HARNESS-R032.3",
+    "AU-HARNESS-R032.4",
+    "AU-HARNESS-R032.5",
+    "AU-HARNESS-R032.6",
+    "AU-HARNESS-R033",
+    "AU-HARNESS-R033.1",
+    "AU-HARNESS-R033.2",
+    "AU-HARNESS-R033.3",
+    "AU-HARNESS-R033.4",
+    "AU-HARNESS-R033.5",
+    "AU-HARNESS-R033.6",
+    "AU-HARNESS-R034",
+    "AU-HARNESS-R034.1",
+    "AU-HARNESS-R034.2",
+    "AU-HARNESS-R034.3",
+    "AU-HARNESS-R034.4",
+    "AU-HARNESS-R034.5",
+    "AU-HARNESS-R034.6",
+    "AU-HARNESS-R035",
+    "AU-HARNESS-R035.1",
+    "AU-HARNESS-R035.2",
+    "AU-HARNESS-R035.3",
+    "AU-HARNESS-R035.4",
+    "AU-HARNESS-R035.5",
+    "AU-HARNESS-R035.6",
+    "AU-HARNESS-R036",
+    "AU-HARNESS-R036.1",
+    "AU-HARNESS-R036.2",
+    "AU-HARNESS-R036.3",
+    "AU-HARNESS-R036.4",
+    "AU-HARNESS-R036.5",
+    "AU-HARNESS-R036.6"
   ],
   "requirements": [
     {
@@ -1214,7 +1255,13 @@
         "AU-HARNESS-R021.12",
         "AU-HARNESS-R021.13",
         "AU-HARNESS-R021.14",
-        "AU-HARNESS-R021.15"
+        "AU-HARNESS-R021.15",
+        "AU-HARNESS-R021.16",
+        "AU-HARNESS-R021.17",
+        "AU-HARNESS-R021.18",
+        "AU-HARNESS-R021.19",
+        "AU-HARNESS-R021.20",
+        "AU-HARNESS-R021.21"
       ]
     },
     {
@@ -1847,6 +1894,333 @@
     },
     {
       "id": "AU-HARNESS-R031.4",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R021.16",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R021.17",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R021.18",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R021.19",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R021.20",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R021.21",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R032",
+      "title": "Served load-driving harness with concurrency and measured failure thresholds",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R032.1",
+        "AU-HARNESS-R032.2",
+        "AU-HARNESS-R032.3",
+        "AU-HARNESS-R032.4",
+        "AU-HARNESS-R032.5",
+        "AU-HARNESS-R032.6"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R032.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R032.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R032.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R032.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R032.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R032.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R033",
+      "title": "Memory-aware harness with retrieval benchmark and admission controls",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R033.1",
+        "AU-HARNESS-R033.2",
+        "AU-HARNESS-R033.3",
+        "AU-HARNESS-R033.4",
+        "AU-HARNESS-R033.5",
+        "AU-HARNESS-R033.6"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R033.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R033.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R033.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R033.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R033.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R033.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R034",
+      "title": "Recursive code and subcall trace identity with critique read contracts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R034.1",
+        "AU-HARNESS-R034.2",
+        "AU-HARNESS-R034.3",
+        "AU-HARNESS-R034.4",
+        "AU-HARNESS-R034.5",
+        "AU-HARNESS-R034.6"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R034.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R034.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R034.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R034.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R034.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R034.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R035",
+      "title": "Event-driven replay with adaptive harness boundary and policy-dependent refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R035.1",
+        "AU-HARNESS-R035.2",
+        "AU-HARNESS-R035.3",
+        "AU-HARNESS-R035.4",
+        "AU-HARNESS-R035.5",
+        "AU-HARNESS-R035.6"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R035.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R035.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R035.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R035.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R035.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R035.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R036",
+      "title": "Source-grounded topic and unsupported-claim metrics with label-noise tolerance",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R036.1",
+        "AU-HARNESS-R036.2",
+        "AU-HARNESS-R036.3",
+        "AU-HARNESS-R036.4",
+        "AU-HARNESS-R036.5",
+        "AU-HARNESS-R036.6"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R036.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R036.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R036.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R036.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R036.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-R036.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
