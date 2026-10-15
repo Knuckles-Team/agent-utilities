@@ -13,39 +13,46 @@ repos:
   rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
   hooks:
   - id: check-added-large-files
+    stages: [pre-commit]
     args: ["--maxkb=2000"]
     exclude: ^uv\.lock$|.*\.db$|.*\.bak$|.*\.sqlite$
-  - id: check-ast
-    exclude: ^(tests/|test/|scripts/|script/)
   - id: check-yaml
+    stages: [pre-commit]
     args: ["--unsafe"]
   - id: check-toml
+    stages: [pre-commit]
   - id: check-json
+    stages: [pre-commit]
   - id: fix-byte-order-marker
+    stages: [pre-commit]
     exclude: .gitignore
   - id: check-merge-conflict
+    stages: [pre-commit]
   - id: detect-private-key
+    stages: [pre-commit]
   - id: trailing-whitespace
+    stages: [pre-commit]
   - id: end-of-file-fixer
+    stages: [pre-commit]
     exclude: \.ttl$
 - repo: https://github.com/astral-sh/ruff-pre-commit
   rev: cb8c523fd4835aba42af70f4cad5568db4df0b6c # v0.16.0
   hooks:
   - id: ruff-check
+    stages: [pre-commit, manual]
     args: ["--ignore=E402"]
-    stages: [pre-commit, pre-push, manual]
     exclude: ^(tests/|test/|scripts/|script/)
   - id: ruff-format
+    stages: [pre-commit, manual]
     args: ["--check"]
-    stages: [pre-commit, pre-push, manual]
     exclude: ^(tests/|test/|scripts/|script/)
 - repo: https://github.com/pre-commit/mirrors-mypy
   rev: fc0f09a29bb495f4a91f00266155d6282d52485d # v1.20.2
   hooks:
   - id: mypy
+    stages: [pre-push, manual]
     additional_dependencies: [pydantic==2.13.4, types-PyYAML==6.0.12.20260518, types-requests==2.33.0.20260518]
     args: ["--ignore-missing-imports"]
-    stages: [pre-commit, pre-push, manual]
     # AU-QUAL-R005.2.1: tests/unit/patterns/ is carved back INTO mypy coverage
     # (the first per-directory grandchild slice of AU-QUAL-R005.2 -- see
     # specs/au-boundary-quality/tasks.md). The rest of tests/ stays excluded
@@ -56,6 +63,7 @@ repos:
   rev: b0f67ba0044693aa9ec0d38fe460590facc98004 # v2.16
   hooks:
   - id: vulture
+    stages: [pre-push]
     pass_filenames: false
     args: [".", "vulture_whitelist.py", "--min-confidence", "95", "--exclude", "node_modules,dotnet,.venv,build,tests"]
     require_serial: true
@@ -63,6 +71,7 @@ repos:
   rev: 2ccb47ff45ad361a21071a7eedda4c37e6ae8c5a # v2.4.2
   hooks:
   - id: codespell
+    stages: [pre-push]
     args: ["-L", "ans,linar,nam,tread,ot,disjointness,trough,nd,numer,statics", "--ignore-words=.config/codespell.ignore"]
     # style_lint.py's _COMMON_TYPOS dict is DATA — its deliberately misspelled
     # words are dictionary keys by design (it's the ontology
@@ -74,22 +83,26 @@ repos:
   rev: 92ae8b82fb422a639f0ed8d99e96cea769594e08 # 1.9.4
   hooks:
   - id: bandit
+    stages: [pre-push]
     args: ["--skip", "B101,B104,B105,B110,B112,B404,B603,B607,B608"]
     exclude: ^(tests/|test/|scripts/|script/|__tests__/|run_test\.py|\.specify/)
-- repo: https://github.com/nbQA-dev/nbQA
-  rev: d31b7eae1767c43460afb3ba130e0a6602933abe # 1.9.1
-  hooks:
-  - id: nbqa-ruff
-    args: ["--fix"]
 - repo: https://github.com/Knuckles-Team/pipelines
   rev: main # pipelines is always referenced at main, never SHA-pinned
   hooks:
+  - id: complexity-staged
+    stages: [pre-push]
+  - id: dupehound-changed
+    stages: [pre-push]
   - id: public-surface
-    stages: [pre-commit, pre-push, manual]
+    stages: [pre-commit, manual]
   - id: spec-status
+    stages: [pre-push]
   - id: spec-decomposition
+    stages: [pre-push]
   - id: spec-standard
+    stages: [pre-commit]
   - id: ste-staged
+    stages: [pre-commit]
   - id: spec-trailers
     stages: [pre-push]
     args: ["--base-ref", "origin/main"]
@@ -336,21 +349,6 @@ repos:
   # workspace-level `plans/` directory, reached a public GitHub repo before
   # anyone noticed. A denylist would only ever catch the junk we already
   # thought of.
-  - id: clone-dupehound-changed-functions
-    name: Clone gate — changed functions (dupehound)
-    # The wrapper selects staged/worktree supported-language paths itself and
-    # passes the centrally pinned threshold/exclusions. It returns 2 when the
-    # binary/version/result cannot be trusted; no hook-time installation or
-    # baseline is allowed.
-    entry: scripts/hook_python.sh scripts/check_dupehound.py
-    language: system
-    pass_filenames: false
-    always_run: true
-    stages: [pre-commit]
-  # jscpd's differential mode is manual-only: it materializes
-  # base + merged trees and detects copied blocks in code, templates, and
-  # configuration. Dupehound runs at pre-commit, so structural whole-function
-  # reuse and token-block cloning do not create two simultaneous hook failures.
   - id: clone-jscpd-diff
     name: Clone gate — new mixed-language blocks (jscpd)
     # pre-commit exposes the immutable remote SHA as PRE_COMMIT_FROM_REF for a
@@ -377,12 +375,6 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [manual]
-  - id: complexity-staged
-    name: Complexity (cccc) - no NEW function over cyclomatic 10 / cognitive 15, none regressed
-    entry: scripts/hook_python.sh scripts/check_complexity_staged.py
-    language: system
-    pass_filenames: false
-    always_run: true
   - id: check-root-hygiene
     name: Repository root hygiene (allowlisted entries only)
     entry: scripts/hook_python.sh scripts/check_root_hygiene.py
@@ -604,6 +596,7 @@ repos:
     pass_filenames: false
     always_run: true
   - id: check-bumpversion
+    stages: [pre-push]
     name: validate bumpversion config
     # bump2version is installed per-user (pipx/`pip install --user`), typically
     # under `~/.local/bin`, NOT into this repo's project venv -- so a plain
