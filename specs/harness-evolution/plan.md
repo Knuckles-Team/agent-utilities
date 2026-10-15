@@ -29,6 +29,8 @@ R021.9 through R021.12: Each evaluation report must bind criteria by identity an
 
 R021.13 through R021.15: Proposal input models must explicitly declare graded artifact with criterion-keyed grades before admission. Missing or mismatched grading triggers refusal. Grade keys must match declared criteria.
 
+R021.16 through R021.21: EG bounds producer to AU eval_gates, consumed by recommendations and report persistence.
+
 ## New rollups
 
 R028 (technique-specific serving activation): Define each technique with its own activation evidence and refusal policy. Coordinator resolves serving producer from existing path, not secondary authority. Named techniques: paged cache, prefix reuse, fused kernels, quantized cache, expert dispatch.
@@ -38,6 +40,16 @@ R029 (adversarial code verification): Generated code requires verifier sign-off 
 R030 (process liveness detection): Detect hung and zombie processes, propose remedy, require explicit approval before execution. Remedy escalation prevents silent kills.
 
 R031 (computer-use suite integration): Named benchmark suites produce trajectory exports and results routed to evaluation gate. Suite producer and R021 consumer bindings are explicit and separate from capture/training.
+
+R032 (served load-driving harness): AU load driver produces concurrency/latency/failure measurements, consumed by admission gates and evolution loop.
+
+R033 (memory-aware harness): AU memory metrics and benchmarks produce admission scope, consumed by memory-change gates.
+
+R034 (recursive code and subcall trace): Trace producers emit recursive nodes, consumed by critique readers and graph queries.
+
+R035 (event-driven replay and adaptation): Event simulator produces cursor/period, consumed by replay harness for adaptation boundaries.
+
+R036 (source-grounded topic metrics): Topic sources produce metrics, consumed by grounding-aware evaluation gates.
 
 ## L4 harness port (AU-HARNESS-R007 to AU-HARNESS-R010)
 

@@ -116,3 +116,44 @@ Checkboxes close only after acceptance evidence. A design, branch, source file o
 - [ ] HE-112: Measured lift in study admission. Closes AU-HARNESS-R019.13 through R019.16.
 - [ ] HE-113: Criterion-level evaluation report and nonregression. Closes AU-HARNESS-R021.9 through R021.12.
 - [ ] HE-114: Graded artifact admission with criterion breakdown. Closes AU-HARNESS-R021.13 through R021.15.
+- [ ] HE-115: **Model.** The bound contract model holds bound identity, kind, numeric threshold and producer reference. Closes AU-HARNESS-R021.16.
+- [ ] HE-116: **Behavior.** The authoritative producer of bounds is named at gate construction time. Closes AU-HARNESS-R021.17.
+- [ ] HE-117: **Wiring.** The gate reads active bounds from the named producer before each round. Closes AU-HARNESS-R021.18.
+- [ ] HE-118: **Refusal.** The gate must refuse an out-of-bound recommendation. Closes AU-HARNESS-R021.19.
+- [ ] HE-119: **Evidence.** The report must record the bound identity, producer reference and satisfaction state. Closes AU-HARNESS-R021.20.
+- [ ] HE-120: **Hot-path proof.** One evaluation round has a safety-threshold bound at 0.95 with observed 0.92. Closes AU-HARNESS-R021.21.
+- [ ] HE-121: **Served load-driving harness with concurrency and measured failure thresholds.** Closes AU-HARNESS-R032.
+- [ ] HE-122: **Model.** `HarnessLoadConfig` defines concurrency, workload identity, latency and failure-rate thresholds. Closes AU-HARNESS-R032.1.
+- [ ] HE-123: **Behavior.** The load runner must measure latency per run and failure rate. Closes AU-HARNESS-R032.2.
+- [ ] HE-124: **Wiring.** The load runner attaches at `agent_utilities/harness/load_harness.py`. Closes AU-HARNESS-R032.3.
+- [ ] HE-125: **Refusal.** The load runner must refuse invalid concurrency or out-of-range thresholds. Closes AU-HARNESS-R032.4.
+- [ ] HE-126: **Evidence.** The run trace must record latency, failure rate and thresholds. Closes AU-HARNESS-R032.5.
+- [ ] HE-127: **Hot-path proof.** A load run with concurrency 5 and latency 150ms must pass. Closes AU-HARNESS-R032.6.
+- [ ] HE-128: **Memory-aware harness with retrieval benchmark and admission controls.** Closes AU-HARNESS-R033.
+- [ ] HE-129: **Model.** `MemoryBenchmarkDataset` and `MemoryAdmissionScope` model the dataset and scope. Closes AU-HARNESS-R033.1.
+- [ ] HE-130: **Behavior.** The runner must measure recall and answer accuracy. Closes AU-HARNESS-R033.2.
+- [ ] HE-131: **Wiring.** Memory metrics integrate at `agent_utilities/harness/memory_benchmark.py`. Closes AU-HARNESS-R033.3.
+- [ ] HE-132: **Refusal.** The gate must refuse scope violations or missing benchmarks. Closes AU-HARNESS-R033.4.
+- [ ] HE-133: **Evidence.** The run trace must record recall and accuracy metrics. Closes AU-HARNESS-R033.5.
+- [ ] HE-134: **Hot-path proof.** Per-user memory scope permits the mutation. Closes AU-HARNESS-R033.6.
+- [ ] HE-135: **Recursive code and subcall trace identity with critique read contracts.** Closes AU-HARNESS-R034.
+- [ ] HE-136: **Model.** `RecursiveNode` holds node kind, parent reference and depth. Closes AU-HARNESS-R034.1.
+- [ ] HE-137: **Behavior.** The trace writer must extend traces with recursive node entries. Closes AU-HARNESS-R034.2.
+- [ ] HE-138: **Wiring.** Recursive node tracking attaches at trace write. Closes AU-HARNESS-R034.3.
+- [ ] HE-139: **Refusal.** A trace exceeding max recursion depth is refused. Closes AU-HARNESS-R034.4.
+- [ ] HE-140: **Evidence.** The run trace must record all recursive nodes with depth. Closes AU-HARNESS-R034.5.
+- [ ] HE-141: **Hot-path proof.** A recursive call at depth 2 is traced and critiqued. Closes AU-HARNESS-R034.6.
+- [ ] HE-142: **Event-driven replay with adaptive harness boundary and policy-dependent refusal.** Closes AU-HARNESS-R035.
+- [ ] HE-143: **Model.** `EventCursor` holds timestamp and sequence number. Closes AU-HARNESS-R035.1.
+- [ ] HE-144: **Behavior.** The replayer enforces no-future-event constraint. Closes AU-HARNESS-R035.2.
+- [ ] HE-145: **Wiring.** Event cursor integration attaches at `agent_utilities/harness/replay_engine.py`. Closes AU-HARNESS-R035.3.
+- [ ] HE-146: **Refusal.** The replayer must refuse future-event violations. Closes AU-HARNESS-R035.4.
+- [ ] HE-147: **Evidence.** The run trace must record event cursor and policy. Closes AU-HARNESS-R035.5.
+- [ ] HE-148: **Hot-path proof.** No-future-event constraint is enforced. Closes AU-HARNESS-R035.6.
+- [ ] HE-149: **Source-grounded topic and unsupported-claim metrics with label-noise tolerance.** Closes AU-HARNESS-R036.
+- [ ] HE-150: **Model.** `TopicMetric` and `NoiseToleranceConfig` model the metric. Closes AU-HARNESS-R036.1.
+- [ ] HE-151: **Behavior.** The detector measures topic presence and unsupported-claim count. Closes AU-HARNESS-R036.2.
+- [ ] HE-152: **Wiring.** Topic metrics integrate at `agent_utilities/harness/topic_metrics.py`. Closes AU-HARNESS-R036.3.
+- [ ] HE-153: **Refusal.** The metric must refuse claims with no grounding source. Closes AU-HARNESS-R036.4.
+- [ ] HE-154: **Evidence.** The run trace must record topic metrics and tolerance. Closes AU-HARNESS-R036.5.
+- [ ] HE-155: **Hot-path proof.** Eight of ten claims are grounded within tolerance. Closes AU-HARNESS-R036.6.
