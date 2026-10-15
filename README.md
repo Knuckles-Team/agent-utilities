@@ -69,7 +69,7 @@ Synthesized from concept markers in the codebase into **1186 canonical concepts*
 
 GraphOS owns public MCP, REST, and A2A composition. Agent Utilities owns agent and workflow behavior. The connector SDK owns source transport, while epistemic-graph owns durable graph state, schemas, and reasoning.
 
-![Agent platform runtime architecture](docs/assets/runtime-architecture.svg)
+![Agent platform runtime architecture](https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg)
 
 People enter through Agent Web UI, Agent Terminal UI, Geniusbot, or messaging. MCP/REST/A2A clients enter through Graph OS. Both paths reach Agent Utilities and then Epistemic Graph. External source systems reach Epistemic Graph through Agent Connector SDK. Agent Terminal UI currently uses REST capabilities only; ACP chat remains a tracked gap, not a supported path.
 

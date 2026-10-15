@@ -32,7 +32,7 @@
 
 ## Runtime map
 
-![Agent platform runtime architecture](assets/runtime-architecture.svg)
+![Agent platform runtime architecture](https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg)
 
 Agent Utilities occupies the agent-control boundary in the shared runtime. It
 coordinates model and worker activity, reads and writes committed state through
