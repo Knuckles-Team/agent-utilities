@@ -433,7 +433,7 @@
     },
     {
       "id": "AU-CONTROL-R027",
-      "title": "Task planner answers \"How can I execute task X?\" as one structured plan",
+      "title": "The task planner answers a how-to-execute question as one structured plan",
       "delivery_state": "LANDED",
       "landed_in": [
         "5301b427a6a5",
@@ -1060,7 +1060,7 @@
     },
     {
       "id": "AU-CONTROL-R044",
-      "title": "The harness exposes file and shell tools that execute as client-capability calls",
+      "title": "The harness exposes file and shell tools that forward to the client",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
