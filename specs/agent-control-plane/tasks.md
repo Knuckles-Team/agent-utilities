@@ -13,7 +13,7 @@
 - [x] AC-08: Publish the swarm-topology ontology/shapes, ship the reference topology templates, and consume the generated topology contract via a pinned dependency, validating templates at publish. Closes AU-CONTROL-R009, AU-CONTROL-R010, AU-CONTROL-R011, AU-CONTROL-R012.
 - [x] AC-09: Filter topology options by admissibility derivation, remove any local topology solver, respect capacity headroom at request priority, and allow at most one re-decision on capacity denial. Closes AU-CONTROL-R013, AU-CONTROL-R014, AU-CONTROL-R016, AU-CONTROL-R017.
 - [x] AC-10: Access the harness and sandbox through direct typed ports, route model selection through the committed decision, and attribute catalog entries to their originating server. Closes AU-CONTROL-R021, AU-CONTROL-R022, AU-CONTROL-R023.
-- [x] AC-08: Add the `AgentLibrary` store over `CallableResource` records, the `agent_library` intent tool, role-agent seeding from the `:Prompt` corpus, and the assembly commit, publish and library binding. Closes AU-CONTROL-R024, AU-CONTROL-R025, AU-CONTROL-R026.
+- [x] AC-08: Add the `AgentLibrary` store over `CallableResource` records. Add the `agent_library` intent tool and role-agent seeding from the `:Prompt` corpus. Add the assembly commit, publish and library binding. Closes AU-CONTROL-R024, AU-CONTROL-R025, AU-CONTROL-R026.
 - [ ] AC-08: graph-os calls `install_library_assembler` with its commit and publish context providers at serving start.
 - [x] AC-11/AC-12: Ship the task planner and the `ask` planning route with provenance and named gaps. Closes AU-CONTROL-R027, AU-CONTROL-R028.
 - [x] AC-13: Ship virtual-graph contracts and the cross-source report over live bind joins. Closes AU-CONTROL-R029, AU-CONTROL-R030.
@@ -34,3 +34,4 @@ Checkboxes represent accepted deliverables, not merely files authored. Keep them
 - [ ] AC-21: The harness runs agent runtimes isolated and enforces the quota it receives. Closes AU-CONTROL-R041.
 - [ ] AC-22: Consume R134.2 selection and GraphOS-R011/R013/R029 schemas through the factory and call gate. Retire local ranking/registry authority after cutover. Require served positive, undisclosed-tool and upstream-refusal acceptance. Closes AU-CONTROL-R042; producer evidence alone is insufficient.
 - [ ] AC-23: The harness runs the given fan-out in parallel and returns results. Closes AU-CONTROL-R043.
+- [ ] AC-24: Add `ClientCapabilityToolset` with five client-capability tools, wire it at the ACP session factory, and prove `apply_patch` reaches a fake transport with no local file change. Closes AU-CONTROL-R044.
