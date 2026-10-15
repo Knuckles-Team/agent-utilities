@@ -107,3 +107,12 @@ Checkboxes close only after acceptance evidence. A design, branch, source file o
 - [ ] HE-103: **Refusal.** The sandbox must refuse a model-written loop over a collection. The refusal is a typed `loop_refused` observation that names the primitive to use. A breach of the depth, item, cost or call limit must end the work. The result is a typed `budget_exhausted` value. Closes AU-HARNESS-R026.5.
 - [ ] HE-104: **Evidence.** The run trace must record `decompositionDepth`, `mapItemCount`, `subCallCount`, `decompositionCostUsd` and the budget outcome. Each field follows the write path of `AU-HARNESS-R017.4`. Closes AU-HARNESS-R026.6.
 - [ ] HE-105: **Hot-path proof.** The entry point is the planning step through `_router_impl.py:811`. It uses a scripted model, scripted limits and a prompt of 3 times the window. The test must show a combined answer and no raw prompt in any request. It must also show one refused loop and a cost under the limit. Closes AU-HARNESS-R026.7.
+- [ ] HE-106: Technique-specific serving activation contract. Closes AU-HARNESS-R028.
+- [ ] HE-107: Adversarial verification for generated-code acceptance. Closes AU-HARNESS-R029.
+- [ ] HE-108: Process-liveness detection and zombie remediation. Closes AU-HARNESS-R030.
+- [ ] HE-109: Computer-use suite routing and benchmark result integration. Closes AU-HARNESS-R031.
+- [ ] HE-110: Capability attestation for trajectory capture. Closes AU-HARNESS-R001.1 through R001.4.
+- [ ] HE-111: Solution size measurement and policy reconciliation. Closes AU-HARNESS-R009.1 through R009.4.
+- [ ] HE-112: Measured lift in study admission. Closes AU-HARNESS-R019.13 through R019.16.
+- [ ] HE-113: Criterion-level evaluation report and nonregression. Closes AU-HARNESS-R021.9 through R021.12.
+- [ ] HE-114: Graded artifact admission with criterion breakdown. Closes AU-HARNESS-R021.13 through R021.15.

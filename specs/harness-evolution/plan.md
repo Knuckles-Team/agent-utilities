@@ -11,6 +11,34 @@
 
 Dependencies: real EG Decide and generated clients precede work-market acceptance; repository-manager and graph-os receipt contracts precede Git materialization acceptance. A locally emitted job is not trained, evaluated or promoted.
 
+## AU-HARNESS-R001 capability attestation
+
+R001.1 through R001.4: Verify provider capability before any trajectory capture. Attestation records sampler version, tokenizer identity and timestamp immutably. Check at record entry point.
+
+## AU-HARNESS-R009 solution size and policy
+
+R009.1 through R009.4: Measure code size per run and require shortcut upgrade-path declarations. Reconcile old comment-style shortcuts with published no-comment policy explicitly before adoption.
+
+## AU-HARNESS-R019 measured lift in study admission
+
+R019.13 through R019.16: `study_admit.admit` must refuse any proposal without a baseline-versus-candidate benchmark result from the assimilation benchmark suite. The refusal names the missing measurement. Admission sends the result to engine decision service.
+
+## AU-HARNESS-R021 criterion-level report and graded artifact
+
+R021.9 through R021.12: Each evaluation report must bind criteria by identity and track satisfaction state per criterion. Nonregression checks refuse any criterion drop. Independent outcomes remain separate.
+
+R021.13 through R021.15: Proposal input models must explicitly declare graded artifact with criterion-keyed grades before admission. Missing or mismatched grading triggers refusal. Grade keys must match declared criteria.
+
+## New rollups
+
+R028 (technique-specific serving activation): Define each technique with its own activation evidence and refusal policy. Coordinator resolves serving producer from existing path, not secondary authority. Named techniques: paged cache, prefix reuse, fused kernels, quantized cache, expert dispatch.
+
+R029 (adversarial code verification): Generated code requires verifier sign-off before admission. Edge cases must be recorded and fixed before release. Code without passing verifier receipt is refused.
+
+R030 (process liveness detection): Detect hung and zombie processes, propose remedy, require explicit approval before execution. Remedy escalation prevents silent kills.
+
+R031 (computer-use suite integration): Named benchmark suites produce trajectory exports and results routed to evaluation gate. Suite producer and R021 consumer bindings are explicit and separate from capture/training.
+
 ## L4 harness port (AU-HARNESS-R007 to AU-HARNESS-R010)
 
 Architecture, in call order:
