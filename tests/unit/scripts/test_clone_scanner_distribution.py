@@ -53,9 +53,14 @@ def test_scanner_versions_are_pinned_once_and_installed_from_that_pin() -> None:
 def test_clone_gates_run_at_their_declared_stages() -> None:
     hooks = _hooks()
 
-    dupehound = hooks["clone-dupehound-changed-functions"]
-    assert "scripts/check_dupehound.py" in dupehound["entry"]
-    assert dupehound["stages"] == ["pre-commit"]
+    # The changed-function clone gate is the shared pipelines hook (its entry
+    # lives in that repo); the release workflow still runs this repo's script.
+    dupehound = hooks["dupehound-changed"]
+    assert dupehound["stages"] == ["pre-push"]
+    workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "scripts/check_dupehound.py --base-ref" in workflow
     jscpd = hooks["clone-jscpd-diff"]
     assert "scripts/check_duplication.py enforce --base-ref" in jscpd["entry"]
     assert jscpd["stages"] == ["manual"]

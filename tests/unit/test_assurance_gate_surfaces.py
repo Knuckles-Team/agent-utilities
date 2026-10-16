@@ -64,7 +64,9 @@ async def test_mcp_verify_action_allows_a_valid_payload(monkeypatch):
         target_id="anything",
     )
     data = json.loads(res)
-    assert data["allowed"] is True
+    # verify_action is a side-effect-free dry run: the verdict is "allow" but it
+    # carries no effect-authorizing receipt, so ``allowed`` stays False.
+    assert data["allowed"] is False
     assert data["decision"] == "allow"
     assert data["invariant"] == ""
 

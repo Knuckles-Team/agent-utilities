@@ -238,6 +238,13 @@ class TestCodebaseIngestion:
         engine.kg.graph_compute.parse_files = MagicMock(
             side_effect=lambda files: [{} for _ in files]
         )
+        # An engine without the cross-file resolver: the index-first round-trip
+        # fails, so the pipeline degrades to the batched parser. (A bare
+        # MagicMock would instead "acknowledge" the lone file -- int(MagicMock())
+        # is 1 -- and never reach parse_files.)
+        engine.kg.graph_compute.index_repository = MagicMock(
+            side_effect=RuntimeError("IndexRepository unsupported by this engine")
+        )
 
         result = await engine.ingest(
             IngestionManifest(
@@ -250,12 +257,9 @@ class TestCodebaseIngestion:
         assert result.status == "success"
         # The ingestion boundary performs policy-approved discovery; the native
         # request receives only each logical source name and its bytes.
-        # NOTE: the pipeline's primary path is a single index_repository()
-        # round-trip; on a plain MagicMock (no real IndexResult shape) that
-        # path raises internally and the pipeline degrades to the *batched*
-        # parser (`parse_files`, mocked above) — not the legacy per-file
-        # `parse_file` this assertion originally targeted. Updated to match
-        # the current batch/index-first architecture (CONCEPT:EG-KG.compute.type-scope-resolved-call).
+        # The pipeline's primary path is a single index_repository() round-trip;
+        # when that raises it degrades to the *batched* parser (`parse_files`).
+        # (CONCEPT:EG-KG.compute.type-scope-resolved-call)
         engine.kg.graph_compute.parse_files.assert_called()
 
 

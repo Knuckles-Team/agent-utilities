@@ -163,58 +163,49 @@ def test_url_only_server_not_rewritten(tmp_path: Path) -> None:
     assert gen.sync_mcp_configs(root) == []
 
 
-def _readme_section(heading: str) -> str:
-    readme = (Path(__file__).resolve().parents[2] / "README.md").read_text(
+def _readme_text() -> str:
+    return (Path(__file__).resolve().parents[2] / "README.md").read_text(
         encoding="utf-8"
     )
-    return readme.split(heading, 1)[1].split("\n### ", 1)[0]
 
 
-def test_self_contained_readme_uses_installed_portable_entry_point() -> None:
-    # Heading text as of the mcpServers-JSON rewrite (was: "### Self-hosted,
-    # self-contained installation" — retired along with the "codex mcp add"
-    # CLI-onboarding narrative this section used to document; the README now
-    # documents the generic mcpServers JSON form Claude Code/Cursor/Codex all
-    # accept instead, see D-OTD-4). graphos_stdio_spec() itself (the Codex-CLI
-    # -specific registration payload) is exercised directly by
-    # tests/unit/deployment/test_codex_registration.py, not needed here.
-    section = _readme_section(
-        "### Self-contained (zero-infra) — the engine ships in the same install"
-    )
-    assert '"command": "uvx"' in section
-    assert '"--from", "agent-utilities", "graph-os"' in section
+def _readme_section(heading: str) -> str:
+    """Body of the ``## heading`` section (up to the next ``## `` heading)."""
+    return _readme_text().split(f"\n{heading}\n", 1)[1].split("\n## ", 1)[0]
+
+
+def test_quick_start_readme_uses_installed_portable_entry_point() -> None:
+    # The README no longer carries per-topology mcpServers JSON (that moved to
+    # docs/recipes/); its Quick Start is the one onboarding path and must stay
+    # portable: the published ``graph-os`` console entry point via ``uvx``.
+    section = _readme_section("## Quick Start")
+    assert 'uvx --from "agent-utilities[serving]" graph-os' in section
     assert "mcp_config.json" not in section
     # No host-specific data: a real absolute filesystem path or literal IP
-    # would be a leak; the documented ``${workspaceFolder}`` IDE-substitution
-    # placeholder is expected and is NOT one (it is never resolved in the
-    # doc itself, only by the reader's own editor).
+    # would be a leak.
     assert not re.search(r"tcp://(?:\d{1,3}\.){3}\d{1,3}", section)
     assert "/home/" not in section and "/Users/" not in section
 
 
-def test_shared_engine_readme_keeps_host_and_secrets_runtime_only() -> None:
-    # Heading text as of the mcpServers-JSON rewrite (was: "### Shared
-    # engine" — see D-OTD-4). The README now shows ONE combined mcpServers
-    # JSON block (env-connection + fleet-auth groups together) rather than a
-    # separate bare "launcher" snippet split from a config-file section (the
-    # "The corresponding XDG AgentConfig" phrase this test used to split on
-    # no longer exists) -- so the security invariant that matters is checked
-    # directly: secrets/hosts are only ever shown as PLACEHOLDER references,
-    # never real committed values.
-    section = _readme_section(
-        "### Shared engine (split-storage / Keycloak-protected fleet)"
-    )
-    assert '"command": "uvx"' in section
-    assert '"--from", "agent-utilities", "graph-os"' in section
-    assert "GRAPH_SERVICE_ENDPOINTS" in section  # documented, but as a placeholder host
-    assert "OIDC_CLIENT_SECRET" in section  # documented, but as an OpenBao reference
-    assert '"OIDC_CLIENT_SECRET": "<from OpenBao: bao kv get apps/graph-os>"' in section
-    assert not re.search(r"tcp://(?:\d{1,3}\.){3}\d{1,3}", section)
-    assert "/home/" not in section and "/Users/" not in section
-
-    readme = (Path(__file__).resolve().parents[2] / "README.md").read_text(
-        encoding="utf-8"
-    )
-    assert not re.search(r"tcp://(?:\d{1,3}\.){3}\d{1,3}", readme)
+def test_readme_and_recipes_keep_host_and_secrets_runtime_only() -> None:
+    # Security invariant: hosts and secrets are only ever shown as PLACEHOLDER
+    # references, never real committed values, in the README or the shared-engine
+    # recipes it points at.
+    docs_root = Path(__file__).resolve().parents[2] / "docs" / "recipes"
+    texts = {"README.md": _readme_text()} | {
+        path.name: path.read_text(encoding="utf-8")
+        for path in sorted(docs_root.glob("*.md"))
+    }
+    assert "unified-self-contained.md" in texts
+    for name, text in texts.items():
+        assert not re.search(r"tcp://(?:\d{1,3}\.){3}\d{1,3}", text), name
+        assert "/Users/" not in text, name
+        # A committed OIDC secret value would be a quoted literal that is not a
+        # placeholder reference.
+        for match in re.finditer(r'"OIDC_CLIENT_SECRET"\s*:\s*"([^"]*)"', text):
+            assert re.fullmatch(r"<[^>]+>|\$\{[^}]+\}", match.group(1)), (
+                name,
+                match.group(0),
+            )
     retired_codex_json = ".codex" + "/mcp_config.json"
-    assert retired_codex_json not in readme
+    assert retired_codex_json not in texts["README.md"]

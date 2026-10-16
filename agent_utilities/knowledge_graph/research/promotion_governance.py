@@ -214,9 +214,8 @@ class PromotionGovernanceValidator:
         # A plain ``type`` key would make the shape conform vacuously.
         data["node_type"] = _spec_class(spec)
         node_id = f"proposal_{abs(hash(_spec_text(spec))) % 10**8}"
-        graph = build_data_graph(_OneNodeGraph(node_id, data))
-        document = graph.serialize(format="turtle")
-        report = authority.shacl_validate_committed(str(document))
+        document = build_data_graph(_OneNodeGraph(node_id, data))
+        report = authority.shacl_validate_committed(document)
         return self._shacl_report_to_check(report)
 
     @staticmethod

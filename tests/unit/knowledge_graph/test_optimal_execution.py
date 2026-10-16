@@ -177,7 +177,7 @@ class TestCointegrationPairsTrading:
         x[0] = mu
         for i in range(1, n):
             x[i] = x[i - 1] + theta * (mu - x[i - 1]) + sigma * rng.standard_normal()
-        params = trader.fit_ou_parameters(x.tolist())
+        params = trader.fit_ou_parameters(x)
         assert params["theta"] > 0  # Mean-reverting
         assert abs(params["mu"] - mu) < 3.0
         assert params["half_life"] > 0 and params["half_life"] < 100

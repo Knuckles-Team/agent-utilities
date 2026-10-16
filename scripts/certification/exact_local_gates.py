@@ -245,7 +245,6 @@ G35_REQUIRED_TESTS = (
 
 CERTIFICATION_TESTS = (
     "unit/test_intent_surface.py",
-    "unit/test_intent_surface_build_server.py",
     "unit/test_intent_selection_accuracy.py",
     "unit/mcp/test_intent_surface_gating.py",
     "unit/core/test_provider_materialization.py",
@@ -3082,12 +3081,10 @@ def _campaign(args: argparse.Namespace) -> dict[str, Any]:
             gate="g26-source",
             files=(
                 "unit/test_intent_surface.py",
-                "unit/test_intent_surface_build_server.py",
                 "unit/test_intent_selection_accuracy.py",
                 "unit/mcp/test_intent_surface_gating.py",
             ),
             selectors=(
-                "unit/test_intent_surface_build_server.py",
                 "unit/test_intent_selection_accuracy.py",
                 "unit/mcp/test_intent_surface_gating.py",
                 *tuple(

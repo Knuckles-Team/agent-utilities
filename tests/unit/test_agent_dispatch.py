@@ -1330,7 +1330,7 @@ def test_dispatch_carrier_signature_covers_allowed_tool_subset():
     # signature. The signature covers allowed_tool_subset, so this must fail
     # verification rather than silently widening what the consumer trusts.
     tampered = carrier.model_copy(
-        update={"allowed_tool_subset": ("read_file", "search", "delete_all")}
+        update={"allowed_tool_subset": ("delete_all", "read_file", "search")}
     )
     with pytest.raises(DispatchCarrierError, match="signature is invalid"):
         tampered.verify(

@@ -20,6 +20,10 @@ PINNED_FINANCE_MODULE_SET: frozenset[str] = frozenset(
         # finance math or a connector), so it stays local and is not part of
         # the AU-CONTEXT-R007 shrink-toward-EG set.
         "analysis_snapshot.py",
+        # AU-CONTEXT-R008.2/.3: the registered ``finance_recommend`` entry
+        # point that wires that model to the holdings read path and scorecard
+        # store -- the same AU-owned decision logic, not finance math.
+        "recommendation_entrypoint.py",
         "alpha_factors.py",
         "banking.py",
         "banking_models.py",

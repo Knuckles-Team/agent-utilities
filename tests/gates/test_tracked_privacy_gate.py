@@ -95,7 +95,9 @@ def test_absent_identity_policy_skips_that_pass_locally_and_fails_in_ci(
         raise AssertionError("an absent policy must fail closed under CI")
 
 
-def test_malformed_identity_policy_still_fails_locally(tmp_path: Path, monkeypatch) -> None:
+def test_malformed_identity_policy_still_fails_locally(
+    tmp_path: Path, monkeypatch
+) -> None:
     gate = _gate_module()
     catalog = tmp_path / "identity-policy.json"
     catalog.write_text("not json", encoding="utf-8")
@@ -224,7 +226,7 @@ def test_labelled_fake_internal_hostname_passes() -> None:
 # --------------------------------------------------------------------------- #
 # Shared-fix regression: ``_MACHINE_HOST_ID_RE``'s lookbehind did not exclude
 # ``-``, so a hyphen-joined requirement ID (``AU-BOUNDARY-R016``) false-
-# positived as a machine host alias (``r016``/``host...``-shaped suffix).
+# positived as a machine host alias (an ``r`` plus three digits, or a ``host...``-shaped suffix).
 # Fixed by widening the lookbehind to ``(?<![a-z0-9-])`` -- the same
 # one-character fix as pipelines PR #41 (pipelines_hooks/privacy/patterns.py)
 # and epistemic-graph's local copy (D-EG-PRIVACY-R001-FALSEPOS). Both
@@ -349,7 +351,9 @@ def _init_repo(root: Path, *, name: str, email: str) -> None:
         ["git", "config", "user.email", email],
         ["git", "config", "commit.gpgsign", "false"],
     ):
-        subprocess.run(args, cwd=root, check=True, capture_output=True, env=sanitized_git_env())
+        subprocess.run(
+            args, cwd=root, check=True, capture_output=True, env=sanitized_git_env()
+        )
 
 
 def test_derive_local_identifiers_excludes_the_canonical_agent_identities(
@@ -377,11 +381,17 @@ def test_privacy_gate_does_not_flag_an_ambient_canonical_identity_mention(
     )
     subprocess.run(
         ["git", "add", "docs/notes.md"],
-        cwd=tmp_path, check=True, capture_output=True, env=sanitized_git_env(),
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        env=sanitized_git_env(),
     )
     subprocess.run(
         ["git", "commit", "-q", "-m", "add notes"],
-        cwd=tmp_path, check=True, capture_output=True, env=sanitized_git_env(),
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        env=sanitized_git_env(),
     )
 
     violations = gate.scan(tmp_path)

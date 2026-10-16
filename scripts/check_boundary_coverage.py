@@ -2,7 +2,7 @@
 """AU-BOUNDARY-R042: every ``agent_utilities/`` package directory has exactly
 one recorded disposition in the deletion-and-relocation inventory.
 
-The inventory lives in ``specs/au-boundary-deconstruction/coverage.md`` (see
+The inventory lives in ``specs/au-boundary-deconstruction/plan.md`` (see
 ``scripts/boundary_inventory.py`` for the shared table parser). This gate
 compares that table against the real tree and fails on:
 

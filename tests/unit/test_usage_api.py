@@ -28,6 +28,24 @@ from agent_utilities.usage.recorder import get_usage_recorder
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("USAGE_DB_PATH", str(tmp_path / "usage.db"))
     monkeypatch.setenv("USAGE_CONTENT_RETENTION", "sanitized")
+    # The process catalog is an explicitly empty authority unless an operator
+    # configures one, so install the rates the seeded event is priced against.
+    from agent_utilities.pricing import catalog as catalog_module
+    from agent_utilities.pricing.catalog import ModelPricing, PricingCatalog
+
+    monkeypatch.setattr(
+        catalog_module,
+        "_CATALOG",
+        PricingCatalog(
+            [
+                ModelPricing(
+                    model_pattern="claude-opus-4-8",
+                    input_per_mtok=5,
+                    output_per_mtok=25,
+                )
+            ]
+        ),
+    )
     usage_backends.reset_usage_backend_for_tests()
     # Reset the recorder/service singletons so they pick up the temp backend.
     import agent_utilities.usage.recorder as rec_mod

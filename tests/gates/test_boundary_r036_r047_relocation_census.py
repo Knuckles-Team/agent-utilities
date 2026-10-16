@@ -1,5 +1,5 @@
 """Typed inventory: pending directory relocations for AU-BOUNDARY-R036,
-R037, R039, R040, R044, R045, and R047.
+AU-BOUNDARY-R037, AU-BOUNDARY-R039, AU-BOUNDARY-R040, AU-BOUNDARY-R044, AU-BOUNDARY-R045, and AU-BOUNDARY-R047.
 
 Each of these rows moves a whole directory (or a named set of files) out of
 Agent Utilities to a named destination -- the epistemic graph, graph-os, or
@@ -93,7 +93,7 @@ RELOCATION_INVENTORY: dict[str, tuple[str, tuple[str, ...]]] = {
 
 # requirement_id -> AU-owned paths that must keep existing: the public
 # surface external front ends (web UI, chat front end, terminal UI) are
-# allowed to import. R039 shrinks this set only by a change that also
+# allowed to import. AU-BOUNDARY-R039 shrinks this set only by a change that also
 # updates the front-end import census in the receiving repositories.
 FRONT_END_SURFACE_INVENTORY: dict[str, tuple[str, ...]] = {
     "AU-BOUNDARY-R039": (

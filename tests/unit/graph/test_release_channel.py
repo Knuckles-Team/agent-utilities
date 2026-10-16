@@ -142,6 +142,17 @@ class _FakeGraph:
     def semantic_search(self, _query, _k):
         return [(node_id, 1.0) for node_id in self._nodes]
 
+    def owl_reason(self, **_kwargs):
+        """Digest-bound composed-schema classification (a faithful double)."""
+        kg = "http://knuckles.team/kg#"
+        edge = [f"<{kg}SearchCapability>", f"<{kg}ServiceCapability>"]
+        return {
+            "consistent": True,
+            "schema_digests": ["sha256:release-channel-fixture"],
+            "subclasses": [edge],
+            "direct_subclasses": [edge],
+        }
+
 
 class _FakeEngine:
     def __init__(self, nodes):

@@ -1,4 +1,4 @@
-"""Public API exports AU's retained action-policy decision point (AU-BOUNDARY-R013, R017)."""
+"""Public API exports AU's retained action-policy decision point (AU-BOUNDARY-R013, AU-BOUNDARY-R017)."""
 
 from __future__ import annotations
 

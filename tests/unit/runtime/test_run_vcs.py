@@ -23,6 +23,7 @@ from agent_utilities.runtime.run_vcs.retained_output import (
     RetainedRunProposal,
 )
 from agent_utilities.runtime.run_vcs.run_session import RunSession, RunSessionRegistry
+from tests.unit.durable_engine_support import DurableEngine
 
 
 # ── Phase 1: content-addressed typed event kernel ────────────────────────────────
@@ -196,7 +197,7 @@ async def test_retained_output_select_gated_by_action_policy(tmp_path: Path):
     commit = await session.commit("final")
     proposal = RetainedRunProposal(run_id="run-s", commit=commit)
 
-    gate = RetainedRunGate()
+    gate = RetainedRunGate(engine=DurableEngine())
     res = gate.select(proposal, session.carrier, target_root=target)
     assert res["materialized"] is False
     assert res["decision"] in {"queue_approval", "deny"}
@@ -222,7 +223,9 @@ async def test_retained_output_select_materializes_when_policy_allows(tmp_path: 
     commit = await session.commit("final")
     proposal = RetainedRunProposal(run_id="run-ok", commit=commit)
 
-    gate = RetainedRunGate(policy=ActionPolicy(policy_path=policy_yml))
+    gate = RetainedRunGate(
+        policy=ActionPolicy(engine=DurableEngine(), policy_path=policy_yml)
+    )
     res = gate.select(proposal, session.carrier, target_root=target)
     assert res["materialized"] is True
     assert (target / "out.txt").read_text() == "accepted"

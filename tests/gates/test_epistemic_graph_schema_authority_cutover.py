@@ -197,7 +197,9 @@ def test_generated_graph_schema_is_the_only_core_schema_contract() -> None:
     )
 
     request_fields = reasoning.ShaclValidateRequest.model_fields
-    assert set(request_fields) == {"data_graph", "shapes"}
+    # The generated contract is the authority: Turtle text OR structured triples.
+    assert set(request_fields) == {"data_graph", "data_triples", "shapes"}
+    assert request_fields["data_triples"].default is None
     assert request_fields["data_graph"].annotation == str | None
     assert request_fields["shapes"].annotation == str | None
     assert request_fields["data_graph"].default is None

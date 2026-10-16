@@ -264,9 +264,9 @@ def test_workitem_claim_backend_has_exactly_one_native_backend() -> None:
 
 
 def test_orchestrator_and_ingestion_tasks_have_distinct_native_queues() -> None:
-    source = (_SOURCE_ROOT / "orchestration" / "work_item.py").read_text(
-        encoding="utf-8"
-    )
+    source = (
+        _SOURCE_ROOT / "knowledge_graph" / "core" / "work_durability.py"
+    ).read_text(encoding="utf-8")
     assert 'queue="orchestrator_task"' in source
     assert 'kind="ingest_task"' in source
 

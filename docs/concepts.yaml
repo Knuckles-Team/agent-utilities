@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1186
+total_concepts: 1187
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1087,6 +1087,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/ingestion/gpu_slot_scheduler.py
   doc: join inference
+- id: AU-ECO.boundary.public-api-widening
+  name: AU-BOUNDARY-R013
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/api/messaging.py
+  doc: AU-BOUNDARY-R013
 - id: AU-ECO.bus.agent-bus-awareness
   name: agent-to-agent messaging. Governed by the ActionPolicy
   pillar: AU-ECO
@@ -2503,7 +2510,6 @@ concepts:
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
-  - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/messaging/bus_log.py
   doc: Keyed ingest partitions for per-tenant and per-repo ordering
 - id: AU-KG.backend.kvcache-vllm-connector
@@ -2621,7 +2627,6 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
   - agent_utilities/knowledge_graph/core/queue_backend.py
-  - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/orchestration/agent_dispatch.py
   doc: Fail-loud selectable ingest task-queue backend with explicit kafka and postgres and auto sqlite
     modes
@@ -3235,6 +3240,20 @@ concepts:
   code_paths:
   - agent_utilities/domains/finance/credit_quality.py
   doc: Dividend Sustainability & Credit/Fixed-Income Quality
+- id: AU-KG.domains.finance-recommendation-entrypoint
+  name: AU-CONTEXT-R008.2/.3
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/domains/finance/recommendation_entrypoint.py
+  doc: AU-CONTEXT-R008.2/.3
+- id: AU-KG.domains.finance-recommendation-scorecard
+  name: AU-CONTEXT-R008.1
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/domains/finance/analysis_snapshot.py
+  doc: AU-CONTEXT-R008.1
 - id: AU-KG.domains.geopolitical-risk-scoring
   name: Geopolitical Risk Scoring
   pillar: AU-KG
@@ -3608,14 +3627,13 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/ocel_adapter.py
   doc: D-OB-11
 - id: AU-KG.evolution.placement-mining-canary-loop
-  name: manual-trigger
+  name: AU-KG.evolution.placement-mining-canary-loop
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/research/placement_mining.py
-  - agent_utilities/mcp/tools/state_tools.py
   - agent_utilities/orchestration/action_policy.py
-  doc: manual-trigger
+  doc: AU-KG.evolution.placement-mining-canary-loop
 - id: AU-KG.evolution.unified-evidence-resource
   name: and stages them for
   pillar: AU-KG
@@ -3855,16 +3873,15 @@ concepts:
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: env feature flag gating the
 - id: AU-KG.ingest.decoupled-kg-ingest-consumer
-  name: Decoupled kg-ingest consumer group with idempotent at-least-once task claims
+  name: so the processing logic
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
-  - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/knowledge_graph/ingestion/batch_orchestrator.py
   - agent_utilities/observability/gateway_metrics.py
-  doc: Decoupled kg-ingest consumer group with idempotent at-least-once task claims
+  doc: so the processing logic
 - id: AU-KG.ingest.default-graph-leak-guard
   name: ──
   pillar: AU-KG
@@ -4817,12 +4834,10 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
-  - agent_utilities/gateway/artifacts_api.py
   - agent_utilities/knowledge_graph/live_artifacts/__init__.py
   - agent_utilities/knowledge_graph/live_artifacts/kg_source.py
   - agent_utilities/knowledge_graph/live_artifacts/models.py
   - agent_utilities/knowledge_graph/live_artifacts/store.py
-  - agent_utilities/server/app.py
   doc: Live Refreshable Artifact models + bounded-JSON + safe interpolation
 - id: AU-KG.memory.mementified-context
   name: the live block-compress-evict sawtooth
@@ -5228,14 +5243,12 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/models.py
   doc: the descriptive process world gains step-level shape
 - id: AU-KG.ontology.do-not-auto-merge
-  name: a human-reviewed proposal only
+  name: guarantee
   pillar: AU-KG
   status: live
   code_paths:
-  - agent_utilities/knowledge_graph/extraction/schema_discovery.py
-  - agent_utilities/mcp/tools/ontology_tools.py
   - agent_utilities/orchestration/action_policy.py
-  doc: a human-reviewed proposal only
+  doc: guarantee
 - id: AU-KG.ontology.edit-ledger-writeback
   name: the write-back leg of the edit ledger. Sinks are registered
   pillar: AU-KG
@@ -5574,14 +5587,6 @@ concepts:
   - agent_utilities/knowledge_graph/core/task_lanes.py
   - agent_utilities/mcp/tools/ontology_tools.py
   doc: a single-source FULL drain of a LARGE corpus must NOT run inline
-- id: AU-KG.ontology.standalone-generation
-  name: skips the live-ontology/synonym
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/gateway/ontology_api.py
-  - agent_utilities/knowledge_graph/extraction/schema_discovery.py
-  doc: skips the live-ontology/synonym
 - id: AU-KG.ontology.style-lint
   name: flags interface/property naming-convention
   pillar: AU-KG
@@ -8431,7 +8436,6 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
-  - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/mcp/kg_server.py
   doc: reserve a small floor of
 - id: AU-ORCH.scheduling.also-fold-vllm-scheduler
@@ -8730,7 +8734,6 @@ concepts:
   - agent_utilities/core/paths.py
   - agent_utilities/gateway/__init__.py
   - agent_utilities/gateway/aggregator.py
-  - agent_utilities/gateway/api.py
   - agent_utilities/gateway/config.py
   - agent_utilities/gateway/models.py
   - agent_utilities/gateway/registry.py
@@ -8959,7 +8962,6 @@ concepts:
   pillar: AU-OS
   status: live
   code_paths:
-  - agent_utilities/gateway/api.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/observability/runtime_health.py
   - agent_utilities/server/routers/core.py
@@ -9414,7 +9416,6 @@ concepts:
   - agent_utilities/knowledge_graph/__main__.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/source_sync.py
-  - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/knowledge_graph/ingestion/__main__.py
   - agent_utilities/knowledge_graph/memory/cli.py
   - agent_utilities/knowledge_graph/ontology/permissioning.py
@@ -9784,7 +9785,6 @@ concepts:
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/core/schedule_engine.py
-  - agent_utilities/gateway/api.py
   - agent_utilities/gateway/config.py
   - agent_utilities/gateway/graph_api.py
   - agent_utilities/gateway/rate_limit.py
@@ -10114,7 +10114,6 @@ concepts:
   pillar: AU-OS
   status: live
   code_paths:
-  - agent_utilities/gateway/api.py
   - agent_utilities/knowledge_graph/core/engine_breaker.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/shard_topology.py
@@ -10526,7 +10525,6 @@ concepts:
   code_paths:
   - agent_utilities/agent/registry_builder.py
   - agent_utilities/core/config.py
-  - agent_utilities/gateway/api.py
   - agent_utilities/gateway/daemon.py
   - agent_utilities/knowledge_graph/adaptation/feedback.py
   - agent_utilities/knowledge_graph/assimilation/breadth_ingest.py
@@ -10555,7 +10553,6 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/writeback/sinks/capability.py
   - agent_utilities/knowledge_graph/enrichment/writeback/sinks/process.py
   - agent_utilities/knowledge_graph/facade.py
-  - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/knowledge_graph/ingestion/manifest.py
   - agent_utilities/knowledge_graph/pipeline/phases/shacl_gate.py
   - agent_utilities/knowledge_graph/research/code_synthesis.py

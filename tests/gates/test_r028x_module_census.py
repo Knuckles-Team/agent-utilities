@@ -1,6 +1,6 @@
 """Importer census for the still-blocked AU-BOUNDARY-R028.x children
-(R028.2 kg/infra, R028.6 observability/{trace_ontology,self_ingest,
-audit_logger}, R028.7 governance/relational_authority, R028.8
+(AU-BOUNDARY-R028.2 kg/infra, AU-BOUNDARY-R028.6 observability/{trace_ontology,self_ingest,
+audit_logger}, AU-BOUNDARY-R028.7 governance/relational_authority, AU-BOUNDARY-R028.8
 kg/research/placement_mining).
 
 Each of these four children is SPECIFIED, not LANDED: every one names a
@@ -10,7 +10,7 @@ production-importer census that can only shrink as callers are redirected
 to an EG client ahead of the module's own deletion. A grown set fails the
 test; a shrunk or equal set passes.
 
-R028.2's requirements.md text claims "no production caller anywhere" for
+AU-BOUNDARY-R028.2's requirements.md text claims "no production caller anywhere" for
 `kg/infra/{placement_optimizer,inventory_collector}.py`; this census found
 one real production caller (`mcp/tools/analysis_tools.py`, via
 `optimize_from_graph`/`collect_and_persist`) that the prose missed, so the
@@ -49,6 +49,10 @@ PINNED_OBSERVABILITY_TRIAD_IMPORTERS: frozenset[str] = frozenset(
     {
         "__init__.py",
         "__main__.py",
+        # AU-BOUNDARY-R013.5/.6: the public ``api`` export of ``trace_id`` is a
+        # thin re-export of observability.trace_ontology.trace_id (recorded
+        # caller, not a new consumer).
+        "api/trace_ontology.py",
         "gateway/daemon.py",
         "models/knowledge_graph.py",
         "capabilities/kg_audit_sink.py",

@@ -516,7 +516,11 @@ def test_profile_is_bounded_privacy_safe_and_side_effect_free() -> None:
     assert result["side_effects"] == []
     assert result["profile"]["rows"] == 2
     assert authority.preview_calls == 0
-    assert "value" not in json.dumps(result, sort_keys=True)
+    # Privacy: the column name never leaks and no per-value frequency (top_k)
+    # is disclosed below the disclosure threshold; only aggregate statistics
+    # (min/max/mean/quantiles) appear.
+    assert '"name"' not in json.dumps(result["profile"]["column_profiles"])
+    assert all(not column["top_k"] for column in result["profile"]["column_profiles"])
     assert "content_ref" not in result["artifact"]
 
 

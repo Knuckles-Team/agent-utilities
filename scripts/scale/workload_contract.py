@@ -277,7 +277,8 @@ def _contract_digest(raw: Mapping[str, Any]) -> str:
         ).encode("utf-8")
     except (TypeError, ValueError) as exc:
         raise WorkloadContractError(
-            "workload contract cannot be canonically hashed"
+            "workload contract cannot be canonically hashed: every value must "
+            "be a finite JSON number or text"
         ) from exc
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
