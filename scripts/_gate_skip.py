@@ -23,7 +23,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import NoReturn
 
-
 SYSTEM_BIN = Path("/usr/local/bin")
 
 
