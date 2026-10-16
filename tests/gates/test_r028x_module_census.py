@@ -49,6 +49,10 @@ PINNED_OBSERVABILITY_TRIAD_IMPORTERS: frozenset[str] = frozenset(
     {
         "__init__.py",
         "__main__.py",
+        # AU-BOUNDARY-R013.5/.6: the public ``api`` export of ``trace_id`` is a
+        # thin re-export of observability.trace_ontology.trace_id (recorded
+        # caller, not a new consumer).
+        "api/trace_ontology.py",
         "gateway/daemon.py",
         "models/knowledge_graph.py",
         "capabilities/kg_audit_sink.py",
