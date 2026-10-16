@@ -23,6 +23,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import NoReturn
 
+SYSTEM_BIN = Path("/usr/local/bin")
+
 
 def unavailable(gate: str, reason: str) -> NoReturn:
     if os.environ.get("CI"):
@@ -36,7 +38,7 @@ def find_local_tool(name: str) -> str | None:
     """Return ``~/.local/bin/<name>``, ``/usr/local/bin/<name>`` or the $PATH
     hit, in that order; ``None`` when the tool is absent from all three."""
 
-    for candidate in (Path.home() / ".local/bin" / name, Path("/usr/local/bin") / name):
+    for candidate in (Path.home() / ".local/bin" / name, SYSTEM_BIN / name):
         if candidate.is_file():
             return str(candidate)
     return shutil.which(name)
