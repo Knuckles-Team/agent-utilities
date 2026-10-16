@@ -4,7 +4,7 @@ CONCEPT:AU-ECO.mcp.protocol-compat-bridge
 
 ``httpx2`` is imported lazily (function-local ``import httpx2``, matching
 the D-MTT-1 convention already established in
-:mod:`agent_utilities.mcp.httpx_boundary`) so a profile that omits the
+:mod:`agent_utilities.graphos_client.httpx_boundary`) so a profile that omits the
 ``[mcp]`` extra — the only thing that pulls ``httpx2`` into the resolved
 lock today — never fails to import this module merely by referencing the
 adapter classes; only *constructing* one requires the package.

@@ -60,11 +60,9 @@ def _acquire_engine() -> Any:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = IntelligenceGraphEngine.get_active()
-    if engine is not None:
-        return engine
-    from agent_utilities.mcp import kg_server
-
-    return kg_server._get_engine()
+    if engine is None:
+        raise RuntimeError("no active graph authority; graph-os owns its creation")
+    return engine
 
 
 def _git_commit(workspace: Path, message: str) -> dict[str, Any]:

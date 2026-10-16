@@ -254,7 +254,7 @@ The ecosystem supports OAuth2 token delegation for MCP servers:
    configured FastMCP authentication provider, then binds them to
    request-scoped context variables.
 2. MCP servers retrieve that checked request authority through
-   `agent_utilities.mcp.delegated_auth.get_user_token()` and
+   `agent_utilities.graphos_client.delegated_auth.get_user_token()` and
    `get_user_claims()`.
 3. The token is exchanged via RFC 8693 (Token Exchange) for a scoped service token
 

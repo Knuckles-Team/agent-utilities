@@ -155,7 +155,7 @@ _IDP_CFG = {
 
 
 def test_exchange_appends_acting_agent() -> None:
-    import agent_utilities.mcp.delegated_auth as da
+    import agent_utilities.graphos_client.delegated_auth as da
 
     with patch.object(
         da, "_post_token", return_value={"access_token": "DELEGATED"}
@@ -171,7 +171,7 @@ def test_exchange_appends_acting_agent() -> None:
 
 
 def test_exchange_requires_a_caller_token() -> None:
-    import agent_utilities.mcp.delegated_auth as da
+    import agent_utilities.graphos_client.delegated_auth as da
 
     with pytest.raises(ValueError):
         da.exchange_token_for_agent("agent:x", subject_token=None, config=_IDP_CFG)

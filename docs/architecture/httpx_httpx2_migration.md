@@ -24,12 +24,12 @@ CONCEPT:AU-ECO.mcp.protocol-compat-bridge
 - **The initial GOC-87 audit found 48 files** under `agent_utilities/` importing
   `httpx` directly (`import
   httpx` / `from httpx import ...`); **2** import `httpx2`
-  (`agent_utilities/mcp/httpx_boundary.py`, and its test).
+  (`agent_utilities/graphos_client/httpx_boundary.py`, and its test).
 
 A process-wide alias (`httpx = httpx2` at import time) will appear to work
 and will silently break every one of the 17 `httpx`-typed third-party SDKs
 above the moment they did an `isinstance` check against the real class — see
-`agent_utilities/mcp/httpx_boundary.py`'s docstring (D-MTT-1) for a
+`agent_utilities/graphos_client/httpx_boundary.py`'s docstring (D-MTT-1) for a
 production incident of exactly this shape, already fixed once for the
 `auth=` parameter crossing into fastmcp/mcp SDK v2 client code. **This lane
 does not do that anywhere.** It is prohibited by the lane's own authority

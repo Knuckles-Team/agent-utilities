@@ -792,43 +792,6 @@ def _check_source_provenance(cfg: Any) -> dict[str, Any]:  # noqa: ARG001 - unif
 
 
 # Ordered so the mandatory check reports first; order is otherwise cosmetic.
-def _check_bundled_skills(cfg: Any) -> dict[str, Any]:
-    """Report packaged-skill readiness.
-
-    This deliberately does NOT gate the process: a bundled skill failing to
-    ingest is a capability gap, not a reason to refuse every unrelated tool. But
-    it must be visible, so an incomplete bundle reports ``unhealthy`` here and
-    names the skills — "serving degraded" has to be distinguishable from "fully
-    ready" from outside the process.
-    """
-    try:
-        from agent_utilities.mcp.kg_server import bundled_skill_readiness
-    except Exception:  # noqa: BLE001 - the MCP surface may not be importable
-        return {"status": "not_configured", "reason": "graph-os MCP surface not loaded"}
-    report = bundled_skill_readiness()
-    if not report:
-        return {"status": "not_configured", "reason": "skill bootstrap has not run"}
-    not_ready = list(report.get("not_ready") or [])
-    detail = {
-        "ready": report.get("ready"),
-        "required": report.get("required"),
-        "not_ready": not_ready,
-    }
-    if report.get("error"):
-        detail["error"] = report["error"]
-    if not_ready:
-        # Reported as ok-with-degraded-detail ON PURPOSE. /health/ready drives
-        # kubelet's readiness probe, so returning unhealthy here would pull the
-        # pod out of Service routing over a capability gap — re-creating, at the
-        # routing layer, exactly the boot gate we just removed. The gap stays
-        # fully visible in `detail` (and is logged loudly at bootstrap); it just
-        # does not take the server out of rotation.
-        detail["degraded"] = True
-        detail["reason"] = f"{len(not_ready)} packaged skill(s) not ready"
-        return {"status": "ok", "detail": detail}
-    return {"status": "ok", "detail": detail}
-
-
 _CHECKS: tuple[tuple[str, Callable[[Any], dict[str, Any]]], ...] = (
     ("engine", _check_engine),
     ("source_provenance", _check_source_provenance),
@@ -838,7 +801,6 @@ _CHECKS: tuple[tuple[str, Callable[[Any], dict[str, Any]]], ...] = (
     ("fleet_supervision", _check_fleet_supervision),
     ("kafka_bus", _check_kafka_bus),
     ("stardog_mirror", _check_stardog_mirror),
-    ("bundled_skills", _check_bundled_skills),
     ("kg_mirrors", _check_kg_mirrors),
     ("embedding_endpoint", _check_embedding_endpoint),
 )

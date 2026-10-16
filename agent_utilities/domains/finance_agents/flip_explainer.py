@@ -2,7 +2,7 @@
 
 Computes its answer from math first, then attaches every claim it makes to a
 cited source. The underlying price-delta/flip-verdict calculation is sourced
-through the typed delegation seam in ``agent_utilities/api/finance_delegation.py``
+through the typed delegation seam in ``agent_utilities/domains/finance_agents/finance_delegation.py``
 (``price_delta_via_eg_or_local``), which prefers epistemic-graph's finance
 core when it is available and otherwise falls back to the local formula
 below -- this module never computes the delta with its own formula directly.
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from agent_utilities.api.finance_delegation import (
+from agent_utilities.domains.finance_agents.finance_delegation import (
     PriceDeltaRequest,
     PriceDeltaResponse,
     price_delta_via_eg_or_local,

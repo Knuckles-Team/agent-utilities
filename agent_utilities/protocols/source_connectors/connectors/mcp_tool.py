@@ -1868,7 +1868,7 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
     def _resolve_child_auth(self) -> Any:
         """Best-effort service-account bearer mint (opt-in; None on failure)."""
         try:
-            from agent_utilities.mcp.client_credentials import child_auth
+            from agent_utilities.graphos_client.client_credentials import child_auth
 
             return child_auth(None)
         except Exception:  # noqa: BLE001 — auth is best-effort/opt-in

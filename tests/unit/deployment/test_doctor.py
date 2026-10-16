@@ -630,7 +630,7 @@ def test_ontology_release_signing_doctor_trusts_a_lock_pinned_key(monkeypatch):
 
 def test_outbound_auth_doctor_reports_redacted_readiness(monkeypatch):
     monkeypatch.setattr(
-        "agent_utilities.mcp.client_credentials.outbound_auth_configuration_status",
+        "agent_utilities.graphos_client.client_credentials.outbound_auth_configuration_status",
         lambda: {
             "mode": "oidc-client-credentials",
             "ready": True,
@@ -657,7 +657,7 @@ def test_outbound_auth_doctor_fails_closed_on_missing_audience(monkeypatch):
     # exactly that shape and silently treats anything else (e.g. a tuple) as
     # empty, so the mock must match the real contract's type, not just value.
     monkeypatch.setattr(
-        "agent_utilities.mcp.client_credentials.outbound_auth_configuration_status",
+        "agent_utilities.graphos_client.client_credentials.outbound_auth_configuration_status",
         lambda: {
             "mode": "oidc-client-credentials",
             "ready": False,

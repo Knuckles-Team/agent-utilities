@@ -1001,12 +1001,22 @@ def _lakehouse_maintenance_dispatch(
     finding = finding_fn(engine)
     if not finding:
         return {"status": "ok", "check": check}
-    from agent_utilities.mcp.tools.state_tools import (
-        propose_lakehouse_maintenance_gap,
-    )
+    import hashlib
 
-    gap = propose_lakehouse_maintenance_gap(
-        engine, source=source, statement=str(finding)
+    from agent_utilities.knowledge_graph.research.gaps import submit_gap
+
+    # Propose-only: file one canonical, idempotent ``:Gap`` and let the
+    # existing gaps -> review -> develop lifecycle decide what happens next.
+    statement = str(finding).strip()
+    signature = hashlib.sha256(f"{source}:{statement}".encode()).hexdigest()[:16]
+    gap = submit_gap(
+        engine,
+        source=source,
+        signature=signature,
+        statement=statement,
+        domain="lakehouse-maintenance",
+        severity=0.5,
+        concept_ids=[],
     )
     return {"status": "gap_proposed", "check": check, "gap": gap}
 

@@ -222,7 +222,7 @@ class EpistemicGraphKVBackend:
         # token/binding is rejected by ``_scope_ready`` below rather than
         # silently becoming an anonymous distributed worker.
         try:
-            from agent_utilities.mcp.client_credentials import child_auth
+            from agent_utilities.graphos_client.client_credentials import child_auth
         except Exception:  # pragma: no cover - mcp layer optional on inference hosts
 
             def child_auth(existing: dict | None) -> httpx.Auth | None:

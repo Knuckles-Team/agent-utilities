@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-from agent_utilities.mcp.toolset_factory import (
+from agent_utilities.graphos_client.toolset_factory import (
     _coerce_httpx_timeout,
     _httpx_client_factory,
     build_http_toolset,

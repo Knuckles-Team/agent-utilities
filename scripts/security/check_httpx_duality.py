@@ -6,11 +6,11 @@ client packages side by side: ``httpx`` 0.28.1 (this repo's own base
 dependency) and ``httpx2`` 2.7.0 (a real, separately published PyPI package —
 pulled in transitively by ``fastmcp-slim[client]``/``mcp`` because this repo
 deliberately adopted ``fastmcp>=4.0.0b1`` early — see
-``agent_utilities/mcp/httpx_boundary.py``'s module docstring for the full
+``agent_utilities/graphos_client/httpx_boundary.py``'s module docstring for the full
 diagnosis). fastmcp's client transports and the underlying ``mcp`` SDK v2
 client functions type their ``auth`` parameter as ``httpx2.Auth``; this
 repo's own outbound child/service auth
-(``agent_utilities.mcp.client_credentials.child_auth``) builds a LOCAL
+(``agent_utilities.graphos_client.client_credentials.child_auth``) builds a LOCAL
 ``httpx.Auth``. Handing that straight to one of the four fastmcp/mcp SDK v2
 client-constructor call sites below raises ``TypeError: Invalid "auth"
 argument`` — verified against this environment's installed httpx2 2.7.0
@@ -85,7 +85,7 @@ _RISKY_PRODUCERS = {"child_auth"}
 
 #: Names that neutralize a risky producer's output before it reaches a
 #: target call — ``coerce_httpx2_auth`` (this repo's adapter,
-#: ``agent_utilities/mcp/httpx_boundary.py``) is the one today.
+#: ``agent_utilities/graphos_client/httpx_boundary.py``) is the one today.
 _SAFE_WRAPPERS = {"coerce_httpx2_auth"}
 
 
@@ -104,7 +104,7 @@ class Violation:
         return (
             f"{self.path}:{self.line} auth= passed to {self.target}() from "
             f"unwrapped {self.producer}() — wrap it in coerce_httpx2_auth(...) "
-            "(see agent_utilities/mcp/httpx_boundary.py)"
+            "(see agent_utilities/graphos_client/httpx_boundary.py)"
         )
 
 
@@ -279,8 +279,8 @@ def check(root: Path) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 _GOOD_FIXTURE = """
-from agent_utilities.mcp.httpx_boundary import coerce_httpx2_auth
-from agent_utilities.mcp.client_credentials import child_auth
+from agent_utilities.graphos_client.httpx_boundary import coerce_httpx2_auth
+from agent_utilities.graphos_client.client_credentials import child_auth
 
 
 def connect_direct(url, headers):
@@ -319,7 +319,7 @@ def own_httpx_client_is_fine(headers, svc_auth):
 
 _BAD_FIXTURES: dict[str, str] = {
     "direct_call_unwrapped": """
-from agent_utilities.mcp.client_credentials import child_auth
+from agent_utilities.graphos_client.client_credentials import child_auth
 
 
 def connect(url, headers):
@@ -332,7 +332,7 @@ def connect(url, headers):
     return transport
 """,
     "local_variable_unwrapped": """
-from agent_utilities.mcp.client_credentials import child_auth
+from agent_utilities.graphos_client.client_credentials import child_auth
 
 
 def connect(url, headers):
@@ -346,7 +346,7 @@ def connect(url, headers):
     return transport
 """,
     "streamable_http_transport_unwrapped": """
-from agent_utilities.mcp.client_credentials import child_auth
+from agent_utilities.graphos_client.client_credentials import child_auth
 
 
 def build(url, headers, auth):

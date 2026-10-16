@@ -74,28 +74,17 @@ def _probe_fleet(multiplexer: Any = None) -> dict[str, dict]:
     """Return the ``{server: {"tools": [...], "error": str|None}}`` fleet catalog.
 
     ``multiplexer`` may be a pre-probed catalog dict (tests/callers that hold one), a
-    live :class:`MCPMultiplexer`, or ``None`` to build one from the fleet config — the
-    same resolution :func:`knowledge_graph.core.source_sync._sync_fleet` uses.
+    host-provided multiplexer handle, or ``None`` (no fleet in this process).
     """
     if isinstance(multiplexer, dict):
         return multiplexer
-    try:
-        from ..knowledge_graph.core.source_sync import _resolve_fleet_config
-        from ..mcp.multiplexer import MCPMultiplexer
-        from ..protocols.source_connectors.connectors.mcp_package import _run_async
-    except Exception as exc:  # noqa: BLE001 — multiplexer optional at import
-        logger.debug("ard: multiplexer unavailable: %s", exc)
+    # graph-os owns the fleet multiplexer; the harness only probes a catalog
+    # handle its host passed in and never builds one of its own.
+    if multiplexer is None:
         return {}
+    from ..protocols.source_connectors.connectors.mcp_package import _run_async
+
     mux = multiplexer
-    if mux is None:
-        config_path = _resolve_fleet_config()
-        if config_path is None:
-            return {}
-        try:
-            mux = MCPMultiplexer(config_path)
-        except Exception as exc:  # noqa: BLE001 — fleet catalog probe, sibling handler below carries the same reason
-            logger.debug("ard: multiplexer build failed: %s", exc)
-            return {}
     try:
         return _run_async(mux.probe_catalog())
     except Exception as exc:  # noqa: BLE001 — probe is best-effort
@@ -287,21 +276,11 @@ def _search_servers(
     pub: dict[str, str],
     unavailable: dict[str, str],
 ) -> list[dict]:
-    try:
-        from ..knowledge_graph.core.source_sync import _resolve_fleet_config
-        from ..mcp.multiplexer import MCPMultiplexer
-        from ..protocols.source_connectors.connectors.mcp_package import _run_async
-    except Exception:  # noqa: BLE001
-        return []
     mux = multiplexer if not isinstance(multiplexer, dict) else None
     if mux is None:
-        config_path = _resolve_fleet_config()
-        if config_path is None:
-            return []
-        try:
-            mux = MCPMultiplexer(config_path)
-        except Exception:  # noqa: BLE001
-            return []
+        return []
+    from ..protocols.source_connectors.connectors.mcp_package import _run_async
+
     try:
         ranked = _run_async(mux.discover_tools(query_text, top_k=page_size * 2))
     except Exception as exc:  # noqa: BLE001

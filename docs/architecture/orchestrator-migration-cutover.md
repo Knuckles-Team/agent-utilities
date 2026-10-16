@@ -53,7 +53,7 @@ everything works. **Inside the new orchestrator that assumption breaks.**
 
   ```bash
   # inside the gateway pod — a healthy mint returns True; an empty/None bearer is the bug
-  python3 -c 'from agent_utilities.mcp.client_credentials import bearer_header; \
+  python3 -c 'from agent_utilities.graphos_client.client_credentials import bearer_header; \
               h=bearer_header({}); print(bool(h.get("Authorization")))'
   ```
 

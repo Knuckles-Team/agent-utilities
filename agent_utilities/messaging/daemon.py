@@ -136,7 +136,7 @@ async def _serve(engine: Any, platforms: list[str], router_box: dict[str, Any]) 
 def _validate_fleet_auth() -> None:
     """Load XDG AgentConfig and fail closed on incomplete outbound fleet auth."""
     from agent_utilities.core.config import load_config
-    from agent_utilities.mcp.client_credentials import (
+    from agent_utilities.graphos_client.client_credentials import (
         outbound_auth_configuration_status,
         validate_outbound_auth_configuration,
     )

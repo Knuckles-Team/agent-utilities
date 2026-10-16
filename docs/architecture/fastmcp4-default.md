@@ -17,7 +17,7 @@ and legacy camelCase fields, `__aenter__` supports initialize-era and modern
 real 2.29/fastmcp-4 client contract is therefore tested without copying or mutating
 upstream methods.
 
-## The bridge: `agent_utilities/mcp/protocol_compat.py`
+## The bridge: `agent_utilities/graphos_client/protocol_compat.py`
 
 - `install_mcp_v2_bridge()` — validates the exact `pydantic-ai-slim==2.29.0` contract
   and fails closed on drift. It deliberately does not monkeypatch `MCPToolset` or
@@ -58,7 +58,7 @@ only failed as a swallowed `ImportError` deep inside `mcp/child_resilience.py`'s
 `agent_utilities.mcp.multiplexer` unimportable and silently dropped every fleet
 meta-tool (`find_tools`/`list_catalog`/`load_tools`/`unload_tools`/`multiplexer_status`).
 
-`agent_utilities.mcp.protocol_compat.check_mcp_sdk_floor()` closes that gap:
+`agent_utilities.graphos_client.protocol_compat.check_mcp_sdk_floor()` closes that gap:
 
 - Reads the `fastmcp` floor from `agent-utilities`'s OWN installed metadata (the `[mcp]`
   extra's PEP 508 marker via `importlib.metadata.requires()`), never a separately-parsed

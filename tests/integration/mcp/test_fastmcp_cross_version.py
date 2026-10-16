@@ -1,4 +1,4 @@
-"""Live proof that `agent_utilities.mcp.toolset_factory` works end-to-end against a
+"""Live proof that `agent_utilities.graphos_client.toolset_factory` works end-to-end against a
 real fastmcp-4 server (CONCEPT:AU-ECO.mcp.protocol-compat-bridge).
 
 fastmcp 4 is au's single default (`[mcp]`, `pyproject.toml`) — there is no longer a
@@ -77,7 +77,7 @@ async def test_toolset_factory_round_trips_a_real_fastmcp4_server(
             f"interpreter has fastmcp {fastmcp.__version__}"
         )
 
-    from agent_utilities.mcp.toolset_factory import build_stdio_toolset
+    from agent_utilities.graphos_client.toolset_factory import build_stdio_toolset
 
     server_script = tmp_path / "fastmcp4_live_server.py"
     server_script.write_text(_SERVER_SCRIPT, encoding="utf-8")

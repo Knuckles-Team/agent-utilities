@@ -34,7 +34,6 @@ from agent_utilities.core.config import (
     load_mcp_servers_from_config,
 )
 from agent_utilities.core.workspace import get_agent_workspace, resolve_mcp_config_path
-from agent_utilities.mcp.agent_manager import should_sync, sync_mcp_agents
 
 from ..base_utilities import (
     is_loopback_url,
@@ -220,33 +219,10 @@ def _ingest_prompts_if_enabled(loop: Any) -> None:
         logger.debug("Registry rebuild failed: %s", exc)
 
 
-def _sync_mcp_agents_if_needed(config_path: Any, loop: Any) -> None:
-    """Synchronize MCP agents when the registry is stale."""
-    needs_sync = should_sync(config_path)
-    if not needs_sync or DEFAULT_VALIDATION_MODE:
-        logger.debug(
-            "Initializing Graph: Valid registry found. Skipping live extraction."
-        )
-        return
-    try:
-        synced = _run_or_schedule(
-            sync_mcp_agents,
-            loop=loop,
-            label="MCP agent sync",
-            config_path=config_path,
-        )
-        if synced:
-            logger.info("Initializing Graph: MCP agents synced successfully.")
-    except Exception as exc:  # noqa: BLE001 — a failed sync is retried from its durable timestamp
-        logger.debug("Sync skip/fail: %s", exc)
-
-
 def _build_discovery_metadata(config_path: Any, loop: Any) -> dict[str, Any]:
     """Synchronize configured MCP agents and build their registry metadata."""
     _ingest_prompts_if_enabled(loop)
     try:
-        _sync_mcp_agents_if_needed(config_path, loop)
-
         from collections import defaultdict
 
         registry = get_discovery_registry()
@@ -798,7 +774,7 @@ def _build_mcp_toolsets(
     if DEFAULT_VALIDATION_MODE:
         return toolsets
     if mcp_url:
-        from agent_utilities.mcp.toolset_factory import build_http_toolset
+        from agent_utilities.graphos_client.toolset_factory import build_http_toolset
 
         if not is_loopback_url(
             mcp_url, kwargs.get("current_host"), kwargs.get("current_port")

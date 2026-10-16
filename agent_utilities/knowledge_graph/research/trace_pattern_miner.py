@@ -221,7 +221,9 @@ def mine_trace_patterns(
         }
 
     try:
-        from agent_utilities.mcp.tools.engine_surface_tools import _invoke
+        from agent_utilities.knowledge_graph.core.engine_surface import (
+            invoke_surface as _invoke,
+        )
 
         raw = _invoke(
             surface="mining",

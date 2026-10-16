@@ -11053,21 +11053,21 @@
         "line": 219
       }
     ],
-    "agent_utilities.mcp.client_credentials.ClientCredentialsTokenProvider": [
+    "agent_utilities.graphos_client.client_credentials.ClientCredentialsTokenProvider": [
       {
         "repo": "keycloak-agent",
         "file": "keycloak_agent/auth.py",
         "line": 9
       }
     ],
-    "agent_utilities.mcp.client_credentials.child_auth_header": [
+    "agent_utilities.graphos_client.client_credentials.child_auth_header": [
       {
         "repo": "systems-manager",
         "file": "systems_manager/agent_server.py",
         "line": 158
       }
     ],
-    "agent_utilities.mcp.concurrency.invoke_client_method": [
+    "agent_utilities.graphos_client.concurrency.invoke_client_method": [
       {
         "repo": "microsoft-agent",
         "file": "microsoft_agent/mcp/mcp_admin.py",
@@ -11269,7 +11269,7 @@
         "line": 4
       }
     ],
-    "agent_utilities.mcp.concurrency.run_blocking": [
+    "agent_utilities.graphos_client.concurrency.run_blocking": [
       {
         "repo": "archivebox-api",
         "file": "archivebox_api/mcp_server.py",
@@ -12261,7 +12261,7 @@
         "line": 35
       }
     ],
-    "agent_utilities.mcp.delegated_auth": [
+    "agent_utilities.graphos_client.delegated_auth": [
       {
         "repo": "onetrust-api",
         "file": "tests/test_auth.py",
@@ -12273,7 +12273,7 @@
         "line": 29
       }
     ],
-    "agent_utilities.mcp.delegated_auth.get_delegated_token": [
+    "agent_utilities.graphos_client.delegated_auth.get_delegated_token": [
       {
         "repo": "ansible-tower-mcp",
         "file": "ansible_tower_mcp/auth.py",
@@ -12365,7 +12365,7 @@
         "line": 75
       }
     ],
-    "agent_utilities.mcp.delegated_auth.get_user_identity": [
+    "agent_utilities.graphos_client.delegated_auth.get_user_identity": [
       {
         "repo": "clarity-api",
         "file": "clarity_api/auth.py",
@@ -12392,14 +12392,14 @@
         "line": 75
       }
     ],
-    "agent_utilities.mcp.delegated_auth.get_user_token": [
+    "agent_utilities.graphos_client.delegated_auth.get_user_token": [
       {
         "repo": "microsoft-agent",
         "file": "microsoft_agent/auth.py",
         "line": 83
       }
     ],
-    "agent_utilities.mcp.delegated_auth.is_delegation_enabled": [
+    "agent_utilities.graphos_client.delegated_auth.is_delegation_enabled": [
       {
         "repo": "ansible-tower-mcp",
         "file": "ansible_tower_mcp/auth.py",

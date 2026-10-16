@@ -336,9 +336,11 @@ class EngineBackendClient(MemoryBackendClient):
         # Connect as a read/write client of the running daemon, never as the host.
         os.environ.setdefault("KG_DAEMON_ROLE", "client")
         try:
-            from agent_utilities.mcp import kg_server
+            from agent_utilities.knowledge_graph.core.engine import (
+                IntelligenceGraphEngine,
+            )
 
-            engine = kg_server._get_engine()
+            engine = IntelligenceGraphEngine.get_active()
         except Exception as exc:  # noqa: BLE001 - any import/connect failure → unavailable
             raise BackendUnavailable(f"graph-os engine unavailable: {exc}") from exc
         if engine is None:

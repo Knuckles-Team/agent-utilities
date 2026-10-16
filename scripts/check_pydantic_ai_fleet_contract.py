@@ -149,7 +149,7 @@ def default_contract_source() -> Path:
     """Return the AU source file containing the canonical version literal."""
 
     return (
-        Path(__file__).resolve().parents[1] / "agent_utilities/mcp/protocol_compat.py"
+        Path(__file__).resolve().parents[1] / "agent_utilities/graphos_client/protocol_compat.py"
     )
 
 

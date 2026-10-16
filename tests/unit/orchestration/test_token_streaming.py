@@ -254,7 +254,7 @@ async def test_progress_events_and_text_deltas_interleave_in_run_order() -> None
         ),
         patch.object(agent_runner, "_spawn_auth", return_value=None),
         patch(
-            "agent_utilities.mcp.toolset_factory.build_http_toolset",
+            "agent_utilities.graphos_client.toolset_factory.build_http_toolset",
             return_value=MagicMock(),
         ),
         patch(

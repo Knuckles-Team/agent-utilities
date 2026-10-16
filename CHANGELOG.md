@@ -254,7 +254,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cycle, but a long-lived MCP client session that cached its bearer at
   connect time never re-reads it — "file refreshed + probe 200, session
   still 401." `RotatingFileBearerAuth`
-  (`agent_utilities/mcp/client_credentials.py`) re-reads
+  (`agent_utilities/graphos_client/client_credentials.py`) re-reads
   `MCP_BEARER_TOKEN_FILE` fresh on every outbound request instead, so an
   out-of-process daemon's rotation renews the credential in-band, inside the
   same session, with no reconnect — generalizing the mechanism

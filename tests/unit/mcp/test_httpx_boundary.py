@@ -3,7 +3,7 @@
 The MCP SDK's client transports (``mcp.client.auth.oauth2.OAuthClientProvider``,
 fastmcp's ``StreamableHttpTransport``/``SSETransport``) type their ``auth``
 parameter as ``httpx2.Auth``. This package's own outbound child/service auth
-(:func:`agent_utilities.mcp.client_credentials.child_auth`) builds a plain
+(:func:`agent_utilities.graphos_client.client_credentials.child_auth`) builds a plain
 ``httpx.Auth`` instance instead, because that same object also authenticates
 this package's own ``httpx.AsyncClient``-based transports where the local type
 is required. ``coerce_httpx2_auth`` is the one canonical adapter that lets a
@@ -25,7 +25,7 @@ import httpx
 import httpx2
 import pytest
 
-from agent_utilities.mcp.httpx_boundary import coerce_httpx2_auth
+from agent_utilities.graphos_client.httpx_boundary import coerce_httpx2_auth
 
 
 class _LocalSyncAuth(httpx.Auth):

@@ -22,7 +22,7 @@ def cc(monkeypatch):
         "OIDC_TOKEN_URL",
         "https://identity.example.test/oauth2/token",
     )
-    import agent_utilities.mcp.client_credentials as module
+    import agent_utilities.graphos_client.client_credentials as module
 
     importlib.reload(module)  # reset module-level provider cache
     return module
@@ -50,7 +50,7 @@ def _oidc_http_client(*responses):
 
 def test_disabled_returns_none(monkeypatch):
     monkeypatch.setenv("MCP_CLIENT_AUTH", "none")
-    import agent_utilities.mcp.client_credentials as module
+    import agent_utilities.graphos_client.client_credentials as module
 
     importlib.reload(module)
     assert module.get_provider() is None
@@ -111,7 +111,7 @@ def test_missing_secret_fails_closed(monkeypatch):
     monkeypatch.delenv("OIDC_CLIENT_SECRET_REF", raising=False)
     monkeypatch.setenv("OIDC_AUDIENCE", "graph-api")
     monkeypatch.setenv("OIDC_TOKEN_URL", "https://identity.example.test/token")
-    import agent_utilities.mcp.client_credentials as module
+    import agent_utilities.graphos_client.client_credentials as module
 
     importlib.reload(module)
     with pytest.raises(RuntimeError, match="service identity is incomplete"):
@@ -121,7 +121,7 @@ def test_missing_secret_fails_closed(monkeypatch):
 def test_env_secret_ref_resolves_without_secret_backend(monkeypatch):
     monkeypatch.setenv("OIDC_CLIENT_SECRET_REF", "env://TEST_OIDC_CLIENT_SECRET")
     monkeypatch.setenv("TEST_OIDC_CLIENT_SECRET", "process-local-secret")
-    import agent_utilities.mcp.client_credentials as module
+    import agent_utilities.graphos_client.client_credentials as module
 
     importlib.reload(module)
     with patch(
@@ -136,7 +136,7 @@ def test_env_secret_ref_resolves_without_secret_backend(monkeypatch):
 
 def test_env_secret_ref_rejects_non_environment_target(monkeypatch):
     monkeypatch.setenv("OIDC_CLIENT_SECRET_REF", "env://NOT/A/VARIABLE")
-    import agent_utilities.mcp.client_credentials as module
+    import agent_utilities.graphos_client.client_credentials as module
 
     importlib.reload(module)
     with pytest.raises(RuntimeError, match="credential reference is invalid"):
@@ -150,7 +150,7 @@ def test_missing_audience_fails_closed(monkeypatch):
     monkeypatch.setenv("TEST_OIDC_CLIENT_SECRET", "runtime-secret")
     monkeypatch.setenv("OIDC_TOKEN_URL", "https://identity.example.test/token")
     monkeypatch.delenv("OIDC_AUDIENCE", raising=False)
-    import agent_utilities.mcp.client_credentials as module
+    import agent_utilities.graphos_client.client_credentials as module
 
     importlib.reload(module)
     with pytest.raises(RuntimeError, match="service identity is incomplete"):
@@ -164,7 +164,7 @@ def test_raw_secret_has_no_legacy_fallback(monkeypatch):
     monkeypatch.delenv("OIDC_CLIENT_SECRET_REF", raising=False)
     monkeypatch.setenv("OIDC_AUDIENCE", "graph-api")
     monkeypatch.setenv("OIDC_TOKEN_URL", "https://identity.example.test/token")
-    import agent_utilities.mcp.client_credentials as module
+    import agent_utilities.graphos_client.client_credentials as module
 
     importlib.reload(module)
     with pytest.raises(RuntimeError, match="service identity is incomplete"):
@@ -175,7 +175,7 @@ def test_token_url_discovery_uses_only_explicit_outbound_issuer(monkeypatch):
     monkeypatch.delenv("OIDC_TOKEN_URL", raising=False)
     monkeypatch.delenv("OIDC_ISSUER", raising=False)
     monkeypatch.setenv("FASTMCP_SERVER_AUTH_JWT_ISSUER", "https://inbound.example.test")
-    import agent_utilities.mcp.client_credentials as module
+    import agent_utilities.graphos_client.client_credentials as module
 
     importlib.reload(module)
     assert module._derive_token_url() is None
@@ -212,7 +212,7 @@ def test_bearer_auth_returns_auth_when_enabled(cc):
 
 def test_bearer_auth_none_when_disabled(monkeypatch):
     monkeypatch.setenv("MCP_CLIENT_AUTH", "none")
-    import agent_utilities.mcp.client_credentials as module
+    import agent_utilities.graphos_client.client_credentials as module
 
     importlib.reload(module)
     assert module.child_auth(None) is None
@@ -289,7 +289,7 @@ def test_service_session_max_age_none_for_own_auth(cc):
 
 def test_service_session_max_age_none_when_disabled(monkeypatch):
     monkeypatch.setenv("MCP_CLIENT_AUTH", "none")
-    import agent_utilities.mcp.client_credentials as module
+    import agent_utilities.graphos_client.client_credentials as module
 
     importlib.reload(module)
     assert module.service_session_max_age(None) is None
@@ -307,7 +307,7 @@ def basic(monkeypatch):
         "MCP_BASIC_AUTH_PASSWORD_REF", "env://TEST_MCP_BASIC_AUTH_PASSWORD"
     )
     monkeypatch.setenv("TEST_MCP_BASIC_AUTH_PASSWORD", "p@ss")
-    import agent_utilities.mcp.client_credentials as module
+    import agent_utilities.graphos_client.client_credentials as module
 
     importlib.reload(module)
     return module
@@ -345,7 +345,7 @@ def test_basic_missing_credentials_fails_closed(monkeypatch):
     monkeypatch.setenv("MCP_CLIENT_AUTH", "basic")
     monkeypatch.setenv("MCP_BASIC_AUTH_USERNAME", "svc")
     monkeypatch.delenv("MCP_BASIC_AUTH_PASSWORD_REF", raising=False)
-    import agent_utilities.mcp.client_credentials as module
+    import agent_utilities.graphos_client.client_credentials as module
 
     importlib.reload(module)
     with pytest.raises(RuntimeError, match="basic identity is incomplete"):
@@ -361,7 +361,7 @@ def test_basic_session_max_age_is_none_static_credential(basic):
 
 def test_unknown_mode_fails_closed(monkeypatch):
     monkeypatch.setenv("MCP_CLIENT_AUTH", "totally-bogus")
-    import agent_utilities.mcp.client_credentials as module
+    import agent_utilities.graphos_client.client_credentials as module
 
     importlib.reload(module)
     with pytest.raises(RuntimeError, match="unsupported value"):
@@ -394,7 +394,7 @@ def rotating(monkeypatch, tmp_path):
     _write_token(token_path, "tok-initial")
     monkeypatch.setenv("MCP_CLIENT_AUTH", "rotating-file-bearer")
     monkeypatch.setenv("MCP_BEARER_TOKEN_FILE", str(token_path))
-    import agent_utilities.mcp.client_credentials as module
+    import agent_utilities.graphos_client.client_credentials as module
 
     importlib.reload(module)
     return module, token_path
@@ -440,7 +440,7 @@ def test_rotating_does_not_override_explicit_authorization(rotating):
 def test_rotating_missing_file_fails_closed(monkeypatch, tmp_path):
     monkeypatch.setenv("MCP_CLIENT_AUTH", "rotating-file-bearer")
     monkeypatch.setenv("MCP_BEARER_TOKEN_FILE", str(tmp_path / "does-not-exist"))
-    import agent_utilities.mcp.client_credentials as module
+    import agent_utilities.graphos_client.client_credentials as module
 
     importlib.reload(module)
     with pytest.raises(RuntimeError, match="unavailable"):
@@ -450,7 +450,7 @@ def test_rotating_missing_file_fails_closed(monkeypatch, tmp_path):
 def test_rotating_missing_path_config_fails_closed(monkeypatch):
     monkeypatch.setenv("MCP_CLIENT_AUTH", "rotating-file-bearer")
     monkeypatch.delenv("MCP_BEARER_TOKEN_FILE", raising=False)
-    import agent_utilities.mcp.client_credentials as module
+    import agent_utilities.graphos_client.client_credentials as module
 
     importlib.reload(module)
     with pytest.raises(RuntimeError, match="incomplete"):
@@ -544,7 +544,7 @@ def test_bug_051_expired_then_refreshed_token_succeeds_without_reconnect(tmp_pat
     it re-reads the file per request rather than trusting a header set once at
     construction time.
     """
-    from agent_utilities.mcp.client_credentials import RotatingFileBearerAuth
+    from agent_utilities.graphos_client.client_credentials import RotatingFileBearerAuth
 
     token_path = tmp_path / "access-token"
     _write_token(token_path, "tok-old")

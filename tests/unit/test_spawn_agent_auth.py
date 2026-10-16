@@ -35,7 +35,7 @@ def test_spawn_auth_returns_refresh_capable_provider(
 ) -> None:
     auth = object()
     monkeypatch.setattr(
-        "agent_utilities.mcp.client_credentials.child_auth",
+        "agent_utilities.graphos_client.client_credentials.child_auth",
         lambda _existing: auth,
     )
     assert agent_runner._spawn_auth() is auth
@@ -45,7 +45,7 @@ def test_spawn_auth_inert_when_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "agent_utilities.mcp.client_credentials.child_auth", lambda _existing: None
+        "agent_utilities.graphos_client.client_credentials.child_auth", lambda _existing: None
     )
     assert agent_runner._spawn_auth() is None
 
@@ -56,7 +56,7 @@ def test_spawn_auth_fails_closed_on_error(
     def _boom(_existing: Any) -> Any:
         raise RuntimeError("auth configuration failed")
 
-    monkeypatch.setattr("agent_utilities.mcp.client_credentials.child_auth", _boom)
+    monkeypatch.setattr("agent_utilities.graphos_client.client_credentials.child_auth", _boom)
     with pytest.raises(RuntimeError, match="auth configuration failed"):
         agent_runner._spawn_auth()
 
@@ -84,7 +84,7 @@ def test_remote_toolset_carries_refresh_capable_auth_when_enabled(
 ) -> None:
     auth = object()
     monkeypatch.setattr(
-        "agent_utilities.mcp.client_credentials.child_auth",
+        "agent_utilities.graphos_client.client_credentials.child_auth",
         lambda _existing: auth,
     )
     monkeypatch.setattr(
@@ -108,7 +108,7 @@ def test_remote_toolset_has_no_auth_when_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "agent_utilities.mcp.client_credentials.child_auth", lambda _existing: None
+        "agent_utilities.graphos_client.client_credentials.child_auth", lambda _existing: None
     )
     monkeypatch.setattr(
         agent_runner,

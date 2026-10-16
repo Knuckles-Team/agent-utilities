@@ -21,7 +21,7 @@ Design:
   * :class:`NoCredential` is the keyless sentinel: present, but contributes nothing.
   * :class:`OAuth2Credential` self-refreshes via the OAuth2 ``refresh_token`` grant,
     reusing the cache-and-skew pattern of
-    :class:`~agent_utilities.mcp.client_credentials.ClientCredentialsTokenProvider`
+    :class:`~agent_utilities.graphos_client.client_credentials.ClientCredentialsTokenProvider`
     (OS-5.32) rather than introducing a second refresher.
   * Each type knows how to build itself from a declarative descriptor +
     a :class:`~agent_utilities.security.secrets_client.SecretsClient`, via
@@ -296,7 +296,7 @@ class OAuth2Credential(SourceCredential):
     """An OAuth2 access token with self-refresh via the ``refresh_token`` grant.
 
     Reuses the cache-and-skew refresh discipline of
-    :class:`~agent_utilities.mcp.client_credentials.ClientCredentialsTokenProvider`
+    :class:`~agent_utilities.graphos_client.client_credentials.ClientCredentialsTokenProvider`
     (OS-5.32). ``materialize`` lazily refreshes when the access token is missing or
     within :data:`_EXPIRY_SKEW_S` of expiry and a refresh token + token URL exist.
 

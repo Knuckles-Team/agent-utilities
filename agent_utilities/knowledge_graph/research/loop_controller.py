@@ -1241,7 +1241,9 @@ class LoopController:
         """Association-rule mining over ``Capability`` neighborhoods (see class docstring)."""
         import json as _json
 
-        from agent_utilities.mcp.tools.engine_surface_tools import _invoke
+        from agent_utilities.knowledge_graph.core.engine_surface import (
+            invoke_surface as _invoke,
+        )
 
         try:
             raw = _invoke(
@@ -1367,7 +1369,9 @@ class LoopController:
         """
         import json as _json
 
-        from agent_utilities.mcp.tools.engine_surface_tools import _invoke
+        from agent_utilities.knowledge_graph.core.engine_surface import (
+            invoke_surface as _invoke,
+        )
 
         invoke_label, fail_label = labels
         try:

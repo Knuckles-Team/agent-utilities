@@ -12,7 +12,7 @@ from typing import Any
 
 import yaml
 
-from agent_utilities.mcp.skill_coverage import (
+from agent_utilities.skills.skill_coverage import (
     discover_skills,
     parse_graph_os_sidecar,
     verb_universe,

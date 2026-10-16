@@ -37,7 +37,7 @@ _EXCLUDES = [
     "agent_utilities.__main__",
     "agent_utilities.agent.factory",
     "agent_utilities.server",
-    "agent_utilities.mcp.toolset_factory",
+    "agent_utilities.graphos_client.toolset_factory",
     "agent_utilities.mcp.tools",
     "agent_utilities.mcp.verbose_tools",
     "agent_utilities.patterns",

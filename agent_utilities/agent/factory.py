@@ -21,11 +21,11 @@ from pydantic_ai.mcp import MCPToolset
 
 from agent_utilities.core.config import setting
 from agent_utilities.core.contextual_model import create_context_agent
-from agent_utilities.mcp.protocol_compat import (
+from agent_utilities.graphos_client.protocol_compat import (
     force_legacy_protocol_mode,
     install_mcp_v2_bridge,
 )
-from agent_utilities.mcp.toolset_factory import build_http_toolset
+from agent_utilities.graphos_client.toolset_factory import build_http_toolset
 
 install_mcp_v2_bridge()
 

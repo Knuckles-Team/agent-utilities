@@ -144,10 +144,10 @@ def _check_mcp_sdk_floor() -> dict[str, Any]:
     A runtime that resolved an older SDK line (`mcp` v1 while the extra declares
     `fastmcp>=4.0.0b1` / SDK v2) previously only failed as a swallowed `ImportError`
     deep inside `child_resilience.py` at serve time (D-ISR-2). This surfaces that
-    mismatch here instead — see `agent_utilities.mcp.protocol_compat.check_mcp_sdk_floor`.
+    mismatch here instead — see `agent_utilities.graphos_client.protocol_compat.check_mcp_sdk_floor`.
     """
     try:
-        from agent_utilities.mcp.protocol_compat import check_mcp_sdk_floor
+        from agent_utilities.graphos_client.protocol_compat import check_mcp_sdk_floor
     except ImportError as exc:
         return _result(
             "mcp_sdk_floor",
@@ -1972,74 +1972,6 @@ def _check_engine() -> dict[str, Any]:
     return _engine_local_result(resolved, reachable, endpoints, redacted_status)
 
 
-def _check_engine_domains() -> dict[str, Any]:
-    """BUG-013: a required capability module absent must fail readiness, not
-    degrade silently past it.
-
-    The 21 ``engine_<domain>`` tool families are declared REQUIRED
-    (``feature=None``) in the canonical ``ToolSpec`` manifest — a real
-    deployment always ships them (unlike the deployment-configurable
-    ``quant``/``finance`` optional features). They are populated at runtime
-    only when the ``epistemic_graph`` client package is importable
-    (``engine_tools._discover_domains``); when it is not, that function
-    already degrades gracefully rather than crashing the whole MCP process
-    (so a ``tiny`` pre-bootstrap profile can still start) and logs a loud
-    warning — but until this check existed, nothing turned that warning into
-    a certification/readiness signal an operator or a gate could act on. A
-    ``single-node-prod``/``enterprise`` deployment could boot, report itself
-    healthy, and silently serve without ~21 required tool families (and
-    their REST twins, and every ``code_context``/``graph_code`` KG-first
-    capability that resolves through them) with no doctor check ever saying
-    so — this is what let `tests/unit/test_gateway_mcp_parity.py`'s own
-    parity checks report a legitimate skip (missing package, lean test lane)
-    look, from a live-deployment reader's seat, indistinguishable from "this
-    was never actually verified".
-
-    ``tiny`` is the one profile documented
-    (:mod:`agent_utilities.deployment.genesis_environments`) to run
-    engine-less by design — warn there, fail everywhere else. This mirrors
-    the exact ``tiny``-vs-else split :func:`_check_config` already
-    established for the same profile distinction (durability findings are
-    advisory on ``tiny``, a hard failure elsewhere).
-    """
-    try:
-        from agent_utilities.core.config import AgentConfig
-        from agent_utilities.mcp.tools import engine_tools
-
-        cfg = AgentConfig()
-        profile = cfg.deployment_profile
-        domain_count = len(engine_tools.ENGINE_DOMAINS)
-    except Exception as exc:  # noqa: BLE001
-        return _result(
-            "engine_domains",
-            "error",
-            f"engine domain discovery check failed ({type(exc).__name__})",
-        )
-    data = {"profile": profile, "domain_count": domain_count, "redacted": True}
-    if domain_count > 0:
-        return _result(
-            "engine_domains",
-            "ok",
-            f"{domain_count} engine_<domain> tool families registered",
-            data=data,
-        )
-    status = "warn" if profile == "tiny" else "fail"
-    return _result(
-        "engine_domains",
-        status,
-        f"no engine_<domain> tool families registered for profile {profile!r} "
-        "-- the 'epistemic_graph' client package is not importable",
-        remediation=(
-            "install the engine client (`pip install 'agent-utilities[graphos]'` "
-            "or the `[serving]`/`[all]` extra, both of which pull it) so the "
-            "required engine_<domain> tool families and their REST twins are "
-            "actually served"
-        ),
-        skill="graphos-deployment",
-        data=data,
-    )
-
-
 def _check_engine_request_context() -> dict[str, Any]:
     """Report the fail-secure native-engine request-context posture."""
 
@@ -2319,7 +2251,7 @@ def _check_auth() -> dict[str, Any]:
 def _check_outbound_auth() -> dict[str, Any]:
     """Validate outbound MCP auth metadata without resolving credential material."""
     try:
-        from agent_utilities.mcp.client_credentials import (
+        from agent_utilities.graphos_client.client_credentials import (
             outbound_auth_configuration_status,
         )
 
@@ -3476,104 +3408,6 @@ def _langfuse_rows(payload: Any) -> list[dict[str, Any]]:
     return [row for row in rows[:100] if isinstance(row, dict)]
 
 
-def _child_call_failed(result: Any) -> bool:
-    """A mounted-child tool result reporting an error, under either spelling."""
-    return bool(getattr(result, "isError", False)) or bool(
-        getattr(result, "is_error", False)
-    )
-
-
-def _langfuse_child_runtime(mux: Any) -> Any:
-    """The mounted langfuse child, or ``None`` unless exactly one tool matched."""
-    matches = [
-        prefixed
-        for prefixed, (server, original) in mux.tool_to_server.items()
-        if server == "langfuse-mcp" and original == "langfuse_observability"
-    ]
-    if len(matches) != 1:
-        return None
-    return mux.children.get("langfuse-mcp")
-
-
-async def _langfuse_posture_metadata_only(runtime: Any) -> bool:
-    """The mounted child must report the metadata-only, no-content posture."""
-    from agent_utilities.mcp.multiplexer import _child_result_payload
-
-    posture_result = await runtime.call_tool(
-        "langfuse_observability",
-        {"action": "runtime_posture"},
-    )
-    if _child_call_failed(posture_result):
-        return False
-    return _child_result_payload(posture_result) == {
-        "content_capture_enabled": False,
-        "metadata_only": True,
-    }
-
-
-async def _langfuse_trace_read_bounded(runtime: Any) -> bool:
-    """Execute the read through the mounted child itself.
-
-    Direct API reachability cannot prove that the child received the same host,
-    credential, and TLS contract. The response stays bounded and transient; no
-    returned row enters doctor output.
-    """
-    from agent_utilities.mcp.multiplexer import _child_result_payload
-
-    trace_result = await runtime.call_tool(
-        "langfuse_observability",
-        {
-            "action": "trace_list",
-            "page": 1,
-            "limit": 1,
-            "fields": "core",
-        },
-    )
-    if _child_call_failed(trace_result):
-        return False
-    trace_payload = _child_result_payload(trace_result)
-    rows = trace_payload.get("data") if isinstance(trace_payload, dict) else None
-    return isinstance(rows, list) and len(rows) <= 1
-
-
-def _probe_langfuse_mcp_visibility(cfg: Any) -> bool:
-    """Prove the mounted child can execute the current privacy-safe contract."""
-    from pathlib import Path
-
-    from agent_utilities.mcp.multiplexer import (
-        MCPMultiplexer,
-        attest_runtime_child_config,
-    )
-    from agent_utilities.observability.langfuse_trust import (
-        native_langfuse_mcp_config,
-    )
-
-    child = native_langfuse_mcp_config(agent_config=cfg)
-    if child is None:
-        return False
-    # Bound the diagnostic child startup independently of its operational
-    # profile. The cached catalog avoids reading or persisting any local path.
-    child = dict(child)
-    child["timeout"] = min(float(child.get("timeout", 60.0)), 30.0)
-    child = attest_runtime_child_config(child)
-
-    async def probe() -> bool:
-        mux = MCPMultiplexer(Path())
-        mux._catalog = {"langfuse-mcp": child}
-        try:
-            await mux.mount_child("langfuse-mcp")
-            runtime = _langfuse_child_runtime(mux)
-            if runtime is None:
-                return False
-            if not await _langfuse_posture_metadata_only(runtime):
-                return False
-            return await _langfuse_trace_read_bounded(runtime)
-        finally:
-            await mux.aclose()
-
-    return bool(_run_async_doctor_probe(probe))
-
-
 def _langfuse_api_handshake(cfg: Any) -> tuple[Any, tuple[str, str], str]:
     """``(api, credentials, error_code)``; ``error_code`` is "" only on a proven read.
 
@@ -3677,11 +3511,10 @@ def _probe_langfuse_trace_round_trip(
 
 
 def _probe_langfuse_live(cfg: Any) -> dict[str, Any]:
-    """Prove API, optional MCP, and optional metadata-only trace round trip."""
+    """Prove the API and the optional metadata-only trace round trip."""
     result: dict[str, Any] = {
         "live_probed": True,
         "api_reachable": False,
-        "mcp_visible": None,
         "trace_round_trip": None,
         "redacted": True,
     }
@@ -3690,15 +3523,6 @@ def _probe_langfuse_live(cfg: Any) -> dict[str, Any]:
         result["error_code"] = handshake_error
         return result
     result["api_reachable"] = True
-
-    if cfg.langfuse_mcp_enabled:
-        try:
-            result["mcp_visible"] = _probe_langfuse_mcp_visibility(cfg)
-        except Exception:  # noqa: BLE001 - child details may contain local material
-            result["mcp_visible"] = False
-        if not result["mcp_visible"]:
-            result["error_code"] = "mcp_visibility_failed"
-            return result
 
     if not cfg.trace_export_enabled:
         return result
@@ -3891,8 +3715,6 @@ def _langfuse_live_result(cfg: Any, data: dict[str, Any]) -> dict[str, Any]:
     """Prove every enabled live path; an unproven path is a fail, never ok."""
     data.update(_probe_langfuse_live(cfg))
     live_ok = bool(data.get("api_reachable"))
-    if cfg.langfuse_mcp_enabled:
-        live_ok = live_ok and data.get("mcp_visible") is True
     if cfg.trace_export_enabled:
         live_ok = live_ok and data.get("trace_round_trip") is True
     if not live_ok:
@@ -4090,241 +3912,6 @@ def _check_native_optimizer(live: bool = False) -> dict[str, Any]:
             f"native optimizer readiness check failed ({type(exc).__name__})",
             data={"redacted": True, "live_probed": live},
         )
-
-
-def _graph_connection_declarations(
-    cfg: Any,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """``(external, kg)`` connection declarations, normalised to plain dicts."""
-    external_declarations: list[dict[str, Any]] = []
-    for declared in cfg.external_graph_connectors or []:
-        value = (
-            declared.model_dump(exclude_none=True, exclude_defaults=True)
-            if hasattr(declared, "model_dump")
-            else dict(declared)
-        )
-        value["role"] = "read"
-        external_declarations.append(value)
-    kg_declarations = [dict(value) for value in (cfg.kg_connections or [])]
-    return external_declarations, kg_declarations
-
-
-def _invalid_declaration_count(declarations: list[dict[str, Any]]) -> int:
-    """How many declarations fail the persistable spec or carry no usable name."""
-    from agent_utilities.knowledge_graph.core.connection_registry import (
-        validate_persistable_connection_spec,
-    )
-
-    invalid = 0
-    for declaration in declarations:
-        try:
-            validate_persistable_connection_spec(declaration)
-            if not str(declaration.get("name") or "").strip():
-                raise ValueError("connection declaration has no name")
-        except Exception:  # noqa: BLE001 - expose only aggregate counts
-            invalid += 1
-    return invalid
-
-
-def _declared_names(values: list[dict[str, Any]]) -> list[str]:
-    """Each declaration's non-empty stripped ``name``; duplicates are kept."""
-    return [
-        str(value.get("name") or "").strip()
-        for value in values
-        if str(value.get("name") or "").strip()
-    ]
-
-
-def _graph_connection_inventory(cfg: Any) -> SimpleNamespace:
-    """Reconcile the declared connections against the live registry.
-
-    ``KG_CONNECTIONS`` intentionally overrides an ``EXTERNAL_GRAPH_CONNECTORS``
-    declaration with the same alias. Duplicates within either source are invalid
-    and cannot be hidden by that precedence rule.
-    """
-    from agent_utilities.mcp.kg_server import get_connection_registry
-
-    external_declarations, kg_declarations = _graph_connection_declarations(cfg)
-    invalid_declaration_count = _invalid_declaration_count(
-        [*external_declarations, *kg_declarations]
-    )
-    external_names = _declared_names(external_declarations)
-    kg_names = _declared_names(kg_declarations)
-    effective_names = set(external_names) | set(kg_names)
-    registry = get_connection_registry()
-    conns = [
-        connection
-        for connection in registry.status().get("connections", [])
-        if connection.get("name") != "default"
-    ]
-    registered_names = set(_declared_names(conns))
-    return SimpleNamespace(
-        registry=registry,
-        conns=conns,
-        registered_names=registered_names,
-        effective_names=effective_names,
-        invalid_declaration_count=invalid_declaration_count,
-        duplicate_declaration_count=(
-            len(external_names)
-            - len(set(external_names))
-            + len(kg_names)
-            - len(set(kg_names))
-        ),
-        missing_declaration_count=len(effective_names - registered_names),
-    )
-
-
-def _graph_connection_probe_counts(
-    registry: Any, registered_names: set[str], *, live: bool
-) -> tuple[int, int]:
-    """``(ready, probe_failed)``; a probe that raises counts as failed, never ready."""
-    if not live:
-        return 0, 0
-    ready_count = 0
-    probe_failed_count = 0
-    for name in sorted(registered_names):
-        try:
-            if registry.probe(name):
-                ready_count += 1
-            else:
-                probe_failed_count += 1
-        except Exception:  # noqa: BLE001 - never expose connector details
-            probe_failed_count += 1
-    return ready_count, probe_failed_count
-
-
-def _stalled_mirror_count() -> int:
-    """Stalled fan-out mirrors; best-effort, an unavailable backend reports 0."""
-    try:
-        from agent_utilities.knowledge_graph.backends import get_active_backend
-        from agent_utilities.knowledge_graph.backends.fanout_backend import (
-            FanOutBackend,
-        )
-
-        backend = get_active_backend()
-        cand = getattr(backend, "inner", backend)
-        if not isinstance(cand, FanOutBackend):
-            return 0
-        mirrors = cand.durability_stats().get("mirrors") or {}
-        return sum(bool(state.get("stalled")) for state in mirrors.values())
-    except Exception:  # noqa: BLE001 — mirror stats are best-effort
-        return 0
-
-
-def _graph_connections_data(
-    inventory: SimpleNamespace,
-    ready_count: int,
-    probe_failed_count: int,
-    stalled_count: int,
-    *,
-    live: bool,
-) -> dict[str, Any]:
-    """Aggregate, redacted connection metadata -- never an alias or endpoint."""
-    by_role: dict[str, int] = {}
-    for connection in inventory.conns:
-        role = str(connection.get("role") or "read")
-        by_role[role] = by_role.get(role, 0) + 1
-    return {
-        "configured_count": len(inventory.effective_names),
-        "registered_count": len(inventory.registered_names),
-        "ready_count": ready_count,
-        "probe_failed_count": probe_failed_count,
-        "invalid_declaration_count": inventory.invalid_declaration_count,
-        "duplicate_declaration_count": inventory.duplicate_declaration_count,
-        "missing_declaration_count": inventory.missing_declaration_count,
-        "stalled_mirror_count": stalled_count,
-        "roles": by_role,
-        "redacted": True,
-        "live_probed": live,
-    }
-
-
-def _graph_connections_verdict(
-    inventory: SimpleNamespace,
-    data: dict[str, Any],
-    probe_failed_count: int,
-    stalled_count: int,
-    *,
-    live: bool,
-) -> dict[str, Any]:
-    """Any declaration or probe failure is a fail; stalled mirrors are a warn."""
-    registered = len(inventory.registered_names)
-    configuration_failures = (
-        inventory.invalid_declaration_count
-        + inventory.duplicate_declaration_count
-        + inventory.missing_declaration_count
-    )
-    if configuration_failures or probe_failed_count:
-        return _result(
-            "graph_connections",
-            "fail",
-            (
-                f"{registered} external connection(s); "
-                f"{configuration_failures} declaration failure(s), "
-                f"{probe_failed_count} runtime probe failure(s)"
-            ),
-            remediation=(
-                "Repair the referenced connection, authentication, and TLS profiles, "
-                "then rerun the live doctor."
-            ),
-            skill="database-environment-setup",
-            data=data,
-        )
-    if stalled_count:
-        return _result(
-            "graph_connections",
-            "warn",
-            f"{registered} connection(s); {stalled_count} stalled mirror(s)",
-            remediation="`graph_configure action=reconcile` and check the mirror backend",
-            skill="database-environment-setup",
-            data=data,
-        )
-    if not inventory.registered_names:
-        detail = "no external connections registered"
-    elif live:
-        detail = f"{data['ready_count']}/{registered} external connection(s) ready"
-    else:
-        detail = (
-            f"{registered} external connection declaration(s) valid; "
-            "live proof not requested"
-        )
-    return _result("graph_connections", "ok", detail, data=data)
-
-
-def _check_graph_connections(live: bool = False) -> dict[str, Any]:
-    """Validate graph declarations and optionally prove their native read paths.
-
-    Every declaration, including sources declared only in ``KG_CONNECTIONS``, is
-    checked on every run. Network probes run only for an explicit live doctor.
-    Public output is aggregate metadata: aliases, endpoints, refs, identities,
-    source rows, and exception details never cross the doctor boundary.
-    """
-    try:
-        from agent_utilities.core.config import AgentConfig
-
-        inventory = _graph_connection_inventory(AgentConfig())
-    except Exception:  # noqa: BLE001 - never expose deployment details
-        return _result(
-            "graph_connections",
-            "fail",
-            "graph connection registry is invalid",
-            remediation=(
-                "Repair KG_CONNECTIONS and external graph declarations; keep all "
-                "transport, auth, and TLS material behind runtime references."
-            ),
-            data={"ready": False, "redacted": True, "live_probed": live},
-        )
-
-    ready_count, probe_failed_count = _graph_connection_probe_counts(
-        inventory.registry, inventory.registered_names, live=live
-    )
-    stalled_count = _stalled_mirror_count()
-    data = _graph_connections_data(
-        inventory, ready_count, probe_failed_count, stalled_count, live=live
-    )
-    return _graph_connections_verdict(
-        inventory, data, probe_failed_count, stalled_count, live=live
-    )
 
 
 def _ingestion_freshness(backend: Any) -> dict[str, str]:
@@ -5198,10 +4785,10 @@ def _check_a2a_persistence() -> dict[str, Any]:
 # Every check below follows the same shape: absent (endpoint unconfigured) -> "skip",
 # never fatal on any profile -- none of these services is required by any documented
 # deployment_profile, so "not required" is unconditionally true and the tiny-vs-else
-# split _check_config/_check_engine_domains use for a REQUIRED capability does not
+# split _check_config uses for a REQUIRED capability does not
 # apply here. Once an operator opts in by naming an endpoint, a static (non-live)
 # check reports "ok" (declared) and a `live=True` doctor additionally proves
-# reachability -- mirroring _check_graph_connections/_check_langfuse.
+# reachability -- mirroring _check_langfuse.
 #
 # Each attaches a `_prescription()`: the exact checked-in manifest path
 # (services/<name>/k8s/manifests.yaml, verified live against the running cluster
@@ -5835,9 +5422,7 @@ CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "workspace_config": _check_workspace_config,
     "engine_request_context": _check_engine_request_context,
     "engine": _check_engine,
-    "engine_domains": _check_engine_domains,
     "graph_authority": _check_graph_authority,
-    "graph_connections": _check_graph_connections,
     "ingestion_coverage": _check_ingestion_coverage,
     "connector_coverage": _check_connector_coverage,
     "secrets": _check_secrets,
@@ -5873,7 +5458,6 @@ CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
 # `interactive_apply`'s post-apply re-run so the two never drift apart.
 _LIVE_CHECK_NAMES = frozenset(
     {
-        "graph_connections",
         "mcp_fleet",
         "langfuse",
         "native_optimizer",

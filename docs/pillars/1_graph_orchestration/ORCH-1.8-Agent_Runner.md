@@ -52,7 +52,7 @@ Queries the KG across three node types:
 ### 2. Config Builder
 Builds a `create_graph_agent()` config from resolved metadata:
 - **tag_prompts**: Agent name + tool descriptions + capabilities
-- **mcp_toolsets**: Dynamically created `MCPToolset` (stdio / SSE / streamable-HTTP transports) from URLs, built via `agent_utilities.mcp.toolset_factory`
+- **mcp_toolsets**: Dynamically created `MCPToolset` (stdio / SSE / streamable-HTTP transports) from URLs, built via `agent_utilities.graphos_client.toolset_factory`
 - **LLM settings**: Unified model routing via XDG `config.json`
 
 ### 3. Graph Execution

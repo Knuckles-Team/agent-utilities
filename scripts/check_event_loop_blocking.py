@@ -18,7 +18,7 @@ body, with no thread hop in between. It is deliberately narrow — it does not a
 dataflow/type analysis, so it cannot see a blocking call hidden behind an arbitrary
 helper function of an unrecognized name three modules away. It also does not flag a
 call already isolated via the sanctioned hop: :func:`agent_utilities.core.event_loop.
-run_blocking_ordered`, ``asyncio.to_thread``, :func:`agent_utilities.mcp.concurrency.
+run_blocking_ordered`, ``asyncio.to_thread``, :func:`agent_utilities.graphos_client.concurrency.
 run_blocking`/``invoke_client_method``, or ``loop.run_in_executor`` — including the
 "nested sync closure" shape this sweep used throughout (define a ``def _do_thing():
 ...`` inside the ``async def``, then ``await run_blocking_ordered(_do_thing)``): a
@@ -457,7 +457,7 @@ def _report_added(added: list[tuple[str, str, int]]) -> int:
     print(
         "\nHop the blocking call off the event loop — "
         "agent_utilities.core.event_loop.run_blocking_ordered, asyncio.to_thread, "
-        "agent_utilities.mcp.concurrency.run_blocking/invoke_client_method, or "
+        "agent_utilities.graphos_client.concurrency.run_blocking/invoke_client_method, or "
         "loop.run_in_executor — or, if it is genuinely non-blocking / already "
         "isolated for a reason this AST heuristic can't see, say why in the commit "
         "message. See script docstring.\n"

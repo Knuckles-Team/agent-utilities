@@ -487,7 +487,7 @@ class VaultBackend(SecretsBackend):
         path (default: ``jwt``).  Works with any custom mount path.
         """
         try:
-            from agent_utilities.mcp.delegated_auth import get_user_token
+            from agent_utilities.graphos_client.delegated_auth import get_user_token
 
             user_jwt = get_user_token()
             if not user_jwt:

@@ -147,7 +147,7 @@ def test_tasks_error_path_uses_v1_error_data_shape(monkeypatch) -> None:
     from mcp.shared import exceptions as mcp_exceptions
 
     import agent_utilities.mcp.kg_server as kg
-    import agent_utilities.mcp.protocol_compat as protocol_compat
+    import agent_utilities.graphos_client.protocol_compat as protocol_compat
     from agent_utilities.mcp.tasks_extension import WorkItemTasksExtension
 
     class _ErrorData:

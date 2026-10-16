@@ -7941,7 +7941,7 @@ def _mcp_protocol_hooks() -> tuple[Any, Any]:
     """
     from pydantic_ai.mcp import load_mcp_toolsets
 
-    from agent_utilities.mcp.protocol_compat import (
+    from agent_utilities.graphos_client.protocol_compat import (
         force_legacy_protocol_mode,
         install_mcp_v2_bridge,
     )

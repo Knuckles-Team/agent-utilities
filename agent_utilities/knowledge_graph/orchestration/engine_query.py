@@ -554,28 +554,6 @@ def _governed_cypher_rows(
     return rows
 
 
-def _uql_result_rows(result: Any) -> list[dict[str, Any]]:
-    """Unwrap the engine client's ``query.uql`` result into its row list.
-
-    ``epistemic_graph.client`` ``QueryClient.uql`` returns ONE dict whose
-    ``"kind"`` says what ran: ``"rows"``/``"profile"`` carry the result rows
-    under ``"rows"``; ``"explain"`` executes nothing. Iterating that dict
-    directly (the previous ``list(uql_fn(query))``) yielded its KEYS as
-    string "rows", which the row-policy pass then rejected.
-    """
-    if not isinstance(result, dict):
-        raise TypeError(
-            "engine query.uql must return the client result dict, got "
-            f"{type(result).__name__}"
-        )
-    kind = result.get("kind")
-    if kind == "explain":
-        return []
-    if kind not in {"rows", "profile"}:
-        raise TypeError(f"engine query.uql returned an unknown result kind: {kind!r}")
-    return list(result.get("rows") or [])
-
-
 def _governed_engine_surface_rows(
     rows: list[dict[str, Any]],
     *,
@@ -587,7 +565,7 @@ def _governed_engine_surface_rows(
 
     This is the row-level authorization point for the non-Cypher engine
     surfaces (:meth:`QueryMixin.sql`, :meth:`QueryMixin.sparql`,
-    :meth:`QueryMixin.uql`). Unlike ``query_cypher``, those surfaces submit
+    the engine query surfaces). Unlike ``query_cypher``, those surfaces submit
     the caller's query text verbatim to the engine: nothing pushes the
     tenant scope or the KG-2.60 owner/scope predicate into the statement, so
     ``filter_rows()``/``visible()`` here are ENFORCEMENT, not enrichment,
@@ -836,77 +814,6 @@ class QueryMixin(_Base):
             )
         rows = sparql_fn(query, base_iri, type_convention)
         return _governed_engine_surface_rows(rows, surface="sparql", query=query)
-
-    def uql(
-        self, query: str, *, include_epistemic: bool = False
-    ) -> list[dict[str, Any]]:
-        """Run a UQL text query over the KG via the engine's unified surface (KG-2.214).
-
-        CONCEPT:AU-KG.query.au-engine-execution-path — the AU→engine execution path for the engine's native
-        cross-modal query language. ``MATCH (:Label) [WHERE ...] |> TRAVERSE ... |>
-        RANK BY ~[...] |> LIMIT k`` is PARSED by the engine into the SAME cross-modal
-        ``Plan`` the ``UnifiedQuery`` path carries, then run through the IDENTICAL fused
-        executor (``eg_plan::uql::parse`` → filter/traverse/rank over one off-lock
-        snapshot). This is the surface the NL→query planner (CONCEPT:AU-KG.query.au-engine-execution-path) submits a
-        fleet-LLM-generated UQL string to, so NL→query runs through the engine's
-        deterministic pipeline exactly like the engine's own ``NlPlanner`` seam (EG-078).
-
-        Routes to the active backend's engine client (``backend.graph._client.query.uql``
-        → the engine's ``UnifiedQueryText`` wire op). Returns one ``{"id", "score"}`` row
-        per result, in the plan's final (post-``RANK``) order. A backend with no engine
-        UQL surface (server built without the ``query`` feature, or a pure-Postgres
-        mirror) raises a clear error rather than silently returning nothing — symmetric
-        with :meth:`sql` / :meth:`sparql`.
-
-        Rows are governed fail-closed by :func:`_governed_engine_surface_rows` before
-        any epistemic column is attached — same enforcement point, and for the same
-        reason, as :meth:`sql` / :meth:`sparql`. Prior to BUG-CX-103 this surface ran
-        NO row-level ACL or owner/scope pass at all.
-
-        Args:
-            include_epistemic: Opt-in (CONCEPT:AU-KB-CURRENCY, Seam 1 — the
-                ``KnowledgeBatch`` currency, extended to this cross-modal surface).
-                Default ``False`` — byte-for-byte the same ``[{"id", "score"}]``
-                rows. When ``True``, currency-upgrades the SAME ids (SAME order)
-                via the engine's ``explain_provenance_by_ids`` into
-                :class:`~agent_utilities.knowledge_graph.core.epistemic_row.EpistemicRow`
-                results. Degrades to ``[]`` (never raises) when the backend's
-                ``GraphComputeEngine`` has no ``explain_provenance_by_ids`` —
-                mirroring :meth:`KnowledgeGraph.query`'s documented contract.
-        """
-        graph = getattr(self.backend, "graph", None)
-        client = getattr(graph, "_client", None)
-        query_ns = getattr(client, "query", None)
-        uql_fn = getattr(query_ns, "uql", None)
-        if not callable(uql_fn):
-            raise RuntimeError(
-                "The active backend has no epistemic-graph UQL surface; "
-                "UQL-on-the-KG requires the engine backend (build with the "
-                "'query' feature)."
-            )
-        rows = _governed_engine_surface_rows(
-            _uql_result_rows(uql_fn(query)), surface="uql", query=query
-        )
-        fetch = getattr(graph, "explain_provenance_by_ids", None)
-        if include_epistemic:
-            from agent_utilities.knowledge_graph.core.epistemic_row import (
-                attach_epistemic_rows,
-            )
-
-            return attach_epistemic_rows(rows, fetch)  # type: ignore[return-value]
-        # Light epistemic layer (CONCEPT:AU-KB-CURRENCY, Native by default) —
-        # see `KnowledgeGraph.query`'s identical wiring for the full rationale.
-        from agent_utilities.core.config import config as _app_config
-        from agent_utilities.knowledge_graph.core.epistemic_row import (
-            attach_epistemic_columns,
-            should_attach_epistemic_columns,
-        )
-
-        if should_attach_epistemic_columns(
-            rows, default=_app_config.epistemic_light_default
-        ):
-            rows = attach_epistemic_columns(rows, fetch)
-        return rows
 
     def resolve_temporal_contradiction(
         self,

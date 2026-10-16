@@ -1,6 +1,6 @@
 """BUG-CX-103 — the non-Cypher engine surfaces must govern rows FAIL-CLOSED.
 
-``QueryMixin.sql()`` / ``.sparql()`` (and ``.uql()``) submit the caller's query
+``QueryMixin.sql()`` / ``.sparql()`` submit the caller's query
 text to the engine verbatim: unlike ``query_cypher`` nothing pushes the tenant
 scope or the KG-2.60 owner/scope predicate into the statement, so the AU-side
 ``secured_reads.filter_rows()`` / ``visible()`` pass is the *only* row-level
@@ -107,12 +107,6 @@ def test_sparql_denies_a_row_with_no_governed_node_id(brain):
     eng = _Engine(_UNGOVERNABLE)
     with use_actor(_actor()), pytest.raises(PermissionError):
         eng.sparql("SELECT ?name WHERE { ?s :name ?name }")
-
-
-def test_uql_denies_a_row_with_no_governed_node_id(brain):
-    eng = _Engine([{"score": 0.91}])
-    with use_actor(_actor()), pytest.raises(PermissionError):
-        eng.uql("MATCH (:Doc) |> LIMIT 5")
 
 
 def test_sql_denies_an_unauthenticated_actor(brain):

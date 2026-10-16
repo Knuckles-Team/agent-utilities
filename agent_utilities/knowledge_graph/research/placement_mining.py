@@ -467,7 +467,9 @@ def _run_mining_action(
     ``default`` on any failure — never lets mining break the caller, matching
     every other mining pass's tolerance.
     """
-    from agent_utilities.mcp.tools.engine_surface_tools import _invoke
+    from agent_utilities.knowledge_graph.core.engine_surface import (
+            invoke_surface as _invoke,
+        )
 
     try:
         raw = _invoke(
@@ -905,7 +907,9 @@ def _default_measurement(proposal: PlacementProposal, phase: str) -> dict[str, f
 
 def _promql_latency_measurement(proposal: PlacementProposal) -> dict[str, float]:
     try:
-        from agent_utilities.mcp.tools.engine_surface_tools import _invoke
+        from agent_utilities.knowledge_graph.core.engine_surface import (
+            invoke_surface as _invoke,
+        )
 
         raw = _invoke(
             surface="promql",
@@ -934,12 +938,12 @@ def _fetch_rebalance_plan() -> Any:
     failure (no resharding surface, unreachable engine, non-redb build).
     """
     try:
-        from agent_utilities.mcp.tools import engine_tools
+        from agent_utilities.knowledge_graph.core import engine_surface
 
         methods = _resharding_methods()
         if "rebalance_plan" not in methods:
             return None
-        raw = engine_tools._dispatch(
+        raw = engine_surface.dispatch(
             "resharding",
             methods,
             "rebalance_plan",
@@ -1197,18 +1201,18 @@ def rollback_placement_change(proposal: PlacementProposal) -> dict[str, Any]:
 
 
 def _resharding_methods() -> set[str]:
-    from agent_utilities.mcp.tools import engine_tools
+    from agent_utilities.knowledge_graph.core import engine_surface
 
-    return set(engine_tools.ENGINE_DOMAINS.get("resharding") or [])
+    return set(engine_surface.domain_methods("resharding"))
 
 
 def _placement_methods() -> set[str]:
     """The raft ``PlacementCatalog`` admin domain's live methods (DIST-P2-5) —
     empty on a single-node (non-raft/cluster) engine build, exactly like
     :func:`_resharding_methods` for its own domain."""
-    from agent_utilities.mcp.tools import engine_tools
+    from agent_utilities.knowledge_graph.core import engine_surface
 
-    return set(engine_tools.ENGINE_DOMAINS.get("placement") or [])
+    return set(engine_surface.domain_methods("placement"))
 
 
 #: Evidence keys the raft-placement apply/rollback pair use to hand off state
@@ -1235,10 +1239,10 @@ def _placement_route(
     ``(route, error)`` — exactly one is non-``None``; ``error`` is the
     ready-to-return failure dict on any query error.
     """
-    from agent_utilities.mcp.tools import engine_tools
+    from agent_utilities.knowledge_graph.core import engine_surface
 
     try:
-        route_raw = engine_tools._dispatch(
+        route_raw = engine_surface.dispatch(
             "placement",
             methods,
             "route",
@@ -1269,10 +1273,10 @@ def _placement_no_op_result(proposal: PlacementProposal, route: Any) -> dict[str
 def _dispatch_placement_action(
     methods: set[str], tenant: str, target_group: int, *, action: str
 ) -> Any:
-    from agent_utilities.mcp.tools import engine_tools
+    from agent_utilities.knowledge_graph.core import engine_surface
 
     if action == "assign":
-        raw = engine_tools._dispatch(
+        raw = engine_surface.dispatch(
             "placement",
             methods,
             "assign",
@@ -1280,7 +1284,7 @@ def _dispatch_placement_action(
             "",
         )
     else:
-        raw = engine_tools._dispatch(
+        raw = engine_surface.dispatch(
             "placement",
             methods,
             "move",
@@ -1362,7 +1366,7 @@ def _apply_via_raft_placement(proposal: PlacementProposal) -> dict[str, Any] | N
 
 
 def _rollback_via_raft_placement(proposal: PlacementProposal) -> dict[str, Any]:
-    from agent_utilities.mcp.tools import engine_tools
+    from agent_utilities.knowledge_graph.core import engine_surface
 
     methods = _placement_methods()
     tenant = proposal.evidence.get(_PLACEMENT_MOVE_TENANT_KEY)
@@ -1383,7 +1387,7 @@ def _rollback_via_raft_placement(proposal: PlacementProposal) -> dict[str, Any]:
             ),
         }
     try:
-        raw = engine_tools._dispatch(
+        raw = engine_surface.dispatch(
             "placement",
             methods,
             "move",
@@ -1435,10 +1439,10 @@ def _apply_via_reshard(
     and flips its catalog route — a full data move, not just a routing-table
     update.
     """
-    from agent_utilities.mcp.tools import engine_tools
+    from agent_utilities.knowledge_graph.core import engine_surface
 
     try:
-        raw = engine_tools._dispatch(
+        raw = engine_surface.dispatch(
             "resharding",
             methods,
             "reshard",
@@ -1467,7 +1471,7 @@ def _apply_via_catalog_assign(
     (better than nothing, but it does NOT move any already-resident rows;
     see ``apply_placement_change``'s docstring).
     """
-    from agent_utilities.mcp.tools import engine_tools
+    from agent_utilities.knowledge_graph.core import engine_surface
 
     if "catalog_assign" not in methods:
         return {
@@ -1480,7 +1484,7 @@ def _apply_via_catalog_assign(
     if node is not None:
         params["node"] = node
     try:
-        raw = engine_tools._dispatch(
+        raw = engine_surface.dispatch(
             "resharding", methods, "catalog_assign", json.dumps(params), ""
         )
         payload = json.loads(raw)
@@ -1506,7 +1510,7 @@ def _apply_via_catalog(proposal: PlacementProposal) -> dict[str, Any]:
 
 
 def _rollback_via_catalog(proposal: PlacementProposal) -> dict[str, Any]:
-    from agent_utilities.mcp.tools import engine_tools
+    from agent_utilities.knowledge_graph.core import engine_surface
 
     methods = _resharding_methods()
     from_shard = proposal.evidence.get(_RESHARD_FROM_SHARD_KEY)
@@ -1515,7 +1519,7 @@ def _rollback_via_catalog(proposal: PlacementProposal) -> dict[str, Any]:
         # Reshard straight back to where the engine says the graph actually
         # was before the apply — a real online move back, not a routing drop.
         try:
-            raw = engine_tools._dispatch(
+            raw = engine_surface.dispatch(
                 "resharding",
                 methods,
                 "reshard",
@@ -1541,7 +1545,7 @@ def _rollback_via_catalog(proposal: PlacementProposal) -> dict[str, Any]:
             "detail": "resharding surface unavailable",
         }
     try:
-        raw = engine_tools._dispatch(
+        raw = engine_surface.dispatch(
             "resharding",
             methods,
             "catalog_remove",

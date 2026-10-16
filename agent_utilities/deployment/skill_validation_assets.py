@@ -1013,8 +1013,8 @@ def _validate_active_runtime_configuration(
 
 
 async def _probe_graph_os_tools(endpoint: str, *, request_timeout: float) -> None:
-    from agent_utilities.mcp.client_credentials import child_auth
-    from agent_utilities.mcp.toolset_factory import build_http_toolset
+    from agent_utilities.graphos_client.client_credentials import child_auth
+    from agent_utilities.graphos_client.toolset_factory import build_http_toolset
     from agent_utilities.skills.runtime_validation import _call_tool, _ensure_tool
 
     toolset = build_http_toolset(
@@ -1056,7 +1056,7 @@ async def probe_readiness(
     from agent_utilities.core.transport_security import resolve_configured_tls_profile
     from agent_utilities.knowledge_graph.core.engine_resolver import resolve_engine
     from agent_utilities.knowledge_graph.core.shard_topology import is_local_endpoint
-    from agent_utilities.mcp.client_credentials import (
+    from agent_utilities.graphos_client.client_credentials import (
         outbound_auth_configuration_status,
     )
 

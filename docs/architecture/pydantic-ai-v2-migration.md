@@ -29,7 +29,7 @@ tools stay safe because the `tool_guard` `ApprovalRequiredToolset` turns them in
 
 ## The one MCP construction path
 
-v2 collapses every MCP client onto `MCPToolset`. `agent_utilities/mcp/toolset_factory.py` is the
+v2 collapses every MCP client onto `MCPToolset`. `agent_utilities/graphos_client/toolset_factory.py` is the
 **single** place that turns a connection spec into a toolset, so SSL `verify` + request `timeout`
 (threaded through the transport's `httpx_client_factory`) live in exactly one place.
 

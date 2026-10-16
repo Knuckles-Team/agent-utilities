@@ -15,7 +15,7 @@ and must mint a fresh one before every expiry — a static key never satisfies t
 
 This module is the ONE token-minting seam for that grant, generalizing the multiplexer's
 existing OIDC client-credentials pattern
-(:class:`agent_utilities.mcp.client_credentials.ClientCredentialsTokenProvider`, OS-5.32 — built
+(:class:`agent_utilities.graphos_client.client_credentials.ClientCredentialsTokenProvider`, OS-5.32 — built
 for authenticating to *child MCP servers*) to outbound *provider* calls instead:
 
 * :class:`OAuth2ClientCredentialsConfig` — the declarative config block a chat/embedding model
@@ -635,7 +635,7 @@ class OAuthClientCredentialsProvider:
 class OAuth2ClientCredentialsAuth(httpx.Auth):
     """Per-request bearer injection for a long-lived LLM/embedding client.
 
-    Mirrors :class:`agent_utilities.mcp.client_credentials.ClientCredentialsAuth` (OS-5.32),
+    Mirrors :class:`agent_utilities.graphos_client.client_credentials.ClientCredentialsAuth` (OS-5.32),
     generalized for outbound provider clients instead of child-MCP sessions. Pulling the token
     from the self-refreshing :class:`OAuthClientCredentialsProvider` on *every* request (rather
     than baking a static header once) keeps a pooled ``httpx.Client``/``AsyncClient``

@@ -319,23 +319,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _mq_parser("promotion", "how far the deployed ref lags main (merge != deploy)")
 
-    # Self-composing graph-os entrypoint (`uvx agent-utilities graph-os`): runs the
-    # SAME ``graph-os`` MCP server as the standalone console script, plus whatever
-    # co-services the loaded AgentConfig says are configured (messaging, the KG
-    # host daemon if this run would otherwise be unhosted) — see
-    # ``agent_utilities.mcp.co_service_supervisor``. All graph-os flags
-    # (--transport/--host/--port/...) pass straight through; graph-os parses them
-    # itself, so nothing is declared here beyond a REMAINDER capture.
-    gp = sub.add_parser(
-        "graph-os",
-        help="run graph-os (MCP server) + its configured co-services in one process",
-    )
-    gp.add_argument(
-        "server_args",
-        nargs=argparse.REMAINDER,
-        help="passthrough flags for graph-os, e.g. --transport stdio",
-    )
-
     # Multi-backend deployment planning (deploy-plan) was retired under
     # AU-BOUNDARY-R002: graph-os is now the sole owner of the packaging
     # entry point for rendering a DeploymentPlan across backends.
@@ -1038,19 +1021,6 @@ def _default_command_output(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    raw_argv = list(argv) if argv is not None else sys.argv[1:]
-    if raw_argv[:1] == ["graph-os"]:
-        # graph-os owns an entirely separate flag universe
-        # (--transport/--host/--port/... via ``create_mcp_parser``) and OWNS
-        # stdout for its whole lifetime under the stdio transport (it IS the
-        # JSON-RPC channel) — dispatch directly from the raw argv, bypassing
-        # this module's argparse (whose subparsers can't losslessly forward
-        # arbitrary flags — https://bugs.python.org/issue17050) and the generic
-        # JSON envelope below. graph-os re-parses ``sys.argv`` itself.
-        from agent_utilities.mcp.kg_server import mcp_server
-
-        mcp_server()
-        return 0
     args = build_parser().parse_args(argv)
     if args.command == "harness-gate":
         # Prints ONLY the verdict JSON (Claude Code reads stdout); bypass the

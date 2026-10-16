@@ -593,7 +593,7 @@ async def test_two_turns_share_one_session_for_continuity(monkeypatch) -> None:
 
 def test_validate_fleet_auth_consumes_xdg_config_contract(monkeypatch) -> None:
     import agent_utilities.core.config as config_module
-    import agent_utilities.mcp.client_credentials as client_credentials
+    import agent_utilities.graphos_client.client_credentials as client_credentials
     from agent_utilities.messaging import daemon
 
     calls: list[str] = []
@@ -623,7 +623,7 @@ def test_validate_fleet_auth_consumes_xdg_config_contract(monkeypatch) -> None:
 def test_validate_fleet_auth_fails_closed_when_configuration_is_incomplete(
     monkeypatch,
 ) -> None:
-    import agent_utilities.mcp.client_credentials as client_credentials
+    import agent_utilities.graphos_client.client_credentials as client_credentials
     from agent_utilities.messaging import daemon
 
     monkeypatch.setattr(

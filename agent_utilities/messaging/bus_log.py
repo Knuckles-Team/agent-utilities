@@ -1174,9 +1174,11 @@ def _try_engine_broker(
     *, fail_loud: bool, partitions: int, delivery_lease_ms: int
 ) -> EngineBrokerBusLog | None:
     try:
-        from agent_utilities.mcp.tools import engine_tools
+        from agent_utilities.knowledge_graph.core.graph_compute import (
+            GraphComputeEngine,
+        )
 
-        client = engine_tools._client_for("")
+        client = GraphComputeEngine.get_or_create(graph_name=None).client
     except Exception as exc:  # noqa: BLE001 — engine unreachable degrades to the next tier
         if fail_loud:
             logger.warning(

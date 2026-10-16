@@ -110,7 +110,7 @@ Each agent's `auth.py` reads the stored user token and performs an
 **RFC 8693 Token Exchange** to obtain a service-specific token for the
 downstream API.
 
-- Centralized in `agent_utilities.mcp.delegated_auth`
+- Centralized in `agent_utilities.graphos_client.delegated_auth`
 - Shared helper `get_delegated_token()` eliminates code duplication
 - Uses an explicitly configured typed credential reference when delegation is disabled
 
@@ -204,7 +204,7 @@ Token Exchange grant type.
 
 ```python
 # In any agent's auth.py:
-from agent_utilities.mcp.delegated_auth import (
+from agent_utilities.graphos_client.delegated_auth import (
     get_delegated_token,
     get_user_identity,
     is_delegation_enabled,
@@ -234,7 +234,7 @@ Used for services like Atlassian Cloud that require explicit user consent
 via the Authorization Code Grant flow.
 
 ```python
-from agent_utilities.mcp.delegated_auth import (
+from agent_utilities.graphos_client.delegated_auth import (
     get_3lo_authorization_url,
     exchange_authorization_code,
     refresh_access_token,
@@ -298,7 +298,7 @@ Used by Microsoft Agent, which has its own MSAL device-code flow alongside
 standard OIDC delegation.
 
 ```python
-from agent_utilities.mcp.delegated_auth import (
+from agent_utilities.graphos_client.delegated_auth import (
     get_delegated_token,
     get_user_token,
     is_delegation_enabled,

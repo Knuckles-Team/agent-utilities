@@ -51,7 +51,6 @@ def register_agent_tools(agent: Any, graph_bundle: tuple | None = None) -> None:
     from .developer_tools import developer_tools
     from .git_tools import git_tools
     from .kg_tools import kg_tools
-    from .mcp_sync_tool import trigger_mcp_sync
     from .media_tools import media_tools
     from .onboarding_tools import onboarding_tools
     from .scheduler_tools import scheduler_tools
@@ -255,9 +254,6 @@ def register_agent_tools(agent: Any, graph_bundle: tuple | None = None) -> None:
 
         for tool in COMPUTER_USE_TOOLS:
             _safe_tool(tool)
-
-    # 12. MCP Management Tools
-    _safe_tool(trigger_mcp_sync)
 
     # 11. Knowledge Graph & KB Tools
     from .kg_evolution_tools import kg_evolution_tools

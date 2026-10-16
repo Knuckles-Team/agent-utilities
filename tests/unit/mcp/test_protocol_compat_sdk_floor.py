@@ -1,4 +1,4 @@
-"""Tests for `agent_utilities.mcp.protocol_compat.check_mcp_sdk_floor` (D-ISR-2).
+"""Tests for `agent_utilities.graphos_client.protocol_compat.check_mcp_sdk_floor` (D-ISR-2).
 
 D-ISR-2: nothing asserted that the runtime's installed `mcp`/`fastmcp` matched
 `pyproject.toml`'s declared `[mcp]` floor, so v2-targeted source passed every gate
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import importlib.metadata
 
-from agent_utilities.mcp.protocol_compat import check_mcp_sdk_floor
+from agent_utilities.graphos_client.protocol_compat import check_mcp_sdk_floor
 
 
 def test_installed_sdk_satisfies_the_declared_floor() -> None:
@@ -155,7 +155,7 @@ def test_a_harmless_divergence_is_reported_but_does_not_fail(monkeypatch) -> Non
 def test_source_shadow_floor_reads_the_imported_trees_manifest() -> None:
     """The shadow lookup must resolve the `pyproject.toml` sitting next to the
     imported `agent_utilities` package, not a separately-configured path."""
-    from agent_utilities.mcp.protocol_compat import _source_shadow_floor
+    from agent_utilities.graphos_client.protocol_compat import _source_shadow_floor
 
     requirement, manifest = _source_shadow_floor("fastmcp", "mcp")
     assert manifest is not None and manifest.endswith("pyproject.toml")
@@ -176,7 +176,7 @@ def test_startup_preflight_refuses_to_start_on_a_mismatch(monkeypatch) -> None:
         kg_server._preflight_mcp_sdk_floor,
     )
     monkeypatch.setattr(
-        "agent_utilities.mcp.protocol_compat.check_mcp_sdk_floor",
+        "agent_utilities.graphos_client.protocol_compat.check_mcp_sdk_floor",
         lambda *a, **k: {"ok": False, "detail": "fastmcp 3.4.5 vs floor >=4.0.0b1"},
     )
 

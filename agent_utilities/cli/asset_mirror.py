@@ -10,9 +10,12 @@ from agent_utilities.knowledge_graph.enrichment.writeback.asset_mirror import ru
 
 def _process_engine_authority():
     """Resolve the graph authority owned by the Graph-OS composition root."""
-    from agent_utilities.mcp.kg_server import _get_engine
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-    return _get_engine()
+    engine = IntelligenceGraphEngine.get_active()
+    if engine is None:
+        raise RuntimeError("no active graph authority; run inside graph-os")
+    return engine
 
 
 def main(argv: list[str] | None = None) -> int:

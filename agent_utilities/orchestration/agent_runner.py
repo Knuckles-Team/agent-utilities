@@ -580,7 +580,7 @@ def _exchange_on_behalf_of_token(label: str) -> str | None:
     when supported. A missing IdP or disabled grant leaves that leg empty.
     """
     try:
-        from agent_utilities.mcp.delegated_auth import (
+        from agent_utilities.graphos_client.delegated_auth import (
             exchange_token_for_agent,
             get_user_token,
         )
@@ -2277,7 +2277,7 @@ def _observed_tool_aliases(server_name: str, observed: list[str]) -> dict[str, s
     public_prefix = _configured_fleet_server_prefix(server_name) if server_name else ""
     if not (public_prefix and server_name):
         return {}
-    from agent_utilities.mcp.multiplexer import clean_tool_name
+    from agent_utilities.graphos_client.host import clean_tool_name
 
     return {
         clean_tool_name(public_prefix, server_name, name): name
@@ -3581,41 +3581,18 @@ def _bind_explicit_tool_server(
 
 
 def _configured_fleet_server_names() -> frozenset[str]:
-    """Return exact server identities from the active multiplexer catalog."""
-    try:
-        from agent_utilities.mcp.multiplexer import (
-            MCPMultiplexer,
-            _resolve_config_path,
-        )
+    """Return exact server identities from the graph-os host's fleet catalog."""
+    from agent_utilities.graphos_client.host import fleet_catalog
 
-        config_path = _resolve_config_path(str(setting("MCP_CONFIG", "") or "") or None)
-        catalog = MCPMultiplexer(config_path).load_catalog()
-        if isinstance(catalog, dict):
-            return frozenset(
-                str(name).strip()
-                for name in catalog
-                if isinstance(name, str) and name.strip()
-            )
-    except Exception as exc:  # noqa: BLE001 — KG resolution remains available
-        logger.debug("Live MCP fleet catalog lookup failed: %s", exc)
-    return frozenset()
+    return frozenset(fleet_catalog())
 
 
 def _configured_fleet_server_prefix(server_name: str) -> str:
-    """Return the collision-safe public prefix for one configured server."""
-    try:
-        from agent_utilities.mcp.multiplexer import (
-            MCPMultiplexer,
-            _resolve_config_path,
-        )
+    """Return the public prefix graph-os serves one fleet server under."""
+    from agent_utilities.graphos_client.host import fleet_catalog
 
-        config_path = _resolve_config_path(str(setting("MCP_CONFIG", "") or "") or None)
-        mux = MCPMultiplexer(config_path)
-        if server_name in mux.load_catalog():
-            return mux.server_prefix(server_name)
-    except Exception as exc:  # noqa: BLE001 — raw tool names still work
-        logger.debug("Live MCP fleet prefix lookup failed for %s: %s", server_name, exc)
-    return ""
+    server = fleet_catalog().get(server_name)
+    return server.prefix if server is not None else ""
 
 
 # D-CDX-41: the ONE mapping from an advertised, public ``model_class`` name
@@ -3686,7 +3663,7 @@ def _spawn_auth() -> Any:
     explicitly returns ``None``; configuration and mint failures remain
     fail-closed.
     """
-    from agent_utilities.mcp.client_credentials import child_auth
+    from agent_utilities.graphos_client.client_credentials import child_auth
 
     return child_auth(None)
 
@@ -3709,20 +3686,19 @@ def _template_native_graphos_toolset(tid: str, allowed_tools: list[str] | None) 
     if len(requested) != len(set(requested)):
         raise ValueError("GraphOS tool allow-list contains duplicates")
 
-    from agent_utilities.mcp.kg_server import (
-        REGISTERED_TOOLS,
-        build_native_graphos_toolset,
-        ensure_tools_registered,
+    from agent_utilities.graphos_client.host import (
+        build_native_toolset,
+        native_tool_names,
     )
 
-    ensure_tools_registered()
     if "graph_orchestrate" in requested:
         raise PermissionError("recursive native GraphOS delegation is forbidden")
-    if any(name not in REGISTERED_TOOLS for name in requested):
+    available = native_tool_names()
+    if any(name not in available for name in requested):
         raise PermissionError(
             "GraphOS tool allow-list contains a tool not declared by graph-os"
         )
-    return build_native_graphos_toolset(requested, toolset_id=tid)
+    return build_native_toolset(requested, toolset_id=tid)
 
 
 def _toolset_for_id(
@@ -3756,7 +3732,7 @@ def _toolset_for_id(
     if tid == "graph-os":
         return _template_native_graphos_toolset(tid, allowed_tools)
 
-    from agent_utilities.mcp.toolset_factory import build_http_toolset
+    from agent_utilities.graphos_client.toolset_factory import build_http_toolset
 
     url = _fleet_server_url(tid)
     if not url:
@@ -3890,18 +3866,17 @@ def _skill_native_graphos_toolset(requested: list[str], agent_name: str) -> Any:
     BEFORE the availability check, so a request naming ``graph_orchestrate``
     always reports the recursion refusal rather than an availability error.
     """
-    from agent_utilities.mcp.kg_server import (
-        REGISTERED_TOOLS,
-        build_native_graphos_toolset,
-        ensure_tools_registered,
+    from agent_utilities.graphos_client.host import (
+        build_native_toolset,
+        native_tool_names,
     )
 
-    ensure_tools_registered()
     if "graph_orchestrate" in requested:
         raise PermissionError("recursive native GraphOS delegation is forbidden")
-    if any(name not in REGISTERED_TOOLS for name in requested):
+    available = native_tool_names()
+    if any(name not in available for name in requested):
         raise RuntimeError("delegated skill native tool is unavailable")
-    return build_native_graphos_toolset(requested, toolset_id=agent_name)
+    return build_native_toolset(requested, toolset_id=agent_name)
 
 
 def _bind_native_skill_toolset(
@@ -4433,7 +4408,7 @@ def _filter_toolsets_to_allowed(
                 f"'{agent_name}'"
             )
         if public_prefix:
-            from agent_utilities.mcp.multiplexer import clean_tool_name
+            from agent_utilities.graphos_client.host import clean_tool_name
 
             filtered.append(
                 _filter(
@@ -4678,17 +4653,10 @@ def _fleet_url_candidate(server: str) -> str:
             raise RuntimeError("FLEET_MCP_URL_TEMPLATE must contain '{server}'")
         return template.replace("{server}", server).rstrip("/")
 
-    from agent_utilities.mcp.multiplexer import (
-        MCPMultiplexer,
-        _resolve_config_path,
-        _resolve_runtime_value,
-    )
+    from agent_utilities.graphos_client.host import fleet_catalog
 
-    config_path = _resolve_config_path(str(setting("MCP_CONFIG", "") or "") or None)
-    config = MCPMultiplexer(config_path).load_catalog().get(server)
-    if not isinstance(config, dict):
-        return ""
-    return _resolve_runtime_value(config.get("url", ""), sensitive=False)
+    entry = fleet_catalog().get(server)
+    return entry.url if entry is not None else ""
 
 
 def _assert_fleet_http_host_allowed(hostname: str) -> None:
@@ -4781,7 +4749,7 @@ async def _execute_focused_tools(
     agent is biased to call independent tools in parallel; ActionPolicy still governs each call.
     Reuses :func:`_execute_single_server` (which binds a LIST of toolsets) for the loop itself.
     """
-    from agent_utilities.mcp.toolset_factory import build_http_toolset
+    from agent_utilities.graphos_client.toolset_factory import build_http_toolset
 
     servers = [s for s in (getattr(shape, "tool_servers", ()) or ()) if s]
     if not servers:

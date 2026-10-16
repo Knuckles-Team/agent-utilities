@@ -146,9 +146,9 @@ def resolvable_graphos_tool_names() -> frozenset[str]:
     surface) — fleet ``agents/*`` skills wrap their own package's MCP tools
     and are resolved via :func:`_resolve_package_tool` instead.
     """
-    from agent_utilities.mcp.tool_specs import INTENT_VERBS, TOOL_VERBS
+    from agent_utilities.skills.graphos_operations import intent_verbs, tool_verbs
 
-    return frozenset(TOOL_VERBS) | frozenset(INTENT_VERBS)
+    return frozenset(tool_verbs()) | frozenset(intent_verbs())
 
 
 @dataclass
@@ -467,7 +467,7 @@ def _check_graphos_tool_references(
             "tools.graphos_references_resolve",
             "FAIL",
             f"referenced graph-os tool(s) not in the canonical {len(known)}-tool "
-            f"surface (`agent_utilities.mcp.tool_specs`): {unknown}",
+            f"surface (`agent_utilities/skills/graphos_operations.json`): {unknown}",
         )
     return CheckResult(
         "tools.graphos_references_resolve",

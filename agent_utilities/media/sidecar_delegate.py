@@ -92,9 +92,12 @@ def claim_engine() -> Any:
     target does — reused here so a sidecar-produced ``:Claim`` lands exactly
     where every other claim in the codebase does.
     """
-    from agent_utilities.mcp import kg_server
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-    return kg_server.get_connection_registry().get_engine("")
+    engine = IntelligenceGraphEngine.get_active()
+    if engine is None:
+        raise RuntimeError("no active graph authority; graph-os owns its creation")
+    return engine
 
 
 def _decode_result(raw: Any) -> dict[str, Any]:

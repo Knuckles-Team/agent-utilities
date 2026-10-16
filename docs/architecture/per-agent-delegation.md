@@ -6,7 +6,7 @@ Every delegated or spawned agent used to run as **one fixed service account** �
 can not tell which human or service ultimately caused a write, and a spawn inherited far more
 authority than its caller. Three delegation primitives already existed but were **disconnected**:
 
-1. **RFC 8693 token exchange** (`agent_utilities/mcp/delegated_auth.py`) — never invoked for spawns.
+1. **RFC 8693 token exchange** (`agent_utilities/graphos_client/delegated_auth.py`) — never invoked for spawns.
 2. The engine envelope's **validated-but-unused `delegation` chain** (`epistemic_graph/client.py`
    `validate_request_context`) — always emitted empty.
 3. **HMAC run-scoped tokens** (`agent_utilities/security/run_token.py`) — with a forgeable,

@@ -21,7 +21,7 @@ exact shared-credential shortcut this theme rules out:
   shortcut" requirement).
 * The multiplexer's remote-child session/auth construction path never reads
   the per-request delegated-user identity context
-  (``agent_utilities.mcp.delegated_auth``) — i.e. today's one
+  (``agent_utilities.graphos_client.delegated_auth``) — i.e. today's one
   ``ChildRuntime``/session per configured server (U-44's root cause) cannot
   yet be handed a per-user token even by accident, because no code path
   connects the two. If this test starts failing, someone has wired a user
@@ -62,7 +62,7 @@ class TestNoOAuthShortcutInFleetGlobalClientAuth:
         self, monkeypatch: pytest.MonkeyPatch, attempted_value: str
     ) -> None:
         monkeypatch.setenv("MCP_CLIENT_AUTH", attempted_value)
-        import agent_utilities.mcp.client_credentials as module
+        import agent_utilities.graphos_client.client_credentials as module
 
         importlib.reload(module)
         try:

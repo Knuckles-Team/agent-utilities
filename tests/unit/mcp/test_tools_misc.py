@@ -324,11 +324,11 @@ async def test_user_token_middleware_delegation_enabled() -> None:
             return_value=access_token,
         ),
         patch(
-            "agent_utilities.mcp.delegated_auth._set_delegated_identity",
+            "agent_utilities.graphos_client.delegated_auth._set_delegated_identity",
             return_value=identity_tokens,
         ) as set_identity,
         patch(
-            "agent_utilities.mcp.delegated_auth._reset_delegated_identity"
+            "agent_utilities.graphos_client.delegated_auth._reset_delegated_identity"
         ) as reset_identity,
     ):
         result = await mw.on_call_tool(ctx, call_next)

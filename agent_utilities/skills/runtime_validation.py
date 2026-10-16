@@ -2087,7 +2087,7 @@ async def _renew_direct_validation_session(
     """Mint current direct-case authority without changing its verified grant."""
 
     from agent_utilities.knowledge_graph.core.session import SessionExpiredError
-    from agent_utilities.mcp.client_credentials import child_auth_header, get_provider
+    from agent_utilities.graphos_client.client_credentials import child_auth_header, get_provider
 
     async def mint_from_current_bearer() -> Any:
         headers = await _bounded_sync_call(
@@ -2123,7 +2123,7 @@ async def _renew_delegated_validation_session(
 ) -> Any:
     """Force a fresh bearer before one bounded delegated validation case."""
 
-    from agent_utilities.mcp.client_credentials import child_auth_header, get_provider
+    from agent_utilities.graphos_client.client_credentials import child_auth_header, get_provider
 
     provider = get_provider()
     if provider is None:
@@ -4055,8 +4055,8 @@ async def run(args: argparse.Namespace) -> list[CaseResult]:
 
     graph_os_url = _validated_graph_os_url(args)
 
-    from agent_utilities.mcp.client_credentials import child_auth, child_auth_header
-    from agent_utilities.mcp.toolset_factory import build_http_toolset
+    from agent_utilities.graphos_client.client_credentials import child_auth, child_auth_header
+    from agent_utilities.graphos_client.toolset_factory import build_http_toolset
 
     headers = child_auth_header({})
     identity_session = await _verified_validation_session(

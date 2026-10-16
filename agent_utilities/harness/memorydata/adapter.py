@@ -47,23 +47,10 @@ RETRIEVAL_CONFIGS: dict[str, dict[str, Any]] = {
 }
 
 
-# ── scoring helpers (gateway reuse w/ offline fallback) ─────────────────────────────────
+# ── scoring helpers ─────────────────────────────────
 def _scoring_helpers() -> tuple[Any, Any]:
-    """Return ``(normalize_answer, judge_binary)`` — the gateway pair if importable.
-
-    Imported lazily so the heavy gateway/engine import graph never loads at module import.
-    Falls back to a local minimal normalizer + exact/substring judge when the gateway (or
-    its engine deps) is unavailable.
-    """
-    try:
-        from agent_utilities.server.routers.benchmark import (  # type: ignore
-            judge_binary,
-            normalize_answer,
-        )
-
-        return normalize_answer, judge_binary
-    except Exception:  # noqa: BLE001 - any import/engine failure → local fallback
-        return _local_normalize_answer, _local_judge_binary
+    """Return ``(normalize_answer, judge_binary)`` — the harness's own scorers."""
+    return _local_normalize_answer, _local_judge_binary
 
 
 def _local_normalize_answer(text: str) -> str:

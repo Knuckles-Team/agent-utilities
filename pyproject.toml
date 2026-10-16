@@ -240,7 +240,7 @@ data-quality-pandera = [
 ]
 mcp = [
     # fastmcp 4 is the default (CONCEPT:AU-ECO.mcp.protocol-compat-bridge). Empirically
-    # verified (see agent_utilities/mcp/protocol_compat.py + docs/architecture/fastmcp4-default.md):
+    # verified (see agent_utilities/graphos_client/protocol_compat.py + docs/architecture/fastmcp4-default.md):
     # `pydantic_ai.mcp` (pydantic-ai-slim 2.54.0, the supported release) natively
     # handles both MCP SDK field spellings and modern FastMCP sessions. The exact
     # Pydantic-AI pin below is intentional: protocol_compat.py verifies this
@@ -781,7 +781,6 @@ all = [
     "agent-utilities[mcp,feeds,agent-runtime,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,langfuse,acp,documents,ann,sandbox,browser,test,rdf,stardog,vault,auth,finance,messaging,pyarrow]>=1.0.0"]
 
 [project.scripts]
-graph-os = "agent_utilities.mcp.kg_server:mcp_server"
 # graph-os-daemon is graph-os-owned (GRAPHOS-DEPLOY requirement R.007.3): graph_os.gateway.daemon:main.
 # Declaring it here too was an install-time console-script name collision.
 # agent_utilities.gateway.daemon remains -- it still has real non-test importers

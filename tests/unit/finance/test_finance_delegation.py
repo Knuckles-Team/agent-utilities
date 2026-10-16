@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-import agent_utilities.api.finance_delegation as finance_delegation
-from agent_utilities.api.finance_delegation import (
+import agent_utilities.domains.finance_agents.finance_delegation as finance_delegation
+from agent_utilities.domains.finance_agents.finance_delegation import (
     KellySizingRequest,
     KellySizingResponse,
     kelly_size_via_eg_or_local,

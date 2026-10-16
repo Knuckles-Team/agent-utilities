@@ -74,7 +74,7 @@ Two independent proofs:
    `PROBE RESULT: OK ['ping'] [TextContent(...text='pong'...)]`.
 
 `httpx` and `httpx2` are structurally identical forks (documented in
-`agent_utilities/mcp/httpx_boundary.py`); `mcp.client.streamable_http` never does
+`agent_utilities/graphos_client/httpx_boundary.py`); `mcp.client.streamable_http` never does
 an `isinstance` check against `http_client` itself — it only calls duck-typed
 methods (`.stream()`, `.build_request()`, `.send()`, `.aclose()`), and even
 `httpx2.EventSource(response)` (constructed from an `httpx.Response`, not
@@ -216,7 +216,7 @@ A dedicated fastmcp-4 live-server integration test exists —
 `tests/integration/mcp/test_fastmcp_cross_version.py` — whose own docstring
 states it *replaces* the prior dual-extra fastmcp-3-vs-4 cross-version guard
 because fastmcp 4 is now au's single default; it drives
-`agent_utilities.mcp.toolset_factory.build_stdio_toolset` (au's actual
+`agent_utilities.graphos_client.toolset_factory.build_stdio_toolset` (au's actual
 production call path) against a real fastmcp-4 stdio server end-to-end. Re-run
 today: **PASSED** (`goc-87/.venv`, `pytest
 tests/integration/mcp/test_fastmcp_cross_version.py -v` → `1 passed, 4 warnings

@@ -325,7 +325,9 @@ def _call_engine_propagate(
     import json as _json
 
     try:
-        from agent_utilities.mcp.tools.engine_surface_tools import _invoke
+        from agent_utilities.knowledge_graph.core.engine_surface import (
+            invoke_surface as _invoke,
+        )
     except Exception as e:  # noqa: BLE001 — optional import, never fatal
         logger.debug("belief_revision: engine_surface_tools unavailable: %s", e)
         return None
