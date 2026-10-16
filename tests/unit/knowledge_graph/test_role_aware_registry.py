@@ -69,6 +69,30 @@ def test_export_rejects_transient_literal_connection_material():
 
 
 def test_resolve_secret_env_and_literal(monkeypatch):
+    from agent_utilities.knowledge_graph.core import connection_registry
+    from agent_utilities.security.secrets_client import (
+        SecretsBackend,
+        SecretsClient,
+    )
+
+    class _NoStore(SecretsBackend):
+        def get(self, key):
+            return None
+
+        def set(self, key, value, **metadata):
+            return None
+
+        def delete(self, key):
+            return False
+
+        def list_keys(self):
+            return []
+
+    # The default client is the engine-backed store; an env:// reference never
+    # reads it, so the test supplies a store-free client instead of an engine.
+    monkeypatch.setattr(
+        connection_registry, "_SECRETS_CLIENT", SecretsClient(backend=_NoStore())
+    )
     monkeypatch.setenv("MY_PW", "s3cret")
     assert _resolve_secret("env://MY_PW") == "s3cret"
     assert _resolve_secret("literalpw") == "literalpw"  # raw passes through

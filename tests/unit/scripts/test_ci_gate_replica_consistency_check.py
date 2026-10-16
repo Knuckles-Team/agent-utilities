@@ -109,7 +109,7 @@ def test_gates_and_build_run_steps_cover_the_known_release_blockers():
     for expected in (
         "Secret-history scan (D-CIP-13)",
         "Verify required epistemic-graph release is resolvable on PyPI",
-        "Test suite",
+        "Full test suite (push to main / release tag)",
         "Require byte-identical wheels and stage the sole candidate",
     ):
         assert expected in run_names, f"missing from parsed RUN plan: {expected!r}"
@@ -197,47 +197,35 @@ def test_windows_and_pages_jobs_are_reported_not_silently_dropped():
         assert all(p["mode"] == "SKIP_LOUD" for p in rows)
 
 
-def test_pages_job_builds_static_docs_without_runtime_dependencies():
-    """Pages must remain publishable before sibling runtime wheels exist."""
+def test_pages_job_delegates_to_the_shared_pipeline_without_runtime_dependencies():
+    """Pages stays publishable before sibling runtime wheels exist: the job is
+    a reusable-workflow call to the shared pipelines workflow (referenced at
+    ``@main``, never SHA-pinned) that builds the static ``docs`` tree, and it
+    carries no step of its own that installs this package or the engine."""
     m = _load_module()
     doc = m.load_workflow(m.WORKFLOWS_DIR / "advisory.yml")
-    steps = doc["jobs"]["pages"]["steps"]
-    by_name = {step["name"]: step for step in steps}
+    pages = doc["jobs"]["pages"]
 
-    theme = by_name["Checkout shared documentation theme"]
-    assert theme["with"]["ref"] == "eb77612bd3b67375e59a6326c4ab5bc44152eed2"
-
-    install = by_name["Install static documentation tooling"]
-    assert install["id"] == "docs_tooling"
-    command = install["run"]
-    for prohibited in ("pip install -e", "uv sync", "agent-utilities", "epistemic-graph"):
-        assert prohibited not in command
-    for requirement in (
-        "mkdocs-material==9.7.6",
-        "mkdocs-awesome-pages-plugin==2.10.1",
-        "platformdirs==4.11.0",
-        "PyYAML==6.0.3",
-    ):
-        assert requirement in command
-
-    build = by_name["Build Docs"]
-    assert build["id"] == "build"
-    assert build["if"] == "steps.docs_tooling.outcome == 'success'"
-    assert "sync_mkdocs_theme.py check" in build["run"]
-    assert "scripts/docs_contract.py" not in build["run"]
-    assert 'test -n "$PROHIBITED_IDENTITY_CATALOG"' not in build["run"]
-    assert 'if [ -n "$PROHIBITED_IDENTITY_CATALOG" ]; then' in build["run"]
+    assert "steps" not in pages
     assert (
-        'scripts/check_tracked_privacy.py --identity-catalog "$policy"'
-        in build["run"]
+        pages["uses"]
+        == "Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@main"
     )
-    assert 'fallback_identity="pagesprivacy""catalogfallback"' in build["run"]
-    assert '"version":"pages-default-v1"' in build["run"]
-    assert "python3 scripts/check_tracked_privacy.py\n" not in build["run"]
-    assert "mkdocs build --strict" in build["run"]
+    assert pages["with"]["content_source"] == "docs"
+    assert pages["permissions"] == {
+        "contents": "read",
+        "pages": "write",
+        "id-token": "write",
+    }
 
-    for name in ("Setup Pages", "Upload artifact", "Deploy to GitHub Pages"):
-        assert by_name[name]["if"] == "steps.build.outcome == 'success'"
+    # The tracked-identity guardrail the old inline job ran lives in its own
+    # report-only job, which must not need the package or engine installed.
+    privacy = doc["jobs"]["pages-privacy-check"]
+    commands = "\n".join(step.get("run", "") for step in privacy["steps"])
+    for prohibited in ("pip install -e", "uv sync", "agent-utilities", "epistemic-graph"):
+        assert prohibited not in commands
+    assert "scripts/check_tracked_privacy.py" in commands
+    assert all(step.get("continue-on-error") for step in privacy["steps"] if "run" in step)
 
 
 # ─────────────────────────────────────────────────────────────────────────

@@ -29,14 +29,17 @@ def sample_ohlcv():
     rng = np.random.default_rng(42)
     n = 300
     dates = pd.bdate_range(end="2024-12-31", periods=n)
-    close = 100 * np.exp(np.cumsum(rng.normal(0.0005, 0.02, n)))
+    def noise(draws):
+        return pd.Series(list(draws), index=dates)
+
+    close = 100 * noise(np.exp(np.cumsum(rng.normal(0.0005, 0.02, n))))
     return pd.DataFrame(
         {
-            "Open": close * (1 + rng.normal(0, 0.005, n)),
-            "High": close * (1 + rng.uniform(0, 0.02, n)),
-            "Low": close * (1 - rng.uniform(0, 0.02, n)),
+            "Open": close * (1 + noise(rng.normal(0, 0.005, n))),
+            "High": close * (1 + noise(rng.uniform(0, 0.02, n))),
+            "Low": close * (1 - noise(rng.uniform(0, 0.02, n))),
             "Close": close,
-            "Volume": rng.integers(100_000, 10_000_000, n).astype(float),
+            "Volume": noise(float(v) for v in rng.integers(100_000, 10_000_000, n)),
         },
         index=dates,
     )
@@ -120,8 +123,8 @@ class TestICIRAnalysis:
     def test_compute_factor_ic_positive(self):
         rng = np.random.default_rng(42)
         n = 100
-        factor = pd.Series(rng.standard_normal(n))
-        returns = factor * 0.5 + pd.Series(rng.standard_normal(n) * 0.1)
+        factor = pd.Series(list(rng.normal(0.0, 1.0, n)))
+        returns = factor * 0.5 + pd.Series(list(rng.normal(0.0, 0.1, n)))
         ic = compute_factor_ic(factor, returns)
         assert ic > 0.3  # Strong positive IC expected
 
@@ -144,10 +147,10 @@ class TestICIRAnalysis:
     def test_rank_factors(self):
         rng = np.random.default_rng(42)
         n = 200
-        returns = pd.Series(rng.standard_normal(n) * 0.01)
+        returns = pd.Series(list(rng.normal(0.0, 0.01, n)))
         factors = {
-            "good_factor": pd.Series(returns * 5 + rng.standard_normal(n) * 0.01),
-            "bad_factor": pd.Series(rng.standard_normal(n)),
+            "good_factor": returns * 5 + pd.Series(list(rng.normal(0.0, 0.01, n))),
+            "bad_factor": pd.Series(list(rng.normal(0.0, 1.0, n))),
         }
         ranking = rank_factors(factors, returns)
         assert ranking.iloc[0]["factor"] == "good_factor"  # Should rank first

@@ -133,6 +133,19 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
                 "install native tools or contact crates.io/npm, while the pre-commit "
                 "hooks exercise the same wrappers locally."
             ),
+            "spec-gates": (
+                "runs the shared `pipelines-hook` spec checks through `uvx` from "
+                "git+https://github.com/Knuckles-Team/pipelines@main, which needs "
+                "the network and the moving `main` of another repository; the "
+                "same hooks run locally through pre-commit "
+                "(`pipelines-hook spec-status`, `spec-decomposition`, "
+                "`spec-trailers`)."
+            ),
+            "github-release": (
+                "creates the GitHub release for a pushed vX.Y.Z tag after the "
+                "PyPI publish (`needs: publish-pypi`, `contents: write`). "
+                "Releasing must never happen from a local pre-push hook."
+            ),
             "numeric-runtime-gate": (
                 "installs the exact built wheel with its declared "
                 "epistemic-graph[full] floor FROM PyPI, on a matrix of "
@@ -181,13 +194,17 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
         executable_jobs=frozenset({"advisory"}),
         job_skip_reasons={
             "pages": (
-                "installs this checkout via `pip install -e .`, which resolves the "
-                "same epistemic-graph[full] floor gated by release.yml's `gates` job "
-                "and known PyPI-unresolvable per numeric-runtime-gate's skip reason "
-                "above — its Build-Docs / Documentation-contract / Tracked-privacy "
-                "steps are already duplicated by the `advisory` job above, and its "
-                "Deploy step needs the GitHub Pages environment/actions with no "
-                "local equivalent."
+                "a reusable-workflow call to Knuckles-Team/pipelines "
+                "pages_pipeline.yml@main (no `steps:` of its own) that builds and "
+                "deploys the GitHub Pages site; the deploy needs the GitHub Pages "
+                "environment with no local equivalent."
+            ),
+            "pages-privacy-check": (
+                "report-only (`continue-on-error: true`, push-only) run of "
+                "scripts/check_tracked_privacy.py with the repository's prohibited-"
+                "identity catalog variable, which only exists in GitHub Actions; "
+                "the same scanner runs in the `advisory` job above and in the "
+                "tracked-privacy pre-commit guardrail."
             ),
             "windows": (
                 "runs on windows-latest — this Linux dev host cannot execute it "

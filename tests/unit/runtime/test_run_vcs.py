@@ -187,6 +187,19 @@ async def test_retained_output_discard_leaves_world_untouched(tmp_path: Path):
     assert proposal.discarded
 
 
+class _DurableEngine:
+    """Minimal durable authority: the policy fails closed without receipt storage."""
+
+    def __init__(self) -> None:
+        self.nodes: dict[str, dict] = {}
+
+    def add_node(self, node_id, node_type, properties=None, **_kw):
+        self.nodes[node_id] = {"type": node_type, **(properties or {})}
+
+    def query_cypher(self, *_args, **_kwargs):
+        return []
+
+
 async def test_retained_output_select_gated_by_action_policy(tmp_path: Path):
     # Default policy: run.select is approval_required → the world is NOT materialized.
     root = tmp_path / "ws"
@@ -196,7 +209,7 @@ async def test_retained_output_select_gated_by_action_policy(tmp_path: Path):
     commit = await session.commit("final")
     proposal = RetainedRunProposal(run_id="run-s", commit=commit)
 
-    gate = RetainedRunGate()
+    gate = RetainedRunGate(engine=_DurableEngine())
     res = gate.select(proposal, session.carrier, target_root=target)
     assert res["materialized"] is False
     assert res["decision"] in {"queue_approval", "deny"}
@@ -222,7 +235,9 @@ async def test_retained_output_select_materializes_when_policy_allows(tmp_path: 
     commit = await session.commit("final")
     proposal = RetainedRunProposal(run_id="run-ok", commit=commit)
 
-    gate = RetainedRunGate(policy=ActionPolicy(policy_path=policy_yml))
+    gate = RetainedRunGate(
+        policy=ActionPolicy(engine=_DurableEngine(), policy_path=policy_yml)
+    )
     res = gate.select(proposal, session.carrier, target_root=target)
     assert res["materialized"] is True
     assert (target / "out.txt").read_text() == "accepted"
