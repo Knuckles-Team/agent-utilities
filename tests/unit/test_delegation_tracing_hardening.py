@@ -243,9 +243,15 @@ async def test_status_action_surfaces_real_run_trace_and_tool_calls(monkeypatch)
 
     _ensure_standard_model_class(monkeypatch)
     # See test_focused_tools_failure_fails_closed_even_when_agent_name_resolves_as_server
-    # for why this is required: "container-manager-mcp" resolves against this
-    # sandbox's real MCP_CONFIG catalog otherwise (an environment-dependent URL).
+    # for why this is required (an environment-dependent URL otherwise).
     monkeypatch.setenv("FLEET_MCP_URL_TEMPLATE", "https://{server}.mcp.test")
+    # The server identity is pinned through the configured fleet catalog, which
+    # is otherwise whatever MCP_CONFIG this host happens to carry. Pin it so the
+    # run deterministically resolves as a single configured MCP server.
+    monkeypatch.setattr(
+        "agent_utilities.orchestration.agent_runner._configured_fleet_server_names",
+        lambda: frozenset({"container-manager-mcp"}),
+    )
     engine = _create_engine()
     register_analysis_tools(_FakeMCP())
     register_job_tools(_FakeMCP())

@@ -70,10 +70,26 @@ def lane_of(task_type: str) -> str:
     return lane_for_task_type(task_type)
 
 
-def test_sweep_all_sources_enqueues_laned_connector_tasks():
+def test_sweep_all_sources_enqueues_laned_connector_tasks(monkeypatch):
     """ORCH-1.77 — the fleet sweep enqueues one connector_sync task per connector (parallel,
-    laned) instead of syncing them sequentially inline."""
+    laned) instead of syncing them sequentially inline.
+
+    The candidate set and the governed provider gate are pinned so the verdict
+    does not depend on which connector providers this environment installs (a
+    provider that is not installed is correctly rejected, which is ``partial``).
+    """
+    from agent_utilities.knowledge_graph.core import source_sync
     from agent_utilities.knowledge_graph.core.source_sync import sweep_all_sources
+    from agent_utilities.knowledge_graph.ontology import connector_manifest_gate
+
+    monkeypatch.setattr(
+        source_sync, "_sweep_candidate_sources", lambda _m: {"alpha", "beta"}
+    )
+    monkeypatch.setattr(
+        connector_manifest_gate,
+        "precheck_source",
+        lambda _source: {"checked": True, "ok": True},
+    )
 
     calls: list[tuple] = []
 
