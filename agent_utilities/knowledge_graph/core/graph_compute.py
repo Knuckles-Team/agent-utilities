@@ -4449,7 +4449,11 @@ class GraphComputeEngine:
         binding the GitLab code graph and impact analysis are built on.
         ``IndexRepository`` is mandatory in the exact current engine contract.
         """
-        return self._client.graph.index_repository(files)
+        result = self._client.graph.index_repository(files)
+        # The SDK returns the generated ``IndexResult`` model; every consumer
+        # (``entities_from_index_result``) reads the documented dict shape.
+        dump = getattr(result, "model_dump", None)
+        return dump(mode="json") if callable(dump) else result
 
     def observe_screen(
         self,
@@ -4916,15 +4920,22 @@ class GraphComputeEngine:
         """Materialize committed GraphSchema rules through EG's durable gateway."""
         import asyncio as _asyncio
 
-        from epistemic_graph.generated.reasoning import send_run_datalog_reasoning
+        from epistemic_graph.generated.reasoning import (
+            models,
+            send_run_datalog_reasoning,
+        )
 
         loop = self._engine_loop()
         if loop is None:
             raise RuntimeError("no engine loop available for Datalog reasoning")
+        # An empty ``{}`` is dropped from the wire frame (the engine then rejects
+        # it with "missing field `params`"); the generated model's defaults are
+        # the explicit "use the committed GraphSchema snapshot" request.
+        params = models().MethodRunDatalogReasoningParams().model_dump(mode="json")
 
         async def _drive() -> Any:
             return await send_run_datalog_reasoning(
-                self._engine_async_client(), {}, self.graph_name
+                self._engine_async_client(), params, self.graph_name
             )
 
         result = _asyncio.run_coroutine_threadsafe(_drive(), loop).result()

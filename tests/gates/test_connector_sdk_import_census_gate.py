@@ -19,15 +19,11 @@ from check_connector_sdk_import_census import census  # noqa: E402
 
 import os as _os
 
-FLEET_ROOT = Path(
-    _os.environ.get(
-        "AGENT_FLEET_ROOT",
-        "/home/apps/workspace/agent-packages/agents",
-    )
-)
+_FLEET_ROOT_ENV = _os.environ.get("AGENT_FLEET_ROOT", "")
+FLEET_ROOT = Path(_FLEET_ROOT_ENV)
 
 pytestmark = pytest.mark.skipif(
-    not FLEET_ROOT.is_dir(),
+    not _FLEET_ROOT_ENV or not FLEET_ROOT.is_dir(),
     reason="connector-package fleet checkout is not present in this environment",
 )
 

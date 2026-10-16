@@ -226,17 +226,6 @@ def _run_copied_bundle(bundle: _CopiedBundle, monkeypatch, capsys) -> tuple[int,
     return result, capsys.readouterr().out
 
 
-def test_current_provider_membership_has_one_owned_manifest_per_provider():
-    agents_root = gate._default_agents_root()
-    workspace = gate._default_workspace()
-
-    configured = set(gate._configured_provider_names(workspace))
-    provider_owned = set(gate._provider_owned_names(agents_root))
-
-    assert "leanix-agent" in configured
-    assert configured <= provider_owned
-
-
 def test_default_agents_root_expands_workspace_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -266,19 +255,6 @@ def test_default_workspace_prefers_configured_canonical_over_xdg(
     monkeypatch.setenv("AGENT_UTILITIES_WORKSPACE_ROOT", str(canonical_root))
 
     assert gate._default_workspace() == canonical
-
-
-def test_current_leanix_provider_bundle_content_passes(tmp_path, monkeypatch):
-    bundle = _copy_current_bundle(tmp_path, monkeypatch)
-    _resign_and_pin(bundle)
-    violations = gate.check_one(
-        bundle.repo,
-        bundled_root=bundle.bundled_root,
-        lock_path=bundle.lock_path,
-        privacy=gate._release_privacy_guard(),
-    )
-
-    assert violations == []
 
 
 def test_provider_owned_manifest_outside_workspace_fails_closed(

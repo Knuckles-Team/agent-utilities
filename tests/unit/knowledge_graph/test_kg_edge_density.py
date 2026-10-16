@@ -45,13 +45,7 @@ def _edges(engine) -> list[dict]:
 
 
 def _inferred_edges(engine) -> list[dict]:
-    """Inferred edges — projected in the RETURN clause and filtered in Python.
-
-    There is no Cypher predicate on this engine that filters by a RELATIONSHIP
-    property; see
-    :func:`test_relationship_property_predicates_never_filter_relationships`.
-    Reading the property back in ``RETURN`` is the only form that works.
-    """
+    """Inferred edges — projected in the RETURN clause and filtered in Python."""
     return [
         row
         for row in engine.query_cypher(
@@ -62,19 +56,14 @@ def _inferred_edges(engine) -> list[dict]:
     ]
 
 
-def test_relationship_property_predicates_never_filter_relationships(engine_graph):
-    """A measurement trap, pinned so nobody re-derives a false negative from it.
+def test_relationship_property_predicates_filter_relationships(engine_graph):
+    """Relationship-property predicates filter on this engine.
 
-    Neither ``WHERE r.<prop> = <value>`` nor the inline ``[r {prop: value}]``
-    map filters by a relationship property on this engine: the ``WHERE`` form
-    matches NOTHING and the inline form matches EVERYTHING, for booleans and
-    strings alike — while the identical predicate over a NODE property behaves
-    correctly and ``RETURN r.<prop>`` reads the value back fine.
-
-    Any audit concluding "the graph contains no edge with X" from either form
-    has measured the query language, not the data. The only sound way to count
-    edges by a relationship property is to project it in ``RETURN`` and filter
-    client-side, which is what :func:`_inferred_edges` does.
+    Both ``WHERE r.<prop> = <value>`` and the inline ``[r {prop: value}]`` map
+    select only the edges whose property matches, for booleans and strings
+    alike, exactly as the identical predicate over a NODE property does. (An
+    earlier engine ignored the inline map and matched nothing for ``WHERE``;
+    that is no longer the case, so an audit may count edges with Cypher.)
     """
     engine_graph.batch_update(
         [
@@ -104,7 +93,7 @@ def test_relationship_property_predicates_never_filter_relationships(engine_grap
                 },
             },
             # A second edge with NO ``inferred`` property, to expose an
-            # over-matching filter as well as an under-matching one.
+            # over-matching filter.
             {
                 "op": "upsert_edge",
                 "source": "trap:b",
@@ -114,13 +103,11 @@ def test_relationship_property_predicates_never_filter_relationships(engine_grap
         ]
     )
 
-    # The value is stored and readable...
     returned = engine_graph.query_cypher(
         "MATCH (a)-[r]->(b) WHERE a.id = 'trap:a' RETURN r.inferred AS inferred"
     )
     assert returned and returned[0]["inferred"] is True
 
-    # ...and the same predicate shape over a NODE property filters correctly...
     assert [
         row["id"]
         for row in engine_graph.query_cypher(
@@ -128,27 +115,19 @@ def test_relationship_property_predicates_never_filter_relationships(engine_grap
         )
     ] == ["trap:a"]
 
-    # ...but over a RELATIONSHIP property, WHERE matches nothing,
-    assert (
-        engine_graph.query_cypher(
-            "MATCH (a)-[r]->(b) WHERE r.inferred = true RETURN a.id AS src"
-        )
-        == []
+    where_bool = engine_graph.query_cypher(
+        "MATCH (a)-[r]->(b) WHERE r.inferred = true RETURN a.id AS src"
     )
-    assert (
-        engine_graph.query_cypher(
-            "MATCH (a)-[r]->(b) WHERE r.inferred_from = 'trap' RETURN a.id AS src"
-        )
-        == []
+    assert [row["src"] for row in where_bool] == ["trap:a"]
+    where_str = engine_graph.query_cypher(
+        "MATCH (a)-[r]->(b) WHERE r.inferred_from = 'trap' RETURN a.id AS src"
     )
-    # ...and the inline relationship-property map is ignored outright — it
-    # matches the edge that has no such property at all.
+    assert [row["src"] for row in where_str] == ["trap:a"]
     inline = engine_graph.query_cypher(
         "MATCH (a)-[r {inferred: true}]->(b) RETURN a.id AS src"
     )
-    assert {row["src"] for row in inline} == {"trap:a", "trap:b"}, inline
+    assert [row["src"] for row in inline] == ["trap:a"]
 
-    # The sound measurement returns exactly one edge.
     assert [row["src"] for row in _inferred_edges(engine_graph)] == ["trap:a"]
 
 
@@ -285,15 +264,18 @@ def test_inference_never_overwrites_an_asserted_edge(engine_graph):
     assert asserted and not asserted[0]["inferred"]
 
 
-def test_run_inference_has_a_production_caller(engine_graph):
-    """``InferenceEngine`` is reachable from a scheduled tick, not only tests."""
+def test_reasoning_has_a_production_caller(engine_graph):
+    """Reasoning is reachable from a scheduled tick, not only tests.
+
+    Epistemic Graph is the sole semantic authority, so the tick drives its
+    durable Datalog gateway rather than any AU-local closure.
+    """
     import inspect
 
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     source = inspect.getsource(IntelligenceGraphEngine._tick_reasoning)
-    assert "run_inference" in source
-    assert "run_closure" in source
+    assert "run_datalog_reasoning" in source
 
     from agent_utilities.core.schedule_engine import _MAINTENANCE_REF_ALLOWLIST
 

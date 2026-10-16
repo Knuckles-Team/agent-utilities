@@ -225,7 +225,7 @@ def test_mappings_must_name_discovered_entities_and_fields() -> None:
 @pytest.mark.parametrize(
     "ref",
     [
-        "postgres://admin:pw@db/x",  # sanitizer:ignore -- synthetic refusal fixture
+        "postgres://admin:pw@db.example.test/x",
         "https://api/x?token=abc",
         "not a ref",
     ],
