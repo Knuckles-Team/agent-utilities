@@ -7,7 +7,9 @@ class rules it carries are enforced by the EG identity store.
 
 from __future__ import annotations
 
-EG_SCOPE_REGISTRY_SHA256 = "bed97c332771c1969de88d532095d481b7c852fdedd05c6d5e6122591964d0b5"
+EG_SCOPE_REGISTRY_SHA256 = (
+    "bed97c332771c1969de88d532095d481b7c852fdedd05c6d5e6122591964d0b5"
+)
 
 #: scope -> class (user | domain | service-only | approver | admin).
 SCOPE_CLASSES: dict[str, str] = {
