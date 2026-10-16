@@ -17,7 +17,7 @@ from scripts.release.check_eg_kafka_gate_evidence import (
     verify_eg_kafka_gate_evidence,
 )
 
-_PYPROJECT = '"epistemic-graph[full]>=2.27.0,<3.0.0",\n'
+_PYPROJECT = '"epistemic-graph[full,server]>=2.27.0,<3.0.0",\n'
 
 
 def _write_pyproject(tmp_path: Path) -> Path:

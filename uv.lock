@@ -64,6 +64,7 @@ dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
     { name = "httpx2" },
+    { name = "mcp" },
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
@@ -73,9 +74,10 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.13.0" },
     { name = "cryptography", specifier = ">=50.0.1" },
     { name = "epistemic-graph", specifier = ">=2.27.0,<3" },
-    { name = "fastmcp", specifier = ">=4.0.3,<5" },
+    { name = "fastmcp", specifier = ">=4.0.11,<5" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "httpx2", specifier = ">=2.12.0" },
+    { name = "mcp", specifier = ">=2.3.0,<3" },
     { name = "pydantic", specifier = ">=2.13.4,<3" },
     { name = "pyyaml", specifier = ">=6.0.3" },
 ]
@@ -86,6 +88,10 @@ test = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "pytest-timeout", specifier = ">=2.4.0" },
+]
+typecheck = [
+    { name = "mypy", specifier = "==1.20.2" },
+    { name = "types-pyyaml", specifier = "==6.0.12.20260518" },
 ]
 
 [[package]]
@@ -112,7 +118,7 @@ dependencies = [
     { name = "click" },
     { name = "cryptography" },
     { name = "defusedxml" },
-    { name = "epistemic-graph" },
+    { name = "epistemic-graph", extra = ["server"] },
     { name = "filelock" },
     { name = "graphql-core" },
     { name = "idna" },
@@ -694,7 +700,7 @@ requires-dist = [
     { name = "defusedxml", specifier = ">=0.7.1,<0.8.0.dev0" },
     { name = "discord-py", marker = "extra == 'messaging-discord'", specifier = ">=2.7.1" },
     { name = "documentdb-mcp", marker = "extra == 'gateway-widgets'", specifier = ">=1.0.1" },
-    { name = "epistemic-graph", extras = ["full"], editable = ".uv-workspace-siblings/epistemic-graph" },
+    { name = "epistemic-graph", extras = ["full", "server"], editable = ".uv-workspace-siblings/epistemic-graph" },
     { name = "erpnext-agent", marker = "extra == 'gateway-widgets'", specifier = ">=1.0.1" },
     { name = "eunomia-core", marker = "extra == 'mcp'", specifier = ">=0.3.10" },
     { name = "falkordb", marker = "extra == 'falkordb'", specifier = ">=1.6.2" },
@@ -2207,8 +2213,14 @@ dependencies = [
     { name = "pyoxigraph" },
 ]
 
+[package.optional-dependencies]
+server = [
+    { name = "epistemic-graph-server" },
+]
+
 [package.metadata]
 requires-dist = [
+    { name = "epistemic-graph-server", marker = "extra == 'server'", specifier = "==2.27.1" },
     { name = "httpx", specifier = ">=0.24.0" },
     { name = "httpx", marker = "extra == 'lmcache'", specifier = ">=0.24.0" },
     { name = "maturin", marker = "extra == 'test'", specifier = ">=1.0,<2.0" },
@@ -2224,6 +2236,15 @@ requires-dist = [
     { name = "pyyaml", marker = "extra == 'test'", specifier = ">=6.0.3" },
 ]
 provides-extras = ["all", "ast", "datascience", "finance", "full", "lake-parity", "lmcache", "numeric", "owl", "quant", "reasoning", "server", "test"]
+
+[[package]]
+name = "epistemic-graph-server"
+version = "2.27.1"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b6/48/1af169b5d9a98ade64298471b3e42f7b73422f8e8600253dd8b5da7bb70e/epistemic_graph_server-2.27.1-py3-none-manylinux_2_28_aarch64.whl", hash = "sha256:b569d26b872c5b0d53a44ba409dcbce01ae040796d2412093fb7e233f2816317", size = 58263981, upload-time = "2026-10-16T12:27:46.126Z" },
+    { url = "https://files.pythonhosted.org/packages/d7/c0/9d06a5e7a38f33acd11e1e07e739a068e27d0fa25bcbc86d273d256b92ca/epistemic_graph_server-2.27.1-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:c216dfd84677f4dbafab30cfea8a37078941dfe1975785de852c524c96b3d22b", size = 62122272, upload-time = "2026-10-16T10:35:07.991Z" },
+]
 
 [[package]]
 name = "erpnext-agent"
