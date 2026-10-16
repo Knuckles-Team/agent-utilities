@@ -7,9 +7,7 @@ class rules it carries are enforced by the EG identity store.
 
 from __future__ import annotations
 
-EG_SCOPE_REGISTRY_SHA256 = (
-    "68470d798df76c1c555e1c0876cf8956c247138f31d6d81aa3760adff4bb6b2c"
-)
+EG_SCOPE_REGISTRY_SHA256 = "bed97c332771c1969de88d532095d481b7c852fdedd05c6d5e6122591964d0b5"
 
 #: scope -> class (user | domain | service-only | approver | admin).
 SCOPE_CLASSES: dict[str, str] = {
@@ -22,6 +20,7 @@ SCOPE_CLASSES: dict[str, str] = {
     "admin:decision-log": "admin",
     "admin:fleet-catalog": "admin",
     "admin:outbox": "admin",
+    "admin:policy-evolution-store": "admin",
     "admin:sqlite-file": "admin",
     "agent:assemble-read": "user",
     "agent:component-read": "user",
@@ -38,6 +37,8 @@ SCOPE_CLASSES: dict[str, str] = {
     "agent:template-read": "user",
     "agent:template-write": "user",
     "analytics:worker": "service-only",
+    "approvals:decide": "approver",
+    "approvals:read": "approver",
     "asr:transcribe": "user",
     "blob:admin": "admin",
     "blob:read": "user",
@@ -73,12 +74,18 @@ SCOPE_CLASSES: dict[str, str] = {
     "edge:write": "user",
     "explain:read": "user",
     "federation:admin": "admin",
+    "federation:read": "user",
     "finance:alerts": "domain",
     "finance:approve-live-order": "approver",
     "finance:backfill": "domain",
     "finance:propose-order": "domain",
+    "finance:read": "domain",
     "finance:track": "domain",
+    "fleet:control": "admin",
     "fleet:events": "service-only",
+    "fleet:read": "user",
+    "gap:read": "user",
+    "gap:write": "user",
     "governance:approve-schema-repair": "approver",
     "governance:propose": "domain",
     "governance:read": "user",
@@ -108,8 +115,13 @@ SCOPE_CLASSES: dict[str, str] = {
     "ledger:admin": "admin",
     "ledger:read": "user",
     "ledger:write": "user",
+    "loops:control": "admin",
+    "loops:read": "user",
     "matview:admin": "admin",
     "matview:read": "user",
+    "mcp:admin": "admin",
+    "mcp:delegate": "user",
+    "mcp:discover": "user",
     "memory:read": "user",
     "memory:write": "user",
     "mining:read": "user",
@@ -119,7 +131,10 @@ SCOPE_CLASSES: dict[str, str] = {
     "node:admin": "admin",
     "node:read": "user",
     "node:write": "user",
+    "ops:admin": "admin",
+    "ops:read": "admin",
     "owl:read": "user",
+    "policy:capture-write": "domain",
     "quantum:run": "user",
     "query:cypher": "user",
     "query:decide": "user",
@@ -135,6 +150,7 @@ SCOPE_CLASSES: dict[str, str] = {
     "rdf:write": "user",
     "reasoning:read": "user",
     "reasoning:write": "user",
+    "record:retire": "admin",
     "registry:read": "user",
     "registry:write": "user",
     "resource:host": "service-only",
@@ -144,6 +160,7 @@ SCOPE_CLASSES: dict[str, str] = {
     "scene:write": "user",
     "security:admin": "admin",
     "security:audit": "admin",
+    "security:audit-write": "service-only",
     "security:bootstrap": "service-only",
     "security:check": "service-only",
     "semantic:binding-read": "user",
@@ -160,6 +177,7 @@ SCOPE_CLASSES: dict[str, str] = {
     "stream:admin": "admin",
     "stream:read": "user",
     "stream:write": "user",
+    "telemetry:derive": "service-only",
     "telemetry:write": "service-only",
     "timeseries:read": "user",
     "timeseries:write": "service-only",
@@ -177,6 +195,7 @@ SCOPE_CLASSES: dict[str, str] = {
     "work:claim": "user",
     "work:claim-capability": "service-only",
     "work:delegate": "user",
+    "work:offer-write": "user",
     "work:read": "user",
     "work:submit": "user",
     "work:write": "user",
@@ -184,6 +203,8 @@ SCOPE_CLASSES: dict[str, str] = {
 
 #: approver-class scope -> the one built-in group that confers it.
 APPROVER_GROUPS: dict[str, str] = {
+    "approvals:decide": "action-approvers",
+    "approvals:read": "action-approvers",
     "finance:approve-live-order": "live-order-approvers",
     "governance:approve-schema-repair": "schema-approvers",
     "rbac:approve-elevation": "elevation-approvers",

@@ -8,6 +8,7 @@ monkeypatched, plus a live-path through the graph_configure MCP action.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +22,16 @@ from agent_utilities.deployment import doctor as D
 
 def _ok(name):
     return lambda **kw: D._result(name, "ok", "fine")
+
+
+def _child_env() -> dict[str, str]:
+    """Environment for a fresh interpreter whose stderr must stay empty.
+
+    The live-mount guard legitimately logs CRITICAL when a pod (CI runs in one)
+    imports the package without a source mount; these children assert the
+    entrypoint itself is warning-free, so they run as if not under Kubernetes.
+    """
+    return {k: v for k, v in os.environ.items() if k != "KUBERNETES_SERVICE_HOST"}
 
 
 def test_module_entrypoint_is_warning_free_and_emits_exact_json() -> None:
@@ -39,6 +50,7 @@ def test_module_entrypoint_is_warning_free_and_emits_exact_json() -> None:
         capture_output=True,
         text=True,
         check=False,
+        env=_child_env(),
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -99,6 +111,7 @@ print(json.dumps({
         capture_output=True,
         text=True,
         check=False,
+        env=_child_env(),
     )
 
     assert completed.returncode == 0, completed.stderr

@@ -23,6 +23,38 @@ from agent_utilities.knowledge_graph.extraction.extraction_schema import (
 rdflib = pytest.importorskip("rdflib")
 
 
+def _tbox_turtle(prefix: str, count: int) -> str:
+    """A small TBox in the extractor's namespace: ``count`` classes chained by
+    ``count - 1`` directed object properties."""
+    lines = [
+        "@prefix owl: <http://www.w3.org/2002/07/owl#> .",
+        "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .",
+        "@prefix : <http://knuckles.team/kg#> .",
+    ]
+    for i in range(count):
+        lines.append(f":{prefix}Class{i} a owl:Class ; rdfs:comment 'class {i}' .")
+    for i in range(count - 1):
+        lines.append(
+            f":{prefix}linksTo{i} a owl:ObjectProperty ; rdfs:label 'links {i}' ;"
+            f" rdfs:domain :{prefix}Class{i} ; rdfs:range :{prefix}Class{i + 1} ."
+        )
+    return "\n".join(lines) + "\n"
+
+
+@pytest.fixture
+def served_tbox(tmp_path, monkeypatch):
+    """Semantic authority lives in epistemic-graph and AU ships no ontology
+    modules, so the loader is exercised against TBox modules in a temp dir."""
+    from agent_utilities.knowledge_graph.extraction import extraction_schema
+
+    (tmp_path / "ontology.ttl").write_text(_tbox_turtle("Core", 12))
+    (tmp_path / "ontology_servicenow.ttl").write_text(_tbox_turtle("Sn", 3))
+    monkeypatch.setattr(extraction_schema, "_KG_DIR", tmp_path)
+    load_extraction_schema.cache_clear()
+    yield
+    load_extraction_schema.cache_clear()
+
+
 def test_camel_to_snake():
     assert _camel_to_snake("decidedBy") == "decided_by"
     assert _camel_to_snake("impactsConcept") == "impacts_concept"
@@ -46,7 +78,7 @@ def test_module_paths_skip_and_domain():
     assert "ontology_legal" in (_module_paths("connector:legal") or ())
 
 
-def test_load_core_schema_has_typed_relations():
+def test_load_core_schema_has_typed_relations(served_tbox):
     schema = load_extraction_schema("document")
     assert schema is not None
     assert not schema.is_empty
@@ -63,7 +95,7 @@ def test_codebase_returns_none():
     assert load_extraction_schema("codebase") is None
 
 
-def test_servicenow_superset_of_core():
+def test_servicenow_superset_of_core(served_tbox):
     core = load_extraction_schema("document")
     sn = load_extraction_schema("servicenow")
     assert core is not None and sn is not None

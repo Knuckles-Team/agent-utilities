@@ -298,6 +298,16 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
+      # tests/unit/scripts/test_source_freeze_gate.py drives the reviewed `rg`
+      # read tool; the gate fails closed (reviewed-tool-unavailable) without it.
+      - name: Install ripgrep
+        run: |
+          if ! command -v rg >/dev/null 2>&1; then
+            SUDO=""; [ "$(id -u)" -eq 0 ] || SUDO="sudo"
+            $SUDO apt-get update -qq
+            $SUDO apt-get install -y -qq ripgrep
+          fi
+
       # ---- Secret-history scan (D-CIP-13). Stdlib-only; no environment sync
       # needed yet. Scans the patch text actually introduced by this push/PR
       # against origin/main (or the merge-base for a PR) for credential-shaped

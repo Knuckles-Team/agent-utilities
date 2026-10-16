@@ -2020,6 +2020,9 @@ def _permission_governance_worker(root: Path, result_path: Path) -> None:
         agent_subject="exact-local-runtime",
         role=AgentRole.SPECIALIST,
         capabilities=("read_*",),
+        # Composition boundary: the kernel never discovers a resolver, so the
+        # worker injects one for the only reference scheme it uses (env://).
+        secret_resolver=lambda ref: os.environ[str(ref).removeprefix("env://")],
     )
     if context is None or not context.kernel.verify_identity(context.identity):
         _fail("permission_reference_bootstrap_failed")
