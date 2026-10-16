@@ -570,7 +570,11 @@ async def test_native_transaction_conflict_never_partially_commits(
                     and namespace == "txn"
                     and method == "cas"
                     and len(args) > 1
-                    and args[1] == task["context_id"]
+                    # Stage the competing write AFTER the task leg is staged: the
+                    # engine captures a node's OCC fingerprint when it is first
+                    # staged, so only a write landing between staging and commit
+                    # is a conflict the commit must reject.
+                    and args[1] == task["id"]
                 ):
                     injected = True
                     assert await original_call(

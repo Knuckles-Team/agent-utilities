@@ -23,6 +23,8 @@ import pytest
 from agent_utilities.core import sessions as _sessions
 from agent_utilities.gateway import fleet
 from agent_utilities.models.goal import GoalStatus
+from agent_utilities.security.actor_identity import ActorType
+from agent_utilities.security.brain_context import ActorContext, use_actor
 
 # All three tests below drive the real goal loop / fleet-pause handler, which
 # constructs the process-wide engine (``IntelligenceGraphEngine.get_or_create()``)
@@ -36,6 +38,11 @@ from agent_utilities.models.goal import GoalStatus
 pytest.importorskip("epistemic_graph.client")
 
 pytestmark = pytest.mark.integration
+
+# A goal's reported status is its authoritative engine WorkItem state: a paused
+# loop releases its WorkItem back to ``ready`` (resumable), not a ``paused``
+# WorkItem state (see ``sessions._GOAL_RESULT_STATUSES``).
+_PAUSED_GOAL_STATUS = "ready"
 
 
 class _Req:
@@ -74,7 +81,37 @@ def fleet_env(tmp_path, monkeypatch):
         return None
 
     monkeypatch.setattr(asyncio, "sleep", _fast_sleep)
-    return tmp_path, db
+    # Host validation subprocesses are opt-in (KG_LOOP_ALLOW_HOST_VALIDATION) and
+    # shell-less, so inject a governed develop runner -- the production seam --
+    # that records each validation attempt as one "x" in the marker file named
+    # by the ``printf x >> <marker>; exit 1`` command and reports failure.
+    from agent_utilities.knowledge_graph.research import loop_controller
+
+    def _marker_runner(cmd, _cwd):
+        marker = cmd.split(">>", 1)[1].split(";", 1)[0].strip()
+        with open(marker, "a") as fh:
+            fh.write("x")
+        return False, "exit 1"
+
+    real_controller = loop_controller.LoopController
+    monkeypatch.setattr(
+        loop_controller,
+        "LoopController",
+        lambda engine, **kw: real_controller(
+            engine, develop_runner=_marker_runner, **kw
+        ),
+    )
+    # The supervisory plane is an admin-only fleet-wide surface: fleet's
+    # ``_tenant_scope`` fails closed without a verified privileged actor.
+    admin = ActorContext(
+        actor_id="fleet-admin",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("kg:admin",),
+        tenant_id="ops-admin",
+        authenticated=True,
+    )
+    with use_actor(admin):
+        yield tmp_path, db
 
 
 def _insert_session(db, sid, status="active", domain=None):
@@ -125,7 +162,7 @@ async def test_goal_loop_honors_pause_with_zero_effects(fleet_env):
         constraints=[],
     )
     # Reconciled to paused at the loop top, before any iteration ran.
-    assert _sessions.active_goals["gp"]["status"] == GoalStatus.PAUSED
+    assert _sessions.active_goals["gp"]["status"] == _PAUSED_GOAL_STATUS
     assert not marker.exists()
 
 
@@ -155,7 +192,7 @@ async def test_many_concurrent_goals_independent(fleet_env):
 
     for sid, gid, marker, paused in specs:
         if paused:
-            assert _sessions.active_goals[gid]["status"] == GoalStatus.PAUSED
+            assert _sessions.active_goals[gid]["status"] == _PAUSED_GOAL_STATUS
             assert not marker.exists()
         else:
             # Ran both iterations -> two effects, then failed (cmd exit 1).
