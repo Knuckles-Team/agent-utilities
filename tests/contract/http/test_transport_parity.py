@@ -69,8 +69,8 @@ def test_sync_adapters_share_request_response_contract(kind: str) -> None:
     try:
         response = client.request(
             "POST",
-            "https://example.test/contract?fixed=1",
-            params={"page": 2},
+            "https://example.test/contract",
+            params={"fixed": 1, "page": 2},
             json={"value": 1},
             headers={"X-Call": "request"},
         )

@@ -76,4 +76,9 @@ def test_embedding_per_model_headers_and_tls_reach_http_client(monkeypatch):
 
     assert isinstance(captured.get("verify"), ssl.SSLContext)
     assert captured["verify"].verify_mode == ssl.CERT_REQUIRED
-    assert captured.get("headers") == {"X-Client-Id": "svc-embed"}
+    # The per-model header reaches the client, alongside the bearer credential
+    # the embedding factory derives from the configured API key.
+    assert captured.get("headers") == {
+        "X-Client-Id": "svc-embed",
+        "Authorization": "Bearer k",
+    }
