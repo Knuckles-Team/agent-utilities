@@ -65,7 +65,6 @@ The task owner records a separate verdict per ID even when multiple IDs share a 
 - [ ] **AU-SEMANTIC-R011.5.1:** Repoint `engine_tasks.py` off `worker_scheduler` (BLOCKED on epistemic-graph: no served WorkerRegistry, AdmissionPolicy, scheduler config/lane floors or shard-writer width)
 - [ ] **AU-SEMANTIC-R011.5.2:** Repoint `ingest_routing.py` off `worker_scheduler`
 - [ ] **AU-SEMANTIC-R011.5.3:** Repoint scheduler tests, part 1
-- [ ] **AU-SEMANTIC-R011.5.4:** Repoint scheduler tests, part 2
 - [ ] **AU-SEMANTIC-R011.5.5:** Delete `knowledge_graph/core/worker_scheduler.py`
 - [ ] **AU-SEMANTIC-R011.6:** Delete `knowledge_graph/core/chunked_drain.py`
 - [ ] **AU-SEMANTIC-R011.7:** Delete `knowledge_graph/core/ingest_routing.py`
@@ -84,7 +83,6 @@ The task owner records a separate verdict per ID even when multiple IDs share a 
 - [ ] **AU-SEMANTIC-R019.2:** Delete `observability/trace_ontology.py`
 - [ ] **AU-SEMANTIC-R019.3:** Delete `observability/self_ingest.py`
 - [ ] **AU-SEMANTIC-R019.3.1:** `__main__.py` installs self-ingest logging through the EG-served client
-- [ ] **AU-SEMANTIC-R019.3.2:** `gateway/daemon.py` installs self-ingest logging through the EG-served client
 - [ ] **AU-SEMANTIC-R019.3.3:** `orchestration/engine.py` exports run traces through the EG-served client
 - [ ] **AU-SEMANTIC-R019.3.4:** `observability/__init__.py` no longer re-exports the self-ingest sink API
 - [ ] **AU-SEMANTIC-R019.3.5:** `observability/self_ingest.py` is deleted
@@ -95,9 +93,6 @@ The task owner records a separate verdict per ID even when multiple IDs share a 
 - [ ] **AU-SEMANTIC-R019.6.2:** The `placement_control` stage is removed from the loop controller
 - [x] **AU-SEMANTIC-R019.6.2.1:** The `placement_control` stage is removed from the loop controller
 - [ ] **AU-SEMANTIC-R019.6.2.2:** The `placement_control_loop_enabled` setting is removed from config
-- [ ] **AU-SEMANTIC-R019.6.3:** The `graph_loops` `placement_control` action is removed
-- [ ] **AU-SEMANTIC-R019.6.3.1:** The `placement_control` action and its parameters are removed from `graph_loops`
-- [ ] **AU-SEMANTIC-R019.6.3.2:** The generated manifests are regenerated without `placement_control`
 - [ ] **AU-SEMANTIC-R019.6.4:** `knowledge_graph/research/placement_mining.py` is deleted
 - [ ] **AU-SEMANTIC-R009.2.1:** `resolve_runnable_skill_derivation_client()` wires the real call when EG's op is present
 - [x] **AU-SEMANTIC-R009.2.2:** The local engine-facade modules are deleted once callers consume the wired client

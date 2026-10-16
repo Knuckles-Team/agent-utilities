@@ -97,7 +97,7 @@ WebUI presents the browser experience.
 | Understand control-plane internals | [Architecture](architecture/index.md) |
 | Configure a deployment | [Deployment configurations](guides/deployment-configurations.md) |
 | Operate and observe the runtime | [Observability and usage](guides/observability-usage-tracking.md) |
-| Browse generated Python APIs | [API reference](reference/api.md) |
+| Browse generated Python APIs | API reference |
 | Check what ships in this release | [Status](status.md) |
 
 !!! tip "Using the whole ecosystem?"

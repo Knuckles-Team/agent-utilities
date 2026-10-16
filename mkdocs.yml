@@ -57,7 +57,6 @@ nav:
       - Improvement lifecycle: architecture/self-evolution-flywheel.md
       - External connectors: architecture/universal-external-graph-connectors.md
   - Reference:
-      - API: reference/api.md
       - Runtime configuration: reference/runtime-configuration.md
       - Metrics: reference/metrics.md
       - Glossary: glossary.md

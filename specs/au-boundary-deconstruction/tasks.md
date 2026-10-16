@@ -4,7 +4,7 @@
 
 | Task | IDs | State | Done when |
 |---|---|---|---|
-| Served shell and caller cut | AU-BOUNDARY-R001, AU-BOUNDARY-R002, AU-BOUNDARY-R003, AU-BOUNDARY-R004, AU-BOUNDARY-R013, AU-BOUNDARY-R014, AU-BOUNDARY-R015, AU-BOUNDARY-R016, AU-BOUNDARY-R017, AU-BOUNDARY-R039 | TODO | graph-os parity plus AU deletion and script/import census |
+| Served shell and caller cut | AU-BOUNDARY-R002, AU-BOUNDARY-R014, AU-BOUNDARY-R015, AU-BOUNDARY-R016, AU-BOUNDARY-R017 | TODO | graph-os parity plus AU deletion and script/import census |
 | Connector and source cut | AU-BOUNDARY-R005, AU-BOUNDARY-R006, AU-BOUNDARY-R007, AU-BOUNDARY-R008, AU-BOUNDARY-R009, AU-BOUNDARY-R010, AU-BOUNDARY-R011, AU-BOUNDARY-R024, AU-BOUNDARY-R025, AU-BOUNDARY-R026 | TODO | SDK transport/pack certification plus all AU caller deletions |
 | Graph, schema, retrieval, memory cut | AU-BOUNDARY-R012, AU-BOUNDARY-R018, AU-BOUNDARY-R019, AU-BOUNDARY-R020, AU-BOUNDARY-R021, AU-BOUNDARY-R022, AU-BOUNDARY-R023, AU-BOUNDARY-R027, AU-BOUNDARY-R028, AU-BOUNDARY-R029, AU-BOUNDARY-R030, AU-BOUNDARY-R031, AU-BOUNDARY-R032, AU-BOUNDARY-R033, AU-BOUNDARY-R034, AU-BOUNDARY-R035, AU-BOUNDARY-R040 | TODO | generated EG method parity, trusted migration and AU adapter-only shape |
 | AU-BOUNDARY-R028 split by code root (EG-REPO-INGEST-R003) | AU-BOUNDARY-R028.1, AU-BOUNDARY-R028.2, AU-BOUNDARY-R028.3, AU-BOUNDARY-R028.4, AU-BOUNDARY-R028.5, AU-BOUNDARY-R028.6, AU-BOUNDARY-R028.7, AU-BOUNDARY-R028.8 | TODO | each child's own files deleted (or reported blocked pending an EG client) and the import census passes |
@@ -37,7 +37,6 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [x] **AU-BOUNDARY-R028.8.1:** Pin the kg/research/placement_mining production-importer set.
 - [x] **AU-BOUNDARY-R036.1:** Typed inventory of usage-store paths pending move to EG
 - [x] **AU-BOUNDARY-R037.1:** Typed inventory of governance modules pending move to repository-manager
-- [x] **AU-BOUNDARY-R039.1:** Typed inventory of AU's public front-end import surface
 - [x] **AU-BOUNDARY-R040.1:** Typed inventory of memory/learning-engine paths pending move to EG
 - [x] **AU-BOUNDARY-R044.1:** Typed inventory of orchestration paths pending move to graph-os
 - [x] **AU-BOUNDARY-R045.1:** Typed inventory of unplaced knowledge_graph packages pending move
@@ -59,7 +58,6 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R048.4:** Relocate `domains/law/` to its epistemic-graph domain pack and delete from AU
 - [ ] **AU-BOUNDARY-R048.5:** Relocate `domains/medical/` to its epistemic-graph domain pack and delete from AU
 - [ ] **AU-BOUNDARY-R048.6:** Relocate `models/domains/` to its epistemic-graph domain pack and delete from AU
-- [ ] **AU-BOUNDARY-R048.7:** Move `mcp/tools/analysis_tools.py` (HR workforce MCP tool) to graph-os and delete from AU
 - [ ] **AU-BOUNDARY-R048.8:** Assign and act on one disposition for `ontology/shapes/`
 - [ ] **AU-BOUNDARY-R048.9:** Assign and act on one disposition for `data/`
 - [ ] **AU-BOUNDARY-R048.10:** Assign and act on one disposition for `protocols/voice_supply_chain/`
@@ -70,21 +68,6 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R007.2:** Migrate `keycloak-agent`, `langfuse-agent`, `leanix-agent`, `microsoft-agent`, `opensearch-mcp` off the banned AU imports the census missed.
 - [ ] **AU-BOUNDARY-R008.1:** P-S connector import census (PR #150, `79dc21bab`) that moved R008 to LANDED. `status.json`'s `landed_in` SHA is wrong (points at the unrelated `AU-HARNESS-R005.1` merge, not a P-S connector change).
 - [ ] **AU-BOUNDARY-R008.2:** Migrate `paperless-ngx-mcp`, `pulselink-mcp`, `repository-manager`, `rom-manager`, `systems-manager` off the banned AU imports the census missed.
-- [ ] **AU-BOUNDARY-R001.1:** Record that PR #23 (`aa5eba73e0f7`) shipped only boundary gate scripts, not the gateway deletion; `status.json`'s LANDED is wrong.
-- [ ] **AU-BOUNDARY-R001.2:** Delete `agent_utilities/gateway/api.py`.
-- [ ] **AU-BOUNDARY-R001.3:** Delete `agent_utilities/gateway/artifacts_api.py`.
-- [ ] **AU-BOUNDARY-R001.4:** Delete `agent_utilities/gateway/registry_api.py` (rollup of .4.1 to .4.3).
-- [ ] **AU-BOUNDARY-R001.4.1:** Stop mounting registry_api routes from graph_api.py.
-- [ ] **AU-BOUNDARY-R001.4.2:** ROLLUP: repoint the /api/tools catalog read in kg_server.py off registry_api (children .4.2.1 to .4.2.4).
-- [ ] **AU-BOUNDARY-R001.4.2.1:** Record the owner of the servers catalog read for GET /api/tools.
-- [ ] **AU-BOUNDARY-R001.4.2.2:** Add one typed servers-kind catalog reader that does not import registry_api.
-- [ ] **AU-BOUNDARY-R001.4.2.3:** Call the new reader from _read_catalog_kind_sync in kg_server.py.
-- [ ] **AU-BOUNDARY-R001.4.2.4:** Update test_collapse_tool_endpoints.py to patch the new reader.
-- [ ] **AU-BOUNDARY-R001.4.3:** Delete the registry_api module and its tests.
-- [ ] **AU-BOUNDARY-R001.5:** Delete `agent_utilities/gateway/registry.py`.
-- [ ] **AU-BOUNDARY-R001.6:** Delete `agent_utilities/gateway/schemas/graph_analyze.py`.
-- [ ] **AU-BOUNDARY-R001.7:** Delete `agent_utilities/gateway/widgets/genius_agent.py`.
-- [ ] **AU-BOUNDARY-R001.8:** Delete `agent_utilities/gateway/widgets/_optional_client.py`.
 - [ ] **AU-BOUNDARY-R002.1:** Record that PR #26 (`fca0c5ee42b3`) did not delete `backends.py`/`certification_oidc.py`; `status.json`'s LANDED is wrong.
 - [ ] **AU-BOUNDARY-R002.2:** Delete `agent_utilities/deployment/backends.py`.
 - [ ] **AU-BOUNDARY-R002.3:** ROLLUP: delete `agent_utilities/deployment/certification_oidc.py` via children R002.3.1 to R002.3.5.
@@ -93,46 +76,6 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R002.3.3:** Delete `scripts/certification/loopback_oidc.py` and `tests/unit/scripts/test_loopback_oidc.py`.
 - [ ] **AU-BOUNDARY-R002.3.4:** Remove `certification_oidc.py` from the egress-boundary and release-wheel script path lists.
 - [ ] **AU-BOUNDARY-R002.3.5:** Delete `agent_utilities/deployment/certification_oidc.py`.
-- [ ] **AU-BOUNDARY-R003.1:** Record that commit `2456745c1e4d` shipped only gate scripts, not the MCP host deletion; `status.json`'s LANDED is wrong.
-- [ ] **AU-BOUNDARY-R003.2:** Delete `agent_utilities/mcp/kg_server.py`.
-- [ ] **AU-BOUNDARY-R003.3:** Delete `agent_utilities/mcp/_graphos_action_manifest.py`.
-- [ ] **AU-BOUNDARY-R003.4:** Remove `_ingest_capabilities` from `agent_utilities/sdd/watcher.py`.
-- [ ] **AU-BOUNDARY-R003.2:** RETIRED: superseded by AU-BOUNDARY-R003.5...AU-BOUNDARY-R003.29.
-- [ ] **AU-BOUNDARY-R003.5:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.6:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.7:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.8:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.9:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.10:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.11:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.12:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.13:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.14:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.15:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.16:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.17:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.18:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.19:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.20:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.21:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.22:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.23:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.24:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.25:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.26:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.27:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.28:** see requirements.md.
-- [ ] **AU-BOUNDARY-R003.29:** see requirements.md.
-- [ ] **AU-BOUNDARY-R004.1:** Record that commit `2456745c1e4d` shipped only gate scripts, not the multiplexer deletion; `status.json`'s LANDED is wrong.
-- [ ] **AU-BOUNDARY-R004.2:** RETIRED: superseded by AU-BOUNDARY-R004.3...AU-BOUNDARY-R004.10.
-- [ ] **AU-BOUNDARY-R004.3:** see requirements.md.
-- [ ] **AU-BOUNDARY-R004.4:** see requirements.md.
-- [ ] **AU-BOUNDARY-R004.5:** see requirements.md.
-- [ ] **AU-BOUNDARY-R004.6:** see requirements.md.
-- [ ] **AU-BOUNDARY-R004.7:** see requirements.md.
-- [ ] **AU-BOUNDARY-R004.8:** see requirements.md.
-- [ ] **AU-BOUNDARY-R004.9:** see requirements.md.
-- [ ] **AU-BOUNDARY-R004.10:** see requirements.md.
 - [ ] **AU-BOUNDARY-R010.1:** Record that `status.json`'s `landed_in` (`2456745c1e4d`) did not delete the connector toolkit; LANDED is wrong.
 - [ ] **AU-BOUNDARY-R010.2:** RETIRED: superseded by AU-BOUNDARY-R010.3...AU-BOUNDARY-R010.25.
 - [ ] **AU-BOUNDARY-R010.3:** see requirements.md.
@@ -148,14 +91,12 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R010.13:** see requirements.md.
 - [ ] **AU-BOUNDARY-R010.14:** see requirements.md.
 - [ ] **AU-BOUNDARY-R010.15:** see requirements.md.
-- [ ] **AU-BOUNDARY-R010.16:** see requirements.md.
 - [ ] **AU-BOUNDARY-R010.17:** see requirements.md.
 - [ ] **AU-BOUNDARY-R010.18:** see requirements.md.
 - [ ] **AU-BOUNDARY-R010.19:** see requirements.md.
 - [ ] **AU-BOUNDARY-R010.20:** see requirements.md.
 - [ ] **AU-BOUNDARY-R010.21:** see requirements.md.
 - [ ] **AU-BOUNDARY-R010.22:** see requirements.md.
-- [ ] **AU-BOUNDARY-R010.23:** see requirements.md.
 - [ ] **AU-BOUNDARY-R010.24:** see requirements.md.
 - [ ] **AU-BOUNDARY-R010.25:** see requirements.md.
 

@@ -21,7 +21,6 @@ Mark `LANDED` by default-branch commit and `ACCEPTED` only when exact-run eviden
 - [ ] **AU-QUAL-R009:** Deliver the rollup row by delivering its six children.
 - [ ] **AU-QUAL-R009.1:** Separate execution status from the unchanged optional engine verdict; proved by `tests/unit/harness/test_red_team_evidence.py::test_probe_result_verdict_fields`.
 - [ ] **AU-QUAL-R009.2:** Deliver the behavior row; proved by `tests/unit/harness/test_red_team_evidence.py::test_no_scorer_abstains`.
-- [ ] **AU-QUAL-R009.3:** Deliver the wiring row; proved by `tests/unit/harness/test_red_team_evidence.py::test_assess_writes_trace_evidence`.
 - [ ] **AU-QUAL-R009.4:** Deliver the refusal row; proved by `tests/unit/harness/test_red_team_evidence.py::test_all_abstained_is_not_pass`.
 - [ ] **AU-QUAL-R009.5:** Deliver the evidence row; proved by `tests/unit/harness/test_red_team_evidence.py::test_evidence_reproduces`.
 - [ ] **AU-QUAL-R009.6:** Deliver the hot-path proof row; proved by `tests/integration/test_red_team_assess_served.py::test_served_assess_records_evidence`.

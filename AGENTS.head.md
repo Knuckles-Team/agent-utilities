@@ -22,8 +22,10 @@ Adjacent repositories remain authoritative for their own layers:
 | `agent-connector-sdk` | Source transport, pagination, credentials, conflict handling, and write-back effects |
 | `agent-webui` | Browser client for GraphOS contracts |
 
-Do not implement a second graph engine, ontology authority, public gateway, or
-connector transport here; coordinate those capabilities through typed contracts.
+Agent Utilities is the agent harness only. Do not implement a second graph engine,
+storage, query or retrieval choice, ontology authority, MCP/REST/A2A server, public
+gateway, or connector contract here. Coordinate those capabilities through typed
+contracts.
 
 ### Delegate through the graph
 
@@ -55,7 +57,7 @@ policy.
 | `agent_utilities/security/` | Identity, authorization, action policy, secret interfaces, and sandboxes |
 | `agent_utilities/observability/` | Metrics, traces, audit events, and usage accounting |
 | `agent_utilities/knowledge_graph/` | Control-plane clients and projections over epistemic-graph contracts |
-| `agent_utilities/mcp/`, `agent_utilities/gateway/` | Package integration adapters consumed by the GraphOS composition layer |
+| `agent_utilities/graphos_client/` | Client boundary to the operations that Graph OS serves |
 | `agent_utilities/skills/` | Bundled development, deployment, graph, and evolution workflows |
 | `deploy/` | Deployment inputs consumed by GraphOS and platform automation |
 | `docs/` | GitHub Pages source and generated reference material |

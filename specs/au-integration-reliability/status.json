@@ -26,7 +26,6 @@
     "AU-INTEGRATION-R018.1",
     "AU-INTEGRATION-R019",
     "AU-INTEGRATION-R020",
-    "AU-INTEGRATION-R021",
     "AU-INTEGRATION-R022",
     "AU-INTEGRATION-R023"
   ],
@@ -258,16 +257,6 @@
         "tests/unit/messaging/test_run_envelope_unwrap.py:36",
         "tests/unit/messaging/test_run_envelope_unwrap.py:43"
       ]
-    },
-    {
-      "id": "AU-INTEGRATION-R021",
-      "title": "An aggregate ask answers with its own rows, never a silent empty answer",
-      "delivery_state": "LANDED",
-      "landed_in": [
-        "00220bc40313",
-        "671acde661a3"
-      ],
-      "verified_by": []
     },
     {
       "id": "AU-INTEGRATION-R022",
