@@ -327,6 +327,7 @@ def _resolve_engine_binary_selection() -> tuple[
     # `epistemic-graph-server` distribution (the engine's `[server]` extra);
     # older engines recorded it inside `epistemic-graph` itself.
     distribution = None
+    distribution_name = _DISTRIBUTION_NAME
     records: list[Any] = []
     for name in (_SERVER_DISTRIBUTION_NAME, _DISTRIBUTION_NAME):
         try:
@@ -339,23 +340,23 @@ def _resolve_engine_binary_selection() -> tuple[
             if Path(record).name == _BINARY_NAME
         ]
         if found:
-            distribution, records = candidate, found
+            distribution, distribution_name, records = candidate, name, found
             break
     if distribution is None:
         raise EngineUnavailable(
-            "neither epistemic-graph-server nor epistemic-graph records the "
-            f"{_BINARY_NAME} script"
+            "no installed epistemic-graph-server or epistemic-graph distribution "
+            f"records the {_BINARY_NAME} script"
         )
     if len(records) != 1:
         raise EngineUnavailable(
-            f"active {distribution.metadata['Name']} distribution does not record "
+            f"active {distribution_name} distribution does not record "
             f"exactly one {_BINARY_NAME} script"
         )
     record = records[0]
     return (
         _validate_engine_binary(
             Path(distribution.locate_file(record)),
-            source=f"active {distribution.metadata['Name']} distribution",
+            source=f"active {distribution_name} distribution",
         ),
         "distribution",
         distribution,
