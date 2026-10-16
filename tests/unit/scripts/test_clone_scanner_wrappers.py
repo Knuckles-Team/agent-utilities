@@ -731,6 +731,9 @@ def test_absent_scanner_skips_locally_and_cannot_run_in_ci(
     module = _load_script(script)
     monkeypatch.setattr(module, "_setting", lambda name, default: "")
     monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
+    # A CI image may install the scanner under /usr/local/bin; the lookup's
+    # system directory must be as empty as $PATH and $HOME for "absent".
+    monkeypatch.setattr(sys.modules["_gate_skip"], "SYSTEM_BIN", tmp_path)
     monkeypatch.setenv("PATH", str(tmp_path))
     if under_ci:
         monkeypatch.setenv("CI", "true")

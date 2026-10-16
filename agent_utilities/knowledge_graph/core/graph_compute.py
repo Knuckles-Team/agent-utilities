@@ -5082,7 +5082,10 @@ class GraphComputeEngine:
 
         composed_digest = report.composed_digest
         schema_digests = list(report.schema_digests)
-        if not composed_digest or schema_digests != [composed_digest]:
+        # ``schema_digests`` names the GraphSchema source set that was composed;
+        # ``composed_digest`` identifies the composition itself, so the two only
+        # coincide for a single-source schema. Both must be present.
+        if not composed_digest or not schema_digests:
             raise RuntimeError(
                 "SHACL validation was not bound to one committed GraphSchema snapshot"
             )
