@@ -135,7 +135,13 @@ def _ensure_canonical_graph_routes(app: Any) -> None:
     here when the factory left it out; a factory that already mounted it
     (any ``/api/ontology`` route present) is left untouched.
     """
-    from agent_utilities.gateway.graph_api import register_graph_routes
+    try:
+        from agent_utilities.gateway.graph_api import register_graph_routes
+    except ImportError as exc:
+        raise RuntimeError(
+            "canonical KG REST surface (agent_utilities.gateway.graph_api) "
+            "failed to import"
+        ) from exc
 
     if any(
         getattr(route, "path", "").startswith("/api/ontology") for route in app.routes
