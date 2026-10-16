@@ -64,6 +64,7 @@ dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
     { name = "httpx2" },
+    { name = "mcp" },
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
@@ -73,9 +74,10 @@ requires-dist = [
     { name = "anyio", specifier = ">=4.13.0" },
     { name = "cryptography", specifier = ">=50.0.1" },
     { name = "epistemic-graph", specifier = ">=2.27.0,<3" },
-    { name = "fastmcp", specifier = ">=4.0.3,<5" },
+    { name = "fastmcp", specifier = ">=4.0.11,<5" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "httpx2", specifier = ">=2.12.0" },
+    { name = "mcp", specifier = ">=2.3.0,<3" },
     { name = "pydantic", specifier = ">=2.13.4,<3" },
     { name = "pyyaml", specifier = ">=6.0.3" },
 ]
@@ -86,6 +88,10 @@ test = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "pytest-timeout", specifier = ">=2.4.0" },
+]
+typecheck = [
+    { name = "mypy", specifier = "==1.20.2" },
+    { name = "types-pyyaml", specifier = "==6.0.12.20260518" },
 ]
 
 [[package]]
@@ -212,7 +218,6 @@ all = [
     { name = "hvac" },
     { name = "hypothesis" },
     { name = "irc" },
-    { name = "ladybug" },
     { name = "langfuse" },
     { name = "line-bot-sdk" },
     { name = "logfire", extra = ["httpx"] },
@@ -284,9 +289,6 @@ dynamic-workflow = [
 event-kafka = [
     { name = "confluent-kafka" },
 ]
-falkordb = [
-    { name = "falkordb" },
-]
 feeds = [
     { name = "feedparser" },
 ]
@@ -345,9 +347,6 @@ gateway-widgets = [
     { name = "twenty-mcp" },
     { name = "uptime-kuma-agent" },
     { name = "wger-agent" },
-]
-graph = [
-    { name = "ladybug" },
 ]
 ingest-dedup = [
     { name = "inflect" },
@@ -441,9 +440,6 @@ metrics = [
 nats = [
     { name = "nats-py" },
 ]
-neo4j = [
-    { name = "neo4j" },
-]
 opensearch = [
     { name = "opensearch-py" },
 ]
@@ -474,7 +470,6 @@ serving = [
     { name = "documentdb-mcp" },
     { name = "erpnext-agent" },
     { name = "eunomia-core" },
-    { name = "falkordb" },
     { name = "fasta2a", extra = ["pydantic-ai"] },
     { name = "fastapi" },
     { name = "fastmcp" },
@@ -495,7 +490,6 @@ serving = [
     { name = "mealie-mcp" },
     { name = "media-downloader" },
     { name = "microsoft-agent" },
-    { name = "neo4j" },
     { name = "nextcloud-agent" },
     { name = "openbao-mcp" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
@@ -547,7 +541,6 @@ test = [
     { name = "hmmlearn" },
     { name = "httpx" },
     { name = "hypothesis" },
-    { name = "ladybug" },
     { name = "mutmut" },
     { name = "mypy" },
     { name = "nest-asyncio" },
@@ -591,7 +584,6 @@ test-backends = [
     { name = "aiokafka" },
     { name = "confluent-kafka" },
     { name = "eunomia-core" },
-    { name = "falkordb" },
     { name = "fasta2a", extra = ["pydantic-ai"] },
     { name = "fastapi" },
     { name = "fastmcp" },
@@ -599,10 +591,8 @@ test-backends = [
     { name = "hmmlearn" },
     { name = "httpx" },
     { name = "hypothesis" },
-    { name = "ladybug" },
     { name = "mutmut" },
     { name = "mypy" },
-    { name = "neo4j" },
     { name = "nest-asyncio" },
     { name = "networkx" },
     { name = "opentelemetry-instrumentation-asgi" },
@@ -666,15 +656,15 @@ guardrails = [
 requires-dist = [
     { name = "agent-connector-sdk", editable = ".uv-workspace-siblings/agent-connector-sdk" },
     { name = "agent-terminal-ui", marker = "extra == 'terminal'", specifier = ">=1.0.0" },
-    { name = "agent-utilities", extras = ["acp", "agent-anthropic", "agent-google", "agent-groq", "agent-huggingface", "agent-mistral", "agent-runtime", "ann", "auth", "browser", "documents", "embeddings-huggingface", "embeddings-ollama", "embeddings-openai", "feeds", "finance", "graph", "langfuse", "logfire", "mcp", "messaging", "pyarrow", "rdf", "sandbox", "stardog", "test", "vault"], marker = "extra == 'all'", specifier = ">=1.0.0" },
-    { name = "agent-utilities", extras = ["acp", "agent-anthropic", "agent-google", "agent-groq", "agent-huggingface", "agent-mistral", "agent-runtime", "event-kafka", "feeds", "finance", "graph", "pyarrow", "rdf", "sandbox", "trino"], marker = "extra == 'test'" },
+    { name = "agent-utilities", extras = ["acp", "agent-anthropic", "agent-google", "agent-groq", "agent-huggingface", "agent-mistral", "agent-runtime", "ann", "auth", "browser", "documents", "embeddings-huggingface", "embeddings-ollama", "embeddings-openai", "feeds", "finance", "langfuse", "logfire", "mcp", "messaging", "pyarrow", "rdf", "sandbox", "stardog", "test", "vault"], marker = "extra == 'all'", specifier = ">=1.0.0" },
+    { name = "agent-utilities", extras = ["acp", "agent-anthropic", "agent-google", "agent-groq", "agent-huggingface", "agent-mistral", "agent-runtime", "event-kafka", "feeds", "finance", "pyarrow", "rdf", "sandbox", "trino"], marker = "extra == 'test'" },
     { name = "agent-utilities", extras = ["ag-ui", "mcp", "sandbox", "terminal"], marker = "extra == 'agent-runtime'", specifier = ">=1.0.0" },
-    { name = "agent-utilities", extras = ["agent-headless", "auth", "embeddings-openai", "falkordb", "feeds", "gateway-widgets", "langfuse", "logfire", "mcp", "messaging-mattermost", "messaging-telegram", "metrics", "neo4j", "otel", "rdf", "vault"], marker = "extra == 'serving'" },
+    { name = "agent-utilities", extras = ["agent-headless", "auth", "embeddings-openai", "feeds", "gateway-widgets", "langfuse", "logfire", "mcp", "messaging-mattermost", "messaging-telegram", "metrics", "otel", "rdf", "vault"], marker = "extra == 'serving'" },
     { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-huggingface'", specifier = ">=1.0.0" },
     { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", specifier = ">=1.0.0" },
     { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-openai'", specifier = ">=1.0.0" },
-    { name = "agent-utilities", extras = ["falkordb", "fuseki", "kafka", "neo4j", "postgresql", "rdf", "test"], marker = "extra == 'test-backends'" },
     { name = "agent-utilities", extras = ["finance"], marker = "extra == 'finance-kronos'" },
+    { name = "agent-utilities", extras = ["fuseki", "kafka", "postgresql", "rdf", "test"], marker = "extra == 'test-backends'" },
     { name = "agent-utilities", extras = ["mcp", "sandbox"], marker = "extra == 'agent-headless'", specifier = ">=1.0.0" },
     { name = "agent-utilities", extras = ["messaging-discord", "messaging-googlechat", "messaging-googlemeet", "messaging-irc", "messaging-line", "messaging-matrix", "messaging-mattermost", "messaging-nextcloud", "messaging-signal", "messaging-slack", "messaging-synology", "messaging-teams", "messaging-telegram", "messaging-twitch", "messaging-voicecall", "messaging-whatsapp"], marker = "extra == 'messaging'" },
     { name = "agent-utilities", extras = ["rdf"], marker = "extra == 'stardog'" },
@@ -697,7 +687,6 @@ requires-dist = [
     { name = "epistemic-graph", extras = ["full"], editable = ".uv-workspace-siblings/epistemic-graph" },
     { name = "erpnext-agent", marker = "extra == 'gateway-widgets'", specifier = ">=1.0.1" },
     { name = "eunomia-core", marker = "extra == 'mcp'", specifier = ">=0.3.10" },
-    { name = "falkordb", marker = "extra == 'falkordb'", specifier = ">=1.6.2" },
     { name = "fasta2a", extras = ["pydantic-ai"], marker = "extra == 'agent-headless'", specifier = ">=0.6.1,<1.0.0" },
     { name = "fasta2a", extras = ["pydantic-ai"], marker = "extra == 'agent-runtime'", specifier = ">=0.6.1,<1.0.0" },
     { name = "fastapi", marker = "extra == 'mcp'", specifier = ">=0.139.2" },
@@ -730,7 +719,6 @@ requires-dist = [
     { name = "joserfc", specifier = ">=1.7.4" },
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "keycloak-agent", marker = "extra == 'gateway-widgets'", specifier = ">=1.0.1" },
-    { name = "ladybug", marker = "extra == 'graph'", specifier = ">=0.18.2" },
     { name = "langfuse", marker = "extra == 'langfuse'", specifier = ">=4.14.1,<5" },
     { name = "langfuse-agent", marker = "extra == 'gateway-widgets'", specifier = ">=1.0.1" },
     { name = "line-bot-sdk", marker = "extra == 'messaging-line'", specifier = ">=3.25.0" },
@@ -746,7 +734,6 @@ requires-dist = [
     { name = "mutmut", marker = "extra == 'test'", specifier = ">=3.6.0" },
     { name = "mypy", marker = "extra == 'test'", specifier = ">=2.3.0" },
     { name = "nats-py", marker = "extra == 'nats'", specifier = ">=2.15.0" },
-    { name = "neo4j", marker = "extra == 'neo4j'", specifier = ">=6.2.0" },
     { name = "neonize", marker = "extra == 'messaging-whatsapp'", specifier = ">=0.4.3.post0" },
     { name = "nest-asyncio", marker = "extra == 'test'", specifier = ">=1.6.0" },
     { name = "networkx", marker = "extra == 'test'", specifier = ">=3.6.1" },
@@ -840,7 +827,7 @@ requires-dist = [
     { name = "wger-agent", marker = "extra == 'gateway-widgets'", specifier = ">=1.0.1" },
     { name = "yfinance", marker = "extra == 'finance'", specifier = ">=1.5.1" },
 ]
-provides-extras = ["graphos", "sandbox", "feeds", "kafka", "opensearch", "metrics", "otel", "nats", "pyarrow", "data-quality-ge", "data-quality-pandera", "mcp", "agent-runtime", "agent-headless", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "dynamic-workflow", "ag-ui", "terminal", "browser", "computer-use", "gateway-widgets", "acp", "documents", "embeddings", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "langfuse", "graph", "ann", "neo4j", "falkordb", "rdf", "stardog", "fuseki", "event-kafka", "ingest-dedup", "vault", "auth", "serving", "finance", "finance-kronos", "hr", "medical", "science", "law", "government", "postgresql", "trino", "messaging-discord", "messaging-slack", "messaging-telegram", "messaging-whatsapp", "messaging-teams", "messaging-googlechat", "messaging-googlemeet", "messaging-mattermost", "messaging-matrix", "messaging-irc", "messaging-signal", "messaging-imessage", "messaging-line", "messaging-twitch", "messaging-synology", "messaging-voicecall", "messaging-nextcloud", "messaging", "test", "test-backends", "all"]
+provides-extras = ["graphos", "sandbox", "feeds", "kafka", "opensearch", "metrics", "otel", "nats", "pyarrow", "data-quality-ge", "data-quality-pandera", "mcp", "agent-runtime", "agent-headless", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "dynamic-workflow", "ag-ui", "terminal", "browser", "computer-use", "gateway-widgets", "acp", "documents", "embeddings", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "langfuse", "ann", "rdf", "stardog", "fuseki", "event-kafka", "ingest-dedup", "vault", "auth", "serving", "finance", "finance-kronos", "hr", "medical", "science", "law", "government", "postgresql", "trino", "messaging-discord", "messaging-slack", "messaging-telegram", "messaging-whatsapp", "messaging-teams", "messaging-googlechat", "messaging-googlemeet", "messaging-mattermost", "messaging-matrix", "messaging-irc", "messaging-signal", "messaging-imessage", "messaging-line", "messaging-twitch", "messaging-synology", "messaging-voicecall", "messaging-nextcloud", "messaging", "test", "test-backends", "all"]
 
 [package.metadata.requires-dev]
 build = [
@@ -2209,6 +2196,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "epistemic-graph-server", marker = "extra == 'server'", specifier = "==2.27.1" },
     { name = "httpx", specifier = ">=0.24.0" },
     { name = "httpx", marker = "extra == 'lmcache'", specifier = ">=0.24.0" },
     { name = "maturin", marker = "extra == 'test'", specifier = ">=1.0,<2.0" },
@@ -2294,19 +2282,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/cc/28/c14e053b6762b1044f34a13aab6859bbf40456d37d23aa286ac24cfd9a5d/executing-2.2.1.tar.gz", hash = "sha256:3632cc370565f6648cc328b32435bd120a1e4ebb20c77e3fdde9a13cd1e533c4", size = 1129488, upload-time = "2025-09-01T09:48:10.866Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c1/ea/53f2148663b321f21b5a606bd5f191517cf40b7072c0497d3c92c4a13b1e/executing-2.2.1-py2.py3-none-any.whl", hash = "sha256:760643d3452b4d777d295bb167ccc74c64a81df23fb5e08eff250c425a4b2017", size = 28317, upload-time = "2025-09-01T09:48:08.5Z" },
-]
-
-[[package]]
-name = "falkordb"
-version = "1.7.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "python-dateutil" },
-    { name = "redis" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/98/d3/799a947869d9b8dd4cfcc6dc9654869874b1130375a78033b5a92362dc67/falkordb-1.7.1.tar.gz", hash = "sha256:09dd89dfb668c6fe7741c0ec67fcdb5c7a4b009e87f065a644199170f4fa5766", size = 121375, upload-time = "2026-08-13T13:17:39.652Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/bf/43/41967fad8b625e2b319e03a1c8897535dd1e05723a051342422b48b870da/falkordb-1.7.1-py3-none-any.whl", hash = "sha256:0e62d535edd5abf7b6d35e2493fba71118734313436ff803fcd5d1b20e9e2194", size = 38283, upload-time = "2026-08-13T13:17:38.257Z" },
 ]
 
 [[package]]
@@ -3600,38 +3575,6 @@ wheels = [
 ]
 
 [[package]]
-name = "ladybug"
-version = "0.21.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/f0/d4/8729df38bd6970d4d1db22a01675ad7a7d08beaf77fe8e2000a1055524e4/ladybug-0.21.2.tar.gz", hash = "sha256:ad36aeea40044fa93f2c2c9c23b23f449b5af46d178158143f7f02660b8045a5", size = 10550956, upload-time = "2026-10-01T22:27:23.454Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/80/9f/c81b93d47c590a1d74f8abc71d607c801d2998c5861130cc51000237476a/ladybug-0.21.2-cp312-cp312-macosx_15_0_arm64.whl", hash = "sha256:d887a9b89324d2ed7810575c61cfa581be66ed2bc99b2217b13de5d26facf3ad", size = 5521991, upload-time = "2026-10-01T22:26:28.926Z" },
-    { url = "https://files.pythonhosted.org/packages/88/82/e563ff090688573942314a6b72389a363ea6fedcfb8d56722c02d9ae2ab3/ladybug-0.21.2-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:610ef08275650655af261f5afac97252c5ab48836503e122fe605c4814e2f293", size = 5803826, upload-time = "2026-10-01T22:26:30.81Z" },
-    { url = "https://files.pythonhosted.org/packages/27/1d/13209ea4771acb5630a801629a898d67d7bcfc56eaad56dfd74924d4fb84/ladybug-0.21.2-cp312-cp312-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:2c08f2afc45e033e77a9b9526f7eceadad4a309bb471f893d07c53e1e9a22dfc", size = 8771919, upload-time = "2026-10-01T22:26:33.699Z" },
-    { url = "https://files.pythonhosted.org/packages/c1/c0/b664a0b2366da9465172109d475c11046c5b9b8f2ff3140a836a19b50416/ladybug-0.21.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5f41a7a926ccf1b13a97d60a7c843072715ed613527d8e5febf6f21bb18b6f13", size = 9721542, upload-time = "2026-10-01T22:26:36.18Z" },
-    { url = "https://files.pythonhosted.org/packages/85/73/64599cf0de33a724842d2102c2e612c15a4bac7fd1147fa0bdc3388a188f/ladybug-0.21.2-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:fb79fc00fda19e7a1104f7ba1effe26941244af2beceb74a96873ca01e6900cd", size = 9586526, upload-time = "2026-10-01T22:26:38.787Z" },
-    { url = "https://files.pythonhosted.org/packages/de/a4/6158079ce960219f59ee41bac177cfb2e0b911945b1c3418e915637fe4c0/ladybug-0.21.2-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:663091eaf821588fee6dab2ea0ed88c21633183ed6af631145d2f2cea953e29f", size = 10566186, upload-time = "2026-10-01T22:26:41.041Z" },
-    { url = "https://files.pythonhosted.org/packages/8b/63/c31adec5c65d0128ef01b5cee4d7d8b66b71778eacecd5d7bb4e2853dde0/ladybug-0.21.2-cp312-cp312-win_amd64.whl", hash = "sha256:03b83fa5145ebaaa6b36d9139e2cc86a9521374fb7a63794b3695d6c7b79f869", size = 5643280, upload-time = "2026-10-01T22:26:43.535Z" },
-    { url = "https://files.pythonhosted.org/packages/c2/95/f982b1d33777d8daffdbb5e8a42f359bd2d0ab052c743889257c25dc6dc5/ladybug-0.21.2-cp312-cp312-win_arm64.whl", hash = "sha256:1988a64dbd38aeb914edd59fd1a4431d7a25ca47bc197733728748724eae66b4", size = 8278069, upload-time = "2026-10-01T22:26:45.826Z" },
-    { url = "https://files.pythonhosted.org/packages/d6/7e/9bbe6886ea8c87ed2ae4e9e7ff99e04e7dec536a8fbb036be221715ad901/ladybug-0.21.2-cp313-cp313-macosx_15_0_arm64.whl", hash = "sha256:9e79ae83c32d639726965aadc02d8f533f980e1c4cd0888cae5bedfc134c0b61", size = 5522222, upload-time = "2026-10-01T22:26:47.947Z" },
-    { url = "https://files.pythonhosted.org/packages/b9/36/e86d361bab446c630a67d3fbfcc302b51bbc05816dfb83f61f37f304a58c/ladybug-0.21.2-cp313-cp313-macosx_15_0_x86_64.whl", hash = "sha256:6d50c848a5777f395ca51853bd2b4ea084b1bba3229b43c78bcfeae9810d2325", size = 5803846, upload-time = "2026-10-01T22:26:49.65Z" },
-    { url = "https://files.pythonhosted.org/packages/ec/7d/20f0c876adcfa219dc21677935f1ca7ae111be9d5c1063dfa63f44a15289/ladybug-0.21.2-cp313-cp313-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:5b9d4ac58bbe8082c6c6f40f53eef0e7e67d55e9da27f4358b462e72428aae30", size = 8772516, upload-time = "2026-10-01T22:26:51.919Z" },
-    { url = "https://files.pythonhosted.org/packages/9b/8b/ea463201bd499fd1ffbb69081092c979008ffb1a8c81a31ab9157797f8b1/ladybug-0.21.2-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7f22686e3032dda6b2642143ccab8fe4afb8a3baf98ce8708d2788a30095b9d8", size = 9721637, upload-time = "2026-10-01T22:26:54.332Z" },
-    { url = "https://files.pythonhosted.org/packages/ad/78/92f7a3d28f64928e1a31add22bfa9d7629631c3a5cf7b3690d403bd5f655/ladybug-0.21.2-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:d20ede8c0291f688f59b0ce76dbff1947dfe064e4b54da30713305cb259c0e62", size = 9586786, upload-time = "2026-10-01T22:26:56.765Z" },
-    { url = "https://files.pythonhosted.org/packages/1b/24/af34556b87a0b3c7f98b80408ac9767a0f72cb3b8c18f7d3c83d991eee55/ladybug-0.21.2-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:a04952e2cc00afe12ef1a9c0af2bb02bff80450163533151e0cdc3690cdf3893", size = 10566176, upload-time = "2026-10-01T22:26:59.174Z" },
-    { url = "https://files.pythonhosted.org/packages/4a/fd/dcd87bab8d3eb4b4cf854df7b7774bba4c7fe0399f0e199afbd9046d010d/ladybug-0.21.2-cp313-cp313-win_amd64.whl", hash = "sha256:8293fdd5f896a2f52ea76d9314140639eeca45d16e308b50f50b4c58165781bc", size = 5643285, upload-time = "2026-10-01T22:27:01.674Z" },
-    { url = "https://files.pythonhosted.org/packages/06/19/58601ebcb4085a56896e8a73507af41faeeb09a7fac5d74dc3dc48d3ea44/ladybug-0.21.2-cp313-cp313-win_arm64.whl", hash = "sha256:9ba1c363152202288825a43185887f5a7490806505d108195e23c3cef7dce378", size = 8278241, upload-time = "2026-10-01T22:27:03.905Z" },
-    { url = "https://files.pythonhosted.org/packages/d7/07/0325df4dd5922958f9022a496e1856c91bd866b0bc2d3e9c3dc33eed2646/ladybug-0.21.2-cp314-cp314-macosx_15_0_arm64.whl", hash = "sha256:79fe6cd17556a8d91b9e63b7f6de27662ee510e10d98db638a9a661615a9b0e6", size = 5522882, upload-time = "2026-10-01T22:27:05.842Z" },
-    { url = "https://files.pythonhosted.org/packages/0a/30/74297d05858cb2bb30e31f65f19c725e8e2ed002784fd2c61bb17e5c6e8f/ladybug-0.21.2-cp314-cp314-macosx_15_0_x86_64.whl", hash = "sha256:c0a0cb6ce0f8ffa2a407b0adbe83523421b37f061cf8205fa93fc9d70bb167b9", size = 5804187, upload-time = "2026-10-01T22:27:07.616Z" },
-    { url = "https://files.pythonhosted.org/packages/0c/65/8f76a48bdec5e453fbefdfa7235a3940ab651f931e57e1eb4fcc5d05caff/ladybug-0.21.2-cp314-cp314-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:140478a6ab9eb917669ba4eb27d6d073588724bb4cb9db4ecb12e22ee989bc84", size = 8772567, upload-time = "2026-10-01T22:27:09.673Z" },
-    { url = "https://files.pythonhosted.org/packages/0f/ec/3e1ff372a6ba89c9bb6437e780f083907549f422c8391fa3a8bc1bb48209/ladybug-0.21.2-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:ebb32c2e14922f7613063c2a915f8f61e11fc106c7382273e7573a83cb89f0a9", size = 9721423, upload-time = "2026-10-01T22:27:11.986Z" },
-    { url = "https://files.pythonhosted.org/packages/7c/f3/16af1468bf1245d28353667b503c18f8da01a7bd3a98b302be079d74259d/ladybug-0.21.2-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:7921c1160b96792e1190a6350b0e8e3eee093cb6a93c81d71cc63085194956f4", size = 9587368, upload-time = "2026-10-01T22:27:14.451Z" },
-    { url = "https://files.pythonhosted.org/packages/9e/31/54698f298d860c74efe0cc5b67f3b9f1b4793e3c968e32a5df197944e7bc/ladybug-0.21.2-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:8661bbd9ffaca773395c1730aaee76a3fbba93252048fb03fcabf7edb2a91e86", size = 10565987, upload-time = "2026-10-01T22:27:16.937Z" },
-    { url = "https://files.pythonhosted.org/packages/b9/f0/24274451b6ffef7ff27a9703075ea096f537adbdcd7602625a94d175717f/ladybug-0.21.2-cp314-cp314-win_amd64.whl", hash = "sha256:745034315a9b0b3236124e0154675c2c5a3c3bcf2d8c0cc224ef2bf6555b5020", size = 5643146, upload-time = "2026-10-01T22:27:19.313Z" },
-    { url = "https://files.pythonhosted.org/packages/df/d0/759dc69fb6b6926117b0d8a46dba3f79e65b36c018755de8bb20d1fb5e6c/ladybug-0.21.2-cp314-cp314-win_arm64.whl", hash = "sha256:f9964071aadf3171abcda8d0fbcdbad50caae25aab79820bd1df584f1dce6cf4", size = 8278898, upload-time = "2026-10-01T22:27:21.309Z" },
-]
-
-[[package]]
 name = "langfuse"
 version = "4.15.6"
 source = { registry = "https://pypi.org/simple" }
@@ -4687,18 +4630,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/2c/c8/739b72c9201081e48000884d476231873ac82f7247c43b33823eaf3c0bfb/nats_py-2.16.0.tar.gz", hash = "sha256:1d137ed7afc9b59033b3199324c6237df2016a5091935871344a787eba6b72fc", size = 79731, upload-time = "2026-09-16T07:47:21.843Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/48/a3/16cec37172144d3362d7551bb823a098b2b2903281fc095dfe4480b8c2fd/nats_py-2.16.0-py3-none-any.whl", hash = "sha256:aeb1ff123966c05833d26c7df7e1d54c1c6d32b612428b21677a2e921f1fecae", size = 93578, upload-time = "2026-09-16T07:47:20.799Z" },
-]
-
-[[package]]
-name = "neo4j"
-version = "6.4.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pytz" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/80/db/024bd576bde5d97436d0acb71b41cf928c036ed8fec95ea1122eb05e47d1/neo4j-6.4.0.tar.gz", hash = "sha256:056676698f080b5af5b24b0fc5abb485b8db1b95edf366d01dcfd63bcff9b71d", size = 287786, upload-time = "2026-10-05T15:37:45.216Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c9/5d/519aefe3b38a490924641e980a16ea6c70f6c96c08d84cf661d32c4a08c2/neo4j-6.4.0-py3-none-any.whl", hash = "sha256:fdd048ba827be138063b045cf59e40056fbf0405ac02dadc24f64e369fbd9d3d", size = 390611, upload-time = "2026-10-05T15:37:43.491Z" },
 ]
 
 [[package]]
@@ -6577,15 +6508,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/98/f5/18bb77b7af9526add0c727a3b2048959847dc5fb030913e2918bf384fec3/rdflib-7.6.0.tar.gz", hash = "sha256:6c831288d5e4a5a7ece85d0ccde9877d512a3d0f02d7c06455d00d6d0ea379df", size = 4943826, upload-time = "2026-02-13T07:15:55.938Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/10/c2/6604a71269e0c1bd75656d5a001432d16f2cc5b8c057140ec797155c295e/rdflib-7.6.0-py3-none-any.whl", hash = "sha256:30c0a3ebf4c0e09215f066be7246794b6492e054e782d7ac2a34c9f70a15e0dd", size = 615416, upload-time = "2026-02-13T07:15:46.487Z" },
-]
-
-[[package]]
-name = "redis"
-version = "8.1.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/a8/99/604f0b666d4c616d891cf77ebb9db6bb21601344c051aebf1b72b9ff915f/redis-8.1.0.tar.gz", hash = "sha256:6e1a19beef9225c83efd689c7e6b7da2d5215b1f42cd13b7fc3714d0a09c7b25", size = 5254356, upload-time = "2026-07-30T08:51:00.269Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/66/9d/c5731f6e3608663d4d3656fd8d3aecee8b509c3082818f5a13eae925baea/redis-8.1.0-py3-none-any.whl", hash = "sha256:a4fe1aac3d3b3cc791d4b3d5931c5a956045dc951ee74d1c913ee3ac4d2ee9fb", size = 560618, upload-time = "2026-07-30T08:50:58.497Z" },
 ]
 
 [[package]]
