@@ -335,79 +335,29 @@ jobs:
             --no-install-package langfuse-agent
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
-      # The engine wheel exceeds the PyPI size limit. epistemic-graph main CI
-      # publishes its Linux x86_64 wheel to the rolling `engine-main`
-      # prerelease (EG-CONTRACT-R047); install it so engine tests run. If the
-      # release is unavailable, fall back to the PyPI floor with a loud
-      # warning. If NEITHER resolves, or the installed package doesn't even
-      # import, this step now hard-fails the job (`::error::` + `exit 1`)
-      # instead of warning. AU #188 pinned a `gh` download here because the
-      # homelab runners lacked `gh` on PATH and the step silently fell
-      # through to a failing PyPI fallback, emitting only
-      # `::warning::...engine tests skip` -- which meant every
-      # engine-dependent test silently *skipped* on main instead of ever
-      # being exercised, with nothing in the job's red/green status to show
-      # it. A missing engine must fail the job loudly, not degrade into a
-      # quiet skip (see `tests/conftest.py`'s CI-vs-local skip/fail split for
-      # the matching enforcement on the pytest side).
+      # The engine and its server come from PyPI (both are published there since
+      # epistemic-graph 2.27.1; the server ships as `epistemic-graph-server`, the
+      # `[server]` extra). Test-environment only: agent-utilities itself depends
+      # on `epistemic-graph[full]`. A missing or non-importable engine, or a
+      # missing server executable, fails the job loudly -- engine-backed tests
+      # may not silently skip (AU #188).
       - &gates-install-engine-wheel
-        name: Install the epistemic-graph engine wheel (engine-main release)
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EG_ENGINE_RELEASE_TAG: engine-main
-          GH_CLI_VERSION: '2.102.0'
+        name: Install the epistemic-graph engine and server (PyPI)
         run: |
-          set -uo pipefail
-          dest="$RUNNER_TEMP/eg-wheel"
-          mkdir -p "$dest"
-          # The homelab self-hosted runner (same-repo push/PR traffic, see
-          # `runs-on` above) has no `gh` binary on PATH -- unlike the
-          # GitHub-hosted `ubuntu-latest` fallback used for fork PRs, which
-          # ships it preinstalled. That silently degraded every self-hosted
-          # run straight past this fast path to the PyPI fallback ("gh:
-          # command not found", exit non-zero -> `if` takes the `else`
-          # branch), and the PyPI floor is capped at epistemic-graph<=2.23.0
-          # (the engine wheel exceeds the PyPI size limit -- see the
-          # `engine-release-order` job above), so that fallback always failed
-          # too -- the exact "PyPI fallback failed; engine tests skip" signature.
-          # Install a pinned `gh` from its own GitHub Release (tarball +
-          # checksum verified against that release's own checksums file, no
-          # piped installer script) when it is missing, rather than assuming
-          # the runner image carries it.
-          if ! command -v gh >/dev/null 2>&1; then
-            gh_dir="$RUNNER_TEMP/gh-cli"
-            mkdir -p "$gh_dir"
-            tarball="gh_${GH_CLI_VERSION}_linux_amd64.tar.gz"
-            base_url="https://github.com/cli/cli/releases/download/v${GH_CLI_VERSION}"
-            if curl -fsSL "$base_url/$tarball" -o "$gh_dir/$tarball" \
-                 && curl -fsSL "$base_url/gh_${GH_CLI_VERSION}_checksums.txt" -o "$gh_dir/checksums.txt" \
-                 && (cd "$gh_dir" && sha256sum --check --ignore-missing checksums.txt) \
-                 && tar -xzf "$gh_dir/$tarball" -C "$gh_dir"; then
-              echo "$gh_dir/gh_${GH_CLI_VERSION}_linux_amd64/bin" >> "$GITHUB_PATH"
-              export PATH="$gh_dir/gh_${GH_CLI_VERSION}_linux_amd64/bin:$PATH"
-            else
-              echo "::warning title=gh CLI install failed::could not install gh ${GH_CLI_VERSION}; engine wheel fast path unavailable this run."
-            fi
+          set -euo pipefail
+          if ! uv pip install --python .venv/bin/python 'epistemic-graph[full,server]>=2.27.1,<3.0.0'; then
+            echo "::error title=Engine unavailable::epistemic-graph[full,server] did not install from PyPI. The engine is required -- engine-backed tests may not silently skip (AU #188)."
+            exit 1
           fi
-          if command -v gh >/dev/null 2>&1 && gh release download "$EG_ENGINE_RELEASE_TAG" -R Knuckles-Team/epistemic-graph \
-               -p 'epistemic_graph-*manylinux*x86_64.whl' -p SHA256SUMS -D "$dest" \
-             && (cd "$dest" && sha256sum --check --ignore-missing SHA256SUMS); then
-            source_sha="$(gh release view "$EG_ENGINE_RELEASE_TAG" -R Knuckles-Team/epistemic-graph --json targetCommitish --jq .targetCommitish)"
-            echo "Engine wheel from release $EG_ENGINE_RELEASE_TAG at epistemic-graph ${source_sha}"
-            echo "Engine wheel: release \`$EG_ENGINE_RELEASE_TAG\` at epistemic-graph \`${source_sha}\`" >> "$GITHUB_STEP_SUMMARY"
-            uv pip install --python .venv/bin/python "$dest"/epistemic_graph-*.whl
-          else
-            echo "::warning title=Engine wheel fallback::epistemic-graph release '$EG_ENGINE_RELEASE_TAG' is unavailable; falling back to the PyPI floor."
-            echo "WARNING: engine wheel fell back to PyPI" >> "$GITHUB_STEP_SUMMARY"
-            if ! uv pip install --python .venv/bin/python 'epistemic-graph>=2.27.0,<3.0.0'; then
-              echo "::error title=Engine unavailable::epistemic-graph release '$EG_ENGINE_RELEASE_TAG' AND the PyPI fallback both failed. The engine is required -- engine-backed tests may not silently skip (AU #188)."
-              exit 1
-            fi
-          fi
-          if ! .venv/bin/python -c "import epistemic_graph, importlib.metadata as m; print('epistemic-graph', m.version('epistemic-graph'))"; then
+          if ! .venv/bin/python -c "import epistemic_graph, importlib.metadata as m; print('epistemic-graph', m.version('epistemic-graph'), 'server', m.version('epistemic-graph-server'))"; then
             echo "::error title=Engine not importable::epistemic_graph installed but does not import. The engine is required -- engine-backed tests may not silently skip (AU #188)."
             exit 1
           fi
+          if [ ! -x .venv/bin/epistemic-graph-server ]; then
+            echo "::error title=Engine server missing::epistemic-graph-server is not installed in the test environment."
+            exit 1
+          fi
+          echo "Engine: $(.venv/bin/python -c "import importlib.metadata as m; print(m.version('epistemic-graph'))") from PyPI" >> "$GITHUB_STEP_SUMMARY"
 
       # ---- THE test suite. pytest.ini's testpaths covers the whole `tests/`
       # tree (gates, scale, unit, integration, security, retrieval, ...) in

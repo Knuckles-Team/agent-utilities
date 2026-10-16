@@ -176,6 +176,7 @@ _SHUTDOWN_WAIT_SECS = 15.0
 
 _BINARY_NAME = "epistemic-graph-server"
 _DISTRIBUTION_NAME = "epistemic-graph"
+_SERVER_DISTRIBUTION_NAME = "epistemic-graph-server"
 _EXPLICIT_BINARY_ENV_VARS = (
     "EPISTEMIC_GRAPH_SERVER_BIN",
     # Exact-engine campaign tooling predates the shared acceptance locator.  It
@@ -322,28 +323,39 @@ def _resolve_engine_binary_selection() -> tuple[
             + ", ".join(sorted(stale_metadata))
         )
 
-    try:
-        distribution = importlib_metadata.distribution(_DISTRIBUTION_NAME)
-    except importlib_metadata.PackageNotFoundError as exc:
+    # Since epistemic-graph 2.27.1 the executable ships in its own
+    # `epistemic-graph-server` distribution (the engine's `[server]` extra);
+    # older engines recorded it inside `epistemic-graph` itself.
+    distribution = None
+    records: list[Any] = []
+    for name in (_SERVER_DISTRIBUTION_NAME, _DISTRIBUTION_NAME):
+        try:
+            candidate = importlib_metadata.distribution(name)
+        except importlib_metadata.PackageNotFoundError:
+            continue
+        found = [
+            record
+            for record in (candidate.files or ())
+            if Path(record).name == _BINARY_NAME
+        ]
+        if found:
+            distribution, records = candidate, found
+            break
+    if distribution is None:
         raise EngineUnavailable(
-            "active epistemic-graph distribution is not installed"
-        ) from exc
-
-    records = [
-        record
-        for record in (distribution.files or ())
-        if Path(record).name == _BINARY_NAME
-    ]
+            "neither epistemic-graph-server nor epistemic-graph records the "
+            f"{_BINARY_NAME} script"
+        )
     if len(records) != 1:
         raise EngineUnavailable(
-            "active epistemic-graph distribution does not record exactly one "
-            f"{_BINARY_NAME} script"
+            f"active {distribution.metadata['Name']} distribution does not record "
+            f"exactly one {_BINARY_NAME} script"
         )
     record = records[0]
     return (
         _validate_engine_binary(
             Path(distribution.locate_file(record)),
-            source="active epistemic-graph distribution",
+            source=f"active {distribution.metadata['Name']} distribution",
         ),
         "distribution",
         distribution,
