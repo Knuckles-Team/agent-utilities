@@ -187,25 +187,14 @@ PY
     uv run --no-sync setup-config generate --profile tiny >/dev/null
   fi
 
-  log "running knowledge-graph smoke test"
+  log "running harness import smoke test"
   uv run --no-sync python - <<'PY'
-import asyncio
-from agent_utilities.mcp import kg_server
+# agent-utilities is the agent harness only (3.0.0); graph-os serves the KG
+# tools, so the smoke test proves the harness and its graph-os client import.
+import agent_utilities
+import agent_utilities.graphos_client  # noqa: F401
 
-async def main():
-    kg_server.ensure_tools_registered()
-    await kg_server._execute_tool(
-        "graph_write", action="add_node",
-        node_id="bootstrap:hello", node_type="Greeting",
-        properties='{"msg":"it works"}',
-    )
-    res = await kg_server._execute_tool(
-        "graph_query", query="MATCH (n:Greeting) RETURN n",
-    )
-    assert res is not None, "graph_query returned nothing"
-    print("  wrote a node and queried it back: the KG works with zero infra.")
-
-asyncio.run(main())
+print(f"  agent-utilities {agent_utilities.__version__} harness imports cleanly.")
 PY
 fi
 

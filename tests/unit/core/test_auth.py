@@ -443,13 +443,6 @@ class TestCORSConfig:
         assert parsed == ["https://app.example.com", "https://admin.example.com"]
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    def test_allowed_origins_default_disables_cors(self):
-        """When ALLOWED_ORIGINS is unset, cross-origin access is disabled."""
-        from agent_utilities.server.app import _csv_values
-
-        assert _csv_values(None) == []
-
-    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_allowed_hosts_parsed_from_config(self):
         """ALLOWED_HOSTS config is split into a list."""
         hosts_str = "api.example.com,*.example.com"
@@ -462,50 +455,3 @@ class TestCORSConfig:
         origins_str = " https://a.com , https://b.com "
         parsed = [o.strip() for o in origins_str.split(",")]
         assert parsed == ["https://a.com", "https://b.com"]
-
-    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    def test_remote_listener_requires_auth_and_host_allowlist(self):
-        from agent_utilities.server.app import _http_boundary_settings
-
-        cfg = _make_config()
-        with mock.patch("agent_utilities.server.app.config", cfg):
-            with pytest.raises(RuntimeError, match="requires JWT"):
-                _http_boundary_settings("0.0.0.0")
-
-        cfg = _make_config(
-            auth_jwt_jwks_uri="https://identity.example.test/jwks",
-            server_tls_terminated=True,
-            server_trusted_proxy_cidrs="127.0.0.1/32",
-        )
-        with mock.patch("agent_utilities.server.app.config", cfg):
-            with pytest.raises(RuntimeError, match="explicit ALLOWED_HOSTS"):
-                _http_boundary_settings("0.0.0.0")
-
-    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    def test_credentialed_cors_rejects_wildcard(self):
-        from agent_utilities.server.app import _http_boundary_settings
-
-        cfg = _make_config(
-            allowed_origins="*",
-            cors_allow_credentials=True,
-        )
-        with mock.patch("agent_utilities.server.app.config", cfg):
-            with pytest.raises(RuntimeError, match="requires explicit"):
-                _http_boundary_settings("127.0.0.1")
-
-    @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
-    def test_remote_listener_accepts_explicit_secure_boundary(self):
-        from agent_utilities.server.app import _http_boundary_settings
-
-        cfg = _make_config(
-            auth_jwt_jwks_uri="https://identity.example.test/jwks",
-            allowed_hosts="api.example.test",
-            allowed_origins="https://ui.example.test",
-            cors_allow_credentials=True,
-            server_tls_terminated=True,
-            server_trusted_proxy_cidrs="127.0.0.1/32",
-        )
-        with mock.patch("agent_utilities.server.app.config", cfg):
-            origins, hosts = _http_boundary_settings("0.0.0.0")
-        assert origins == ["https://ui.example.test"]
-        assert hosts == ["api.example.test"]

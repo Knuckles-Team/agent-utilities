@@ -247,9 +247,6 @@ mcp = [
     # contract and refuses an unverified runtime version; it no longer monkeypatches
     # upstream MCPToolset methods or installs process-global aliases.
     "fastmcp>=4.0.11",
-    # Schema-only dependency. The native middleware avoids eunomia-mcp's
-    # unpatched python-jose/ecdsa transitive chain and unsafe HTTP defaults.
-    "eunomia-core>=0.3.10",
     "fastapi>=0.139.2",
     "httpx>=0.28.1",
     # Security floors: pulled transitively by mcp/fastmcp/fastapi.
@@ -266,7 +263,7 @@ mcp = [
     "pydantic-ai-slim[openai]==2.54.0"
 ]
 agent-runtime = [
-    "agent-utilities[mcp,ag-ui,terminal,sandbox]>=1.0.0",
+    "agent-utilities[mcp,terminal,sandbox]>=1.0.0",
     "universal-skills>=1.3.1",
     "skill-graphs>=1.1.0",
     "pydantic-ai-skills>=2.1.0,<3.0.0",
@@ -295,7 +292,7 @@ agent-runtime = [
     "pydantic-ai-harness>=0.54.0,<0.55.0",
 ]
 # Server-side agent runtime WITHOUT the frontend component libraries. `agent-runtime`
-# pulls `ag-ui` (agent-webui) + `terminal` (agent-terminal-ui), which a serving
+# pulled `ag-ui` (agent-webui, now retired with AU serving) + `terminal` (agent-terminal-ui), which a serving
 # process never renders — and agent-webui depends on the FULL `pydantic-ai`
 # meta-package, dragging temporalio/botocore/google-genai/grpc/mistralai onto the
 # serving image (~140 MB). `agent-headless` is the same skill/runtime stack the
@@ -338,28 +335,6 @@ dynamic-workflow = [
     # never grants the upstream sandbox a second GraphOS execution plane.
     "pydantic-ai-harness[dynamic-workflow]>=0.54.0,<0.55.0",
 ]
-ag-ui = [
-    # 1.1.0's server.py called `Agent.to_web(builtin_tools=...)`; pydantic-ai's
-    # `to_web()` dropped that kwarg in favor of `capabilities=[NativeTool(...)]`
-    # on the Agent constructor, so 1.1.0 raised
-    # `TypeError: Agent.to_web() got an unexpected keyword argument 'builtin_tools'`
-    # against any current pydantic-ai. Fixed upstream in agent-webui 2.4.0.
-    #
-    # Upper bound: agent-webui 2.6.0 (commit "refactor(webui): inject GraphOS
-    # application composition", one day before the 2.6.0 release tag) removed
-    # its own fleet-catalog/tool-inventory surface outright (-1064 lines in
-    # api_extensions.py alone) rather than renaming it, so `/api/enhanced/tools`
-    # has no successor path to adopt -- it is simply gone, pending AU itself
-    # "injecting" that composition, which is a real feature decision, not a
-    # one-line adaptation. 2.6.0 also lands the (separately clean, mechanical)
-    # `/api/chat` + `/api/enhanced/chats*` -> `/api/chats`/`/api/chats/messages`
-    # rename from "Collapse chat transport + history CRUD into one /api/chats
-    # resource" (2026-08-24) -- harmless on its own, but it ships in the SAME
-    # 2.6.0 release as the tool-catalog removal, so there is no version that
-    # has the rename without also losing the catalog. Stays on 2.5.0 (the
-    # last release before both) until AU's own composition layer replaces the
-    # removed catalog.
-    "agent-webui>=2.4.0,<2.6.0"]
 terminal = [
     "agent-terminal-ui>=1.0.0"]
 browser = [
@@ -370,102 +345,6 @@ browser = [
 # exec-over-ssh. Imported lazily by the driver; absent from lean core.
 computer-use = [
     "container-manager-mcp>=2.3.0"]
-# Gateway Service Dashboard widgets (agent_utilities/gateway/widgets/*.py,
-# CONCEPT:AU-OS.config.gateway-service-dashboard) each do an IN-PROCESS import of
-# their connector package's API client (e.g. `caddy.py`: `from caddy_mcp.api_client
-# import Api as CaddyApi`) rather than calling out over the network, so the
-# connector packages themselves must be installed wherever the dashboard runs.
-# None of these are declared as base dependencies (Configuration discipline: no
-# widget's connector is needed unless that specific service tile is configured),
-# so without this extra every configured widget logs
-# `ModuleNotFoundError: No module named '<connector>_mcp'` on every aggregator
-# cache-refresh cycle (`WidgetAggregator._cache_ttl`, gateway/aggregator.py) —
-# this extra is what makes the dashboard's connector imports actually resolve.
-# Floors are each connector's newest version actually PUBLISHED on PyPI today
-# (verified via the PyPI JSON API, not the ecosystem checkout under
-# agent-packages/agents/<name>, which for most of these has since moved ahead —
-# e.g. locally caddy-mcp is 2.1.0 but PyPI tops out at 1.0.1). A floor above what
-# is published would make this extra UNRESOLVABLE from PyPI (uv proved this: pinning
-# to the local container-manager-mcp version, 3.1.0, when only <=2.3.0 is published,
-# hard-fails `uv sync`/`pip install` — see the worked example in the fix's PR/commit
-# notes). Spot-checked (caddy/jellyfin/mattermost/openbao/technitium/twenty/mealie)
-# that the published floor version's `<pkg>.api_client` already exports the same
-# `Api` facade class the widgets now import — see the `Api as <Name>` alias fix in
-# the widget files below. None of the 33 pull torch/transformers/sentence-
-# transformers/CUDA (verified against each package's own `dependencies`), so this
-# stays dependency-discipline safe on the serving plane.
-#
-# NOT included: `ear_agent`, `sentry_mcp`, `zulip_agent` — the `ear.py`/`sentry.py`/
-# `zulip.py` widgets import these, but no such distribution exists locally or on
-# PyPI. `ear.py` already guards its import
-# (`except ImportError: return WidgetData(status="skipped", ...)`); `sentry.py` and
-# `zulip.py` do not and will keep flooding logs until those connectors are published.
-#
-# `container_manager.py`, `arr.py`, `tunnel_manager.py`,
-# `atlassian.py`, `repository_manager.py` and `media_downloader.py` used to import a
-# `<pkg>.api_client` submodule those packages never shipped at any version — a second,
-# deeper bug a dependency declaration alone could not fix. That has since been fixed
-# separately (`fix(gateway): point 9 dashboard widgets at their real connector
-# clients`): each now imports its package's ACTUAL public entry point
-# (`container_manager_mcp.create_manager`, `arr_mcp.api.api_client_sonarr`,
-# `tunnel_manager.HostManager`,
-# `atlassian_agent.api.api_client_jira_cloud`, `repository_manager.repository_manager`,
-# `media_downloader.api_client`), so declaring their distributions here does make them
-# work rather than merely moving the ModuleNotFoundError one level deeper.
-#
-# `vector-mcp` is deliberately NOT declared here (nor is it a dependency
-# anywhere in this project): it is a workspace phase-7 connector, and
-# agent-utilities is phase 4 -- RF-ADR-009 forbids a lower phase depending on
-# a higher one. `vector_db.py`'s widget reaches it over its MCP server
-# (the same fleet transport every `mcp_tool` source connector uses,
-# `protocols/source_connectors/connectors/mcp_tool.call_tool_once`), never a
-# package import. This is also what let nltk (GHSA-8mgp-746c-j5xp, no
-# patched release) leave `uv.lock` for good -- vector-mcp's own published
-# metadata has an unconditional `llama-index-core` dependency with no way to
-# exclude it, and it was the sole remaining source once D2 removed AU's own
-# llama-index use.
-#
-# `portainer-agent` IS declared below, but its newest PUBLISHED version (1.1.0) imports
-# `agent_utilities.http`, a module this package renamed to `agent_utilities.httpsupport`;
-# the local sibling checkout (2.1.0) already carries the fix but is unpublished. The
-# widget degrades safely through `BaseWidget._safe_fetch` meanwhile, and the floor
-# (`>=1.1.0`) picks the fix up automatically once 2.1.0 reaches PyPI. Asserted in
-# `tests/unit/gateway/test_gateway_widgets_extra.py::KNOWN_BROKEN` so the note cannot
-# outlive the defect.
-gateway-widgets = [
-    "ansible-tower-mcp>=2.0.1",
-    "arr-mcp>=2.1.0",
-    "atlassian-agent>=1.1.0",
-    "caddy-mcp>=1.0.1",
-    "container-manager-mcp>=2.3.0",
-    "documentdb-mcp>=1.0.1",
-    "erpnext-agent>=1.0.1",
-    "github-agent>=1.4.2",
-    "gitlab-api>=26.4.0",
-    "home-assistant-agent>=1.0.2",
-    "jellyfin-mcp>=1.0.1",
-    "keycloak-agent>=1.0.1",
-    "langfuse-agent>=1.0.1",
-    "listmonk-api>=1.0.1",
-    "mattermost-mcp>=1.0.1",
-    "mealie-mcp>=0.3.0",
-    "media-downloader>=3.0.1",
-    "microsoft-agent>=1.0.1",
-    "nextcloud-agent>=1.0.1",
-    "openbao-mcp>=1.0.1",
-    "owncast-agent>=1.0.1",
-    "plane-agent>=1.1.0",
-    "portainer-agent>=1.1.0",
-    "postiz-agent>=1.0.1",
-    "qbittorrent-agent>=1.0.1",
-    "repository-manager>=2.0.1",
-    "servicenow-api>=2.0.1",
-    "technitium-dns-mcp>=1.0.1",
-    "tunnel-manager>=2.1.0",
-    "twenty-mcp>=1.0.1",
-    "uptime-kuma-agent>=1.0.1",
-    "wger-agent>=1.0.1",
-]
 acp = [
     "pydantic-ai-harness[acp]>=0.54.0,<0.55.0",
 ]
@@ -568,7 +447,7 @@ serving = [
     #   - finance: scipy + pandas + statsmodels (~360 MB). The only serving consumer was the
     #     `quant` MCP tool's boot-time registration; that registration is now guarded
     #     (mcp/tools/ontology_tools.py) so kg_server boots cleanly without it.
-    #   - agent-runtime (→ ag-ui/terminal): agent-webui + agent-terminal-ui are FRONTEND component
+    #   - agent-runtime (→ terminal): agent-terminal-ui is a FRONTEND component
     #     libs a server never renders, and agent-webui pulls the full pydantic-ai meta
     #     (temporalio/botocore/google-genai/grpc/mistralai, ~140 MB). Replaced by the
     #     `agent-headless` extra (same skill/runtime stack, no frontends).
@@ -618,13 +497,7 @@ serving = [
     # `hvac` is the only client that satisfies that on the serving plane, and it is a small
     # pure-Python HTTP client (no ML/native weight), so it belongs in `serving`, not a bespoke
     # second OpenBao client.
-    # gateway-widgets: the Gateway Service Dashboard (agent_utilities/gateway/widgets/*.py)
-    # ships as part of the serving plane and each widget does an in-process import of its
-    # connector package (see the `gateway-widgets` extra above for the full rationale) —
-    # without it here, every configured dashboard tile logs
-    # `ModuleNotFoundError: No module named '<connector>_mcp'` on every aggregator cache
-    # refresh in production.
-    "agent-utilities[mcp,feeds,embeddings-openai,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault,gateway-widgets]",
+    "agent-utilities[mcp,feeds,embeddings-openai,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
@@ -783,10 +656,6 @@ all = [
 [project.scripts]
 # graph-os-daemon is graph-os-owned (GRAPHOS-DEPLOY requirement R.007.3): graph_os.gateway.daemon:main.
 # Declaring it here too was an install-time console-script name collision.
-# agent_utilities.gateway.daemon remains -- it still has real non-test importers
-# (agent_utilities/gateway/api.py, agent_utilities/security/error_surface.py,
-# scripts/release/promote_local_release.py) -- only the duplicate registration
-# is removed here.
 agent-utilities-messaging = "agent_utilities.messaging.daemon:main"
 agent-utilities-memory = "agent_utilities.knowledge_graph.memory.cli:main"
 agent-utilities = "agent_utilities.cli:main"
@@ -802,9 +671,8 @@ agent-utilities-acp = "agent_utilities.protocols.acp_adapter:main"
 # console-script name collision (both packages registered the SAME entry
 # point name; pip resolves the winner nondeterministically by install
 # order). agent_utilities.deployment.doctor remains -- its checks are still
-# imported directly by agent_utilities.mcp.tools.compliance_tools,
-# agent_utilities.mcp.tools.state_tools, and
-# agent_utilities.knowledge_graph.research.evolution_state -- only the
+# imported directly by agent_utilities.knowledge_graph.research.evolution_state
+# -- only the
 # duplicate console-script registration is removed here.
 # agent-utilities-venv is graph-os-owned (GRAPHOS-DEPLOY requirement R.007.4):
 # graph_os.deployment.venv_sync:main. Declaring it here too was an

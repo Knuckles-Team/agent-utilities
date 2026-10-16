@@ -432,7 +432,6 @@ def _exact_local(manifest: dict[str, Any], manifest_digest: str) -> dict[str, An
                 "status": "pass",
             },
             "g32": {**g32, "status": "pass"},
-            "g34": {"scenarios": [f"case-{i}" for i in range(6)], "status": "pass"},
             "g35": {
                 "case_count": 8,
                 "cases": list(closure.G35_CASES),

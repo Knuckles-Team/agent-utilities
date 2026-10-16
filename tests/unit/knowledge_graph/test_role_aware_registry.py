@@ -8,7 +8,6 @@ connections check.
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 
 import pytest
 
@@ -150,27 +149,3 @@ def test_restart_required_classifier():
     assert is_restart_required("EPISTEMIC_GRAPH_STARTUP_TIMEOUT_SECS") is True
     assert is_restart_required("AUTH_JWT_ISSUER") is True  # AUTH_ prefix
     assert is_restart_required("KG_LLM_CONCURRENCY") is False
-
-
-def test_doctor_has_connections_check(monkeypatch):
-    from agent_utilities.deployment import CHECKS
-
-    monkeypatch.setattr(
-        "agent_utilities.core.config.AgentConfig",
-        lambda: SimpleNamespace(
-            external_graph_connectors=[],
-            kg_connections=[],
-        ),
-    )
-    registry = SimpleNamespace(
-        status=lambda: {"connections": [{"name": "default", "role": "authority"}]},
-        probe=lambda _name: True,
-    )
-    monkeypatch.setattr(
-        "agent_utilities.mcp.kg_server.get_connection_registry", lambda: registry
-    )
-
-    assert "graph_connections" in CHECKS
-    res = CHECKS["graph_connections"]()
-    assert res["name"] == "graph_connections"
-    assert res["status"] == "ok"

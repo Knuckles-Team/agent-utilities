@@ -247,6 +247,98 @@ def check_skill_certification_docs_contract(content: str | None = None) -> list[
     )
 
 
+# Setting-passthrough detector (formerly shared with the env-var drift guard
+# that lived in the deleted MCP package; kept here as its only consumer).
+_ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
+
+
+def _literal_env_name(node: ast.AST | None) -> str | None:
+    """Return an uppercase environment name represented by a literal AST node."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value if _ENV_NAME.fullmatch(node.value) else None
+    return None
+
+
+def _is_setting_reader_name(func: ast.expr) -> bool:
+    """Return whether *func* is a bare call to a sanctioned setting reader
+    (``setting``/``_setting``/``getenv``) — the direct-call half of
+    :func:`_is_env_reader_call`, reused below to recognize a passthrough
+    helper's own internal read."""
+    return isinstance(func, ast.Name) and func.id in {"_setting", "setting", "getenv"}
+
+
+def _comprehension_reads_setting_over(node: ast.AST, param_names: set[str]) -> bool:
+    """True when *node* is a single-generator comprehension iterating one of
+    *param_names* whose element calls a setting reader with that generator's
+    own loop variable — the shape of ``any(setting(key) for key in keys)``."""
+    if not isinstance(node, (ast.GeneratorExp, ast.ListComp, ast.SetComp)):
+        return False
+    if len(node.generators) != 1:
+        return False
+    comp = node.generators[0]
+    if comp.ifs or not (
+        isinstance(comp.iter, ast.Name) and comp.iter.id in param_names
+    ):
+        return False
+    if not isinstance(comp.target, ast.Name):
+        return False
+    loop_var = comp.target.id
+    return any(
+        isinstance(inner, ast.Call)
+        and _is_setting_reader_name(inner.func)
+        and inner.args
+        and isinstance(inner.args[0], ast.Name)
+        and inner.args[0].id == loop_var
+        for inner in ast.walk(node.elt)
+    )
+
+
+def _collect_setting_passthrough_helpers(tree: ast.AST) -> set[str]:
+    """Same-module indirection, one level further removed than
+    :func:`_collect_alias_literals`'s variable alias: a local helper like
+
+        def _any_setting(*keys: str) -> bool:
+            return any(setting(key) for key in keys)
+
+    forwards each of ITS OWN CALLERS' literal string arguments into
+    ``setting()`` — a genuine read for every literal passed at a call site
+    (``_any_setting("GITLAB_TOKEN", "GITLAB_API_TOKEN")``), even though
+    neither literal ever appears next to a ``setting(``/``getenv(`` call
+    itself (see ``agent_utilities/knowledge_graph/core/hydration.py``'s
+    ``_any_setting``/``_all_settings``, which drove 15 ``.env.example``
+    vars to a false DEAD finding before this helper existed). Matches any
+    function whose vararg or plain parameters are looped over inside a
+    setting-reading comprehension, not just these two specific names, so a
+    future helper shaped the same way is recognized without another edit
+    here."""
+    helpers: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        param_names: set[str] = set()
+        if node.args.vararg is not None:
+            param_names.add(node.args.vararg.arg)
+        param_names.update(a.arg for a in node.args.args)
+        param_names.update(a.arg for a in node.args.kwonlyargs)
+        if not param_names:
+            continue
+        if any(
+            _comprehension_reads_setting_over(inner, param_names)
+            for inner in ast.walk(node)
+        ):
+            helpers.add(node.name)
+    return helpers
+
+
+def _passthrough_helper_call_literals(node: ast.Call, helpers: set[str]) -> list[str]:
+    """Literal env-name arguments passed to a same-module setting-passthrough
+    helper (see :func:`_collect_setting_passthrough_helpers`) at one call
+    site."""
+    if not (isinstance(node.func, ast.Name) and node.func.id in helpers):
+        return []
+    return [literal for arg in node.args if (literal := _literal_env_name(arg))]
+
+
 def _setting_calls() -> dict[str, set[str]]:
     # Same-module ``*args`` indirection: a local helper like
     # ``def _any_setting(*keys: str) -> bool: return any(setting(key) for
@@ -254,15 +346,8 @@ def _setting_calls() -> dict[str, set[str]]:
     # real shape) forwards each of its own callers' literal string
     # arguments into ``setting()`` — a genuine call-site read for every
     # literal passed at a call site, even though the var name never
-    # appears next to a ``setting(`` call itself. Reuses the shared
-    # detector from the env-var-drift guard (CONCEPT:AU-OS.config.env-var-
-    # drift-guard) rather than re-deriving it, so this catalog and that
-    # gate never drift back out of agreement on what counts as a read.
-    from agent_utilities.mcp.check_env_var_drift import (
-        _collect_setting_passthrough_helpers,
-        _passthrough_helper_call_literals,
-    )
-
+    # appears next to a ``setting(`` call itself. Uses the
+    # module-level setting-passthrough detector above.
     calls: dict[str, set[str]] = defaultdict(set)
     for path in tracked_or_walked(ROOT / "agent_utilities", "*.py", root=ROOT):
         try:

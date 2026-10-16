@@ -138,7 +138,7 @@ def test_ids_forces_a_rerun_and_is_reported(tmp_path, _fake_legs):
     assert set(_fake_legs) == {"prompts", "skills"}
 
 
-def test_package_ingest_has_no_upward_ontology_tool_import():
+def test_package_ingest_has_no_upward_graphos_client_import():
     tree = ast.parse(inspect.getsource(pii))
     imported_modules = {
         node.module
@@ -151,7 +151,9 @@ def test_package_ingest_has_no_upward_ontology_tool_import():
         if isinstance(node, ast.Import)
         for alias in node.names
     )
-    assert "agent_utilities.mcp.tools.ontology_tools" not in imported_modules
+    assert not {
+        m for m in imported_modules if m.startswith("agent_utilities.graphos_client")
+    }
 
 
 def test_skills_leg_drives_both_the_workflow_and_atomic_skill_corpus(monkeypatch):

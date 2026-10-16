@@ -30,7 +30,7 @@ def fleet(tmp_path: Path) -> Path:
     _write(tmp_path / "github-agent" / "github_agent" / "a.py", "import json\n")
     _write(
         tmp_path / "fan-manager" / "fan_manager" / "agent_server.py",
-        "from agent_utilities.mcp import server\nimport agent_utilities.core.config\n",
+        "from agent_utilities.base_utilities import server\nimport agent_utilities.core.config\n",
     )
     _write(
         tmp_path / "jira-mcp" / "tests" / "test_x.py",
@@ -45,7 +45,7 @@ def fleet(tmp_path: Path) -> Path:
     # Outside both ranges: never visited.
     _write(
         tmp_path / "mealie-mcp" / "m.py",
-        "from agent_utilities.mcp import server\n",
+        "from agent_utilities.base_utilities import server\n",
     )
     return tmp_path
 
@@ -55,8 +55,8 @@ def test_fj_census_classifies_known_packages(fleet: Path) -> None:
     result = census(fleet, "f", "j")
     assert "github-agent" not in result
     assert result["fan-manager"] == [
+        "agent_utilities.base_utilities",
         "agent_utilities.core.config",
-        "agent_utilities.mcp",
     ]
     # Imports under tests/ are not part of the shipped surface.
     assert "jira-mcp" not in result

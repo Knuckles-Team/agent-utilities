@@ -89,7 +89,7 @@ def test_detects_source_installed_divergence(monkeypatch, tmp_path) -> None:
     metadata-only check reports green while the pod runs v2 source on a v1 SDK."""
     from packaging.requirements import Requirement
 
-    from agent_utilities.mcp import protocol_compat
+    from agent_utilities.graphos_client import protocol_compat
 
     monkeypatch.setattr(
         protocol_compat,
@@ -125,7 +125,7 @@ def test_a_harmless_divergence_is_reported_but_does_not_fail(monkeypatch) -> Non
     an edited pyproject.toml into a hard startup refusal."""
     from packaging.requirements import Requirement
 
-    from agent_utilities.mcp import protocol_compat
+    from agent_utilities.graphos_client import protocol_compat
 
     monkeypatch.setattr(
         protocol_compat,
@@ -161,32 +161,3 @@ def test_source_shadow_floor_reads_the_imported_trees_manifest() -> None:
     assert manifest is not None and manifest.endswith("pyproject.toml")
     assert requirement is not None
     assert requirement.name == "fastmcp"
-
-
-def test_startup_preflight_refuses_to_start_on_a_mismatch(monkeypatch) -> None:
-    """The assertion must run where it fails LOUDLY. `graph-os` startup refuses to
-    come up on a mismatch by default (a server that silently loses its whole fleet
-    meta-tool surface is worse than one that will not start), and `warn` is the
-    documented escape hatch rather than the default."""
-    from agent_utilities.mcp import kg_server
-
-    monkeypatch.setattr(
-        kg_server,
-        "_preflight_mcp_sdk_floor",
-        kg_server._preflight_mcp_sdk_floor,
-    )
-    monkeypatch.setattr(
-        "agent_utilities.graphos_client.protocol_compat.check_mcp_sdk_floor",
-        lambda *a, **k: {"ok": False, "detail": "fastmcp 3.4.5 vs floor >=4.0.0b1"},
-    )
-
-    monkeypatch.delenv("MCP_SDK_FLOOR_ENFORCE", raising=False)
-    try:
-        kg_server._preflight_mcp_sdk_floor()
-    except RuntimeError as exc:
-        assert "does not satisfy the declared [mcp] floor" in str(exc)
-    else:  # pragma: no cover - the guard did not fire
-        raise AssertionError("startup preflight did not fail on a mismatched SDK")
-
-    monkeypatch.setenv("MCP_SDK_FLOOR_ENFORCE", "warn")
-    kg_server._preflight_mcp_sdk_floor()  # the documented escape hatch: logs, continues

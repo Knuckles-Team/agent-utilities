@@ -31,9 +31,9 @@ Blind spots — say them, don't hide them
   the index unless someone runs this generator on a box where it *is*
   checked out. This is the single biggest source of index staleness/under-
   coverage — see ``check_removed_symbol_consumers.py``'s staleness handling.
-* **Consumer-side aliasing.** ``from agent_utilities.mcp.server_factory
-  import protect_stdio_jsonrpc as p`` is recorded under the ORIGINAL name
-  (``protect_stdio_jsonrpc``), which is what matters for the producer-side
+* **Consumer-side aliasing.** ``from agent_utilities.core.config
+  import AgentConfig as C`` is recorded under the ORIGINAL name
+  (``AgentConfig``), which is what matters for the producer-side
   removal check — the alias itself is irrelevant.
 
 Usage::
@@ -82,7 +82,7 @@ class ConsumerHit:
     repo: str
     file: str  # repo-relative posix path
     line: int
-    target: str  # fully-qualified dotted target, e.g. agent_utilities.mcp.server_factory.protect_stdio_jsonrpc
+    target: str  # fully-qualified dotted target, e.g. agent_utilities.core.config.AgentConfig
 
 
 def _repo_name_from_url(url: str) -> str:

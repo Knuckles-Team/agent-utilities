@@ -64,7 +64,7 @@ exists), 2 = a retired flag was passed.
 
 KNOWN SCOPE LIMIT — plain-``def`` tool handlers are NOT covered. This scanner walks
 ``ast.AsyncFunctionDef`` bodies only. A large share of this package's MCP tool handlers
-(``graph_query``, ``graph_ask``, ``nl_query``, ``ask_data``, ``graph_table``,
+(``graph_query``, ``graph_ask``, ``ask_data``, ``graph_table``,
 ``graph_search``, ``graph_code_nav``, ``graph_write``, ``graph_kv_checkpoint``, …) are
 plain ``def``. On the REST/native-delegation path ``kg_server._execute_tool`` hops those
 onto a thread; on the MCP wire path this package imports the standalone ``fastmcp``

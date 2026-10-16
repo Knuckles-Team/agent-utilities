@@ -110,27 +110,6 @@ def test_table_ingest_reads_through_the_governed_surface_not_sql_exec():
     assert engine.sql_calls and "information_schema" in engine.sql_calls[0]
 
 
-def test_graph_table_query_action_routes_to_the_governed_sql_surface():
-    """The one externally-reachable arbitrary ``SELECT`` never reaches sql_exec.
-
-    ``graph_table(action='query', sql=...)`` is caller-supplied SQL arriving
-    over MCP. It must land on ``QueryMixin.sql`` — which applies
-    ``_governed_engine_surface_rows`` fail-closed — and not on this module's
-    unfiltered write primitive.
-    """
-
-    from agent_utilities.mcp.tools.query_tools import _graph_table_query
-
-    graph_compute, query = _engine([{"id": "n1"}])
-    engine = _FakeEngine(graph_compute)
-
-    out = _graph_table_query(engine, "SELECT * FROM mcp_servers")
-
-    assert engine.sql_calls == ["SELECT * FROM mcp_servers"]
-    assert query.statements == [], "graph_table's read reached sql_exec"
-    assert "conn_rest" in out
-
-
 def test_audit_failure_never_breaks_a_ddl_boot_call(monkeypatch):
     """Provenance is best-effort here; authorization is not, and lives upstream.
 

@@ -60,10 +60,12 @@ def test_wrong_owner_module_is_rejected(tmp_path: Path) -> None:
 
 
 def test_wrong_owner_console_script_is_rejected(tmp_path: Path) -> None:
-    _make_module(tmp_path, "agent_utilities/mcp/kg_server.py")
-    _write_seeds(tmp_path, ["agent_utilities/mcp/kg_server.py"])
+    _make_module(tmp_path, "agent_utilities/serving/kg_server.py")
+    _write_seeds(tmp_path, ["agent_utilities/serving/kg_server.py"])
     write_coverage(tmp_path, row("agent_utilities", "keep in AU"))
-    _write_pyproject(tmp_path, {"graph-os": "agent_utilities.mcp.kg_server:mcp_server"})
+    _write_pyproject(
+        tmp_path, {"graph-os": "agent_utilities.serving.kg_server:mcp_server"}
+    )
     findings = check(tmp_path)
     assert any("console script 'graph-os'" in f for f in findings)
 

@@ -118,7 +118,7 @@ def test_execute_redeploy_confirm_blocks_without_restart_mechanic(monkeypatch):
 @pytest.mark.concept("AU-OS.deployment.os-2")
 @pytest.mark.parametrize(
     "script",
-    ["validate_change.py", "scaffold_graph_action.py"],
+    ["validate_change.py"],
 )
 def test_dx_scripts_have_help(script):
     res = subprocess.run(

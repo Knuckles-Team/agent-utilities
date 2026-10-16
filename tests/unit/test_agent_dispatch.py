@@ -465,49 +465,6 @@ class _FakeOrchEngine:
         return {"status": "committed"}
 
 
-@pytest.fixture
-def orchestrate_tool(monkeypatch):
-    from agent_utilities.mcp import kg_server
-
-    kg_server.ensure_tools_registered()
-    engine = _FakeOrchEngine()
-    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
-    return kg_server, engine
-
-
-@pytest.mark.asyncio
-@_NEEDS_ENGINE
-async def test_orchestrate_dispatch_queue_mode_returns_job_handle(
-    orchestrate_tool, fake_queue, monkeypatch
-):
-    kg_server, engine = orchestrate_tool
-    out = await kg_server._execute_tool(
-        "graph_jobs",
-        action="dispatch",
-        task="summarize the repo",
-        agent_name="librarian",
-    )
-    handle = json.loads(out)
-    assert handle["dispatch"] == "queued"
-    assert handle["kind"] == KIND_ORCHESTRATOR_TASK
-    job_id = handle["job_id"]
-    # job_tools.graph_jobs's current status handle: a fixed collection URL plus
-    # a status_request the caller replays (there is no more per-job URL
-    # suffix -- see job_tools.py's register_job_tools).
-    assert handle["status_url"] == "/api/graph/jobs"
-    assert handle["status_request"] == {"action": "status", "job_id": job_id}
-    # The orchestrator's own WorkItem (submitted by Orchestrator.dispatch_task)
-    # is the durable payload of record; queue carries only the reference.
-    item = _wi.get_work_item(engine, _wi.orchestrator_work_item_id(job_id))
-    assert item is not None
-    assert item["status"] == "ready"  # no deps -> immediately claimable
-    _, item_payload = fake_queue.get()
-    env = AgentTurnEnvelope.from_item(item_payload)
-    assert env.payload_ref == job_id
-    assert env.session_id == job_id  # bare dispatch: self-scoped session
-    assert env.agent_name == "librarian"
-
-
 # ── per-session execution guard ───────────────────────────────────────────
 
 
@@ -1190,24 +1147,6 @@ def test_stale_workers_drop_out_of_topology(dispatch_db):
     conn.commit()
     conn.close()
     assert agent_dispatch.list_dispatch_workers() == []
-
-
-@pytest.mark.asyncio
-async def test_fleet_topology_surfaces_dispatch_workers(dispatch_db):
-    from agent_utilities.gateway import fleet
-    from agent_utilities.messaging.bus_privacy import bus_reference
-
-    agent_dispatch.record_dispatch_worker_heartbeat(
-        "hostB:7:agent-dispatch:0", host="hostB", active_sessions=["sess-9"]
-    )
-    resp = await fleet.fleet_topology(_FakeRequest({}))
-    body = json.loads(resp.body)
-    assert body["totals"]["dispatch_workers"] == 1
-    # bus_reference-pseudonymized host, see test_worker_heartbeat_upserts_and_lists.
-    assert body["dispatch_workers"][0]["host"] == bus_reference(
-        "dispatch_host", "hostB"
-    )
-    assert body["dispatch_workers"][0]["active_sessions"] == ["sess-9"]
 
 
 def test_dispatch_metrics_registered_on_gateway_registry():

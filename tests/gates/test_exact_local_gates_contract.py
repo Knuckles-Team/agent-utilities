@@ -36,13 +36,12 @@ checker = _load(
 )
 
 
-def _checker_sources() -> tuple[str, str, str, str, str]:
+def _checker_sources() -> tuple[str, str, str, str]:
     return (
         checker.HARNESS.read_text(encoding="utf-8"),
         checker.DOCUMENTATION.read_text(encoding="utf-8"),
         checker.NAVIGATION.read_text(encoding="utf-8"),
         checker.WORKFLOW.read_text(encoding="utf-8"),
-        checker.A2A_TEST.read_text(encoding="utf-8"),
     )
 
 

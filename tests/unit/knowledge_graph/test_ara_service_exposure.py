@@ -93,20 +93,3 @@ def test_list_and_get_reads():
 
 
 # ── single source of truth: MCP tool + REST router both dispatch the service ─
-
-
-def test_mcp_tool_and_route_registered():
-    from agent_utilities.mcp import kg_server
-
-    # ACTION_TOOL_ROUTES carries the REST path → /research/artifact is auto-mounted
-    assert kg_server.ACTION_TOOL_ROUTES.get("research_artifact") == "/research/artifact"
-
-
-def test_gateway_router_exposes_research_paths():
-    from agent_utilities.gateway.research_api import research_router
-
-    paths = {r.path for r in research_router.routes}
-    assert "/research/reason" in paths
-    assert "/research/compile" in paths
-    assert "/research/review" in paths
-    assert "/research/artifacts" in paths

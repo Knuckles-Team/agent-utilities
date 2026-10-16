@@ -40,7 +40,7 @@ def test_open_client_logs_legacy_fastmcp_auth_fallback(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Old FastMCP remains compatible without silently discarding auth support."""
-    from agent_utilities.mcp import client_credentials
+    from agent_utilities.graphos_client import client_credentials
 
     calls: list[tuple[object, dict[str, object]]] = []
     compatibility_client = object()

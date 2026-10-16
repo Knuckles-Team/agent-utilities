@@ -557,21 +557,6 @@ def _cfg(**overrides):
     return SimpleNamespace(**base)
 
 
-def test_resolve_auto_with_nothing_configured_returns_none(monkeypatch) -> None:
-    """``nothing configured`` means no reachable engine broker either — simulate
-    that deterministically (mirrors ``test_resolve_explicit_engine_unreachable_raises``'s
-    idiom) rather than relying on the ambient test process having no live engine,
-    which the suite's autouse ``isolate_graph_compute_engine`` fixture does not
-    guarantee (a sibling test file may have already started one)."""
-    from agent_utilities.mcp.tools import engine_tools
-
-    def _boom(graph):
-        raise ConnectionError("no engine")
-
-    monkeypatch.setattr(engine_tools, "_client_for", _boom)
-    assert resolve_bus_log_backend(config=_cfg()) is None
-
-
 def test_resolver_rejects_removed_graph_backend() -> None:
     config = SimpleNamespace(agent_bus_log_backend="graph")
     with pytest.raises(ValueError, match="AGENT_BUS_LOG_BACKEND"):
@@ -581,44 +566,6 @@ def test_resolver_rejects_removed_graph_backend() -> None:
 def test_resolve_rejects_unknown_value():
     with pytest.raises(ValueError, match="AGENT_BUS_LOG_BACKEND"):
         resolve_bus_log_backend(config=_cfg(agent_bus_log_backend="rabbitmq"))
-
-
-def test_resolve_auto_prefers_kafka_when_bootstrap_configured(monkeypatch):
-    """Auto mode never raises: an unreachable Kafka broker degrades to no
-    configured backend (``None``), same contract as ``TASK_QUEUE_BACKEND``'s
-    auto mode. The passed ``engine`` has no ``.broker`` of its own, so pin the
-    ambient engine-broker discovery to unreachable too (same idiom as
-    ``test_resolve_explicit_engine_unreachable_raises``) — otherwise this is at
-    the mercy of whether some other test already stood up a live engine."""
-    from agent_utilities.mcp.tools import engine_tools
-
-    def _boom(graph):
-        raise ConnectionError("no engine")
-
-    monkeypatch.setattr(engine_tools, "_client_for", _boom)
-    result = resolve_bus_log_backend(
-        engine=SimpleNamespace(),
-        config=_cfg(kafka_bootstrap_servers="nowhere.invalid:9092"),
-    )
-    assert result is None or result.name == "kafka"
-
-
-def test_resolve_auto_kafka_construction_succeeds_uses_kafka(monkeypatch):
-    """When Kafka construction succeeds (broker reachable / provisioned), auto mode
-    picks it over no backend at all."""
-    from agent_utilities.mcp.tools import engine_tools
-    from agent_utilities.messaging import bus_log as bus_log_mod
-
-    def _boom(graph):
-        raise ConnectionError("no engine")
-
-    monkeypatch.setattr(engine_tools, "_client_for", _boom)
-    sentinel = object()
-    monkeypatch.setattr(bus_log_mod, "KafkaBusLog", lambda **kw: sentinel)
-    result = resolve_bus_log_backend(
-        config=_cfg(kafka_bootstrap_servers="broker.test:9092")
-    )
-    assert result is sentinel
 
 
 def test_resolve_explicit_kafka_unreachable_raises():
@@ -648,39 +595,6 @@ def test_resolve_auto_with_engine_endpoint_signal_uses_bound_engine_broker():
         engine=fake_engine, config=_cfg(engine_endpoint="tcp://engine:9999")
     )
     assert isinstance(result, EngineBrokerBusLog)
-
-
-def test_resolve_explicit_engine_unreachable_raises(monkeypatch):
-    """An explicit ``engine`` selection is a hard contract — an unreachable engine
-    client raises, never a silent degrade (mirrors ``TASK_QUEUE_BACKEND=kafka``)."""
-    from agent_utilities.mcp.tools import engine_tools
-
-    def _boom(graph):
-        raise ConnectionError("engine down")
-
-    monkeypatch.setattr(engine_tools, "_client_for", _boom)
-    with pytest.raises(BusLogUnavailable):
-        resolve_bus_log_backend(
-            engine=SimpleNamespace(),  # no .broker attribute of its own
-            config=_cfg(agent_bus_log_backend="engine"),
-        )
-
-
-def test_resolve_explicit_engine_client_without_broker_surface_raises(monkeypatch):
-    """The connected engine build has no broker surface at all — also a hard failure
-    for an EXPLICIT ``engine`` selection."""
-    from agent_utilities.mcp.tools import engine_tools
-
-    monkeypatch.setattr(
-        engine_tools,
-        "_client_for",
-        lambda graph: SimpleNamespace(),  # no .broker
-    )
-    with pytest.raises(BusLogUnavailable):
-        resolve_bus_log_backend(
-            engine=SimpleNamespace(),
-            config=_cfg(agent_bus_log_backend="engine"),
-        )
 
 
 def test_resolver_uses_configured_visibility_lease() -> None:

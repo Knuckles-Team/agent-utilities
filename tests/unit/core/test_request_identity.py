@@ -14,15 +14,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent_utilities.knowledge_graph.core.session import (
-    GraphSession,
-    suspend_session,
-    use_session,
-)
 from agent_utilities.security.brain_context import (
     ActorContext,
     current_actor,
-    use_actor,
 )
 from agent_utilities.security.request_identity import (
     ActorIdentityMiddleware,
@@ -669,63 +663,6 @@ class TestActorIdentityMiddleware:
 
     @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
     @pytest.mark.asyncio
-    async def test_non_admin_principal_completes_a_served_request(self):
-        """The served edge that 500'd before D-SP-1, end to end.
-
-        A real RS256 credential carrying only ``kg:read`` — no ``kg:admin``, no
-        ``admin:cluster-read``, and a principal with no entry in the engine's
-        ``IsolationLayer`` — is validated by the real JWKS path, minted by the
-        real middleware, and reaches graph-os's real per-tool authority boundary
-        (``kg_server.verified_tool_session_scope``), which admits it.
-
-        The seams are observed, not replaced: ``resolve_placement`` is the real
-        function and must simply never be reached, because reaching it is what
-        required cluster-admin authority to authenticate at all.
-        """
-        from agent_utilities.knowledge_graph.core import placement_catalog
-        from agent_utilities.mcp.kg_server import verified_tool_session_scope
-        from tests.wiring import observe
-
-        token, jwks = _make_token_and_jwks(scope="kg:read", tenant_id="tenant-a")
-        cfg = _make_config(auth_jwt_jwks_uri="https://idp/jwks")
-        captured: dict = {}
-
-        async def graph_tool_app(scope, receive, send):  # noqa: ARG001
-            # graph-os's real per-call authority gate, not a stand-in.
-            with verified_tool_session_scope() as session:
-                captured["session"] = session
-            await send({"type": "http.response.start", "status": 200, "headers": []})
-            await send({"type": "http.response.body", "body": b"ok"})
-
-        async def fake_jwks(_uri):
-            return jwks
-
-        mw = ActorIdentityMiddleware(graph_tool_app)
-        with (
-            mock.patch("agent_utilities.core.config.config", cfg),
-            mock.patch("agent_utilities.security.auth._fetch_jwks", fake_jwks),
-            observe(placement_catalog, "resolve_placement") as resolved,
-        ):
-            sent = await _call(
-                mw, headers=[(b"authorization", f"Bearer {token}".encode())]
-            )
-
-        assert _status(sent) == 200
-        resolved.assert_not_called(
-            why="a non-admin principal must authenticate without the engine's "
-            "admin:cluster-read PlacementRoute call"
-        )
-        session = captured["session"]
-        assert session is not None
-        assert session.scopes == frozenset({"kg:read"})
-        assert "kg:admin" not in session.scopes
-        assert session.tenant == "tenant-a"
-        # The verified engine claims a tool call forwards are complete without
-        # any route being bound.
-        assert session.engine_verified_context()["tenant"] == "tenant-a"
-
-    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
-    @pytest.mark.asyncio
     async def test_unauthenticated_request_still_401s_and_never_reaches_the_app(self):
         """The other half of D-SP-1: no enforcement was traded away."""
         from agent_utilities.security.request_identity import (
@@ -759,67 +696,6 @@ class TestActorIdentityMiddleware:
 # ---------------------------------------------------------------------------
 # kg_server identity resolution + read-only gate
 # ---------------------------------------------------------------------------
-
-
-class TestKgServerIdentityResolution:
-    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
-    def test_caller_authority_fields_are_rejected(self):
-        from agent_utilities.mcp.kg_server import _reject_caller_authority
-
-        kwargs = {"_actor": "agent:mk", "_roles": "marketing", "_tenant": "t1", "x": 1}
-        with pytest.raises(PermissionError, match="Caller-supplied"):
-            _reject_caller_authority(kwargs)
-        assert kwargs["_actor"] == "agent:mk"
-
-    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
-    @pytest.mark.asyncio
-    async def test_missing_session_blocks_every_tool(self):
-        from agent_utilities.mcp import kg_server
-
-        async def fake_tool(**kwargs):  # noqa: ARG001
-            return "ok"
-
-        with (
-            mock.patch.dict(
-                kg_server.REGISTERED_TOOLS,
-                {"graph_write": fake_tool, "graph_query": fake_tool},
-            ),
-            suspend_session(),
-            mock.patch.object(kg_server, "_PROCESS_SESSION", None),
-        ):
-            with pytest.raises(PermissionError, match="GraphSession"):
-                await kg_server._execute_tool("graph_write")
-            with pytest.raises(PermissionError, match="GraphSession"):
-                await kg_server._execute_tool("graph_query")
-
-    @pytest.mark.concept("CONCEPT:AU-OS.identity.authenticated-identity-enforcement")
-    @pytest.mark.asyncio
-    async def test_verified_session_passes_tool_gate(self):
-        from agent_utilities.mcp import kg_server
-
-        async def fake_tool(**kwargs):  # noqa: ARG001
-            return "ok"
-
-        actor = ActorContext(
-            actor_id="principal:verified",
-            tenant_id="tenant-a",
-            roles=("kg:write",),
-            authenticated=True,
-        )
-        session = GraphSession(
-            actor=actor,
-            tenant="tenant-a",
-            scopes=frozenset({"kg:read", "kg:write"}),
-            graph="tenant-a",
-            audience="agent-services",
-            policy_version="policy-v1",
-        )
-        with (
-            mock.patch.dict(kg_server.REGISTERED_TOOLS, {"graph_write": fake_tool}),
-            use_actor(actor),
-            use_session(session),
-        ):
-            assert await kg_server._execute_tool("graph_write") == "ok"
 
 
 # ---------------------------------------------------------------------------

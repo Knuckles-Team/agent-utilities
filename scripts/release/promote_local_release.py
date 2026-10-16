@@ -88,8 +88,6 @@ _PROCESS_EXECUTABLES = {
 _PROCESS_MODULES = {
     "agent_utilities",
     "agent_utilities.__main__",
-    "agent_utilities.gateway.daemon",
-    "agent_utilities.mcp.kg_server",
     "epistemic_graph.server",
 }
 _MAX_SPEC_BYTES = 128 * 1024
@@ -745,9 +743,7 @@ def _validated_wheel_members(
     total = 0
     for info in infos:
         total = _validated_wheel_member(info, total)
-    if any(
-        PurePosixPath(name).name.casefold() == "direct_url.json" for name in names
-    ):
+    if any(PurePosixPath(name).name.casefold() == "direct_url.json" for name in names):
         raise ReleaseError("wheel-direct-url-record")
     return _ValidatedWheelMembers(
         names=names,
@@ -770,9 +766,7 @@ def _wheel_metadata_members(names: tuple[str, ...]) -> tuple[str, str, str]:
         name for name in names if _is_top_level_dist_info_member(name, "WHEEL")
     ]
     if not (
-        len(metadata_names) == 1
-        and len(record_names) == 1
-        and len(wheel_names) == 1
+        len(metadata_names) == 1 and len(record_names) == 1 and len(wheel_names) == 1
     ):
         raise ReleaseError("incomplete-wheel-metadata")
     return metadata_names[0], record_names[0], wheel_names[0]
@@ -803,9 +797,7 @@ def _read_wheel_archive(path: Path) -> _WheelArchive:
                 record_name=record_name,
                 info_by_name=members.info_by_name,
             )
-            generated_scripts = _wheel_generated_scripts(
-                archive, members.info_by_name
-            )
+            generated_scripts = _wheel_generated_scripts(archive, members.info_by_name)
             return _WheelArchive(
                 metadata=metadata,
                 record_entries=record_entries,
@@ -2393,13 +2385,6 @@ def _process_identity(pid: str) -> bool:
     for index, argument in enumerate(arguments[:-1]):
         if argument == "-m" and arguments[index + 1] in _PROCESS_MODULES:
             return True
-    if any(
-        argument.startswith(
-            ("agent_utilities.gateway:", "agent_utilities.mcp.kg_server:")
-        )
-        for argument in arguments
-    ):
-        return True
     return False
 
 

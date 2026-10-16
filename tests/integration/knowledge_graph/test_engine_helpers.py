@@ -6,8 +6,6 @@ CONCEPT:AU-KG.query.object-graph-mapper — Granular Resource Queries
 CONCEPT:AU-KG.query.object-graph-mapper — Workspace Reload
 """
 
-from typing import Any
-
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -439,19 +437,6 @@ class TestMCPServerCatalog:
             "stale",
         }
     )
-
-    @staticmethod
-    def _assert_never_claims_live_dispatchability(
-        rows: list[dict[str, Any]],
-    ) -> None:
-        for row in rows:
-            leaked = set(row) & TestMCPServerCatalog._LIVE_DISPATCH_ONLY_FIELDS
-            assert not leaked, (
-                "get_registered_mcp_servers row leaked live-dispatch field(s) "
-                f"{sorted(leaked)}; that truth belongs ONLY to "
-                "agent_utilities.mcp.shared_multiplexer.list_catalog (BUG-042) "
-                f"-- got row {row!r}"
-            )
 
     def test_get_registered_mcp_servers_never_claims_live_dispatchability(
         self, engine: IntelligenceGraphEngine

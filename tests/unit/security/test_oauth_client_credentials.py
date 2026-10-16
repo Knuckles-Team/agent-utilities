@@ -662,37 +662,6 @@ class TestBearerAttachedToEmbeddingRequest:
             )
 
 
-class TestGraphOSRegistryPath:
-    def test_build_model_from_registry_threads_oauth2(self, fake_secrets, monkeypatch):
-        """server.dependencies._build_model_from_registry (the graph-os path that historically
-        only carried api_key_env) threads a ModelDefinition's oauth2 block into create_model."""
-        monkeypatch.delenv("AGENT_UTILITIES_TESTING", raising=False)
-        from agent_utilities.models import ModelDefinition, ModelRegistry
-        from agent_utilities.server.dependencies import _build_model_from_registry
-
-        registry = ModelRegistry(
-            models=[
-                ModelDefinition(
-                    id="azure-gpt4",
-                    name="Azure GPT-4",
-                    provider="openai",
-                    model_id="gpt-4o",
-                    base_url="https://azure.example.com/v1",
-                    oauth2=OAUTH2_BLOCK,
-                    is_default=True,
-                )
-            ]
-        )
-        with patch(
-            "agent_utilities.security.oauth_client_credentials.requests.post",
-            return_value=_resp("azure-bearer-tok"),
-        ):
-            model = _build_model_from_registry(registry, "azure-gpt4")
-        assert model is not None
-        http_client = model.client._client
-        assert isinstance(http_client.auth, OAuth2ClientCredentialsAuth)
-
-
 # ---------------------------------------------------------------------------
 # Never log the token or the secret
 # ---------------------------------------------------------------------------

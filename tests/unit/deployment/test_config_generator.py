@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -675,75 +674,3 @@ class _MockMCP:
             return fn
 
         return deco
-
-
-@pytest.fixture
-def registered_tools():
-    mock_mcp = _MockMCP()
-    engine = MagicMock()
-    engine.backend = MagicMock()
-    engine.backend.read_only = False
-    with patch(
-        "agent_utilities.mcp.server_factory.create_mcp_server",
-        return_value=(None, mock_mcp, []),
-    ):
-        with patch("agent_utilities.mcp.kg_server._get_engine", return_value=engine):
-            from agent_utilities.mcp.kg_server import _build_server
-
-            _build_server()
-    return mock_mcp.funcs
-
-
-@pytest.mark.asyncio
-async def test_graph_configure_generate_config_uses_fixed_xdg_path(
-    registered_tools, tmp_path, monkeypatch
-):
-    from agent_utilities.mcp import kg_server
-
-    monkeypatch.setenv("AGENT_UTILITIES_CONFIG_DIR", str(tmp_path))
-    raw = await kg_server._execute_tool(
-        "graph_configure",
-        action="generate_config",
-        config_key="single-node-prod",
-        config_value=json.dumps({}),
-    )
-    res = json.loads(raw)
-    assert res["status"] == "success"
-    assert res["destination"] == "xdg"
-    assert "path" not in res
-    assert (tmp_path / "config.json").exists()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "action, option", [("generate_config", "out"), ("config_doctor", "config")]
-)
-async def test_graph_configure_rejects_remote_filesystem_paths(
-    registered_tools,
-    tmp_path,
-    action,
-    option,
-):
-    from agent_utilities.mcp import kg_server
-
-    candidate = tmp_path / "private-candidate.json"
-    raw = await kg_server._execute_tool(
-        "graph_configure",
-        action=action,
-        config_key="tiny",
-        config_value=json.dumps({option: str(candidate)}),
-    )
-    result = json.loads(raw)
-
-    assert result == {"error": "remote_path_not_allowed"}
-    assert str(candidate) not in raw
-    assert not candidate.exists()
-
-
-@pytest.mark.asyncio
-async def test_graph_configure_config_reference_live_path(registered_tools):
-    from agent_utilities.mcp import kg_server
-
-    raw = await kg_server._execute_tool("graph_configure", action="config_reference")
-    ref = json.loads(raw)
-    assert isinstance(ref, list) and ref and "section" in ref[0]

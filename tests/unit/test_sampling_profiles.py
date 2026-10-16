@@ -302,17 +302,6 @@ def test_sampling_profile_violations_gate():
 # ── Layer E — two surfaces ───────────────────────────────────────────────────
 
 
-@pytest.fixture
-def sampling_tool():
-    # Use the canonical full registration so we never leave REGISTERED_TOOLS in a
-    # partial state (which would starve ensure_tools_registered's short-circuit and
-    # break the gateway/MCP parity test that runs in the same session).
-    from agent_utilities.mcp import kg_server
-
-    kg_server.ensure_tools_registered()
-    return kg_server.REGISTERED_TOOLS["ontology_sampling_profile"]
-
-
 def _call_tool(tool, **kwargs):
     # Provide every arg explicitly (FastMCP substitutes Field defaults; a raw call
     # would otherwise leave FieldInfo objects in place).
@@ -325,51 +314,3 @@ def _call_tool(tool, **kwargs):
     }
     args.update(kwargs)
     return json.loads(tool(**args))
-
-
-def test_tool_list_describe_resolve(sampling_tool):
-    listed = _call_tool(sampling_tool, action="list")["profiles"]
-    assert "code" in listed and "brainstorm" in listed
-    assert _call_tool(sampling_tool, action="describe", task_class="code")[
-        "temperature"
-    ] == pytest.approx(0.1)
-    assert (
-        _call_tool(
-            sampling_tool, action="resolve", task_text="extract fields from invoice"
-        )["task_class"]
-        == "extraction"
-    )
-
-
-def test_tool_set_validates_and_persists(sampling_tool):
-    bad = _call_tool(
-        sampling_tool,
-        action="set",
-        task_class="code",
-        profile_json='{"temperature": 1.99, "top_p": 5.0}',
-    )
-    assert "error" in bad  # top_p out of bounds
-    good = _call_tool(
-        sampling_tool,
-        action="set",
-        task_class="code",
-        profile_json='{"temperature": 0.05, "top_k": 10}',
-    )
-    assert good["set"]["temperature"] == pytest.approx(0.05)
-    # persists in the process-global registry
-    assert _call_tool(sampling_tool, action="describe", task_class="code")[
-        "temperature"
-    ] == pytest.approx(0.05)
-
-
-def test_tool_owl(sampling_tool):
-    assert "kg:InferenceProfile" in _call_tool(sampling_tool, action="owl")["owl"]
-
-
-def test_route_map_registered():
-    from agent_utilities.mcp import kg_server
-
-    assert (
-        kg_server.ACTION_TOOL_ROUTES["ontology_sampling_profile"]
-        == "/ontology/sampling-profiles"
-    )

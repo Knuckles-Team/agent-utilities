@@ -296,62 +296,6 @@ class _FakeMCP:
         return _decorator
 
 
-def test_kg_2_316_live_graph_analyze_action(tmp_path, monkeypatch) -> None:
-    """Invoke the REAL graph_analyze tool coroutine with action=distill_memory.
-
-    This is the exact function the graph-os MCP surface and the POST /graph/analyze
-    REST twin dispatch into (both funnel through kg_server._execute_tool), so it
-    proves the action is wired live on BOTH surfaces from one action-core method.
-    """
-    import asyncio
-
-    import agent_utilities.knowledge_graph.memory.memory_engine as me
-    from agent_utilities.mcp import kg_server
-    from agent_utilities.mcp.tools import analysis_tools
-
-    monkeypatch.setattr(me, "memory_dir", lambda: tmp_path)
-    engine = _MockEngine(_consolidated_and_noise())
-    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
-
-    fake = _FakeMCP()
-    analysis_tools.register_analysis_tools(fake)
-    assert (
-        kg_server.REGISTERED_TOOLS.get("graph_analyze") is fake.tools["graph_analyze"]
-    )
-
-    # Dispatch through the SHARED core (_execute_tool) that BOTH the MCP tool
-    # surface and the POST /graph/analyze REST twin funnel through — it resolves
-    # the Field() defaults exactly as the live surfaces do.
-    params = json.dumps(
-        {
-            "base_model": "Qwen2.5-1.5B",
-            "scopes": ["procedural", "semantic"],
-            "adapter_rank": 8,
-            "submit": True,
-        }
-    )
-    out = asyncio.run(
-        kg_server._execute_tool("graph_analyze", action="distill_memory", query=params)
-    )
-    # graph_analyze is typed to return the sole public EvidenceBundle (every
-    # allowed action does, via execute_focused_analysis) — not a raw JSON
-    # string. EvidenceBundle.from_payload(raw_json_str, ...) json.loads()s the
-    # action core's dict payload back and carries it as the sole claim.
-    from agent_utilities.models.evidence_bundle import EvidenceBundle
-
-    assert isinstance(out, EvidenceBundle)
-    payload = out.claims[0]
-
-    assert payload["status"] == "ok"
-    assert payload["concept"] == "AU-KG.memory.memory-weights-distillation-export"
-    assert payload["corpus"]["example_count"] == 2
-    assert payload["corpus"]["spec"]["adapter_rank"] == 8
-    # Submitted live: a job with the data-science-mcp hand-off came back.
-    assert payload["job"]["status"] == "enqueued"
-    assert payload["job"]["handoff"]["workflow"]["workflow"] == "train_model"
-    assert engine.nodes[payload["job"]["job_id"]]["label"] == "TrainingJob"
-
-
 # ── KG-2.318: LIVE data-science-mcp dispatch + status poll ─────────────────────
 def test_kg_2_318_submit_invokes_live_dispatch_and_marks_running(
     tmp_path, monkeypatch

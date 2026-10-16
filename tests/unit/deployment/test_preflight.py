@@ -6,11 +6,6 @@ messaging, defensiveness) and a live path through the graph_configure MCP action
 
 from __future__ import annotations
 
-import json
-from unittest.mock import MagicMock, patch
-
-import pytest
-
 from agent_utilities.deployment import preflight as P
 
 
@@ -104,35 +99,3 @@ class _MockMCP:
             return fn
 
         return deco
-
-
-@pytest.fixture
-def registered_tools():
-    mock_mcp = _MockMCP()
-    engine = MagicMock()
-    engine.backend = MagicMock()
-    engine.backend.read_only = False
-    with patch(
-        "agent_utilities.mcp.server_factory.create_mcp_server",
-        return_value=(None, mock_mcp, []),
-    ):
-        with patch("agent_utilities.mcp.kg_server._get_engine", return_value=engine):
-            from agent_utilities.mcp.kg_server import _build_server
-
-            _build_server()
-    return mock_mcp.funcs
-
-
-@pytest.mark.asyncio
-async def test_graph_configure_preflight_live_path(registered_tools):
-    from agent_utilities.mcp import kg_server
-
-    raw = await kg_server._execute_tool(
-        "graph_configure",
-        action="preflight",
-        config_key="tiny",
-        config_value=json.dumps({"components": ["agent-terminal-ui"]}),
-    )
-    rep = json.loads(raw)
-    assert rep["profile"] == "tiny"
-    assert any(c["name"] == "agent-terminal-ui" for c in rep["checks"])

@@ -132,33 +132,3 @@ def test_token_wildcard_endpoint():
 
 
 # ── live route ──────────────────────────────────────────────────────
-
-
-async def test_tool_result_route_resumes_run():
-    pytest.importorskip("fastapi")
-    httpx = pytest.importorskip("httpx")
-    import fastapi
-
-    from agent_utilities.core.execution.held_turns import get_held_turn_registry
-    from agent_utilities.server.routers import human
-
-    app = fastapi.FastAPI()
-    app.include_router(human.router)
-    reg = get_held_turn_registry()
-
-    # Single event loop: the waiter future and the route handler share this loop, so resolve() wakes it.
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        task = asyncio.ensure_future(reg.wait_for_result("liverun", "tu9", timeout=5))
-        await asyncio.sleep(0.05)
-        resp = await client.post(
-            "/api/runs/liverun/tool-result",
-            json={"tool_use_id": "tu9", "result": {"ok": True}},
-        )
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "resumed"
-        assert await task == {"ok": True}
-
-        # no waiter → 404
-        missing = await client.post("/api/runs/ghost/tool-result", json={"result": {}})
-        assert missing.status_code == 404

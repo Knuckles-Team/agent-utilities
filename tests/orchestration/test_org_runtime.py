@@ -420,25 +420,3 @@ async def test_org_run_deadlock_escalates():
 
 
 # ── Surface parity: both actions reachable on MCP + REST ───────────────────
-def test_org_actions_in_manifest_and_rest_routes():
-    from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
-
-    org_actions = {
-        op["action"] for op in GRAPHOS_ACTIONS if op["tool"] == "graph_agents"
-    }
-    assert {"synthesize_org", "run_org"} <= org_actions
-
-    # REST twin routes are mounted.
-    from agent_utilities.mcp import kg_server
-
-    class _App:
-        def __init__(self):
-            self.paths: set[str] = set()
-
-        def add_route(self, path, handler, methods=None):  # noqa: ANN001
-            self.paths.add(path)
-
-    app = _App()
-    kg_server.ensure_tools_registered()
-    kg_server._mount_rest_routes(app)
-    assert "/graph/agents" in app.paths

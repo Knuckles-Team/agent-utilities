@@ -435,7 +435,10 @@ def test_unified_image_installs_native_graph_os_as_console_authority() -> None:
         encoding="utf-8"
     )
 
-    assert "COPY build-artifacts/graph-os-src/graph_os/ /opt/graph-os/graph_os/" in dockerfile
+    assert (
+        "COPY build-artifacts/graph-os-src/graph_os/ /opt/graph-os/graph_os/"
+        in dockerfile
+    )
     assert "-e /opt/graph-os" in dockerfile
     assert dockerfile.index("-e /opt/graph-os") > dockerfile.index(
         '-e "/opt/agent-utilities['
@@ -443,8 +446,8 @@ def test_unified_image_installs_native_graph_os_as_console_authority() -> None:
     assert "m.distribution('graph-os').entry_points" in dockerfile
     assert "graph_os.mcp_server.server:mcp_server" in dockerfile
     assert "from graph_os.fleet.multiplexer import attach_fleet_loader" in dockerfile
-    assert "import agent_utilities.mcp.kg_server" not in dockerfile
-    assert "agent_utilities.mcp.multiplexer" not in dockerfile
+    # Serving is graph-os only: no agent_utilities serving module is launched.
+    assert "import agent_utilities.graphos_client" not in dockerfile
     assert "mountPath: /workspace/build-artifacts/graph-os-src" in job
     assert "path: ${GRAPH_OS_DIR}" in job
     assert "--build-arg=GRAPH_OS_REVISION=${GRAPH_OS_REVISION}" in job

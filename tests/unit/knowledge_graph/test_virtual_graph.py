@@ -282,28 +282,3 @@ def test_the_installed_catalog_answers_and_ignores_non_cross_source(installed) -
     report = asyncio.run(answer_cross_source(QUESTION))
     assert report is not None and report.complete
     assert asyncio.run(answer_cross_source("restart the gateway")) is None
-
-
-def test_ask_routes_planning_and_cross_source_questions(installed) -> None:
-    from agent_utilities.mcp.tools import intent_tools
-
-    async def ask(text: str, **hints: Any) -> dict[str, Any] | None:
-        return await intent_tools._question_route("ask", text, hints, "intent:x")
-
-    report = asyncio.run(ask(QUESTION))
-    assert report is not None
-    assert report["routing"]["chosen_tool"] == "cross_source_report"
-    assert report["result"]["kind"] == "cross_source_report"
-    plan = asyncio.run(ask("How can I deploy the billing service?"))
-    assert plan is not None and plan["result"]["kind"] == "task_plan"
-    assert plan["routing"]["chosen_tool"] == "task_planner"
-    assert asyncio.run(ask("How can I deploy it?", tool="graph_run")) is None
-    assert asyncio.run(intent_tools._question_route("act", QUESTION, {}, "i")) is None
-
-
-def test_dispatch_intent_returns_the_plan_for_a_bare_ask(installed) -> None:
-    from agent_utilities.mcp.tools.intent_tools import dispatch_intent
-
-    out = asyncio.run(dispatch_intent("ask", "What steps deploy the billing service?"))
-    assert out["executed"] is True
-    assert out["result"]["kind"] == "task_plan"

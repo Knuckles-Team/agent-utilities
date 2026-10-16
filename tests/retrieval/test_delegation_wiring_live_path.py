@@ -35,25 +35,6 @@ import pytest
 class TestFleetToolServerWiring:
     """Delegation must be able to resolve a fleet MCP tool server."""
 
-    def test_child_resilience_binds_a_real_protocol_error_type(self):
-        """``MCPError`` must name an exception class under EITHER SDK spelling.
-
-        Guards both failure modes at once: the old ``try/except ImportError``
-        left the name bound to ``()`` (silently disabling session-death
-        recovery), and the v2-only hard import broke the whole module on v1.
-        """
-        from agent_utilities.mcp import child_resilience
-
-        assert isinstance(child_resilience.MCPError, type)
-        assert issubclass(child_resilience.MCPError, BaseException)
-
-    def test_multiplexer_is_importable(self):
-        """The multiplexer must import — the fleet catalog and meta-tools ride on it."""
-        import importlib
-
-        module = importlib.import_module("agent_utilities.mcp.multiplexer")
-        assert hasattr(module, "MCPMultiplexer")
-
     def test_fleet_server_url_resolver_is_reachable(self):
         """``_fleet_server_url`` is the seam delegation uses to bind a tool server.
 

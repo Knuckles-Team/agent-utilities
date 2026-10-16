@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from types import SimpleNamespace
 from unittest import mock
 
@@ -10,12 +9,10 @@ import pytest
 
 from agent_utilities.knowledge_graph.core.session import (
     GraphSession,
-    current_session,
     use_session,
 )
 from agent_utilities.knowledge_graph.facade import KnowledgeGraph
-from agent_utilities.security.brain_context import ActorContext, use_actor
-from agent_utilities.security.request_identity import mint_graph_session
+from agent_utilities.security.brain_context import ActorContext
 
 
 def _config() -> SimpleNamespace:
@@ -139,63 +136,3 @@ def test_guarded_facade_read_fails_closed_when_audit_is_unavailable(monkeypatch)
             "MATCH (n:Record) RETURN n",
             session=session,
         )
-
-
-@pytest.mark.asyncio
-async def test_authenticated_mcp_dispatch_uses_the_middleware_minted_currency():
-    from agent_utilities.mcp import kg_server
-
-    captured = {}
-
-    def tool():
-        captured["session"] = current_session()
-        return "ok"
-
-    actor = ActorContext(
-        actor_id="principal-mcp",
-        roles=("kg:read",),
-        tenant_id="tenant-alpha",
-        authenticated=True,
-        # A real MCP-middleware-minted actor is always projected from an
-        # already-validated bearer credential and therefore always carries a
-        # bounded expiry (ActorContext.credential_expires_at's own docstring:
-        # "Non-token/bootstrap actors leave it unset" -- this one is neither).
-        # ``mint_graph_session`` -> ``build_verified_request_authority`` ->
-        # ``_actor_expiry`` requires exactly this (PermissionError "Verified
-        # authority requires a bounded expiry" otherwise), so an authenticated
-        # fixture actor exercising THIS path must set it, unlike the other
-        # fixture actors in this file that never call ``mint_graph_session``.
-        credential_expires_at=int(time.time()) + 300,
-    )
-    cfg = _config()
-    placement = SimpleNamespace(
-        endpoint="unix:///test-engine.sock",
-        group=1,
-        epoch=1,
-    )
-    with (
-        mock.patch("agent_utilities.core.config.config", cfg),
-        mock.patch(
-            "agent_utilities.knowledge_graph.core.graph_compute."
-            "GraphComputeEngine.get_or_create"
-        ),
-        mock.patch(
-            "agent_utilities.knowledge_graph.core.placement_catalog.resolve_placement",
-            return_value=placement,
-        ),
-    ):
-        session = mint_graph_session(actor)
-    prior_session = current_session()
-    with (
-        mock.patch.dict(kg_server.REGISTERED_TOOLS, {"test_read": tool}),
-        use_actor(actor),
-        use_session(session),
-    ):
-        assert await kg_server._execute_tool("test_read") == "ok"
-
-    captured_session = captured["session"]
-    assert captured_session is session
-    assert captured_session.actor is actor
-    assert captured_session.scopes == frozenset({"kg:read"})
-    assert captured_session.graph == "tenant__tenant-alpha____commons__"
-    assert current_session() is prior_session

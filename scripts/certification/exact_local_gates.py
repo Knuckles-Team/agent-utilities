@@ -244,9 +244,6 @@ G35_REQUIRED_TESTS = (
 )
 
 CERTIFICATION_TESTS = (
-    "unit/test_intent_surface.py",
-    "unit/test_intent_selection_accuracy.py",
-    "unit/mcp/test_intent_surface_gating.py",
     "unit/core/test_provider_materialization.py",
     "unit/security/test_permissions_kernel.py",
     "unit/mcp/test_tools_misc.py",
@@ -254,18 +251,7 @@ CERTIFICATION_TESTS = (
     "unit/knowledge_graph/test_ontology_actions.py",
     "retrieval/test_context_compiler_mandatory.py",
     "unit/graph/test_permission_context.py",
-    "integration/protocols/test_a2a_epistemic_live.py",
-    "unit/protocols/test_a2a_epistemic.py",
     "_test_engine.py",
-)
-
-G34_SCENARIOS = (
-    "test_native_create_reconcile_and_terminal_commit_are_atomic",
-    "test_native_transaction_conflict_never_partially_commits",
-    "test_native_delivery_lease_renews_and_stale_generation_is_fenced",
-    "test_native_poison_bounds_and_record_tamper_fail_closed",
-    "test_native_cancellation_wins_and_late_completion_is_rejected",
-    "test_native_crash_restart_recovers_and_fences_precrash_completion",
 )
 
 _WORKER_PREFIX = "AU_EXACT_LOCAL_WORKER="
@@ -3135,25 +3121,6 @@ def _campaign(args: argparse.Namespace) -> dict[str, Any]:
             required=G32_REQUIRED_TESTS,
         )
 
-        g34_source = _run_pytest_gate(
-            release_python,
-            scratch,
-            gate="g34-a2a",
-            files=(
-                "integration/protocols/test_a2a_epistemic_live.py",
-                "unit/protocols/test_a2a_epistemic.py",
-            ),
-            selectors=(
-                "unit/protocols/test_a2a_epistemic.py::test_adapter_is_pinned_to_fenced_current_engine_contract",
-                "integration/protocols/test_a2a_epistemic_live.py",
-            ),
-            required=(
-                "test_adapter_is_pinned_to_fenced_current_engine_contract",
-                *G34_SCENARIOS,
-            ),
-            engine_binary=engine,
-        )
-
         identity_after = _invoke_identity(release_python, scratch / "identity-after")
         if identity_after != identity_before:
             _fail("installed_release_changed_during_campaign")
@@ -3199,11 +3166,6 @@ def _campaign(args: argparse.Namespace) -> dict[str, Any]:
                 "source_cases": g32_source,
                 "status": "pass",
             },
-            "g34": {
-                "scenarios": list(G34_SCENARIOS),
-                "source_cases": g34_source,
-                "status": "pass",
-            },
             "g35": {
                 **g35_runtime,
                 "source_cases": g35_source,
@@ -3226,8 +3188,7 @@ def _campaign(args: argparse.Namespace) -> dict[str, Any]:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Certify G-08/G-09/G-26/G-30/G-32/G-34/G-35 against exact installed "
-            "artifacts."
+            "Certify G-08/G-09/G-26/G-30/G-32/G-35 against exact installed artifacts."
         )
     )
     parser.add_argument("--release-python", required=True)

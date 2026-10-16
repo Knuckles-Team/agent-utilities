@@ -169,8 +169,7 @@ repos:
     #     still takes the POSIX arm here and still hits the block -- a known
     #     false positive of a sys.modules-only shim, not a real defect.
     #     Verified for real only on the Windows runner in release.yml.
-    #   * __main__, agent.factory, server, mcp.tools, mcp.verbose_tools,
-    #     patterns.* -- all transitively import the third-party `mcp`
+    #   * __main__, agent.factory, patterns.* -- all transitively import the third-party `mcp`
     #     package's MCPToolset, which itself hits `mcp/server/stdio.py`'s
     #     `if sys.platform != "win32": import fcntl` -- the EXACT SAME
     #     already-correctly-guarded pattern as file_lock.py above, and the
@@ -208,24 +207,13 @@ repos:
     #     merge_queue}, knowledge_graph.core.{engine_lock,host_lock} --
     #     transitively import knowledge_graph.core.file_lock (already
     #     excluded above for direct import; these are the same limitation
-    #     one hop removed, exactly like the mcp.tools/mcp.verbose_tools/
-    #     patterns.* group below).
-    #   * mcp.{eunomia_principal,middlewares,multiplexer,shared_multiplexer}
-    #     -- transitively import fastmcp's `server.middleware`/`prompts.base`,
-    #     which (as of the fastmcp 4.0.0b2 upgrade -- not the case under the
-    #     3.3.1 pin this comment was originally written against) now reach
-    #     the third-party `mcp` SDK's own `mcp/server/stdio.py`, which
-    #     guards its `import fcntl` behind the identical pattern (`# POSIX-
-    #     only line, uncovered on Windows runners`) already covered above.
-    #   * mcp.kg_coordinator -- transitively imports `psutil`, whose
-    #     `psutil/__init__.py` platform-dispatches to `psutil/_pslinux.py`
-    #     (real `sys.platform`-gated selection inside psutil itself), which
-    #     imports `resource` -- same shim limitation, third dependency.
-    #   * mcp.toolset_factory -- module-level `install_mcp_v2_bridge()` call
+    #     one hop removed, exactly like the
+    #     patterns.* group above).
+    #   * graphos_client.toolset_factory -- module-level `install_mcp_v2_bridge()` call
     #     (protocol_compat.py) transitively imports `mcp.shared.exceptions`
     #     -> ... -> `mcp.server.stdio`, the exact same already-guarded
     #     `if sys.platform != "win32": import fcntl` line covered by the
-    #     mcp.tools/mcp.verbose_tools/patterns.*/eunomia_principal group
+    #     patterns.* group
     #     above -- one dependency path the shim hadn't been exercised
     #     through yet. Confirmed by direct traceback 2026-08-16, scoped to
     #     this module alone (`--package agent_utilities.graphos_client.toolset_factory`),
@@ -234,7 +222,7 @@ repos:
     #     earlier ModuleNotFoundError left a partially-imported `mcp` package
     #     cached in sys.modules for the rest of that walk -- a shim artifact
     #     of the fcntl block itself, not a second defect.
-    # None of the 13 are a genuinely unguarded import in agent_utilities' own
+    # None of these are a genuinely unguarded import in agent_utilities' own
     # code; deployment.venv_sync/venv_autosync (previously listed here) now
     # import cleanly and needed no entry.
     entry: >-
@@ -243,10 +231,7 @@ repos:
       --exclude agent_utilities.knowledge_graph.core.file_lock
       --exclude agent_utilities.__main__
       --exclude agent_utilities.agent.factory
-      --exclude agent_utilities.server
       --exclude agent_utilities.graphos_client.toolset_factory
-      --exclude agent_utilities.mcp.tools
-      --exclude agent_utilities.mcp.verbose_tools
       --exclude agent_utilities.patterns
       --exclude agent_utilities.knowledge_graph.adaptation.trace_distiller
       --exclude agent_utilities.cli
@@ -256,10 +241,6 @@ repos:
       --exclude agent_utilities.governance.merge_queue
       --exclude agent_utilities.knowledge_graph.core.engine_lock
       --exclude agent_utilities.knowledge_graph.core.host_lock
-      --exclude agent_utilities.mcp.eunomia_principal
-      --exclude agent_utilities.mcp.middlewares
-      --exclude agent_utilities.mcp.multiplexer
-      --exclude agent_utilities.mcp.shared_multiplexer
     language: system
     pass_filenames: false
     # NOT `types: [python]` (this repo's own top-level `exclude: ^scripts/`,
@@ -310,24 +291,6 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-  - id: check-no-stdout-writes
-    name: Stdio JSON-RPC purity (no print()/sys.stdout.write() in the served MCP surface, B-19)
-    entry: scripts/hook_python.sh scripts/check_no_stdout_writes.py
-    language: system
-    pass_filenames: false
-    always_run: true
-  - id: env-var-drift
-    name: Env-var / config drift guard (.env.example matches the code-read surface)
-    entry: scripts/hook_python.sh -m agent_utilities.mcp.check_env_var_drift --check
-    language: system
-    pass_filenames: false
-    # Scoped, not always_run: the script's own `_NON_RUNTIME_SOURCE_DIRS`
-    # (docs/examples/reports/scripts/test/tests) already declares those
-    # trees irrelevant to its os.environ-read scan -- it only walks runtime
-    # source (agent_utilities/, deploy/, docker/) plus .env.example itself.
-    # A commit outside those paths cannot change this hook's verdict.
-    # Measured 2026-08-15: ~13s standalone.
-    files: ^(agent_utilities/.*|deploy/.*|docker/.*|\.env\.example|pyproject\.toml)$
   - id: lane-guard
     name: Lane guard — canonical checkout is read-only; generated views stay generated
     # Two rules that were documented and violated anyway, now mechanical:
@@ -715,51 +678,6 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-  - id: guardrail-surface-parity
-    name: Guardrail — every feature reachable via gateway + MCP
-    # Relative path so the gate analyzes the tree being committed (its script
-    # derives ROOT/baseline from its own location) instead of an unrelated
-    # absolute checkout — required for the gate to see this repo's source and
-    entry: scripts/hook_python.sh --needs-engine guardrail-surface-parity scripts/check_surface_parity.py
-    language: system
-    pass_filenames: false
-    # Scoped: this gate imports the live agent_utilities package and
-    # introspects the runtime gateway/MCP tool registry (reflection, not a
-    # static text scan of some other tree) -- its verdict is a pure function
-    # of agent_utilities/ source. ~14s standalone.
-    files: ^agent_utilities/.*
-  - id: guardrail-openapi-coverage
-    name: Guardrail — every mounted route documented in the OpenAPI spec
-    # Builds the real production FastAPI app (agent_utilities.server.app.
-    # build_agent_app, LLM/A2A bootstrap patched out — see the script's
-    # docstring for exactly what that covers), diffs its full mounted route
-    # table against app.openapi(), and ratchets two finding sets against
-    # scripts/openapi_coverage_baseline.json: routes mounted via raw
-    # Starlette add_route (kg_server.py's _mount_rest_routes — invisible to
-    # /docs by construction) and documented operations missing a summary or
-    # description. Fails only on regression vs the baseline; run with
-    # --update-baseline after a genuine fix.
-    entry: scripts/hook_python.sh scripts/check_openapi_coverage.py
-    language: system
-    pass_filenames: false
-    # Scoped: this gate imports the live agent_utilities package and
-    # introspects the runtime FastAPI app's route table + generated schema
-    # (reflection, not a static text scan) -- its verdict is a pure function
-    # of agent_utilities/server + agent_utilities/gateway + agent_utilities/
-    # mcp/kg_server.py source, plus its own baseline. ~15s standalone.
-    files: ^(agent_utilities/server/.*\.py|agent_utilities/gateway/.*\.py|agent_utilities/mcp/kg_server\.py|scripts/check_openapi_coverage\.py|scripts/openapi_coverage_baseline\.json)$
-  - id: guardrail-cpd-drift
-    name: Guardrail — Capability Power Descriptors stay in sync (Seam 8 CPD)
-    entry: scripts/hook_python.sh --needs-engine guardrail-cpd-drift scripts/check_cpd.py
-    language: system
-    pass_filenames: false
-    # Scoped: regenerates the CPD set from the live tool registry (reflection
-    # over agent_utilities/) and diffs it against the packaged
-    # agent_utilities/knowledge_graph/retrieval/capabilities-power.json
-    # catalog -- both sides of the comparison live under agent_utilities/,
-    # so a single prefix pattern covers source and packaged-catalog drift
-    # alike. ~8s standalone.
-    files: ^agent_utilities/.*
   - id: guardrail-docs-contract
     name: Guardrail — docs catalog, links, nav, and generated inventories
     entry: scripts/hook_python.sh scripts/docs_contract.py --check
@@ -816,7 +734,7 @@ repos:
     # docs-build/wheel-build/backend-parity/guardrails-lean-parity above.
     # Manual-only because it needs a reachable Graph-OS/engine. Run it via:
     #   pre-commit run --config .config/pre-commit.yaml guardrail-kg-skill-coverage --hook-stage manual --all-files
-    entry: scripts/hook_python.sh -m agent_utilities.mcp.skill_coverage
+    entry: scripts/hook_python.sh -m agent_utilities.skills.skill_coverage
     language: system
     pass_filenames: false
     always_run: true
@@ -906,14 +824,6 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-  - id: guardrail-retained-surface-boundary
-    name: Guardrail — retained agent surface has no serving/storage import (AU-BOUNDARY-R043)
-    entry: scripts/hook_python.sh scripts/check_retained_surface_boundary.py
-    language: system
-    pass_filenames: false
-    always_run: true
-  # The four gates below mirror the CI "Guardrails" workflow (guardrails.yml) so
-  # a push can't fail a gate that pre-commit didn't already catch locally.
   - id: guardrail-eval-corpus
     name: Guardrail — eval corpus
     entry: scripts/hook_python.sh scripts/check_eval_corpus.py
@@ -958,7 +868,7 @@ repos:
     # `python3 scripts/gen_fleet_symbol_consumers.py --update`, needs the
     # agent-packages fleet checked out locally). Scans the whole
     # agent_utilities/ tree plus git history, same heavy/pre-push class as
-    # guardrail-liveness and guardrail-surface-parity above; unlike those,
+    # guardrail-liveness above; unlike it,
     # this one is stdlib-only (see scripts/_symbol_surface.py) so it needs no
     # managed-venv re-exec. FAILS CLOSED (not skip) if the consumer index is
     # missing, unparseable, or older than 30 days — see the script's
@@ -972,8 +882,8 @@ repos:
     name: Guardrail — gate meta-tests (prove every gate can fail)
     # Runs in the repo being committed (pre-commit cwd = repo root) so worktrees
     # are gated on their OWN gate tests, matching the prod-profile guard above.
-    # D-CDOC-2: this suite imports the live MCP server surface (kg_server ->
-    # gen_capability_power -> fastmcp), which the AGENT_UTILITIES_ALLOW_ANY_
+    # D-CDOC-2: this suite imported the live MCP server surface (since moved
+    # to graph-os), which the AGENT_UTILITIES_ALLOW_ANY_
     # INTERPRETER escape hatch used to route through the AMBIENT `python3` --
     # a single host-wide interpreter carrying a SHARED, mutable, non-venv
     # editable install of agent_utilities (whichever worktree last ran a

@@ -36,8 +36,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-from tests.wiring import assert_surface, observe, past_the_seam
+from tests.wiring import assert_surface
 
 # ``AGENTS.md`` → *Universal capability*: the entrypoint surface this contract
 # governs. Paths are relative to the ``agent-packages/`` workspace root (this
@@ -118,44 +117,6 @@ def test_entrypoint_engine_access_surface_is_exactly_get_active_and_get_or_creat
         surface="entrypoint IntelligenceGraphEngine access methods",
         invariant=SANCTIONED_SEAMS,
         parameterisation=f"trees={sorted(scanned)}",
-    )
-
-
-def test_messaging_entrypoint_reaches_the_same_engine_seam_as_the_mcp_entrypoint():
-    """Wiring: the messaging entrypoint and the MCP/gateway entrypoint's engine
-    accessors both call the literal same classmethod -- proof they can never
-    disagree about which engine is "active", because there is only one seam
-    for either of them to disagree through.
-    """
-    from agent_utilities.mcp import kg_server
-    from agent_utilities.messaging.service import MessagingService
-
-    MessagingService._instance = None  # isolate from any prior test's singleton
-    try:
-        with observe(IntelligenceGraphEngine, "get_active") as seen:
-            messaging_service = MessagingService.instance(None)
-            messaging_service._resolve_engine()
-            with past_the_seam():
-                kg_server._get_engine()
-    finally:
-        MessagingService._instance = None
-
-    # Not an exact count: kg_server._get_engine() double-checks get_active()
-    # under its own lock (calls it twice when no engine is active yet) -- an
-    # internal locking detail, not part of this contract. What matters is that
-    # BOTH entrypoints' calls land in the one observation, i.e. through the
-    # literal same classmethod object.
-    seen.assert_called(
-        why=(
-            "MessagingService._resolve_engine (the messaging entrypoint) and "
-            "kg_server._get_engine (the MCP/gateway entrypoint) must both "
-            "consult IntelligenceGraphEngine.get_active() -- not a second, "
-            "independently-constructed engine reference."
-        ),
-    )
-    assert seen.count >= 2, (
-        f"expected at least one get_active() call from each of the two "
-        f"entrypoints exercised above, saw {seen.count}"
     )
 
 

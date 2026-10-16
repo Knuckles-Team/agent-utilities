@@ -235,13 +235,6 @@
       "covers": ["G-25"]
     },
     {
-      "id": "au-surface-parity",
-      "repository": "agent-utilities",
-      "argv": ["{python}", "scripts/check_surface_parity.py"],
-      "timeout_seconds": 180,
-      "covers": ["G-26", "G-33"]
-    },
-    {
       "id": "au-exact-harness-contract",
       "repository": "agent-utilities",
       "argv": ["{python}", "scripts/check_exact_local_gates_harness.py"],
@@ -637,7 +630,7 @@
       "id": "G-26",
       "evidence_classes": ["local-source", "exact-artifact"],
       "scope": ["agent-utilities"],
-      "command_ids": ["au-surface-parity", "au-exact-harness-contract", "au-exact-closure-layer"],
+      "command_ids": ["au-exact-harness-contract", "au-exact-closure-layer"],
       "rationale": "Intent surface shape and exact adversarial campaign completeness are local source gates."
     },
     {
@@ -686,7 +679,7 @@
       "id": "G-33",
       "evidence_classes": ["local-source", "exact-artifact"],
       "scope": ["agent-utilities", "epistemic-graph", "langfuse-agent", "provider-fleet"],
-      "command_ids": ["au-provider-fleet", "au-surface-parity", "au-prebundled-skills", "lf-api-parity", "au-ontology-library", "au-documentation-contract", "eg-documentation-contract"],
+      "command_ids": ["au-provider-fleet", "au-prebundled-skills", "lf-api-parity", "au-ontology-library", "au-documentation-contract", "eg-documentation-contract"],
       "rationale": "Documentation coverage, navigation inventory, public surfaces, and provider parity are source checks."
     },
     {

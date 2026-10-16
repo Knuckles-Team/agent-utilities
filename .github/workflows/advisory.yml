@@ -281,19 +281,11 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      - name: Bounded parser fuzzing
-        continue-on-error: true
-        run: >-
-          python3 -m pytest tests/unit/security/test_parser_fuzz.py
-          -q -p no:cacheprovider -o addopts=""
-
       - name: Authentication negative paths
         continue-on-error: true
         run: >-
           python3 -m pytest
           tests/unit/core/test_request_identity.py
-          tests/unit/mcp/test_graphos_bootstrap_isolation.py
-          tests/unit/security/test_cli_secret_references.py
           -q -p no:cacheprovider -o addopts=""
 
       - name: Tenant-isolation regression suite

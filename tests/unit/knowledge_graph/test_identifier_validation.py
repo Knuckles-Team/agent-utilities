@@ -200,36 +200,6 @@ class TestEpistemicGraphBackendPruneRejectsMaliciousPropertyKeys:
         assert "min_importance" in calls[0][0]
 
 
-class TestKgServerDisabledBatchEngineLookupValidatesLocally:
-    """``_disabled_batch_engine_lookup`` re-validates ``safe_label`` at the
-    interpolation site itself (not just trusting the ``safe_label`` name from
-    its sole caller, ``get_existing_disabled_batch``), and — matching this
-    helper's documented fail-closed contract for any query error — an
-    invalid label marks every id disabled rather than raising past it."""
-
-    def test_invalid_label_fails_closed_without_querying(self):
-        from agent_utilities.mcp.kg_server import _disabled_batch_engine_lookup
-
-        engine = MagicMock()
-        result: dict[str, bool] = {}
-        _disabled_batch_engine_lookup(
-            engine, 'Bad"; DROP TABLE kg_edges; --', ["x", "y"], result
-        )
-        engine.query_cypher.assert_not_called()
-        assert result == {"x": True, "y": True}
-
-    def test_valid_label_reaches_the_query(self):
-        from agent_utilities.mcp.kg_server import _disabled_batch_engine_lookup
-
-        engine = MagicMock()
-        engine.query_cypher.return_value = []
-        result: dict[str, bool] = {}
-        _disabled_batch_engine_lookup(engine, "NativeTool", ["x"], result)
-        engine.query_cypher.assert_called_once()
-        query = engine.query_cypher.call_args.args[0]
-        assert "MATCH (n:NativeTool)" in query
-
-
 class TestPostgresRlsStatementsRejectsMaliciousTable:
     """``rls_statements`` is a pure staticmethod (no I/O) — the most direct
     way to prove the DDL-building path itself rejects a bad identifier."""
@@ -420,39 +390,6 @@ class TestCheckpointPostgresBackendRejectsMaliciousTableName:
             "postgresql://example.invalid/db", table_name="agent_snapshots"
         )
         assert backend.table_name == "agent_snapshots"
-
-
-class TestEngineSurfaceToolsRejectsMaliciousNodeLabelAndFields:
-    """``mcp/tools/engine_surface_tools.py``'s ``_gather_kg_feature_rows`` —
-    the KV-feature-projection source for the fleet's data-science delegation
-    (CONCEPT:AU-KG.mining.dsm-forecast-delegation); had no malicious-corpus
-    coverage before this sweep."""
-
-    @pytest.mark.parametrize("bad_label", MALICIOUS_IDENTIFIERS)
-    def test_rejects_malicious_node_label(self, bad_label):
-        from agent_utilities.mcp.tools.engine_surface_tools import (
-            _gather_kg_feature_rows,
-        )
-
-        if not bad_label:
-            pytest.skip("empty node_label already covered by the 'required' message")
-        with pytest.raises(ValueError, match="source.node_label"):
-            _gather_kg_feature_rows(
-                {"node_label": bad_label, "fields": ["f0"], "limit": 10}, "graph"
-            )
-
-    @pytest.mark.parametrize("bad_field", MALICIOUS_IDENTIFIERS)
-    def test_rejects_malicious_field_name(self, bad_field):
-        from agent_utilities.mcp.tools.engine_surface_tools import (
-            _gather_kg_feature_rows,
-        )
-
-        if not bad_field:
-            pytest.skip("empty field name already covered by the 'required' message")
-        with pytest.raises(ValueError, match="source.fields"):
-            _gather_kg_feature_rows(
-                {"node_label": "Doc", "fields": [bad_field], "limit": 10}, "graph"
-            )
 
 
 class TestOgmRequireIdentifierRejectsMaliciousInput:

@@ -63,7 +63,7 @@ def test_coupling_gate_trips_on_non_adapter_import(tmp_path):
     )
     # ...but a UI module importing agent_utilities directly is a violation.
     (pkg / "qt" / "widget.py").write_text(
-        "from agent_utilities.gateway.aggregator import Aggregator\n"
+        "from agent_utilities.graphos_client.host import fleet_catalog\n"
     )
     res = _run([str(SCRIPTS / "check_coupling.py"), str(pkg)])
     assert res.returncode == 1, res.stderr

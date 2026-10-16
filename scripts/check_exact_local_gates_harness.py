@@ -13,7 +13,6 @@ HARNESS = ROOT / "scripts" / "certification" / "exact_local_gates.py"
 DOCUMENTATION = ROOT / "docs" / "release" / "exact-local-gates.md"
 NAVIGATION = ROOT / "mkdocs.yml"
 WORKFLOW = ROOT / ".github" / "workflows" / "advisory.yml"
-A2A_TEST = ROOT / "tests" / "integration" / "protocols" / "test_a2a_epistemic_live.py"
 
 EXPECTED_INTENT_TOOLS = (
     "act",
@@ -64,14 +63,6 @@ EXPECTED_OPTIMIZER_FAMILIES = (
     ("knn_few_shot", ("knn_few_shot",), "graph_kernel_plan", 0, 0),
     ("ensemble", ("ensemble",), "native_kernel", 0, 0),
     ("infer_rules", ("infer_rules",), "model_transport_plan", 8, 0),
-)
-EXPECTED_A2A_SCENARIOS = (
-    "test_native_create_reconcile_and_terminal_commit_are_atomic",
-    "test_native_transaction_conflict_never_partially_commits",
-    "test_native_delivery_lease_renews_and_stale_generation_is_fenced",
-    "test_native_poison_bounds_and_record_tamper_fail_closed",
-    "test_native_cancellation_wins_and_late_completion_is_rejected",
-    "test_native_crash_restart_recovers_and_fences_precrash_completion",
 )
 EXPECTED_G08_RUNTIME_CASES = (
     "fairness_scoped_claim",
@@ -222,7 +213,6 @@ REQUIRED_SOURCE_TOKENS = (
     "permission_delegation_context_lost",
     "permission_invalid_authority_accepted",
     "permission_invalid_policy_accepted",
-    "integration/protocols/test_a2a_epistemic_live.py",
     "exact_installed_pytest_gate_failed",
     "_assert_evidence_safe",
     "evidence_destination_must_be_new_absolute_path",
@@ -411,7 +401,6 @@ def check_contract(
     documentation_text: str,
     navigation_text: str,
     workflow_text: str,
-    a2a_text: str,
 ) -> tuple[str, ...]:
     """Return stable, non-sensitive contract violation codes."""
 
@@ -451,8 +440,10 @@ def check_contract(
         or plan_executors.get("avatar") != {"model_transport"}
     ):
         violations.append("optimizer_avatar_evidence_drift")
-    if assignments.get("G34_SCENARIOS") != EXPECTED_A2A_SCENARIOS:
-        violations.append("a2a_scenario_matrix_drift")
+    # A2A is served by graph-os (agent-utilities 3.0.0 is the harness only), so
+    # this campaign carries no A2A gate; reintroducing one is contract drift.
+    if "G34_SCENARIOS" in assignments or "g34-a2a" in harness_text:
+        violations.append("a2a_control_reintroduced")
     if assignments.get("G08_RUNTIME_CASES") != EXPECTED_G08_RUNTIME_CASES:
         violations.append("g08_runtime_case_matrix_drift")
     if assignments.get("G09_RUNTIME_CASES") != EXPECTED_G09_RUNTIME_CASES:
@@ -587,19 +578,6 @@ def check_contract(
     if _hardcoded_authority(tree):
         violations.append("hardcoded_runtime_authority_present")
 
-    try:
-        a2a_tree = ast.parse(a2a_text, filename="test_a2a_epistemic_live.py")
-    except SyntaxError:
-        violations.append("a2a_harness_syntax_invalid")
-    else:
-        crash_case = _function(
-            a2a_tree,
-            "test_native_crash_restart_recovers_and_fences_precrash_completion",
-        )
-        crash_controls = _called_names(crash_case) | _attribute_names(crash_case)
-        if not {"Pipe", "Process", "kill", "crash", "restart"} <= crash_controls:
-            violations.append("a2a_separate_process_crash_control_missing")
-
     for value in (
         node.value
         for node in ast.walk(tree)
@@ -628,7 +606,6 @@ def main() -> int:
             DOCUMENTATION.read_text(encoding="utf-8"),
             NAVIGATION.read_text(encoding="utf-8"),
             WORKFLOW.read_text(encoding="utf-8"),
-            A2A_TEST.read_text(encoding="utf-8"),
         )
     except OSError:
         violations = ("certification_source_unavailable",)

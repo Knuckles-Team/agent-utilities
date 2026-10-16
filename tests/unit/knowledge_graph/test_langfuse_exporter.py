@@ -210,41 +210,6 @@ class TestNoOp:
 
 
 class TestCanonicalHostConsumers:
-    def test_gateway_widget_uses_canonical_host(self, monkeypatch):
-        canonical = "https://canonical.invalid"
-        monkeypatch.setenv("LANGFUSE_HOST", canonical)
-        monkeypatch.setenv("LANGFUSE_BASE_URL", "https://source.invalid")
-        monkeypatch.setenv("LANGFUSE_URL", "https://legacy.invalid")
-
-        captured = {}
-        package = types.ModuleType("langfuse_agent")
-        api_client = types.ModuleType("langfuse_agent.api_client")
-
-        class _FakeApi:
-            def __init__(self, **kwargs):
-                captured.update(kwargs)
-
-            def health(self):
-                return {"status": "OK"}
-
-            def get_traces(self, **_kwargs):
-                return {"totalItems": 0}
-
-        api_client.LangfuseApi = _FakeApi
-        package.api_client = api_client
-        monkeypatch.setitem(sys.modules, "langfuse_agent", package)
-        monkeypatch.setitem(sys.modules, "langfuse_agent.api_client", api_client)
-
-        from agent_utilities.gateway.models import ServiceConfig
-        from agent_utilities.gateway.widgets.langfuse import Widget
-
-        result = Widget().fetch_data(
-            ServiceConfig(id="test", name="test", widget_type="langfuse")
-        )
-
-        assert result.status == "ok"
-        assert captured["base_url"] == canonical
-
     def test_hydration_status_uses_canonical_host(self, monkeypatch):
         canonical = "https://canonical.invalid"
         monkeypatch.setenv("LANGFUSE_HOST", canonical)

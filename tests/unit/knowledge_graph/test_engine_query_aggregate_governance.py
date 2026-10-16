@@ -110,15 +110,6 @@ def brain():
 # --- is_aggregation_cypher relocation ---------------------------------------
 
 
-def test_is_aggregation_cypher_reexported_from_query_tools():
-    """query_tools kept its import path; engine_query is now the sole definition."""
-    from agent_utilities.mcp.tools.query_tools import (
-        is_aggregation_cypher as reexported,
-    )
-
-    assert reexported is is_aggregation_cypher
-
-
 @pytest.mark.parametrize(
     "cypher",
     [

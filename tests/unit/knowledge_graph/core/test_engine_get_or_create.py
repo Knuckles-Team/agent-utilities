@@ -114,7 +114,7 @@ def test_get_or_create_only_warns_on_the_winning_construction(caplog):
         _NoOpEngine._ACTIVE_ENGINE = None
 
 
-def test_engine_has_no_optional_mcp_data_prep_import():
+def test_engine_has_no_graphos_client_import():
     tree = ast.parse(inspect.getsource(engine_module))
     imported_modules = {
         node.module
@@ -127,4 +127,6 @@ def test_engine_has_no_optional_mcp_data_prep_import():
         if isinstance(node, ast.Import)
         for alias in node.names
     )
-    assert "agent_utilities.mcp.tools.data_prep_tools" not in imported_modules
+    assert not {
+        m for m in imported_modules if m.startswith("agent_utilities.graphos_client")
+    }

@@ -39,9 +39,6 @@ MAX_INPUT_BYTES: Final = 1024 * 1024
 # This is the exact source catalog copied by exact_local_gates.py.  The source
 # contract checker proves the two inventories stay identical.
 EXACT_LOCAL_TEST_FILES: Final = (
-    "unit/test_intent_surface.py",
-    "unit/test_intent_selection_accuracy.py",
-    "unit/mcp/test_intent_surface_gating.py",
     "unit/core/test_provider_materialization.py",
     "unit/security/test_permissions_kernel.py",
     "unit/mcp/test_tools_misc.py",
@@ -49,8 +46,6 @@ EXACT_LOCAL_TEST_FILES: Final = (
     "unit/knowledge_graph/test_ontology_actions.py",
     "retrieval/test_context_compiler_mandatory.py",
     "unit/graph/test_permission_context.py",
-    "integration/protocols/test_a2a_epistemic_live.py",
-    "unit/protocols/test_a2a_epistemic.py",
     "_test_engine.py",
 )
 

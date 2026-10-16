@@ -312,106 +312,6 @@ def _isolate_os_environ():
 
 
 @pytest.fixture(autouse=True)
-def _isolate_registered_tools():
-    """Restore ``kg_server.REGISTERED_TOOLS``/``ACTION_TOOL_ROUTES`` to their pre-test contents.
-
-    ``_build_server()`` populates these two process-wide dicts as a side effect,
-    binding tool callables to the engine resolved at build time (and — for a
-    handful of tools, e.g. ``nl_query``/the Seam 8 intent verbs,
-    CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse — registering their REST-route twin
-    dynamically). A test that builds the server (e.g. via a
-    ``server_tools``/``registered_tools`` fixture, or a test that exercises
-    the intent-tool surface) therefore leaves stale tool bindings AND route
-    entries in the global registries that corrupt a later test's tool calls (a
-    ``graph_query`` returning ``[]`` from the wrong engine) or the MCP⇄REST
-    parity contract (an ``ACTION_TOOL_ROUTES`` entry surviving into a test whose
-    ``REGISTERED_TOOLS`` snapshot doesn't have the matching tool — a false
-    "phantom route"). Snapshotting and restoring both registries at the test
-    boundary keeps tool registration order-independent. Only guards a flag is
-    needless — the dicts ARE the state. Lazy import so conftest stays cheap.
-    """
-    # The MCP server module requires the optional ``[mcp]`` extra
-    # (fastmcp/starlette/fastapi); a lean serving/CI install (the Guardrails
-    # env) may omit it entirely, or it may simply not have been imported yet
-    # by this test. Looking it up via ``sys.modules`` (rather than importing
-    # it) avoids forcing the optional extra to load for tests that never
-    # touch it — mirrors the lean-tolerance of the heavy-dep mocks above. If
-    # it gets imported mid-test, the ``finally`` block below still snapshots
-    # correctly and clears whatever it registered.
-    module_name = "agent_utilities.mcp.kg_server"
-    kg_server = sys.modules.get(module_name)
-    tools_snapshot = dict(kg_server.REGISTERED_TOOLS) if kg_server is not None else None
-    routes_snapshot = (
-        dict(kg_server.ACTION_TOOL_ROUTES) if kg_server is not None else None
-    )
-    try:
-        yield
-    finally:
-        kg_server = sys.modules.get(module_name)
-        if kg_server is not None:
-            kg_server.REGISTERED_TOOLS.clear()
-            kg_server.ACTION_TOOL_ROUTES.clear()
-            if tools_snapshot is not None:
-                kg_server.REGISTERED_TOOLS.update(tools_snapshot)
-            if routes_snapshot is not None:
-                kg_server.ACTION_TOOL_ROUTES.update(routes_snapshot)
-            # The named-connection registry (CONCEPT:AU-KG.backend.multi-connection-registry) is a process-wide
-            # singleton seeded from config; a test that registers a backend (e.g. a
-            # Stardog mirror via setup_environment) leaves it pointing at that
-            # backend and corrupts a later test's engine/query routing. Drop it so it
-            # rebuilds fresh from the (restored) config on next use.
-            kg_server._CONNECTION_REGISTRY = None
-
-
-@pytest.fixture(autouse=True)
-def _isolate_intent_outcome_learning():
-    """Reset the Seam 8 intent-surface calibrated-outcomes learner between tests.
-
-    ``intent_tools`` keeps its outcome-learned reward-EMA
-    (CONCEPT:AU-ECO.mcp.intent-surface-outcome-learning) and its resolution cache
-    (CONCEPT:AU-ECO.mcp.intent-surface-resolution-cache) as process-wide module state so a
-    dispatch in one test never biases (or cache-serves a stale ranking into) a
-    LATER, unrelated test that happens to route to the same real tool under
-    the same verb. A fresh router + empty cache each test keeps that state
-    hermetic per-test while still letting a test that WANTS to prove the
-    learning loop record and observe it within itself.
-    """
-    try:
-        from agent_utilities.mcp.tools import intent_tools
-    except ImportError:
-        # Same lean-install tolerance as ``_isolate_registered_tools`` above —
-        # the intent surface lives on top of the optional ``[mcp]`` extra.
-        yield
-        return
-
-    # `_CANDIDATES_CACHE`/`_ACTIONS_BY_TOOL_CACHE` are reset here too, and that
-    # is the chokepoint, not a belt-and-braces addition. WD5-FIX-04 traced a
-    # measured failure to their absence: a sibling test registers only 8 tools
-    # directly into `kg_server.REGISTERED_TOOLS` and then calls the real
-    # `dispatch_intent`. `_build_candidates()`'s own `ensure_tools_registered()`
-    # short-circuits on `if REGISTERED_TOOLS: return`, so the candidate table is
-    # built ONCE from those 8 tools and survives into every later test in that
-    # xdist worker. `_isolate_registered_tools` restores REGISTERED_TOOLS itself
-    # and this fixture restored the router and resolution cache -- but nothing
-    # reset the candidate cache, so `test_intent_surface_selection_accuracy_
-    # meets_measured_floor` reported 36.00% top-1 against its 60% floor while
-    # the true figure in isolation is 76.00%. A gate reporting 36% for a real
-    # 76% is not a flaky nuisance: it gets ignored, or "fixed" by lowering the
-    # floor, and either way a genuine quality signal is lost.
-    intent_tools._OUTCOME_ROUTER = None
-    intent_tools._RESOLUTION_CACHE.clear()
-    intent_tools._CANDIDATES_CACHE = None
-    intent_tools._ACTIONS_BY_TOOL_CACHE = None
-    try:
-        yield
-    finally:
-        intent_tools._OUTCOME_ROUTER = None
-        intent_tools._RESOLUTION_CACHE.clear()
-        intent_tools._CANDIDATES_CACHE = None
-        intent_tools._ACTIONS_BY_TOOL_CACHE = None
-
-
-@pytest.fixture(autouse=True)
 def _isolate_config_module_lazy_attrs():
     """Undo any test's ``monkeypatch.setattr("agent_utilities.core.config.<name>",
     ...)`` that permanently shadowed a PEP 562 module ``__getattr__``-synthesized
@@ -1541,35 +1441,9 @@ def _is_none_numeric_shim_attribute_error(exc: BaseException) -> bool:
     return False
 
 
-def _is_missing_engine_domain_tool_error(exc: BaseException) -> bool:
-    """True if ``exc`` is a ``KeyError``/``ValueError`` caused by an
-    ``engine_<domain>`` MCP tool not being registered because
-    ``engine_tools.ENGINE_DOMAINS`` is empty (the ``epistemic_graph`` client
-    package absent) -- a FOURTH signature of the same "no real engine/kernel
-    here" condition documented on :func:`_is_engine_unreachable_error`,
-    reached through a ``kg_server.REGISTERED_TOOLS["engine_<domain>"]``
-    lookup or ``kg_server._execute_tool``'s own "Tool ... not registered"
-    guard instead of a raw ``ModuleNotFoundError``. Gated on ``ENGINE_DOMAINS``
-    actually being empty right now (not a stale assumption) plus the
-    exception naming a REAL domain from ``_DOMAIN_CLASSES``, so a genuine
-    KeyError/ValueError elsewhere -- including one that happens to be about a
-    real, present engine tool -- is never masked.
-    """
-    if not isinstance(exc, (KeyError, ValueError)):
-        return False
-    try:
-        from agent_utilities.mcp.tools import engine_tools
-    except Exception:  # noqa: BLE001 — can't classify without it; not this signature
-        return False
-    if engine_tools.ENGINE_DOMAINS:
-        return False  # kernel IS present -- a real KeyError/ValueError, never mask
-    message = str(exc)
-    return any(f"engine_{domain}" in message for domain in engine_tools._DOMAIN_CLASSES)
-
-
 def _is_engine_unreachable_error(exc: BaseException | None) -> bool:
     """True if ``exc`` (or its cause chain) is the epistemic-graph engine being
-    unavailable in THIS environment -- four distinct signatures:
+    unavailable in THIS environment -- three distinct signatures:
 
     1. Unreachable daemon: the message raised by ``GraphComputeEngine`` / the
        client when no engine daemon answers. Matched by message (the client
@@ -1591,11 +1465,6 @@ def _is_engine_unreachable_error(exc: BaseException | None) -> bool:
     3. Absent numeric kernel: see :func:`_is_none_numeric_shim_attribute_error`
        -- the same absent-package condition, reached through
        ``agent_utilities.numeric``'s own None-shim degrade instead of a raw
-       ``ModuleNotFoundError``.
-    4. Missing ``engine_<domain>`` MCP tool registration: see
-       :func:`_is_missing_engine_domain_tool_error` -- the same
-       absent-package condition, reached through a
-       ``REGISTERED_TOOLS``/``ACTION_TOOL_ROUTES`` lookup instead of a raw
        ``ModuleNotFoundError``.
 
     Two signatures that USED to live here were removed as over-broad: a
@@ -1631,8 +1500,6 @@ def _is_engine_unreachable_error(exc: BaseException | None) -> bool:
             if missing == "epistemic_graph" or missing.startswith("epistemic_graph."):
                 return True
         if _is_none_numeric_shim_attribute_error(exc):
-            return True
-        if _is_missing_engine_domain_tool_error(exc):
             return True
         exc = exc.__cause__ or exc.__context__
     return False

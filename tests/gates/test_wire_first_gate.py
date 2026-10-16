@@ -352,7 +352,7 @@ def test_symbol_gate_accepts_methods_on_explicitly_reexported_public_classes(
     to D-OB-9 even when a test invokes it.
     """
     src_dir = tmp_path / "agent_utilities"
-    api_dir = src_dir / "api"
+    api_dir = src_dir / "ports_pkg"
     api_dir.mkdir(parents=True)
     (api_dir / "__init__.py").write_text(
         "from .ports import CatalogPort\n__all__ = ['CatalogPort']\n"
@@ -371,8 +371,8 @@ def test_symbol_gate_accepts_methods_on_explicitly_reexported_public_classes(
     tests_dir = tmp_path / "tests"
     tests_dir.mkdir()
     (tests_dir / "test_public_port.py").write_text(
-        "from agent_utilities.api import CatalogPort\n"
-        "from agent_utilities.api._implementation import UnexportedHelper\n\n"
+        "from agent_utilities.ports_pkg import CatalogPort\n"
+        "from agent_utilities.ports_pkg._implementation import UnexportedHelper\n\n"
         "def test_ports():\n"
         "    CatalogPort().read_current_records()\n"
         "    UnexportedHelper().unused_helper_operation()\n"

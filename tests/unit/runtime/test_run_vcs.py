@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from agent_utilities.runtime.run_vcs.carrier import FsCarrier
 from agent_utilities.runtime.run_vcs.kernel import (
     RunEventLog,
@@ -239,13 +237,3 @@ def test_session_registry_addresses_live_runs(tmp_path: Path):
     assert "reg-run" in RunSessionRegistry.get().list_ids()
     assert RunSessionRegistry.get().acquire("reg-run") is session
     assert RunSessionRegistry.get().drop("reg-run")
-
-
-@pytest.mark.asyncio
-async def test_graph_runvcs_surface_is_registered():
-    """The MCP tool + REST twin exist (surface parity)."""
-    from agent_utilities.mcp import kg_server
-
-    kg_server.ensure_tools_registered()
-    assert "graph_runvcs" in kg_server.REGISTERED_TOOLS
-    assert kg_server.ACTION_TOOL_ROUTES.get("graph_runvcs") == "/graph/runvcs"

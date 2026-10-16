@@ -362,8 +362,8 @@ def test_direct_authority_ttl_covers_the_complete_bounded_case() -> None:
 async def test_direct_session_forces_refresh_when_cached_lease_is_too_short(
     monkeypatch,
 ) -> None:
+    from agent_utilities.graphos_client import client_credentials
     from agent_utilities.knowledge_graph.core.session import SessionExpiredError
-    from agent_utilities.mcp import client_credentials
 
     headers_seen: list[str] = []
     force_values: list[bool] = []
@@ -408,7 +408,7 @@ async def test_direct_session_forces_refresh_when_cached_lease_is_too_short(
 
 @pytest.mark.asyncio
 async def test_direct_session_rejects_any_authority_change(monkeypatch) -> None:
-    from agent_utilities.mcp import client_credentials
+    from agent_utilities.graphos_client import client_credentials
 
     expected = {
         "principal": "subject:opaque:synthetic",
@@ -443,7 +443,7 @@ async def test_direct_session_rejects_any_authority_change(monkeypatch) -> None:
 async def test_delegated_session_always_force_refreshes_and_revalidates(
     monkeypatch,
 ) -> None:
-    from agent_utilities.mcp import client_credentials
+    from agent_utilities.graphos_client import client_credentials
 
     force_values: list[bool] = []
     current_token = ["cached-token"]
@@ -484,7 +484,7 @@ async def test_delegated_session_always_force_refreshes_and_revalidates(
 
 @pytest.mark.asyncio
 async def test_delegated_session_rejects_changed_authority(monkeypatch) -> None:
-    from agent_utilities.mcp import client_credentials
+    from agent_utilities.graphos_client import client_credentials
 
     expected = {
         "principal": "subject:opaque:synthetic",

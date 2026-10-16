@@ -137,10 +137,6 @@ class TestCacheInvalidationIntegration:
             PipelineRunner,  # noqa: F401
         )
 
-    def test_agent_manager_imports_invalidation(self):
-        """agent_manager module should be importable with invalidation wiring."""
-        from agent_utilities.mcp import agent_manager  # noqa: F401
-
     def test_memory_retriever_imports_invalidation(self):
         """MemoryRetriever should be importable with invalidation wiring."""
         from agent_utilities.knowledge_graph.retrieval.memory_retriever import (  # noqa: F401

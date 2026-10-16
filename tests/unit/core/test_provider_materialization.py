@@ -667,7 +667,7 @@ def test_duplicate_flat_skill_identity_resolves_deterministically(
 def test_skill_coverage_uses_only_the_unified_validated_reader(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from agent_utilities.mcp import skill_coverage
+    from agent_utilities.skills import skill_coverage
 
     current = tmp_path / "current"
     current.mkdir()

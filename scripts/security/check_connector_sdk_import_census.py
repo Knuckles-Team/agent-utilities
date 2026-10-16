@@ -30,6 +30,8 @@ import ast
 from pathlib import Path
 
 BANNED_MODULES = (
+    # Tombstone: agent_utilities.mcp was deleted in AU 3.0.0 (graph-os owns MCP
+    # serving); still banned so a connector left importing it is reported.
     "agent_utilities.mcp",
     "agent_utilities.core.config",
     "agent_utilities.core.exceptions",
@@ -38,7 +40,7 @@ BANNED_MODULES = (
 )
 
 # Bare "agent_utilities" (e.g. "import agent_utilities") is not itself
-# banned -- the public API (agent_utilities.api) is an allowed surface --
+# banned -- the top-level package is an allowed surface --
 # so only dotted submodule imports that resolve under one of the banned
 # prefixes above are flagged.
 
@@ -129,7 +131,11 @@ def census_selected(fleet_root: Path, selected_range: str | None) -> dict:
     arguments). Omitting --range is strictly more coverage, not a weaker
     default.
     """
-    ranges = LETTER_RANGES if selected_range is None else {selected_range: LETTER_RANGES[selected_range]}
+    ranges = (
+        LETTER_RANGES
+        if selected_range is None
+        else {selected_range: LETTER_RANGES[selected_range]}
+    )
     merged: dict = {}
     for letters in ranges.values():
         merged.update(census(fleet_root, *letters))

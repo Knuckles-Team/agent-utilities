@@ -7,8 +7,8 @@ narrative guides in [`docs/recipes/`](../../docs/recipes/) for `.env`/`config.js
 | Profile | What to bring up | Files |
 |---|---|---|
 | **Tiny** | Nothing — the KG is in-process. Just `scripts/bootstrap.sh`. | — |
-| **Single-node prod** | Durable KG + gateway + core connectors on one host | `pg-age.compose.yml` + the MCP gateway (`mcp.compose.yml`) + the `single-node-prod` services from the registry |
-| **Enterprise** | Full swarm + integrations + entire fleet | `pg-age.compose.yml` + `kafka-kraft.compose.yml` + `mcp.compose.yml` + the `enterprise` services from the registry, deployed via Portainer GitOps (`portainer-sync-agent`) |
+| **Single-node prod** | Durable KG + gateway + core connectors on one host | `pg-age.compose.yml` + graph-os (deployed from the graph-os repository) + the `single-node-prod` services from the registry |
+| **Enterprise** | Full swarm + integrations + entire fleet | `pg-age.compose.yml` + `kafka-kraft.compose.yml` + graph-os + the `enterprise` services from the registry, deployed via Portainer GitOps (`portainer-sync-agent`) |
 | **Engine shards (Stage 2)** | N tenant-partitioned epistemic-graph engine shards behind client-side HRW routing | `engine-shards.compose.yml` (worked 3-shard example) + `GRAPH_SERVICE_ENDPOINTS` on every client — see [docs/architecture/engine_sharding.md](../../docs/architecture/engine_sharding.md) |
 | **Combined pg-age (graph + vector + BM25)** | One Postgres with Apache AGE + pgvector + ParadeDB `pg_search` | `pg-age-full.compose.yml` (builds `pg-age-full/Dockerfile`) — the image `services/pg-age/compose.yml` expects; see [docs/recipes/databases.md](../../docs/recipes/databases.md) |
 
@@ -20,7 +20,6 @@ docker compose -f docker/pg-age.compose.yml up -d
 # KG MCP gateway over streamable-http
 test -n "${GRAPH_DB_URI:?inject GRAPH_DB_URI from the secret provider}"
 GRAPH_DB_URI="$GRAPH_DB_URI" \
-  docker compose -f docker/mcp.compose.yml up -d
 # Core connectors (single-node-prod profile) — per-service stacks from the registry
 #   python scripts/gen_mcp_fleet_registry.py --agents-dir <…>/agents --out deploy/mcp-fleet.registry.yml
 #   then deploy each service tagged `single-node-prod` via its own docker/compose.yml

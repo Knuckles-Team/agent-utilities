@@ -14,7 +14,7 @@ table** first, then the composition recipes.
 | Profile | What you run | Setup guide |
 |---|---|---|
 | **Tiny** (laptop/homelab, zero-infra) | Nothing to compose — GraphOS supervises the packaged Rust engine as an out-of-process child over a private local transport. Just `scripts/bootstrap.sh`. | [`docs/recipes/tiny.md`](../docs/recipes/tiny.md) |
-| **Single-node prod** (one durable host) | `pg-age.compose.yml` + `mcp.compose.yml` + core connectors | [`docs/recipes/single-node-prod.md`](../docs/recipes/single-node-prod.md) |
+| **Single-node prod** (one durable host) | `pg-age.compose.yml` + graph-os (deployed from the graph-os repository) + core connectors | [`docs/recipes/single-node-prod.md`](../docs/recipes/single-node-prod.md) |
 | **Enterprise** (multi-host swarm, full fleet) | `pg-age` + `kafka-kraft` + `mcp` + the whole `*-mcp` fleet, via the genesis workflow | [`docs/recipes/enterprise.md`](../docs/recipes/enterprise.md) |
 
 The **composition recipes** — which compose files to combine per profile, with copy-paste
@@ -40,7 +40,6 @@ vars, `config.json`, secrets, database choice) lives in [`docs/recipes/`](../doc
 
 **The serving plane:**
 
-| `mcp.compose.yml` | `graph-os` as a **thin FastMCP gateway** (streamable-http :8004) | the MCP tool surface every client/agent talks to |
 
 **Optional / scale-out / contrib backends (bring up only if you need them):**
 
@@ -63,7 +62,6 @@ scripts/bootstrap.sh                                   # docs/recipes/tiny.md
 
 # 2) Durable single host — bring up the KG tier, then the gateway
 docker compose -f docker/pg-age.compose.yml up -d
-docker compose -f docker/mcp.compose.yml up -d         # docs/recipes/single-node-prod.md
 
 # 3) Full platform — swarm + all tiers + the *-mcp fleet
 #    run the `agent-utilities-deployment` skill — it resolves an adaptive run plan

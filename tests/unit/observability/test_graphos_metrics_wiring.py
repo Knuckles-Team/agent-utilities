@@ -101,32 +101,6 @@ _NETWORK_ARGV = [
 ]
 
 
-def _build_server(monkeypatch, argv: list[str], *, metrics_ref: str = ""):
-    """Build a REAL factory server (no mocks) with a controlled CLI/env."""
-    import json
-
-    from agent_utilities.mcp import server_factory
-
-    monkeypatch.setenv(
-        _STATIC_TOKENS_ENV,
-        json.dumps({"c" * 40: {"client_id": "wiring-test", "scopes": []}}),
-    )
-    monkeypatch.setenv("MCP_ALLOWED_HOSTS", "graph-os.test,127.0.0.1")
-    monkeypatch.setattr("sys.argv", argv)
-    real_setting = server_factory.setting
-
-    def _setting(key, default=None):
-        if key == "MCP_METRICS_TOKEN_REF":
-            return metrics_ref
-        return real_setting(key, default)
-
-    monkeypatch.setattr(server_factory, "setting", _setting)
-    _args, mcp, _mw = server_factory.create_mcp_server(
-        name="wiring-test", version="0.0.0", instructions="t"
-    )
-    return mcp
-
-
 def _orchestrator():
     """A real ``Orchestrator`` with only the collaborators these paths touch."""
     from agent_utilities.orchestration import manager as manager_mod
@@ -148,112 +122,6 @@ def _orchestrator():
 # ---------------------------------------------------------------------------
 # 1. GET /metrics is reachable through a real ASGI request
 # ---------------------------------------------------------------------------
-
-
-class TestMetricsRouteReachable:
-    @pytest.mark.asyncio
-    async def test_loopback_listener_serves_real_exposition_body(self, monkeypatch):
-        """A real ASGI GET /metrics returns 200 with real exposition text.
-
-        This is the wiring assertion the route-table check could not make: the
-        handler runs, ``render_metrics`` executes, and the body carries a metric
-        family this package actually defines.
-        """
-        gm.MCP_TOOL_CALLS.labels(tool="wiring_probe", outcome="ok").inc()
-
-        mcp = _build_server(
-            monkeypatch,
-            ["test-mcp", "--transport", "streamable-http", "--host", "127.0.0.1"],
-        )
-        status, headers, body = await _asgi_get(mcp.http_app(), "/metrics")
-
-        assert status == 200
-        assert b"text/plain" in headers[b"content-type"]
-        text = body.decode()
-        assert "agent_utilities_mcp_tool_calls_total" in text
-        assert 'tool="wiring_probe"' in text
-
-    @pytest.mark.asyncio
-    async def test_network_listener_without_token_does_not_expose_metrics(
-        self, monkeypatch
-    ):
-        """The security gate stays intact: no token ⇒ no route on 0.0.0.0.
-
-        Regression guard. Exposing an unauthenticated /metrics on a
-        network-reachable listener is a deliberate NON-goal; the supported fix
-        is to provision ``MCP_METRICS_TOKEN_REF``.
-        """
-        mcp = _build_server(monkeypatch, _NETWORK_ARGV)
-        status, _headers, _body = await _asgi_get(mcp.http_app(), "/metrics")
-        assert status == 404
-
-    @pytest.mark.asyncio
-    async def test_network_listener_with_token_requires_and_accepts_bearer(
-        self, monkeypatch
-    ):
-        """With the token provisioned the route mounts and enforces the bearer.
-
-        This is the exact configuration the deployment now runs, exercised end
-        to end: wrong/absent credential ⇒ 401, correct bearer ⇒ real exposition.
-        """
-        token = "z" * 48
-        monkeypatch.setenv("WIRING_TEST_METRICS_TOKEN", token)
-        mcp = _build_server(
-            monkeypatch,
-            _NETWORK_ARGV,
-            metrics_ref="env://WIRING_TEST_METRICS_TOKEN",
-        )
-        app = mcp.http_app()
-
-        status, _h, _b = await _asgi_get(app, "/metrics")
-        assert status == 401
-
-        status, _h, _b = await _asgi_get(
-            app, "/metrics", headers=[(b"authorization", b"Bearer wrong-token")]
-        )
-        assert status == 401
-
-        status, _h, body = await _asgi_get(
-            app,
-            "/metrics",
-            headers=[(b"authorization", f"Bearer {token}".encode())],
-        )
-        assert status == 200
-        assert b"agent_utilities_" in body
-
-    @pytest.mark.asyncio
-    async def test_authenticated_metrics_merges_engine_exposition(self, monkeypatch):
-        """The bearer-gated /metrics — the live path on the collapsed
-        single-container graph-os pod — must carry the embedded engine's own
-        series too, plus an explicit up/down signal (never a silently
-        partial scrape). Exercised with a REAL engine fetch monkeypatched to
-        a controlled result, since nothing at 127.0.0.1:9101 is guaranteed in
-        the test sandbox."""
-        from agent_utilities.observability import gateway_metrics as gm_mod
-
-        async def fake_fetch():
-            return b"epistemic_graph_wiring_probe 7\n", True
-
-        monkeypatch.setattr(gm_mod, "_fetch_engine_metrics", fake_fetch)
-
-        token = "y" * 48
-        monkeypatch.setenv("WIRING_TEST_METRICS_TOKEN_2", token)
-        mcp = _build_server(
-            monkeypatch,
-            _NETWORK_ARGV,
-            metrics_ref="env://WIRING_TEST_METRICS_TOKEN_2",
-        )
-        app = mcp.http_app()
-
-        status, _h, body = await _asgi_get(
-            app,
-            "/metrics",
-            headers=[(b"authorization", f"Bearer {token}".encode())],
-        )
-        assert status == 200
-        assert b"agent_utilities_" in body
-        assert b"graph_os_engine_metrics_up 1" in body
-        assert b"epistemic_graph_wiring_probe 7" in body
 
 
 # ---------------------------------------------------------------------------
@@ -431,55 +299,6 @@ class TestRunningVsDispatchable:
             == 5
         )
         assert _sample("agent_utilities_mcp_servers_dispatchable") == 1
-
-    def test_status_snapshot_publishes_the_gauges_and_a_scrape_samples_them(self):
-        """Live path: the real ``status_snapshot`` feeds the real ``/metrics`` body.
-
-        Proves the two halves of the wiring at once — that the snapshot the
-        ``multiplexer_status`` tool renders is the same data the scrape sees,
-        and that a scrape triggers a fresh sample rather than serving stale
-        gauges.
-        """
-        from agent_utilities.mcp import multiplexer as mux_mod
-
-        class _FakeRuntime:
-            def status(self):
-                return {"server": "sampled-mcp", "state": "up", "breaker": "closed"}
-
-        class _FakeMux:
-            children = {"sampled-mcp": _FakeRuntime()}
-            aggregated_tools: list = []
-            tool_to_server = {"sampled-mcp__probe": ("sampled-mcp", "probe")}
-            _exposed = {"sampled-mcp__probe"}
-            _child_catalog_fingerprints: dict = {}
-            # status_snapshot also reads _child_schema_revisions (per-child
-            # catalog revision counter) and _child_schema_refresh_errors --
-            # both real MCPMultiplexer.__init__ attributes this fake must
-            # mirror for the real (unmocked) status_snapshot to run.
-            _child_schema_revisions: dict = {}
-            _child_schema_refresh_errors: dict = {}
-
-            _mounted_tool_counts = mux_mod.MCPMultiplexer._mounted_tool_counts
-            status_snapshot = mux_mod.MCPMultiplexer.status_snapshot
-
-        fake = _FakeMux()
-        snapshot = fake.status_snapshot()
-        assert snapshot["children"]["sampled-mcp"]["mounted_tools"] == 1
-
-        mux_mod._LIVE_MULTIPLEXERS.add(fake)
-        mux_mod._register_child_health_sampler()
-        try:
-            body, _content_type = gm.render_metrics()
-        finally:
-            mux_mod._LIVE_MULTIPLEXERS.discard(fake)
-        text = body.decode()
-        assert (
-            'agent_utilities_mcp_child_tools_dispatchable{server="sampled-mcp"} 1'
-            in (text)
-        )
-        assert 'agent_utilities_mcp_child_process_running{server="sampled-mcp"} 1' in (
-            text
-        )
 
     def test_a_failing_sampler_never_blanks_the_scrape(self, caplog):
         def _bad_sampler():

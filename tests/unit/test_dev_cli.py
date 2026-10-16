@@ -108,36 +108,6 @@ def test_install_uses_current_universal_skills_bridge_path(monkeypatch):
     assert str(fake_target) not in str(out)
 
 
-def test_main_graph_os_dispatches_straight_to_mcp_server(monkeypatch):
-    """``agent-utilities graph-os ...`` (what ``uvx agent-utilities graph-os``
-    runs) must call the real ``mcp_server()`` entrypoint directly — bypassing
-    this module's own argparse (subparsers can't losslessly forward arbitrary
-    flags like ``--transport``) and the generic JSON envelope other
-    subcommands print."""
-    calls: list[str] = []
-    fake_kg_server = types.ModuleType("agent_utilities.mcp.kg_server")
-    fake_kg_server.mcp_server = lambda: calls.append("mcp_server")
-    monkeypatch.setitem(sys.modules, "agent_utilities.mcp.kg_server", fake_kg_server)
-
-    rc = cli.main(["graph-os", "--transport", "stdio"])
-
-    assert rc == 0
-    assert calls == ["mcp_server"]
-
-
-def test_main_graph_os_prints_no_json_envelope(monkeypatch, capsys):
-    """graph-os owns stdout for its whole lifetime on stdio — the generic
-    ``json.dumps(out, ...)`` envelope every other subcommand prints must NOT
-    run for it."""
-    fake_kg_server = types.ModuleType("agent_utilities.mcp.kg_server")
-    fake_kg_server.mcp_server = lambda: None
-    monkeypatch.setitem(sys.modules, "agent_utilities.mcp.kg_server", fake_kg_server)
-
-    cli.main(["graph-os"])
-
-    assert capsys.readouterr().out == ""
-
-
 def test_main_voice_model_license_and_status_live_path(monkeypatch, tmp_path, capsys):
     """LIVE-PATH (Wire-First): ``agent-utilities voice-model license`` and
     ``voice-model status`` drive the real GOC-36 acquisition package

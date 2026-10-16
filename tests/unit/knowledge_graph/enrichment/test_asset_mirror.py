@@ -154,7 +154,7 @@ def test_asset_mirror_cli_composes_process_authority(monkeypatch, capsys):
     assert '"status": "completed"' in capsys.readouterr().out
 
 
-def test_asset_mirror_lower_module_has_no_mcp_reverse_import():
+def test_asset_mirror_lower_module_has_no_graphos_client_reverse_import():
     tree = ast.parse(inspect.getsource(app))
     imports = {
         alias.name
@@ -165,7 +165,9 @@ def test_asset_mirror_lower_module_has_no_mcp_reverse_import():
     imports.update(
         node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
     )
-    assert not {name for name in imports if name.startswith("agent_utilities.mcp")}
+    assert not {
+        name for name in imports if name.startswith("agent_utilities.graphos_client")
+    }
 
 
 # ── 1. widened type filter ────────────────────────────────────────────────────

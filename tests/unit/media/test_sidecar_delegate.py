@@ -228,23 +228,6 @@ def test_delegate_extract_resolves_an_explicit_alternate_provider(
     assert captured["action"] == "post_document"
 
 
-def test_claim_engine_resolves_the_default_connection_registry_engine(monkeypatch):
-    """claim_engine() reaches the SAME default engine graph_write's
-    non-fan-out path resolves — never MediaStore's own GraphComputeEngine
-    currency (see the module docstring)."""
-    from agent_utilities.mcp import kg_server
-
-    sentinel = object()
-
-    class _FakeRegistry:
-        def get_engine(self, name):
-            assert name == ""
-            return sentinel
-
-    monkeypatch.setattr(kg_server, "get_connection_registry", lambda: _FakeRegistry())
-    assert sd.claim_engine() is sentinel
-
-
 def test_record_media_sidecar_claim_links_activity_and_carries_prov_o_metadata():
     engine = _FakeClaimEngine()
     claim_id = lineage.record_media_sidecar_claim(

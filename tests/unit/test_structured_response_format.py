@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from typing import Any, get_args, get_origin, get_type_hints
+from typing import Any, get_args, get_origin
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -24,76 +24,6 @@ class _FakeMCP:
             return function
 
         return capture
-
-
-@pytest.mark.asyncio
-async def test_graph_orchestrate_propagates_closed_json_contract(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from agent_utilities.mcp import kg_server
-    from agent_utilities.mcp.tools.analysis_tools import register_analysis_tools
-    from agent_utilities.orchestration import manager
-
-    captured: dict[str, Any] = {}
-
-    class RecordingOrchestrator:
-        def __init__(self, _engine: Any) -> None:
-            pass
-
-        async def execute_capability(self, **kwargs: Any) -> dict[str, Any]:
-            captured.update(kwargs)
-            return {
-                "output": '{"answer":"ok"}',
-                "run_id": "run:opaque",
-                "mermaid": None,
-            }
-
-    monkeypatch.setattr(kg_server, "_get_engine", lambda: object())
-    monkeypatch.setattr(manager, "Orchestrator", RecordingOrchestrator)
-    mcp = _FakeMCP()
-    register_analysis_tools(mcp)
-
-    graph_orchestrate = mcp.tools["graph_orchestrate"]
-    annotation = get_type_hints(graph_orchestrate)["response_format"]
-    assert set(get_args(annotation)) == {"text", "json"}
-
-    result = json.loads(
-        await graph_orchestrate(
-            task="Return a structured assessment.",
-            agent_name="analysis-skill",
-            max_steps=30,
-            context="",
-            budget_tokens=0,
-            context_ref="",
-            allowed_tools=["github-mcp"],
-            cred_ref="",
-            open_channel=False,
-            reasoning_effort="",
-            model_class="standard",
-            response_format="json",
-        )
-    )
-
-    assert captured["response_format"] == "json"
-    assert captured["allowed_tools"] == ["github-mcp"]
-    assert result["output"] == '{"answer":"ok"}'
-    assert result["run_id"] == "run:opaque"
-
-    with pytest.raises(ValueError, match="text, json"):
-        await graph_orchestrate(
-            task="Return a structured assessment.",
-            agent_name="analysis-skill",
-            max_steps=30,
-            context="",
-            budget_tokens=0,
-            context_ref="",
-            allowed_tools="",
-            cred_ref="",
-            open_channel=False,
-            reasoning_effort="",
-            model_class="standard",
-            response_format="markdown",
-        )
 
 
 @pytest.mark.asyncio

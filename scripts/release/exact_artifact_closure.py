@@ -894,7 +894,7 @@ def _validate_exact_local(
             "test_catalog",
         }
         or not isinstance(gates, dict)
-        or set(gates) != {"g08", "g09", "g26", "g30", "g32", "g34", "g35"}
+        or set(gates) != {"g08", "g09", "g26", "g30", "g32", "g35"}
         or any(
             not isinstance(item, dict) or item.get("status") != "pass"
             for item in gates.values()
@@ -930,7 +930,6 @@ def _validate_exact_local(
     g26 = gates["g26"]
     g30 = gates["g30"]
     g32 = gates["g32"]
-    g34 = gates["g34"]
     g35 = gates["g35"]
     if (
         g08 != {"case_count": 8, "cases": list(G08_CASES), "status": "pass"}
@@ -954,8 +953,6 @@ def _validate_exact_local(
                 "tamper_rejected",
             )
         )
-        or not isinstance(g34.get("scenarios"), list)
-        or len(g34["scenarios"]) != 6
         or not isinstance(g35, dict)
         or set(g35) != {"case_count", "cases", "source_cases", "status"}
         or g35.get("case_count") != 8

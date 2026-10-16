@@ -8,7 +8,6 @@ the same plumbing (no vendor-specific paths in config).
 from __future__ import annotations
 
 import time
-from types import SimpleNamespace
 
 import pytest
 
@@ -96,7 +95,7 @@ def test_oidc_clients_admit_only_canonicalized_loopback_http(
 
 
 def test_minter_token_url_from_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
-    from agent_utilities.mcp import client_credentials
+    from agent_utilities.graphos_client import client_credentials
 
     monkeypatch.delenv("OIDC_TOKEN_URL", raising=False)
     monkeypatch.setenv("OIDC_ISSUER", ISS)
@@ -104,7 +103,7 @@ def test_minter_token_url_from_discovery(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_minter_explicit_token_url_wins(monkeypatch: pytest.MonkeyPatch) -> None:
-    from agent_utilities.mcp import client_credentials
+    from agent_utilities.graphos_client import client_credentials
 
     monkeypatch.setenv("OIDC_TOKEN_URL", "http://explicit.test/token")
     monkeypatch.setenv("OIDC_ISSUER", ISS)
@@ -112,29 +111,8 @@ def test_minter_explicit_token_url_wins(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_minter_multi_issuer_uses_primary(monkeypatch: pytest.MonkeyPatch) -> None:
-    from agent_utilities.mcp import client_credentials
+    from agent_utilities.graphos_client import client_credentials
 
     monkeypatch.delenv("OIDC_TOKEN_URL", raising=False)
     monkeypatch.setenv("OIDC_ISSUER", f"{ISS},{OKTA}")  # primary = first
     assert client_credentials._derive_token_url() == DOC["token_endpoint"]
-
-
-def test_server_factory_discovers_jwks(monkeypatch: pytest.MonkeyPatch) -> None:
-    from fastmcp.server.auth.providers.jwt import JWTVerifier
-
-    from agent_utilities.mcp.server_factory import _configure_jwt_auth
-
-    monkeypatch.delenv("FASTMCP_SERVER_AUTH_JWT_JWKS_URI", raising=False)
-    monkeypatch.delenv("OIDC_ISSUER", raising=False)
-    args = SimpleNamespace(
-        token_jwks_uri=None,
-        token_issuer=ISS,
-        token_audience="agent-services",
-        token_algorithm=None,
-        token_secret=None,
-        token_secret_ref=None,
-        token_public_key=None,
-        required_scopes=None,
-    )
-    verifier = _configure_jwt_auth(args)
-    assert isinstance(verifier, JWTVerifier)
