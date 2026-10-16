@@ -13,10 +13,9 @@ import pytest
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.models.knowledge_graph import (
-    AgentCapabilityNode,
     RegistryEdgeType,
+    RegistryNode,
     RegistryNodeType,
-    SwarmCoalitionNode,
     TeamConfigNode,
 )
 
@@ -150,12 +149,20 @@ class TestTeamConfigLookup:
 class TestPromoteCoalition:
     """Test suite for promote_coalition_to_template()."""
 
+    @staticmethod
+    def _coalition(node_id: str, name: str, **extra) -> RegistryNode:
+        return RegistryNode(
+            id=node_id,
+            name=name,
+            type=RegistryNodeType.SWARM_COALITION,
+            **extra,
+        )
+
     def test_promote_creates_team_config(self, engine):
         """Promoting a coalition should create a TeamConfig node."""
-        # Create a mock coalition
-        coalition = SwarmCoalitionNode(
-            id="coalition:test",
-            name="Test Coalition",
+        coalition = self._coalition(
+            "coalition:test",
+            "Test Coalition",
             agents_spawned=3,
             task_description="Analyze repository",
         )
@@ -172,10 +179,8 @@ class TestPromoteCoalition:
 
     def test_promote_creates_reused_team_edge(self, engine):
         """Should create a REUSED_TEAM edge from TeamConfig to coalition."""
-        coalition = SwarmCoalitionNode(
-            id="coalition:edge",
-            name="Edge Test Coalition",
-            agents_spawned=2,
+        coalition = self._coalition(
+            "coalition:edge", "Edge Test Coalition", agents_spawned=2
         )
         engine.graph.add_node(coalition.id, **_node_kwargs(coalition))
 
@@ -257,33 +262,6 @@ class TestLinkPromptToAgent:
 @pytest.mark.concept("CONCEPT:AU-ORCH.adapter.hot-cache-invalidation")
 class TestAgentCapabilityNode:
     """Test suite for the AgentCapabilityNode model."""
-
-    def test_create_capability_node(self):
-        """AgentCapabilityNode should create with correct defaults."""
-        cap = AgentCapabilityNode(
-            id="cap:rlm",
-            name="RLM Capability",
-            capability_type="rlm",
-            handler_module="agent_utilities.rlm.specialist",
-            handler_function="run",
-            trigger_conditions={"input_chars_gt": 50000},
-        )
-        assert cap.type == RegistryNodeType.AGENT_CAPABILITY
-        assert cap.auto_activate is True
-        assert cap.performance_score == 0.5
-
-    def test_capability_with_custom_trigger(self):
-        """Should support custom trigger conditions."""
-        cap = AgentCapabilityNode(
-            id="cap:critic",
-            name="Critic",
-            capability_type="critic",
-            handler_module="agent_utilities.harness.verifier",
-            trigger_conditions={"always": True},
-            auto_activate=False,
-        )
-        assert cap.trigger_conditions == {"always": True}
-        assert cap.auto_activate is False
 
     def test_schema_enum_values(self):
         """RegistryNodeType and RegistryEdgeType should have new values."""

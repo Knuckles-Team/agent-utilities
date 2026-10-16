@@ -1,7 +1,5 @@
 """Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Probabilistic Knowledge Graph Reasoning."""
 
-import math
-
 import pytest
 
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
@@ -10,9 +8,6 @@ pytest.importorskip("epistemic_graph.numeric")
 from agent_utilities.knowledge_graph.core.formal_reasoning_core import (
     BayesianBeliefPropagator,
     RandomWalkExplorer,
-    birthday_collision_probability,
-    conditional_independence_test,
-    total_probability_aggregation,
 )
 from agent_utilities.knowledge_graph.core.graph_primitives import PyDiGraph
 
@@ -114,68 +109,3 @@ class TestRandomWalkExplorer:
         )
         assert len(results) > 0
         assert all("surprise_score" in r for r in results)
-
-
-class TestTotalProbabilityAggregation:
-    """Tests for Law of Total Probability (MCS §18.5)."""
-
-    def test_uniform_weights(self):
-        scores = [(0.8, 1.0), (0.6, 1.0), (0.4, 1.0)]
-        result = total_probability_aggregation(scores)
-        assert result == pytest.approx(0.6, abs=0.01)
-
-    def test_weighted_combination(self):
-        scores = [(0.9, 3.0), (0.1, 1.0)]
-        result = total_probability_aggregation(scores)
-        expected = (0.9 * 3 + 0.1 * 1) / 4
-        assert result == pytest.approx(expected, abs=0.01)
-
-    def test_empty_sources(self):
-        assert total_probability_aggregation([]) == 0.0
-
-    def test_bounds(self):
-        result = total_probability_aggregation([(1.5, 1.0)])
-        assert result <= 1.0
-
-
-class TestBirthdayCollision:
-    """Tests for Birthday Paradox collision detection (MCS §17.4)."""
-
-    def test_classic_birthday(self):
-        result = birthday_collision_probability(23, 365)
-        assert result.collision_probability > 0.5
-
-    def test_small_space(self):
-        result = birthday_collision_probability(10, 10)
-        assert result.collision_probability > 0.9
-
-    def test_large_space(self):
-        result = birthday_collision_probability(10, 2**64)
-        assert result.collision_probability < 0.001
-
-    def test_safe_threshold(self):
-        result = birthday_collision_probability(1, 1000)
-        assert result.safe_threshold == int(1.2 * math.sqrt(1000))
-
-    def test_zero_items(self):
-        result = birthday_collision_probability(0, 100)
-        assert result.collision_probability == 0.0
-
-
-class TestConditionalIndependence:
-    """Tests for d-separation (MCS §18.7)."""
-
-    def test_fork_blocked(self):
-        g = build_digraph([("B", "A"), ("B", "C")])
-        result = conditional_independence_test(g, "A", "C", {"B"})
-        assert result["independent"]
-
-    def test_fork_unblocked(self):
-        g = build_digraph([("B", "A"), ("B", "C")])
-        result = conditional_independence_test(g, "A", "C")
-        assert not result["independent"]
-
-    def test_missing_node(self):
-        g = build_digraph([("A", "B")])
-        result = conditional_independence_test(g, "A", "Z")
-        assert result["independent"]

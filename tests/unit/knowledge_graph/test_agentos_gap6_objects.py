@@ -1,7 +1,6 @@
 """Current capability, policy-decision, trace, and fence-shape contracts."""
 
 from agent_utilities.models.knowledge_graph import (
-    AgentCapabilityGrantNode,
     AgentPolicyDecisionNode,
     RegistryNodeType,
     TraceNode,
@@ -16,36 +15,6 @@ def test_reuse_audit_keeps_only_named_grant_and_decision_types() -> None:
     assert "AGENT_POLICY_DECISION" in names
     assert "AGENT_TASK" not in names
     assert "AGENT_LEASE" not in names
-
-
-def test_work_item_execution_grant_round_trip_and_expiry() -> None:
-    grant = AgentCapabilityGrantNode(
-        id="grant:opaque",
-        name="grant",
-        agent_id="agent-ref",
-        capability="work_item.execute",
-        issuer="issuer-ref",
-        granted_at=100.0,
-        expires_at=200.0,
-    )
-    restored = AgentCapabilityGrantNode.model_validate_json(grant.model_dump_json())
-    assert restored == grant
-    assert restored.is_active(now=150.0)
-    assert not restored.is_active(now=250.0)
-
-
-def test_agent_capability_grant_node_round_trips_json() -> None:
-    node = AgentCapabilityGrantNode(
-        id="grant:3",
-        name="Grant: y",
-        agent_id="agent-2",
-        capability="tool:search",
-        issuer="operator",
-        granted_at=10.0,
-        expires_at=None,
-    )
-    restored = AgentCapabilityGrantNode.model_validate_json(node.model_dump_json())
-    assert restored == node
 
 
 def test_agent_policy_decision_node_defaults() -> None:

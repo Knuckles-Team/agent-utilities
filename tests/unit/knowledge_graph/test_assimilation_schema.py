@@ -9,7 +9,6 @@ import pytest
 from agent_utilities.models.knowledge_graph import (
     RegistryEdgeType,
     RegistryNodeType,
-    SDDFeatureNode,
 )
 
 pytestmark = pytest.mark.concept("AU-KG.query.vendor-agnostic-traversal")
@@ -40,21 +39,3 @@ def test_relevance_scored_label_matches_existing_graph():
     # Regression guard: the relevance sweep wrote "RELEVANCE_SCORED" as a literal
     # before VU-1; the registered enum value MUST equal it so edges don't split.
     assert RegistryEdgeType.RELEVANCE_SCORED.value == "RELEVANCE_SCORED"
-
-
-def test_sdd_feature_node_roundtrip():
-    node = SDDFeatureNode(
-        id="sddf:1",
-        name="executable-rag planner",
-        sdd_feature_id="b2-03-planner",
-        concept_ids=["AU-KG.retrieval.memory-first-retrieval"],
-        research_sources=["paper:pyrag"],
-        sdd_path=".specify/specs/...",
-        codebase="agent-utilities",
-    )
-    assert node.type == RegistryNodeType.SDD_FEATURE
-    assert node.status == "open"  # lifecycle default
-    dumped = node.model_dump()
-    assert dumped["type"] == "sdd_feature"
-    assert dumped["sdd_feature_id"] == "b2-03-planner"
-    assert dumped["concept_ids"] == ["AU-KG.retrieval.memory-first-retrieval"]
