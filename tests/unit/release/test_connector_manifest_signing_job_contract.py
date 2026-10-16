@@ -104,7 +104,7 @@ def test_keyless_workflow_builds_non_editable_report_input() -> None:
     for required in (
         "connector-manifest-diff",
         "uv build --wheel --no-build-isolation",
-        "python3 -m pip install",
+        "uv pip install",
         "--no-index --no-deps --only-binary=:all:",
         "direct_url.json",
         "--require-built-artifact",
