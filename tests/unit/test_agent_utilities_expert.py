@@ -125,7 +125,8 @@ def test_expert_is_a_dispatchable_agent_template(monkeypatch, tmp_path: Path) ->
     monkeypatch.delenv("FLEET_MCP_URL_TEMPLATE", raising=False)
     tmpl = next(t for t in _BUILTIN_AGENT_TEMPLATES if t["name"] == EXPERT)
     assert tmpl["system_prompt_id"] == f"prompt:{EXPERT}"
-    assert tmpl["model_preference"].startswith("qwen/")
+    # Model selection is an operator-owned registry decision (e15fabb69).
+    assert tmpl["model_preference"] == ""
     assert "graph-os" in tmpl["toolset_ids"]
     assert "repository-manager-mcp" in tmpl["toolset_ids"]
 

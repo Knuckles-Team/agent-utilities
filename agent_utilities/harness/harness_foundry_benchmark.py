@@ -10,6 +10,7 @@ edits into the coupling tipping point; our SHACL gate blocks them first.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -22,7 +23,7 @@ class BenchResult:
     claim_reproduced: bool
 
 
-def _bench_concentration() -> BenchResult:
+def _bench_concentration(engine: Any | None = None) -> BenchResult:
     """τ³-Bench Telecom: 5 shipped edits on one dimension across rounds. HarnessX's
     per-edit gate has no cross-round view → ships all 5 into the −14% tipping point;
     our AEGIS loop's SHACL Critic blocks at the coupling cap."""
@@ -34,7 +35,9 @@ def _bench_concentration() -> BenchResult:
         seq["n"] += 1
         return {"id": f"edit:{seq['n']}", "dimension": "D2_context"}
 
-    loop = AegisLoop(naive_evolver)
+    from agent_utilities.harness.harness_gate import HarnessGate
+
+    loop = AegisLoop(naive_evolver, gate=HarnessGate(engine=engine))
     decisions = loop.run(rounds=6)
     ours_shipped = sum(1 for d in decisions if d.shipped)
     baseline_shipped = (
@@ -94,7 +97,7 @@ def _bench_cross_harness() -> BenchResult:
     )
 
 
-def _bench_variant_isolation() -> BenchResult:
+def _bench_variant_isolation(engine: Any | None = None) -> BenchResult:
     """Heterogeneous tasks (CONCEPT:AU-AHE.harness.variant-pool): a mixed edit fixes one cluster but
     regresses another. HarnessX's single-harness seesaw rejects it → stagnation;
     our variant isolation forks a variant scoped to the improved cluster → the
@@ -102,7 +105,7 @@ def _bench_variant_isolation() -> BenchResult:
     from agent_utilities.harness.aegis_loop import AegisLoop
     from agent_utilities.harness.harness_gate import HarnessGate
 
-    gate = HarnessGate()
+    gate = HarnessGate(engine=engine)
     # Single-harness baseline: the edit applies to the ONE harness covering all
     # tasks, so its regression on taskB is in-scope → the seesaw rejects.
     base_verdict = gate.check_facts(
@@ -119,7 +122,7 @@ def _bench_variant_isolation() -> BenchResult:
             "regresses": ["taskB"],
         }
 
-    loop = AegisLoop(evolver, variant_capacity=2)
+    loop = AegisLoop(evolver, variant_capacity=2, gate=gate)
     decisions = loop.run(rounds=1)
     ours_ships = 1.0 if any(d.shipped and d.forked for d in decisions) else 0.0
     return BenchResult(
@@ -161,12 +164,13 @@ def _bench_attribution() -> BenchResult:
     )
 
 
-def run_all() -> list[BenchResult]:
+def run_all(engine: Any | None = None) -> list[BenchResult]:
+    """Run every claim; ``engine`` is the SHACL authority (ambient when omitted)."""
     return [
-        _bench_concentration(),
+        _bench_concentration(engine),
         _bench_held_out(),
         _bench_cross_harness(),
-        _bench_variant_isolation(),
+        _bench_variant_isolation(engine),
         _bench_attribution(),
     ]
 

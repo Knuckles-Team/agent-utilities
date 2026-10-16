@@ -11,8 +11,8 @@ from __future__ import annotations
 from agent_utilities.harness.harness_foundry_benchmark import run_all, to_markdown
 
 
-def test_all_surpass_claims_reproduce():
-    results = run_all()
+def test_all_surpass_claims_reproduce(engine_graph):
+    results = run_all(engine_graph)
     assert len(results) == 5
     by_name = {r.name: r for r in results}
     # Headline: we block the τ³ concentration coupling HarnessX ships into.
@@ -30,7 +30,7 @@ def test_all_surpass_claims_reproduce():
     assert all(r.claim_reproduced for r in results)
 
 
-def test_markdown_renders():
-    md = to_markdown(run_all())
+def test_markdown_renders(engine_graph):
+    md = to_markdown(run_all(engine_graph))
     assert "5/5 surpass claims reproduced" in md
     assert "concentration_tau3" in md

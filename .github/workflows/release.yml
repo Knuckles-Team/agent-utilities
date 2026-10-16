@@ -330,7 +330,7 @@ jobs:
       - &gates-sync-test-env
         name: Sync test environment (engine wheel installed next)
         run: |
-          uv sync --frozen --extra test --group guardrails \
+          uv sync --frozen --extra test --extra neo4j --group guardrails \
             --no-install-package epistemic-graph \
             --no-install-package langfuse-agent
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
