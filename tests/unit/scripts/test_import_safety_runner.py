@@ -8,7 +8,7 @@ import yaml
 
 def test_import_hook_uses_repository_interpreter_without_workspace_rebinding():
     root = Path(__file__).resolve().parents[3]
-    config = yaml.safe_load((root / ".config/pre-commit.yaml").read_text())
+    config = yaml.safe_load((root / ".config/ci-gates.yaml").read_text())
     hook = next(
         hook
         for repo in config["repos"]

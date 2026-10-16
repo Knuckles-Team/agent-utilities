@@ -11,6 +11,7 @@ include scripts/__init__.py
 # wheel/package data; native scanners are never installed by a hook or by the
 # installed Agent Utilities package.
 include .config/pre-commit.yaml
+include .config/ci-gates.yaml
 include .config/codespell.ignore
 include .cccc.toml
 include .kiss/kiss.toml

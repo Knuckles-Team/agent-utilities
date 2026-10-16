@@ -52,6 +52,7 @@ on:
       - '**/*.stack.yml'
       - '**/*.stack.yaml'
       - '.config/pre-commit.yaml'
+      - '.config/ci-gates.yaml'
       - '.github/**'
   push:
     branches:
@@ -149,18 +150,18 @@ jobs:
             --only-binary=:all: \
             "$EG_REQUIREMENT"
 
-      # ── The commit-stage hooks a contributor runs locally
-      # (scripts/bootstrap.sh installs them), so local and CI share one
-      # definition instead of a hand-kept copy of each gate here. Skipped:
-      # check-import-safety (routes through the ecosystem-workspace launcher;
-      # the `windows` job runs it on a real interpreter) and
-      # check-release-catalogs (derived from the provider fleet checkout,
-      # which is not part of this repository).
-      - name: pre-commit (commit stage, all files)
+      # ── The local hooks (.config/pre-commit.yaml, the pipelines pre-commit
+      # standard) and every CI-only gate (.config/ci-gates.yaml, never a git
+      # hook), over all files. Skipped: check-import-safety (routes through the
+      # ecosystem-workspace launcher; the `windows` job runs it on a real
+      # interpreter), check-release-catalogs (derived from the provider fleet
+      # checkout, which is not part of this repository), docker-compose-check
+      # (needs a docker daemon) and lane-guard (guards a local checkout).
+      - name: pre-commit (local hooks and CI-only gates, all files)
         continue-on-error: true
         env:
           PROHIBITED_IDENTITY_CATALOG: ${{ vars.PROHIBITED_IDENTITY_CATALOG }}
-          SKIP: check-import-safety,check-release-catalogs
+          SKIP: check-import-safety,check-release-catalogs,docker-compose-check,lane-guard
         run: |
           set -euo pipefail
           if [ -n "$PROHIBITED_IDENTITY_CATALOG" ]; then
@@ -170,10 +171,7 @@ jobs:
           fi
           uv tool install bump2version==1.0.1
           uvx pre-commit run --config .config/pre-commit.yaml --all-files --show-diff-on-failure
-          # The standard moved the type and shared-scanner gates to the pre-push
-          # stage; CI still runs them over the whole tree.
-          SKIP="$SKIP,uv-lock,docker-compose-check,guardrail-pre-commit-patch-safety,guardrail-prod-profile,contract-checks,backend-interface-parity,spec-trailers" \
-            uvx pre-commit run --config .config/pre-commit.yaml --all-files --hook-stage pre-push --show-diff-on-failure
+          uvx pre-commit run --config .config/ci-gates.yaml --all-files --show-diff-on-failure
 
       # ── Gates without a commit-stage hook (manual-stage hooks route through
       # the ecosystem-workspace launcher, so their commands run directly) ──

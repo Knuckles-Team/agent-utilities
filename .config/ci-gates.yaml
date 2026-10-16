@@ -1,0 +1,375 @@
+# CI-only gates (pipelines reference/precommit-standard.md). pre-commit format,
+# never installed as a git hook: .github/workflows/advisory.yml runs it with
+# `pre-commit run --config .config/ci-gates.yaml --all-files`. No manual stage:
+# a gate runs here in CI or it is deleted. Local hooks: .config/pre-commit.yaml.
+default_stages:
+- pre-commit
+exclude: ^scripts/
+repos:
+- repo: https://github.com/pre-commit/mirrors-mypy
+  rev: fc0f09a29bb495f4a91f00266155d6282d52485d
+  hooks:
+  - id: mypy
+    additional_dependencies:
+    - pydantic==2.13.4
+    - types-PyYAML==6.0.12.20260518
+    - types-requests==2.33.0.20260518
+    args:
+    - --ignore-missing-imports
+    exclude: ^(tests/(?!unit/patterns/)|test/|scripts/|script/)
+- repo: https://github.com/jendrikseipp/vulture
+  rev: b0f67ba0044693aa9ec0d38fe460590facc98004
+  hooks:
+  - id: vulture
+    pass_filenames: false
+    args:
+    - .
+    - vulture_whitelist.py
+    - --min-confidence
+    - '95'
+    - --exclude
+    - node_modules,dotnet,.venv,build,tests
+    require_serial: true
+- repo: https://github.com/codespell-project/codespell
+  rev: 2ccb47ff45ad361a21071a7eedda4c37e6ae8c5a
+  hooks:
+  - id: codespell
+    args:
+    - -L
+    - ans,linar,nam,tread,ot,disjointness,trough,nd,numer,statics
+    - --ignore-words=.config/codespell.ignore
+    exclude: ^(tests/|test/|scripts/|script/|\.specify/|agent_utilities/knowledge_graph/ontology/style_lint\.py$)
+- repo: https://github.com/PyCQA/bandit
+  rev: 92ae8b82fb422a639f0ed8d99e96cea769594e08
+  hooks:
+  - id: bandit
+    args:
+    - --skip
+    - B101,B104,B105,B110,B112,B404,B603,B607,B608
+    exclude: ^(tests/|test/|scripts/|script/|__tests__/|run_test\.py|\.specify/)
+- repo: https://github.com/Knuckles-Team/pipelines
+  rev: main
+  hooks:
+  - id: complexity-staged
+  - id: public-surface
+  - id: spec-status
+  - id: spec-decomposition
+  - id: spec-standard
+  - id: ste-staged
+- repo: local
+  hooks:
+  - id: supply-chain-source-contract
+    name: enforce immutable workflow, container, and dependency sources
+    entry: scripts/hook_python.sh scripts/check_fleet_supply_chain.py .
+    language: system
+    files: ^(\.github/workflows/.*\.ya?ml|.*(?:Dockerfile|\.dockerfile).*|.*(?:compose|stack).*\.ya?ml|pyproject\.toml|package\.json|Cargo\.toml|.*\.lock|pnpm-lock\.yaml)$
+    pass_filenames: false
+  - id: check-mermaid
+    name: Check Mermaid syntax
+    entry: scripts/hook_python.sh scripts/mermaid_linter.py
+    language: system
+    files: \.md$
+    pass_filenames: true
+  - id: check-stubs
+    name: Check for Active Stubs and TODOs
+    entry: scripts/hook_python.sh scripts/check_stubs.py
+    language: system
+    types:
+    - python
+  - id: check-import-safety
+    name: Cross-platform import safety (native + simulated-Windows fcntl/termios/pwd/resource)
+    entry: scripts/hook_python.sh scripts/check_import_safety.py --package agent_utilities --simulate-windows --exclude agent_utilities.knowledge_graph.core.file_lock --exclude agent_utilities.__main__ --exclude agent_utilities.agent.factory --exclude agent_utilities.server --exclude agent_utilities.graphos_client.toolset_factory --exclude agent_utilities.mcp.tools --exclude agent_utilities.mcp.verbose_tools --exclude agent_utilities.patterns --exclude agent_utilities.knowledge_graph.adaptation.trace_distiller --exclude agent_utilities.cli --exclude agent_utilities.core.unified_install --exclude agent_utilities.governance.concept_allocator --exclude agent_utilities.governance.lanes --exclude agent_utilities.governance.merge_queue --exclude agent_utilities.knowledge_graph.core.engine_lock --exclude agent_utilities.knowledge_graph.core.host_lock --exclude agent_utilities.mcp.eunomia_principal --exclude agent_utilities.mcp.middlewares --exclude agent_utilities.mcp.multiplexer --exclude agent_utilities.mcp.shared_multiplexer
+    language: system
+    pass_filenames: false
+    files: ^(agent_utilities/.*|pyproject\.toml|uv\.lock)$
+  - id: check-http-transport-closure
+    name: Governed HTTP transport import and dependency closure (NE-015)
+    entry: scripts/hook_python.sh scripts/check_http_transport_closure.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-boundary-owners
+    name: "Boundary ownership \u2014 reject a wrong-owner module or console script"
+    entry: scripts/hook_python.sh scripts/check_boundary_owners.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-no-env-sprawl
+    name: Config-flag anti-sprawl (no new bare os.environ KG_/GRAPH_ reads)
+    entry: scripts/hook_python.sh scripts/check_no_env_sprawl.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-topology-authority
+    name: One topology authority (no AU TopologyTemplate Cypher, success-rate selection or second selector)
+    entry: scripts/hook_python.sh scripts/check_topology_authority.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-no-stdout-writes
+    name: Stdio JSON-RPC purity (no print()/sys.stdout.write() in the served MCP surface, B-19)
+    entry: scripts/hook_python.sh scripts/check_no_stdout_writes.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-concept-gaps
+    name: Check Concept ID Gap contiguousness
+    entry: scripts/hook_python.sh scripts/check_concept_gaps.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-root-hygiene
+    name: Repository root hygiene (allowlisted entries only)
+    entry: scripts/hook_python.sh scripts/check_root_hygiene.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: turtle-format
+    name: Format Turtle with rdflib==7.6.0
+    entry: python -m scripts.format_ttl
+    language: python
+    additional_dependencies:
+    - rdflib==7.6.0
+    files: \.ttl$
+    exclude: (^|/)shapes/
+  - id: check-identifier-interpolation
+    name: "Identifier interpolation \u2014 every label/table/rel-type f-string is validated"
+    entry: scripts/hook_python.sh scripts/check_identifier_interpolation.py
+    language: system
+    pass_filenames: false
+    files: ^agent_utilities/.*\.py$
+  - id: check-import-cycles
+    name: "Import cycles \u2014 ZERO eager (load-time) cycles, absolute"
+    entry: scripts/hook_python.sh scripts/check_import_cycles.py
+    language: system
+    pass_filenames: false
+    files: ^agent_utilities/.*\.py$
+  - id: check-swallowed-errors
+    name: "Swallowed errors \u2014 census + no cause-dropping handler ADDED by this change"
+    entry: scripts/hook_python.sh scripts/check_swallowed_errors.py
+    language: system
+    pass_filenames: false
+    files: ^agent_utilities/.*\.py$
+  - id: check-event-loop-blocking
+    name: "Event-loop blocking heuristic (ratchet \u2014 no new candidate sites)"
+    entry: scripts/hook_python.sh scripts/check_event_loop_blocking.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-no-per-element-ingest-loop
+    name: No per-element ingest loop on the agent-facing MCP surface (ratchet, B-11/GOC-68)
+    entry: scripts/hook_python.sh scripts/check_no_per_element_ingest_loop.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-wire-first
+    name: "Wire-First \u2014 reachable != invoked (ratchet; D-OB-9/13/16)"
+    entry: scripts/hook_python.sh scripts/check_wiring.py --wire-first-report
+    language: system
+    pass_filenames: false
+    files: ^(agent_utilities/.*\.py|tests/.*\.py|scripts/wire_first_baseline\.json)$
+  - id: check-release-catalogs
+    name: Release catalogs match the checked-in connector manifests (D-35-9)
+    entry: scripts/hook_python.sh scripts/release/check_release_catalogs.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-skill-name-collision
+    name: Skill names globally unique across the fleet (install-all, no overlap)
+    entry: scripts/hook_python.sh scripts/check_skill_name_collision.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-bumpversion
+    name: validate bumpversion config
+    entry: "bash -c '\n  if [ ! -f \".bumpversion.cfg\" ]; then exit 0; fi\n  bump2version_bin=\"\"\n  for candidate in bump2version \"$HOME/.local/bin/bump2version\" \"$HOME/.local/pipx/venvs/bump2version/bin/bump2version\"; do\n    if command -v \"$candidate\" >/dev/null 2>&1; then\n      bump2version_bin=\"$candidate\"\n      break\n    fi\n  done\n  if [ -z \"$bump2version_bin\" ]; then\n    reason=\"bump2version is not on PATH, \\$HOME/.local/bin or \\$HOME/.local/pipx (a MISSING TOOL, not a version-bump config defect; install it with \\`pipx install bump2version\\`)\"\n    if [ -n \"${CI:-}\" ]; then\n      echo \"check-bumpversion: CANNOT RUN: $reason\" >&2\n      exit 2\n    fi\n    echo \"SKIPPED (check-bumpversion): $reason\"\n    exit 0\n  fi\n  \"$bump2version_bin\" patch --dry-run --allow-dirty\n'"
+    language: system
+    pass_filenames: false
+    always_run: true
+- repo: https://github.com/AleksaC/hadolint-py
+  rev: 458cb25edf664682e3e856a53a2f9af33e068297
+  hooks:
+  - id: hadolint
+    args:
+    - --ignore=DL3008
+    - --ignore=DL3015
+    - --ignore=DL3009
+    - --ignore=DL4006
+    - --ignore=SC2102
+- repo: local
+  hooks:
+  - id: docker-compose-check
+    name: Validate docker compose files
+    entry: scripts/check_compose_files.sh
+    language: script
+    files: ^docker/.*compose.*\.ya?ml$
+- repo: local
+  hooks:
+  - id: security-sanitizer
+    name: Security and Garbage Sanitizer
+    entry: python scripts/security_sanitizer.py
+    language: python
+    pass_filenames: false
+    always_run: true
+- repo: local
+  hooks:
+  - id: guardrail-no-stub
+    name: "Guardrail \u2014 no production stubs"
+    entry: scripts/hook_python.sh scripts/check_no_stub.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-concept-freshness
+    name: "Guardrail \u2014 concept registry freshness"
+    entry: scripts/hook_python.sh scripts/check_concepts.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-concept-domain-vocab
+    name: "Guardrail \u2014 OKF-CIS closed domain vocab + registered slugs"
+    entry: scripts/hook_python.sh scripts/check_domain_vocab.py agent_utilities
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-prompt-schema
+    name: "Guardrail \u2014 canonical prompt schema (StructuredPrompt)"
+    entry: scripts/hook_python.sh scripts/check_prompt_schema.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-genesis-manifest
+    name: "Guardrail \u2014 genesis.yaml freshness"
+    entry: scripts/hook_python.sh scripts/check_genesis_manifest.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-surface-parity
+    name: "Guardrail \u2014 every feature reachable via gateway + MCP"
+    entry: scripts/hook_python.sh --needs-engine guardrail-surface-parity scripts/check_surface_parity.py
+    language: system
+    pass_filenames: false
+    files: ^agent_utilities/.*
+  - id: guardrail-cpd-drift
+    name: "Guardrail \u2014 Capability Power Descriptors stay in sync (Seam 8 CPD)"
+    entry: scripts/hook_python.sh --needs-engine guardrail-cpd-drift scripts/check_cpd.py
+    language: system
+    pass_filenames: false
+    files: ^agent_utilities/.*
+  - id: guardrail-docs-contract
+    name: "Guardrail \u2014 docs catalog, links, nav, and generated inventories"
+    entry: scripts/hook_python.sh scripts/docs_contract.py --check
+    language: system
+    pass_filenames: false
+    files: ^(docs/.*|README\.md|mkdocs\.yml|agent_utilities/.*\.py)$
+  - id: guardrail-tracked-privacy
+    name: "Guardrail \u2014 tracked public artifacts contain no host-specific data or local identities"
+    entry: scripts/hook_python.sh scripts/check_tracked_privacy.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-prebundled-skills
+    name: "Guardrail \u2014 consolidated pre-bundled skills stay valid"
+    entry: scripts/hook_python.sh scripts/check_prebundled_skills.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-version-consistency
+    name: "Guardrail \u2014 release version consistency"
+    entry: scripts/hook_python.sh scripts/check_version_consistency.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-retrieval-quality
+    name: "Guardrail \u2014 retrieval quality (Recall@k / MRR floor)"
+    entry: scripts/hook_python.sh scripts/check_retrieval_quality.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-sprawl
+    name: "Guardrail \u2014 anti-sprawl"
+    entry: scripts/hook_python.sh scripts/check_sprawl.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-entrypoint-engine-authority
+    name: "Guardrail \u2014 every entrypoint reaches the graph through ONE engine authority (D-WD-7)"
+    entry: scripts/hook_python.sh scripts/check_entrypoint_engine_construction.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-retained-surface-boundary
+    name: "Guardrail \u2014 retained agent surface has no serving/storage import (AU-BOUNDARY-R043)"
+    entry: scripts/hook_python.sh scripts/check_retained_surface_boundary.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-eval-corpus
+    name: "Guardrail \u2014 eval corpus"
+    entry: scripts/hook_python.sh scripts/check_eval_corpus.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-reliability-corpus
+    name: "Guardrail \u2014 reliability corpus"
+    entry: scripts/hook_python.sh scripts/check_reliability_corpus.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-citation-lineage
+    name: "Guardrail \u2014 citation lineage (mandatory evidence citation + embedding versioning)"
+    entry: scripts/hook_python.sh scripts/check_citation_lineage.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-liveness
+    name: "Guardrail \u2014 source liveness against fresh main"
+    entry: scripts/hook_python.sh scripts/check_liveness_source.py --hook commit
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-liveness-strict
+    name: "Guardrail \u2014 strict liveness including expiry"
+    entry: scripts/hook_python.sh scripts/check_liveness.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: guardrail-removed-symbol-consumers
+    name: "Guardrail \u2014 no removed/renamed public symbol still imported by the fleet"
+    entry: scripts/hook_python.sh scripts/check_removed_symbol_consumers.py
+    language: system
+    pass_filenames: false
+    always_run: true
+- repo: local
+  hooks:
+  - id: check-concept-governance
+    name: "CI parity \u2014 concept governance (Extend-Before-Invent)"
+    entry: scripts/hook_python.sh scripts/check_concept_governance.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: contract-checks
+    name: "CI/queue parity \u2014 scripts/security/check_*.py fast-tier forwarders (D-ML-1)"
+    entry: scripts/hook_python.sh scripts/security/run_contract_checks.py --exclude check_current_only_contract_gate.py --exclude check_sbom_licenses.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-current-only-contract-debt
+    name: "Current-only contract debt (retired-surface references) \u2014 informational, manual-only"
+    entry: scripts/hook_python.sh scripts/security/check_current_only_contract_gate.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-gitignore-convergence
+    name: .gitignore carries the fleet-shared REQUIRED set
+    entry: scripts/hook_python.sh scripts/check_gitignore_convergence.py
+    language: system
+    pass_filenames: false
+    always_run: true
+- repo: local
+  hooks:
+  - id: check-public-specs
+    name: Public specs are self-contained and locally linked
+    entry: scripts/hook_python.sh scripts/check_public_specs.py
+    language: system
+    pass_filenames: false
+    files: ^(specs/|scripts/check_public_specs\.py$|\.specify/memory/constitution\.md$)
