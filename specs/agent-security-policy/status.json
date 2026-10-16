@@ -132,8 +132,8 @@
         "f63aeb608cc2"
       ],
       "verified_by": [
-        "tests/unit/security/test_scope_registry.py:62",
-        "tests/unit/security/test_scope_registry.py:83"
+        "tests/unit/security/test_scope_registry.py:54",
+        "tests/unit/security/test_scope_registry.py:75"
       ]
     },
     {
