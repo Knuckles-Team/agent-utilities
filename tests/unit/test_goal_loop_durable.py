@@ -7,12 +7,14 @@ WorkItem prevents a redelivered goal from re-running its completed iterations.
 from __future__ import annotations
 
 import asyncio
+import shlex
 import sqlite3
 import time
 
 import pytest
 
 from agent_utilities.core import sessions as _sessions
+from tests.unit.durable_engine_support import allow_host_validation
 
 
 @pytest.fixture
@@ -99,11 +101,25 @@ def loop_env(tmp_path, monkeypatch):
     return tmp_path
 
 
-async def test_terminal_work_item_replay_does_not_rerun_validation(loop_env):
+@pytest.fixture
+def host_python(monkeypatch, tmp_path):
+    """Host validation is an opt-in dangerous runner (no shell, allowlisted argv)."""
+    return allow_host_validation(monkeypatch, tmp_path)
+
+
+def _append_and_fail_cmd(python: str, marker, char: str) -> str:
+    """Argv validation command: append one byte to ``marker`` then exit 1."""
+    code = f"open({str(marker)!r}, 'a').write({char!r}); raise SystemExit(1)"
+    return f"{python} -c {shlex.quote(code)}"
+
+
+async def test_terminal_work_item_replay_does_not_rerun_validation(
+    loop_env, host_python
+):
     marker = loop_env / "marker.txt"
     # Always-failing command (exit 1) so the loop runs all iterations; each run
     # appends one byte to the marker — the observable side effect.
-    cmd = f"printf x >> {marker}; exit 1"
+    cmd = _append_and_fail_cmd(host_python, marker, "x")
 
     await _sessions.run_goal_loop(
         session_id="sess-1",
@@ -128,9 +144,9 @@ async def test_terminal_work_item_replay_does_not_rerun_validation(loop_env):
     assert marker.read_text() == "xx"
 
 
-async def test_goal_loop_distinct_goals_isolated(loop_env):
+async def test_goal_loop_distinct_goals_isolated(loop_env, host_python):
     marker = loop_env / "marker.txt"
-    cmd = f"printf y >> {marker}; exit 1"
+    cmd = _append_and_fail_cmd(host_python, marker, "y")
 
     await _sessions.run_goal_loop(
         session_id="sess-1",

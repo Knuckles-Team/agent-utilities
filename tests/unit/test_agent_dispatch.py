@@ -651,7 +651,7 @@ def fake_queue():
 
 
 @pytest.fixture
-def queued_goal(dispatch_db, fake_queue):
+def queued_goal(dispatch_db, fake_queue, monkeypatch, tmp_path):
     """A goal enqueued in queue mode, ready for a worker to claim.
 
     Dispatch is unconditionally queue-backed now (agent_dispatch's module
@@ -662,6 +662,9 @@ def queued_goal(dispatch_db, fake_queue):
     """
     import asyncio
 
+    from tests.unit.durable_engine_support import allow_host_validation
+
+    allow_host_validation(monkeypatch, tmp_path, "true")
     resp = asyncio.run(
         _sessions.create_goal(
             _FakeRequest(
@@ -688,10 +691,10 @@ def test_worker_claims_executes_and_writes_back(dispatch_db, fake_queue, queued_
     fake_queue.ack(item_id)
 
     node = _goal_node(goal_id)
-    assert node["status"] == "completed"  # run_goal_loop wrote back durably
+    assert node["status"] == "succeeded"  # run_goal_loop wrote back durably
     assert node["total_iterations"] == 1
     sessions = _rows(dispatch_db, "sessions")
-    assert sessions[0]["status"] == "completed"
+    assert sessions[0]["status"] == "succeeded"
     turns = _rows(dispatch_db, "turns")
     assert any(t["role"] == "assistant" for t in turns)  # iteration turn appended
     assert fake_queue.get_queue_size() == 0
@@ -764,7 +767,7 @@ def test_crash_requeue_stale_claim_is_reclaimed(dispatch_db, fake_queue, queued_
     outcome = worker.execute_agent_turn(env, token="hostB:2:agent-dispatch")
     assert outcome == "completed"
     fake_queue.ack(item_id)
-    assert _goal_node(goal_id)["status"] == "completed"
+    assert _goal_node(goal_id)["status"] == "succeeded"
 
 
 def test_worker_expires_past_deadline_turn(dispatch_db, fake_queue, queued_goal):
@@ -802,7 +805,7 @@ def test_consumer_loop_processes_and_acks_after(dispatch_db, fake_queue, queued_
     fake_queue.get = _get
     worker.run_dispatch_consumer_loop(fake_queue, stop, idle_sleep_s=0.01)
     assert fake_queue.get_queue_size() == 0  # processed AND acked
-    assert _goal_node(queued_goal["goal_id"])["status"] == "completed"
+    assert _goal_node(queued_goal["goal_id"])["status"] == "succeeded"
 
 
 def test_consumer_loop_acks_poison_envelope(dispatch_db, fake_queue):
@@ -982,11 +985,12 @@ def test_two_workers_one_session_execute_serially(dispatch_db, fake_queue, monke
             _sessions.create_goal(_FakeRequest({"objective": "serial goal"}))
         ).body
     )
-    session_id = body["session_id"]
-    # The same envelope delivered to BOTH workers (at-least-once duplicate).
-    env = AgentTurnEnvelope(
-        session_id=session_id, kind=KIND_GOAL_LOOP, payload_ref=body["goal_id"]
-    )
+    # The envelope the admission path enqueued (it carries the job_id of the
+    # durable dispatch WorkItem), delivered to BOTH workers (at-least-once
+    # duplicate). A hand-built envelope has no admitted WorkItem and is skipped.
+    _item_id, payload = fake_queue.get()
+    env = AgentTurnEnvelope.from_item(payload)
+    assert env.payload_ref == body["goal_id"]
 
     active = {"n": 0, "max": 0}
     gate = threading.Lock()
@@ -1000,7 +1004,7 @@ def test_two_workers_one_session_execute_serially(dispatch_db, fake_queue, monke
     # of the hang/flake — whether it returned at all was timing luck). The no-op
     # records concurrency and returns the same "completed" the real body returns,
     # so the contract assertion is unchanged while the test is deterministic.
-    def _tracked(spec):
+    def _tracked(spec, engine=None):
         with gate:
             active["n"] += 1
             active["max"] = max(active["max"], active["n"])
