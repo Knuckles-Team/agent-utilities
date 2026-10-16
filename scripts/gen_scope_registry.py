@@ -53,7 +53,9 @@ def render(source: bytes) -> str:
         "",
         "from __future__ import annotations",
         "",
-        f'EG_SCOPE_REGISTRY_SHA256 = "{digest}"',
+        "EG_SCOPE_REGISTRY_SHA256 = (",
+        f'    "{digest}"',
+        ")",
         "",
         "#: scope -> class (user | domain | service-only | approver | admin).",
         "SCOPE_CLASSES: dict[str, str] = {",
@@ -86,7 +88,9 @@ def main(argv: list[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--write", action="store_true")
     mode.add_argument("--check", action="store_true")
-    parser.add_argument("--source", type=Path, help="a scopes.json (default: installed EG)")
+    parser.add_argument(
+        "--source", type=Path, help="a scopes.json (default: installed EG)"
+    )
     args = parser.parse_args(argv)
     source = args.source.read_bytes() if args.source else installed_registry_bytes()
     rendered = render(source)
@@ -95,7 +99,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     current = TARGET.read_text(encoding="utf-8") if TARGET.exists() else ""
     if current != rendered:
-        print(f"{TARGET.relative_to(ROOT)} is stale: run scripts/gen_scope_registry.py --write")
+        print(
+            f"{TARGET.relative_to(ROOT)} is stale: run scripts/gen_scope_registry.py --write"
+        )
         return 1
     return 0
 

@@ -105,7 +105,7 @@ Specs are already designed. The work is implementation, delivered in very small,
 
 **Time and size**
 - One agent delivers one PR in 5 minutes or less. No agent or sub-agent runs longer than 5 minutes; an orchestrator dispatches the next slice to a fresh agent.
-- Self-timer (hard): run `date +%s > /tmp/agent-start-$$` as your FIRST command, and before every later step check elapsed with `echo $(( $(date +%s) - $(cat /tmp/agent-start-*) ))`. At 300 s, stop starting new work. At 480 s, commit what passes, push it, open the PR, report and STOP. Never exceed 600 s. Never wait on CI or background jobs; use `git commit --no-verify` and `git push --no-verify` after running pre-commit on the changed files yourself.
+- Self-timer (hard): run `date +%s > "$TMPDIR/agent-start-$$"` as your FIRST command, and before every later step check elapsed with `echo $(( $(date +%s) - $(cat "$TMPDIR"/agent-start-*) ))`. At 300 s, stop starting new work. At 480 s, commit what passes, push it, open the PR, report and STOP. Never exceed 600 s. Never wait on CI or background jobs; use `git commit --no-verify` and `git push --no-verify` after running pre-commit on the changed files yourself.
 - CI turns around in 5 minutes or less. PR CI runs the fast subset: lint, type check, the spec check, and only the tests and crates the diff touches. Pushes to main run the full suite.
 - CI timer (hard): every PR-path job carries `timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}`, so a PR gate is killed at 10 minutes and a slow gate shows up as a failure instead of a silent queue.
 - Never spawn sub-agents from a delivery agent.
@@ -390,51 +390,16 @@ green here:
 
 ### 6. Validate
 
-★ **`uv run pytest` is poisoned in this repository.** It silently resolves the
-**system** interpreter and its stale packages, and produced ~80 phantom failures
-that cited this project's own guards; six lanes were burned before it was found.
-Always:
+Run the narrow tests first, then every gate touched by the change, then the full
+pre-commit suite under its lease before delivery. The mandatory interpreter
+(`python3 scripts/uv_workspace.py run --all-extras -- pytest <args>`; `uv run pytest`
+is poisoned here), the lease/safe-wrapper commands, the differential-gate rule and
+merged-tree measurement are in
+[`references/validation-reference.md`](references/validation-reference.md).
 
-```bash
-python3 scripts/uv_workspace.py run --all-extras -- pytest <args>
-```
-
-Print `sys.executable` and the package count in the same run: **≈726 packages is
-the correct environment, ≈44 is the stale one.** A verdict from an unproven
-interpreter is not evidence. A worktree-local `.venv` has the same effect (~167
-phantom failures) — `--lane doctor` refuses one.
-
-Run the narrow tests first, then every gate touched by the change. Run the full
-pre-commit suite before delivery, and take the lease for it — it is LEASE-class
-because it can destroy unstaged work:
-
-```bash
-# NEVER run `pre-commit run --all-files` bare: in a shared worktree it stashes
-# the WHOLE tree and can destroy your own or another session's unstaged work
-# (D-OB-12). The lease and the safe wrapper are TWO separate guards; both apply.
-agent-utilities lane lease --resource precommit-all-files --operation gate -- \
-  python3 scripts/safe_precommit_all_files.py
-```
-
-Never `--no-verify`, and never mask a gate to force green: `noqa`, `type:
-ignore`, `nosec`, `skip`, and `xfail` appearing in a delivery diff are what a
-reviewer greps for first.
-
-★ **Judge every gate DIFFERENTIALLY, against the base ref — never against
-absolute green.** `main` is legitimately red, so a pre-existing failure is not
-yours to clear. Compare at the granularity the gate declares (pytest **node
-ids**, not counts or files), and if the baseline cannot be produced, refuse
-rather than allow-all. The mechanism, the evidence, and how `governance/
-merge_queue.py` implements it are stated once, above — see **"The merge gate is
-DIFFERENTIAL, not absolute"** at the end of *The gates that actually enforce
-this*.
-
-★ **Measure the MERGED tree, not the branch tip** — `git merge-tree --write-tree
-main HEAD`. Reasoning from `git show <branch>:<path>` misled three people in one
-day; one concluded a branch had deleted a guard the merged tree in fact kept.
-
-Inspect the final diff for generated churn, stale names, sensitive data, and
-stray files. Commit with a neutral repository identity.
+Never `--no-verify` and never mask a gate to force green. Inspect the final diff
+for generated churn, stale names, sensitive data, and stray files. Commit with a
+neutral repository identity.
 
 ### 7. Deliver through the queue
 
