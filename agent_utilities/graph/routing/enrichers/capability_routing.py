@@ -203,30 +203,6 @@ def route_capability_request(
 
     required = [required_capability_type]
     raw_candidates: list[tuple[str, float]] = []
-    try:
-        from agent_utilities.core.release_channel import active_channel
-        from agent_utilities.knowledge_graph.retrieval.engine_capability_search import (
-            engine_filtered_search,
-        )
-
-        # Oversample so the bandit re-rank below has real headroom to reorder
-        # within, not just re-score an already-Limit-truncated top-k.
-        oversample = max(int(k) * 3, k)
-        engine_hits = engine_filtered_search(
-            engine,
-            embedding,
-            k=oversample,
-            required_caps=required,
-            tenant=tenant,
-            policy_tags=policy_tags,
-            capability_hierarchy=hierarchy,
-            active_release_channel=active_channel(),
-        )
-        if engine_hits is not None:
-            raw_candidates = list(engine_hits)
-    except Exception as e:  # noqa: BLE001 — engine path is best-effort, fallback below
-        logger.debug("route_capability_request: engine path failed: %s", e)
-
     if not raw_candidates:
         index = get_designation_index(engine, capability_hierarchy=hierarchy)
         if index is not None and len(index):

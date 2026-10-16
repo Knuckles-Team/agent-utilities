@@ -1394,11 +1394,13 @@ def _deterministic_mapping(
 
 
 class _StaticRetriever:
+    """``CandidateSource`` over the sanitized schema-label rows."""
+
     def __init__(self, rows: list[dict[str, Any]]) -> None:
         self._rows = rows
 
-    def retrieve_hybrid(self, _query: str, context_window: int = 40, **_: Any):
-        return self._rows[:context_window]
+    def __call__(self, _query: str, top_k: int, _session: Any) -> list[dict[str, Any]]:
+        return self._rows[:top_k]
 
 
 def _semantic_mapper_response_text(response: Any) -> str:
@@ -1547,7 +1549,7 @@ def _semantic_suggestions(
     rows = _sanitized_schema_label_rows(guard, schema, safe_targets)
     if not rows:
         return {}
-    compiler = ContextCompiler(_StaticRetriever(rows))
+    compiler = ContextCompiler(None, candidates=_StaticRetriever(rows))
     bundle = compiler.compile(
         "Propose ontology mappings for these external graph schema labels",
         session=context_session,

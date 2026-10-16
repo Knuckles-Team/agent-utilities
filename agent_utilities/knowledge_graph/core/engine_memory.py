@@ -377,9 +377,9 @@ class MemoryMixin(_Base):
         )
 
         # Generate embedding if model available
-        if self.hybrid_retriever.embed_model:
+        if self.embed_model:
             try:
-                node.embedding = self.hybrid_retriever.embed_model.get_text_embedding(
+                node.embedding = self.embed_model.get_text_embedding(
                     node.description or node.name
                 )
             except Exception as e:
@@ -569,9 +569,9 @@ class MemoryMixin(_Base):
         )
 
         # Generate embedding
-        if self.hybrid_retriever.embed_model:
+        if self.embed_model:
             try:
-                node.embedding = self.hybrid_retriever.embed_model.get_text_embedding(
+                node.embedding = self.embed_model.get_text_embedding(
                     node.description or node.name
                 )
             except Exception as e:
@@ -661,7 +661,7 @@ class MemoryMixin(_Base):
         _apply_task_context_reranking(
             memories,
             task_context,
-            self.hybrid_retriever.embed_model,
+            self.embed_model,
         )
 
         # Context budget compaction (Research: 2604.20874v1)

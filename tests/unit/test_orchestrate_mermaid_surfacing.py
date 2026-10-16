@@ -353,7 +353,6 @@ async def test_main_execution_failure_uses_public_envelope(
         raise RuntimeError("synthetic_failure")
 
     monkeypatch.setattr(agent_runner, "_execute_graph", _fail_execute_graph)
-    monkeypatch.setattr(agent_runner, "_write_step_credit", lambda *a, **k: 0)
     monkeypatch.setattr(execution_profile, "record_shape_outcome", lambda *a, **k: None)
 
     rich = await agent_runner.run_agent(

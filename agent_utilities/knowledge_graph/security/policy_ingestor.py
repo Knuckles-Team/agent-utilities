@@ -583,13 +583,11 @@ class PolicyIngestor:
     def _embed_policy_node(
         self, node: PolicyNode, project_name: str, statement: str
     ) -> None:
-        if not self.engine.hybrid_retriever.embed_model:
+        if not self.engine.embed_model:
             return
         try:
-            node.embedding = (
-                self.engine.hybrid_retriever.embed_model.get_text_embedding(
-                    f"{project_name} policy: {statement}"
-                )
+            node.embedding = self.engine.embed_model.get_text_embedding(
+                f"{project_name} policy: {statement}"
             )
         except Exception as exc:
             logger.debug("Failed to embed policy (%s)", type(exc).__name__)

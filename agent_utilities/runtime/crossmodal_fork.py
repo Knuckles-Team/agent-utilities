@@ -67,7 +67,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # A cross-modal retriever: query -> list of candidate records (each a JSON-able dict, e.g. the
-# fused vector+graph+text hits :meth:`HybridRetriever.retrieve_hybrid` returns).
+# hits EG's ``Discover`` returns via :meth:`IntelligenceGraphEngine.search_hybrid`).
 CrossModalRetriever = Callable[[str], list[dict[str, Any]]]
 
 
@@ -252,29 +252,18 @@ def engine_cross_modal_candidates(
     context_window: int = 10,
     multi_hop_depth: int = 2,
 ) -> list[dict[str, Any]]:
-    """Default cross-modal retriever: the engine's vector+graph+text fusion for ``query``.
+    """Default cross-modal candidate source: the rows EG's ``Discover`` ranked.
 
-    Thin binding onto :meth:`HybridRetriever.retrieve_hybrid` — the epistemic-graph cross-modal
-    fusion arm. Constructed lazily so importing this module never requires a live engine; callers
-    without an engine inject their own retriever instead (tests do exactly this).
+    Binds onto :meth:`IntelligenceGraphEngine.search_hybrid` (EG served
+    ``Discover``); the harness selects nothing itself. Constructed lazily so
+    importing this module never requires a live engine; callers without an
+    engine inject their own retriever instead (tests do exactly this).
     """
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-    from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
-        HybridRetriever,
-    )
 
-    # ``HybridRetriever`` reads the full engine facade — ``.backend`` (Cypher
-    # execute), ``._search_keyword``, ``.embed_model`` — which only
-    # ``IntelligenceGraphEngine`` exposes. A bare ``GraphComputeEngine`` is the
-    # low-level ``.graph`` compute layer and lacks ``.backend``, so passing it
-    # raised "'GraphComputeEngine' object has no attribute 'backend'" and broke the
-    # served ``graph_fork`` cross-modal fan-out. Prefer the live singleton (the same
-    # engine graph-os serves), building one only when none is active.
+    del multi_hop_depth  # EG's Discover chooses the shortlist; no AU hop expansion
     eng = engine if engine is not None else IntelligenceGraphEngine.get_or_create()
-    retriever = HybridRetriever(eng)
-    return retriever.retrieve_hybrid(
-        query, context_window=context_window, multi_hop_depth=multi_hop_depth
-    )
+    return eng.search_hybrid(query, top_k=context_window)
 
 
 #: Process-wide lazily-built KV-fork backend (see

@@ -120,7 +120,7 @@ _grounding_outcome: ContextVar[dict[str, Any] | None] = ContextVar(
 )
 
 # Wall-clock budget for the mandatory evidence compilation at the model-transport
-# boundary. Compilation is a blocking, engine-contended retrieval (hybrid_retriever
+# boundary. Compilation is a blocking, engine-contended retrieval (search_hybrid
 # → graph_compute → the eg client's sync_wrapper → future.result()); running it
 # inline on the asyncio event loop is what SIGKILLed graph-os (a contended
 # retrieval blocked the loop so long that even status-only /health timed out).
@@ -629,10 +629,9 @@ class _EmptyEvidenceSource:
         query: str,
         *,
         top_k: int = 8,
-        as_of: str | None = None,
         session: Any | None = None,
     ) -> list[dict[str, Any]]:
-        del query, top_k, as_of, session
+        del query, top_k, session
         return []
 
     def retrieve_epistemic_view(self, query: str, *, top_k: int = 8) -> dict[str, Any]:

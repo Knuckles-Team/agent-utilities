@@ -390,14 +390,13 @@ def designate_specialists(
 ) -> list[str] | None:
     """Designate the top-``k`` callable resource ids for ``query``.
 
-    Tries the engine's native filtered ANN first (CONCEPT:AU-P1-3 — the engine is
-    the authority); falls back to the bounded, CDC-maintained in-process cache when
-    no engine vector surface is reachable. Returns a list of ids, or ``None`` if
+    Reads the bounded, CDC-maintained designation cache (EG serves no filtered
+    capability-designation method yet; see the au-move handoffs). Returns a list of ids, or ``None`` if
     designation is unavailable at all (no embeddings, no model, empty index) —
     signalling the caller to fall back to its keyword scan.
 
     ``capability_hierarchy`` (X-4) makes ``required_caps`` ontology-subsumption-aware
-    on BOTH paths (engine-native push-down + in-process fallback). When required
+    on the designation cache. When required
     capabilities exist and no projection is injected, one digest-bound projection
     is loaded from epistemic-graph and shared by both paths. Missing semantic
     authority fails closed rather than silently reverting to exact/keyword routing.
@@ -410,25 +409,6 @@ def designate_specialists(
         embedding = embed_query(query, embed_fn)
         if embedding is None:
             return None
-        from agent_utilities.core.release_channel import active_channel
-        from agent_utilities.knowledge_graph.retrieval.engine_capability_search import (
-            engine_filtered_search,
-        )
-
-        engine_hits = engine_filtered_search(
-            engine,
-            embedding,
-            k=k,
-            required_caps=required_caps,
-            tenant=tenant,
-            policy_tags=policy_tags,
-            capability_hierarchy=capability_hierarchy,
-            active_release_channel=active_channel(),
-        )
-        if engine_hits is not None:
-            return [nid for nid, _score in engine_hits]
-
-        # No engine vector surface reachable at all -> bounded in-process fallback.
         index = get_designation_index(engine, capability_hierarchy=capability_hierarchy)
         if index is None or len(index) == 0:
             return None

@@ -37,7 +37,6 @@ from typing import TYPE_CHECKING, Any
 
 from agent_utilities.core.config import setting
 from agent_utilities.core.event_loop import run_blocking_ordered
-from agent_utilities.decide.learning.run_scope import run_scoped
 from agent_utilities.orchestration.execution_contract import (
     ExecutionMode,
     missing_required_tools,
@@ -698,7 +697,6 @@ def _prepare_spawn_delegation(
     return delegation
 
 
-@run_scoped
 async def run_agent(
     agent_name: str,
     task: str,
@@ -2170,16 +2168,6 @@ async def _handle_dispatch_failure(
         grounding_status="degraded" if _grounding_degraded else "grounded",
         grounding_reason=_grounding_reason,
     )
-    # ARPO read-back (CONCEPT:AU-AHE.reward.this-is-read-back): failed runs carry step credit too
-    # (a correct step in a failed trajectory must not be penalized).
-    await _call_without_blocking(
-        _write_step_credit,
-        context.engine,
-        context.run_id,
-        context.agent_name,
-        None,
-        success=False,
-    )
     # CONCEPT:AU-ORCH.execution.planner-failure-feedback/1.71 — fold the failure back into the planner: evict this job's
     # cached recipe AND teach the shape policy (this archetype failed for this task-class).
     from agent_utilities.orchestration.execution_profile import record_shape_outcome
@@ -2634,14 +2622,6 @@ async def _record_run_feedback(
         await _call_without_blocking(
             _record_degraded_feedback, engine, agent_name, task, result
         )
-    await _call_without_blocking(
-        _write_step_credit,
-        engine,
-        run_id,
-        agent_name,
-        result,
-        success=not degraded,
-    )
     from agent_utilities.orchestration.execution_profile import record_shape_outcome
 
     record_shape_outcome(
@@ -6237,82 +6217,3 @@ def _persist_optional_execution_provenance_links(
         return
 
     _commit_optional_provenance_batch(batch_write, optional_mutations, trace_id)
-
-
-# ---------------------------------------------------------------------------
-# Internal: ARPO step-credit read-back (CONCEPT:AU-AHE.reward.this-is-read-back)
-# ---------------------------------------------------------------------------
-
-# Bookkeeping keys in GraphResponse.results that are not per-step outputs.
-_NON_STEP_RESULT_KEYS = {"output", "mermaid", "usage", "error", "metadata", "status"}
-
-
-def _extract_steps(
-    result: Any, agent_name: str, success: bool
-) -> tuple[list[dict[str, Any]], list[str | None]]:
-    """Derive ARPO (step, agent-id) pairs from a GraphResponse-shaped result.
-
-    Each non-bookkeeping key in ``results`` is one completed agent/specialist
-    step (the executor stores per-node outputs under the node name); a truthy
-    output counts as a locally-successful step. When no per-step structure is
-    available, the whole run collapses to a single step credited to the
-    invoked agent.
-    """
-    steps: list[dict[str, Any]] = []
-    agent_ids: list[str | None] = []
-    results = result.get("results") if isinstance(result, dict) else None
-    if isinstance(results, dict):
-        for key, value in results.items():
-            if not isinstance(key, str) or key in _NON_STEP_RESULT_KEYS:
-                continue
-            steps.append({"action": key, "success": bool(value)})
-            agent_ids.append(key)
-    if not steps:
-        steps = [{"action": agent_name, "success": success}]
-        agent_ids = [agent_name]
-    return steps, agent_ids
-
-
-def _write_step_credit(
-    engine: IntelligenceGraphEngine | None,
-    run_id: str,
-    agent_name: str,
-    result: Any,
-    success: bool,
-) -> int:
-    """Write ARPO per-step advantages into the capability reward-EMA.
-
-    CONCEPT:AU-AHE.reward.this-is-read-back — this is the read-back half of agent-step policy
-    optimization: :func:`write_back_step_credit` existed but was never invoked
-    from the live step lifecycle, so routing only ever learned from final
-    answers. Called on every run completion (success AND failure); guarded so
-    a credit failure can never break the step path (log-and-continue).
-    Returns the number of steps credited (0 when no capability index exists).
-    """
-    try:
-        kg = getattr(engine, "knowledge_graph", None) or getattr(engine, "kg", None)
-        capability_index = getattr(kg, "retrieval", None) if kg is not None else None
-        if capability_index is None:
-            return 0
-
-        from agent_utilities.graph.agent_step_po import write_back_step_credit
-        from agent_utilities.graph.reward_decomposition import RewardDecomposer
-
-        steps, agent_ids = _extract_steps(result, agent_name, success)
-        decomposer = RewardDecomposer()
-        record = decomposer.decompose(run_id, steps, goal_achieved=success)
-        advantages = decomposer.step_advantages(record)
-        # Group-normalization centers a uniform trajectory at 0 (neutral 0.5
-        # reward); shift by the centered trajectory outcome so the final
-        # result still moves the EMA even for single-step runs.
-        outcome_shift = record.total_reward - 0.5
-        advantages = [a + outcome_shift for a in advantages]
-        written = write_back_step_credit(capability_index, agent_ids, advantages)
-        if written:
-            logger.debug(
-                "[AHE-3.15] run %s: %d agent-step credits written", run_id, written
-            )
-        return written
-    except Exception as e:  # noqa: BLE001 — credit must never break the run
-        logger.debug("step-credit write-back skipped for %s: %s", run_id, e)
-        return 0

@@ -257,10 +257,8 @@ class RetrievalQualityGate:
             self._threshold = float(env_threshold)
         elif min_relevance_threshold is not None:
             self._threshold = min_relevance_threshold
-        elif hasattr(engine, "hybrid_retriever") and hasattr(
-            engine.hybrid_retriever, "_schema_pack"
-        ):
-            pack = engine.hybrid_retriever._schema_pack
+        elif getattr(engine, "active_schema_pack", None) is not None:
+            pack = engine.active_schema_pack
             self._threshold = getattr(pack, "min_relevance_threshold", 0.6)
         else:
             self._threshold = 0.6
