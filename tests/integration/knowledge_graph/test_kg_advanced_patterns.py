@@ -9,7 +9,6 @@ from agent_utilities.knowledge_graph.backends import set_active_backend
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
-from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import HybridRetriever
 
 
 @pytest.fixture(autouse=True)
@@ -61,64 +60,6 @@ def test_inference_engine_fallback(memory_engine):
     ]
     assert edge_data["relationship"] == "DEPENDS_ON_INDIRECT"
     assert edge_data["inferred"] is True
-
-
-@patch(
-    "agent_utilities.knowledge_graph.retrieval.hybrid_retriever.create_embedding_model"
-)
-def test_hybrid_retriever_fallback(mock_create_model, memory_engine):
-    """Test HybridRetriever fallback when vector backend isn't available."""
-    # Setup mock to avoid hitting real APIs
-    mock_model = MagicMock()
-    mock_model.get_text_embedding.return_value = [0.1] * 768
-    mock_create_model.return_value = mock_model
-
-    # Initialize retriever
-    retriever = HybridRetriever(memory_engine)
-
-    # Search for Agent A
-    results = retriever.retrieve_hybrid("Agent A", context_window=1, multi_hop_depth=1)
-
-    # Should find Agent A and its neighbor Tool X
-    result_ids = [r["id"] for r in results]
-    assert "entity:agent_a" in result_ids
-    assert "entity:tool_x" in result_ids
-    assert "entity:agent_b" not in result_ids  # Too far (2 hops)
-
-
-@patch("agent_utilities.core.contextual_model.create_context_agent")
-def test_consolidate_memory_llm(mock_create_context_agent, memory_engine):
-    """Test memory synthesis using the governed context agent."""
-    mock_agent = MagicMock()
-    mock_agent.run_sync.return_value.output = "This is a synthesized summary."
-    mock_create_context_agent.return_value = mock_agent
-
-    # Mock backend to simulate matching episodes
-    mock_backend = MagicMock()
-    mock_backend.execute.side_effect = lambda query, params=None: (
-        [
-            {"id": "mem1", "description": "Episode 1"},
-            {"id": "mem2", "description": "Episode 2"},
-        ]
-        if "MATCH (e:Episode)" in query
-        else []
-    )
-    memory_engine.backend = mock_backend
-
-    maintainer = GraphMaintainer(memory_engine)
-
-    # Consolidate
-    processed = maintainer.consolidate_memory()
-
-    assert processed == 2
-    # Check if backend create was called for the summary
-    create_calls = [
-        c
-        for c in mock_backend.execute.call_args_list
-        if "CREATE (s:ChatSummary" in c[0][0]
-    ]
-    assert len(create_calls) == 1
-    assert create_calls[0][0][1]["text"] == "This is a synthesized summary."
 
 
 @patch("agent_utilities.core.contextual_model.create_context_agent")

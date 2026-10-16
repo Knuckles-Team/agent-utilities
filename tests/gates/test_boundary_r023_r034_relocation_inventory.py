@@ -151,7 +151,6 @@ RELOCATION_INVENTORY: dict[str, dict[str, tuple[str, ...]]] = {
             "knowledge_graph/backends/postgresql_backend.py",
             "knowledge_graph/backends/cypher_transpiler.py",
             "knowledge_graph/backends/age_backend.py",
-            "knowledge_graph/backends/contrib",
             "knowledge_graph/backends/mirror_target.py",
             "knowledge_graph/backends/outbox.py",
             "knowledge_graph/backends/brain_guarded_backend.py",

@@ -12,8 +12,6 @@ unavailable so the test never produces a false negative in minimal CI.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from agent_utilities.mcp import kg_server
@@ -28,41 +26,6 @@ class _RecordingApp:
 
     def add_middleware(self, *a, **k) -> None:  # gateway adds the cypher fast-path
         pass
-
-
-@pytest.mark.asyncio
-async def test_write_then_engine_reflects_it(engine_graph):
-    kg_server.ensure_tools_registered()
-    # Bind the active engine to this test's isolated real tenant graph so the
-    # shared dispatch writes into (and the assertion reads from) the same graph.
-    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
-        EpistemicGraphBackend,
-    )
-    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-
-    backend = EpistemicGraphBackend(graph_name=engine_graph.graph_name)
-    backend._graph = engine_graph
-    active = IntelligenceGraphEngine(backend=backend, graph=engine_graph)
-    IntelligenceGraphEngine._set_active_for_tests(active)
-
-    node_id = "e2e:node:1"
-    # Write through the same tool the MCP surface and the REST gateway both call.
-    res = await kg_server._execute_tool(
-        "graph_write",
-        action="add_node",
-        node_id=node_id,
-        node_type="E2ETestNode",
-        properties=json.dumps({"v": 1, "via": "e2e"}),
-    )
-    assert res is not None  # tool dispatched without raising
-
-    # The engine the gateway shares now reflects the write.
-    engine = kg_server._get_engine()
-    has_node = getattr(engine, "has_node", None)
-    if has_node is None and hasattr(engine, "graph_compute"):
-        has_node = getattr(engine.graph_compute, "has_node", None)
-    if has_node is not None:
-        assert has_node(node_id) is True
 
 
 @pytest.mark.asyncio

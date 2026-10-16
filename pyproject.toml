@@ -519,17 +519,8 @@ langfuse = [
     # separately by the GraphOS deployment composition.
     "langfuse>=4.14.1,<5",
 ]
-graph = [
-    "ladybug>=0.18.2"
-]
 ann = [
     "hnswlib>=0.8.0"
-]
-neo4j = [
-    "neo4j>=6.2.0"
-]
-falkordb = [
-    "falkordb>=1.6.2"
 ]
 # RDF parsing is needed by the GraphOS ingestion runtime to materialize skill and
 # ontology metadata.  Keep this smaller than ``owl``: the served gateway does not
@@ -585,9 +576,8 @@ serving = [
     #     package needed); PDF extraction uses the bounded pypdf path (now a
     #     base dependency).
     #
-    #   - graph (ladybug): a contrib MIRROR backend only (primary store is engine + postgres);
-    #     it is opt-in via `[graph]`, never shipped on the serving default. neo4j/falkordb stay
-    #     because they remain actively-selectable mirrors; ladybug does not.
+    #   - graph/neo4j/falkordb: the former contrib mirror drivers were cut; those stores are
+    #     epistemic-graph native mirror targets, so agent-utilities ships no extra for them.
     #
     # RF-ADR-009 SUPERSEDES GOC-73: `epistemic-graph[full]` is a hard BASE
     # dependency again (see the `dependencies` block comment at the top of this
@@ -634,7 +624,7 @@ serving = [
     # without it here, every configured dashboard tile logs
     # `ModuleNotFoundError: No module named '<connector>_mcp'` on every aggregator cache
     # refresh in production.
-    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault,gateway-widgets]",
+    "agent-utilities[mcp,feeds,embeddings-openai,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault,gateway-widgets]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
@@ -742,7 +732,7 @@ test = [
     # no-engine CI test job installs only `--extra test --group guardrails`, so
     # without naming it here that import is absent and the whole file errors at
     # collection with `ModuleNotFoundError: No module named 'sqlalchemy'`.
-    "agent-utilities[agent-runtime,feeds,sandbox,graph,acp,rdf,finance,event-kafka,pyarrow,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,trino]",
+    "agent-utilities[agent-runtime,feeds,sandbox,acp,rdf,finance,event-kafka,pyarrow,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,trino]",
     # DEV/TEST-ONLY — a hermetic in-memory comparator, never imported by runtime code.
     # tests/knowledge_graph/test_pack_owl_closure.py, tests/unit/knowledge_graph/
     # test_owl_closure.py and tests/unit/knowledge_graph/test_federation.py build a
@@ -779,16 +769,16 @@ test = [
 ]
 # CONCEPT:KG-2.0 / KG-2.7 — live cross-backend parity + enterprise-profile e2e.
 # Pulls every storage/queue/SPARQL driver plus testcontainers so
-# `pytest -m live` can stand up throwaway pg-age/Neo4j/FalkorDB/Fuseki/Kafka.
+# `pytest -m live` can stand up throwaway pg-age/Fuseki/Kafka.
 test-backends = [
-    "agent-utilities[test,neo4j,falkordb,postgresql,kafka,rdf,fuseki]",
+    "agent-utilities[test,postgresql,kafka,rdf,fuseki]",
     "testcontainers>=4.14.2"
 ]
 # RF-ADR-009 SUPERSEDES GOC-73: the engine is a hard base dependency again, so
 # `all` no longer needs to name `graphos` — an existing `pip install
 # agent-utilities[all]` still gets the engine unchanged, now via base.
 all = [
-    "agent-utilities[mcp,feeds,agent-runtime,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,langfuse,acp,documents,graph,ann,sandbox,browser,test,rdf,stardog,vault,auth,finance,messaging,pyarrow]>=1.0.0"]
+    "agent-utilities[mcp,feeds,agent-runtime,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,langfuse,acp,documents,ann,sandbox,browser,test,rdf,stardog,vault,auth,finance,messaging,pyarrow]>=1.0.0"]
 
 [project.scripts]
 graph-os = "agent_utilities.mcp.kg_server:mcp_server"

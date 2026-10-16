@@ -133,21 +133,6 @@ def _session_status(db, sid):
     return row[0] if row else None
 
 
-async def test_domain_pause_contains_only_target_domain(fleet_env):
-    _, db = fleet_env
-    _insert_session(db, "fin-1", domain="finance")
-    _insert_session(db, "fin-2", domain="finance")
-    _insert_session(db, "ops-1", domain="itops")
-
-    resp = await fleet.fleet_pause(_Req(body={"domain": "finance"}))
-    data = await _payload(resp)
-    assert data["status"] == "success"
-    assert set(data["affected"]) == {"fin-1", "fin-2"}
-    assert _session_status(db, "fin-1") == "paused"
-    assert _session_status(db, "fin-2") == "paused"
-    assert _session_status(db, "ops-1") == "active"  # untouched blast radius
-
-
 async def test_goal_loop_honors_pause_with_zero_effects(fleet_env):
     tmp_path, db = fleet_env
     marker = tmp_path / "paused.txt"

@@ -19,7 +19,6 @@ from agent_utilities.harness.assimilation_benchmark import (
     bench_adore,
     bench_decentmem_bandit,
     bench_mlevolve,
-    bench_pauserec,
     bench_scoregate,
     bench_sgs,
     bench_tasr,
@@ -29,7 +28,6 @@ from agent_utilities.harness.assimilation_benchmark import (
 
 # (bench_fn, expected metric substring) pairs.
 _BENCHES = [
-    (bench_pauserec, "NDCG"),
     (bench_scoregate, "precision"),
     (bench_tasr, "rounds"),
     (bench_adore, "Recall"),
@@ -101,9 +99,9 @@ def test_sgs_guide_rejects_gamed_tasks() -> None:
 
 
 def test_run_all_returns_core_benchmarks() -> None:
-    """run_all yields the seven deterministic rows (+ the trained-pause row when torch is present)."""
+    """run_all yields the six deterministic harness rows."""
     results = run_all(seed=0)
-    assert len(results) >= 7  # 8 when torch is installed (trained-pause-token bench)
+    assert len(results) == 6
     assert all(isinstance(r, BenchmarkResult) for r in results)
     assert all(r.claim_reproduced for r in results)
 

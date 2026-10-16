@@ -108,43 +108,6 @@ def test_subset_cypher_backend_keeps_singular_label() -> None:
 # --------------------------------------------------------------------------- #
 
 
-class _FakeResult:
-    result_set: list[Any] = []
-    header: list[Any] = []
-
-
-class _FakeFalkorGraph:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, Any]] = []
-
-    def query(self, q: str, params: Any = None) -> _FakeResult:
-        self.calls.append((q, params))
-        return _FakeResult()
-
-
-def _falkor_with_fake_graph():
-    from agent_utilities.knowledge_graph.backends.contrib import falkordb_backend
-
-    be = falkordb_backend.FalkorDBBackend.__new__(falkordb_backend.FalkorDBBackend)
-    be.graph = _FakeFalkorGraph()  # type: ignore[attr-defined]
-    return be
-
-
-def test_falkor_empty_params_bind_none_not_empty_map() -> None:
-    """Empty params must reach the client as ``None`` (no spurious ``CYPHER `` header
-    → no "Missing parameters")."""
-    be = _falkor_with_fake_graph()
-    be.execute("MATCH (n) RETURN n")
-    assert be.graph.calls[-1][1] is None
-
-
-def test_falkor_real_params_are_bound() -> None:
-    """A parameterized query keeps its bound params."""
-    be = _falkor_with_fake_graph()
-    be.execute("MATCH (n) WHERE n.id = $id RETURN n", {"id": "x"})
-    assert be.graph.calls[-1][1] == {"id": "x"}
-
-
 # --------------------------------------------------------------------------- #
 # Poison-entry drop (no infinite retry / log spam)
 # --------------------------------------------------------------------------- #

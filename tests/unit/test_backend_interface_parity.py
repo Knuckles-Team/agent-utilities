@@ -25,16 +25,13 @@ import pytest
 from agent_utilities.knowledge_graph.backends.base import GraphBackend
 
 # Every concrete backend module. Imports are engine-free — the third-party drivers
-# (psycopg/neo4j/falkordb/kuzu) are lazily imported / try-except-guarded, so the
+# (psycopg) are lazily imported / try-except-guarded, so the
 # class definitions load with nothing deployed.
 _BACKEND_MODULES = [
     "agent_utilities.knowledge_graph.backends.epistemic_graph_backend",
     "agent_utilities.knowledge_graph.backends.postgresql_backend",
     "agent_utilities.knowledge_graph.backends.age_backend",
     "agent_utilities.knowledge_graph.backends.fanout_backend",
-    "agent_utilities.knowledge_graph.backends.contrib.neo4j_backend",
-    "agent_utilities.knowledge_graph.backends.contrib.falkordb_backend",
-    "agent_utilities.knowledge_graph.backends.contrib.ladybug_backend",
 ]
 
 # The abstract contract every backend must satisfy (mirrors the @abstractmethod set

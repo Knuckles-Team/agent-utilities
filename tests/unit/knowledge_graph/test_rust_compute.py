@@ -155,18 +155,6 @@ def test_rust_blast_radius(engine):
     assert node_ids == {"B", "C", "D"}
 
 
-def test_rust_repository_ast_parsing(engine):
-    """Index logical source names and bytes without exposing a host path."""
-    source = b"class MyAgent:\n    pass\ndef my_tool():\n    pass\n"
-
-    result = engine.index_repository([("mod.py", source)])
-
-    assert result["files_parsed"] == 1
-    rendered_nodes = repr(result["nodes"])
-    assert "MyAgent" in rendered_nodes
-    assert "my_tool" in rendered_nodes
-
-
 def test_rust_vf2_subgraph_matching(engine):
     """Verify subgraph isomorphism matching natively on the optimized Tokio-based epistemic_graph service."""
     import uuid

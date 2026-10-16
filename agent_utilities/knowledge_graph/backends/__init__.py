@@ -2,25 +2,16 @@
 """Graph Database Backends.
 
 Provides the `GraphBackend` ABC and concrete primary implementations
-(EpistemicGraph/file, PostgreSQL + pgvector). Demoted "contrib" backends
-(LadybugDB, FalkorDB, Neo4j) live under ``backends.contrib`` and are opt-in:
-they are never imported eagerly, so default backend selection works without
-their optional driver packages. Use `create_backend()` to instantiate the
-correct backend from typed configuration.
+(EpistemicGraph/file, PostgreSQL + pgvector). The former contrib drivers
+(LadybugDB, FalkorDB, Neo4j) were cut: those stores are epistemic-graph native
+mirror targets / connectors, not agent-utilities backends. Use
+`create_backend()` to instantiate the correct backend from typed configuration.
 
 Architecture:
     EpistemicGraph is the single operational authority for graph storage,
     retrieval, semantics, and algorithms. ``FanOutBackend`` may add explicit
-    mirrors without changing read authority. PostgreSQL/Apache AGE and contrib
-    drivers remain opt-in interoperability endpoints rather than hidden cache or
-    fallback layers.
-
-Opt-in (contrib) access::
-
-    from agent_utilities.knowledge_graph.backends.contrib.neo4j_backend import (
-        Neo4jBackend,
-    )
-    from agent_utilities.knowledge_graph.backends import Neo4jBackend
+    mirrors without changing read authority. PostgreSQL/Apache AGE remain opt-in
+    interoperability endpoints rather than hidden cache or fallback layers.
 
 Environment Variables:
     GRAPH_MIRROR_TARGETS: JSON/CSV list of projection connection names. A
@@ -51,9 +42,11 @@ logger = logging.getLogger(__name__)
 class LegacyGraphBackendRemovedError(RuntimeError):
     """Raised by :func:`create_backend` when the caller requests a backend
     type this repository retired outright (the legacy external SPARQL stores
-    Jena Fuseki and Stardog) instead of returning a backend or silently
-    falling through to the generic "unknown backend type" path. External
-    SPARQL federation is now owned by the epistemic-graph engine."""
+    Jena Fuseki and Stardog, and the former contrib drivers LadybugDB,
+    FalkorDB and Neo4j) instead of returning a backend or silently falling
+    through to the generic "unknown backend type" path. External SPARQL
+    federation and native graph-store mirrors are owned by the epistemic-graph
+    engine."""
 
 
 # Most-recent per-mirror construction outcome (CONCEPT:AU-KG.backend.mirror-health-repair),
@@ -117,7 +110,7 @@ _PG_POOL_MAX = _pg_pool_size("GRAPH_DB_POOL_MAX", 32)
 # file — so they are built only by the host write daemon (role="host"), never by
 # the many client MCP processes that share the same config.json. Without this, every
 # graph-os MCP child would try to open the same mirror file and contend on the lock.
-_SINGLE_WRITER_BACKENDS = frozenset({"ladybug", "kuzu"})
+_SINGLE_WRITER_BACKENDS = frozenset({"kuzu"})
 
 # Supported backend-type tokens (a mirror target that is not a kg_connections name
 # is treated as a bare backend type — anything outside this set is an operator
@@ -253,11 +246,7 @@ _BUILDING: Any = object()
 __all__ = [
     "GraphBackend",
     "EpistemicGraphBackend",
-    "LadybugBackend",
-    "FalkorDBBackend",
-    "Neo4jBackend",
     "PostgreSQLBackend",
-    "LADYBUG_AVAILABLE",
     "LegacyGraphBackendRemovedError",
     "create_backend",
     "get_active_backend",
@@ -271,24 +260,10 @@ def __getattr__(name: str):
         from .base import GraphBackend
 
         return GraphBackend
-    if name == "FalkorDBBackend":
-        from .contrib.falkordb_backend import FalkorDBBackend
-
-        return FalkorDBBackend
-    if name in ("LadybugBackend", "LADYBUG_AVAILABLE"):
-        from .contrib.ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
-
-        if name == "LadybugBackend":
-            return LadybugBackend
-        return LADYBUG_AVAILABLE
     if name == "EpistemicGraphBackend":
         from .epistemic_graph_backend import EpistemicGraphBackend
 
         return EpistemicGraphBackend
-    if name == "Neo4jBackend":
-        from .contrib.neo4j_backend import Neo4jBackend
-
-        return Neo4jBackend
     if name == "PostgreSQLBackend":
         from .postgresql_backend import PostgreSQLBackend
 
@@ -594,79 +569,6 @@ def _create_default_tier_backend(backend_type: str, db_path: str | None, kwargs:
     return backend
 
 
-def _create_ladybug_backend(db_path: str | None):
-    from .contrib.ladybug_backend import LADYBUG_AVAILABLE, LadybugBackend
-
-    if not LADYBUG_AVAILABLE:
-        logger.warning("LadybugDB requested but 'ladybug' package is not installed.")
-        return None
-    # Use centralized XDG-aware path resolver
-    if db_path:
-        resolved_path = db_path
-    else:
-        from agent_utilities.core.paths import kg_db_path
-
-        resolved = kg_db_path()
-        # Ensure parent directory exists for XDG paths
-        resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved_path = str(resolved)
-    backend = LadybugBackend(resolved_path)
-    return backend
-
-
-def _create_falkordb_backend(host, port, db_name, kwargs):
-    from .contrib.falkordb_backend import DEFAULT_GRAPH_KEY, FalkorDBBackend
-
-    if host is None or port is None or db_name is None:
-        raise ValueError("FalkorDB requires a complete connection profile")
-    resolved_host = host
-    resolved_port = port
-    resolved_name = db_name
-    backend = FalkorDBBackend(
-        host=resolved_host,
-        port=resolved_port,
-        db_name=resolved_name,
-        mirror_target=_resolve_mirror_target(
-            kwargs,
-            backend_type="falkordb",
-            named_selector=resolved_name,
-            default_name=DEFAULT_GRAPH_KEY,
-        ),
-    )
-    return backend
-
-
-def _create_neo4j_backend(uri, user, password, db_name, kwargs):
-    from .contrib.neo4j_backend import Neo4jBackend
-
-    if uri is None or user is None or password is None:
-        raise ValueError("Neo4j requires a complete connection profile")
-    resolved_uri = uri
-    resolved_user = user
-    resolved_password = password
-    neo4j_database = kwargs.get("database") or db_name or None
-    backend = Neo4jBackend(
-        uri=resolved_uri,
-        user=resolved_user,
-        password=resolved_password,
-        database=neo4j_database,
-        # Neo4j's isolation unit is a database; ``None`` above is the
-        # driver's home database, i.e. the instance default.
-        mirror_target=_resolve_mirror_target(
-            kwargs,
-            backend_type="neo4j",
-            named_selector=neo4j_database,
-        ),
-        tls_profile=kwargs.get("tls_profile"),
-        tls_profile_ref=kwargs.get("tls_profile_ref"),
-        tls_profile_config=kwargs.get("tls_profile_config"),
-        profile_resolver=kwargs.get("profile_resolver"),
-        connection_timeout=kwargs.get("connection_timeout"),
-        max_connection_pool_size=kwargs.get("max_connection_pool_size"),
-    )
-    return backend
-
-
 def _create_postgresql_backend(backend_type: str, uri, db_name, kwargs):
     # GRAPH_PG_AGE=1 (or backend_type age/pggraph_age) selects the Apache AGE
     # backend — real openCypher-on-Postgres — over the regex-transpiler
@@ -762,11 +664,7 @@ def _init_backend_schema(backend, backend_type: str) -> None:
     try:
         backend.create_schema()
         # Run schema migrations to add any missing columns/properties
-        if backend_type == "ladybug" and setting("AGENT_UTILITIES_TESTING") != "true":
-            from ..migrations import migrate_graph
-
-            migrate_graph(backend)
-    except Exception as e:  # noqa: BLE001 — best-effort schema auto-migration on backend construction (guarded to non-testing environments above); the backend is already usable at this point, migrate_graph only adds schema conveniences on top
+    except Exception as e:  # noqa: BLE001 — best-effort schema init on backend construction; the backend is already usable at this point, create_schema only adds schema conveniences on top
         logger.debug(f"Failed to auto-initialize or migrate graph schema: {e}")
 
 
@@ -940,12 +838,12 @@ def create_backend(
 
     Returns:
         A configured ``GraphBackend`` instance, or ``None`` if the requested
-        backend is not available (e.g., ladybug package not installed).
+        backend is not available.
 
     Raises:
-        LegacyGraphBackendRemovedError: ``backend_type`` is ``"jena_fuseki"``
-            or ``"stardog"`` — both external SPARQL stores were retired
-            outright; use epistemic-graph federation instead.
+        LegacyGraphBackendRemovedError: ``backend_type`` is a retired store
+            (``jena_fuseki``, ``stardog``, ``ladybug``, ``falkordb``,
+            ``neo4j``); use epistemic-graph federation / native mirrors.
     """
     (
         requested_type,
@@ -986,24 +884,13 @@ def create_backend(
     if backend_type in ("memory", "file", "epistemic_graph"):
         backend = _create_default_tier_backend(backend_type, db_path, kwargs)
 
-    elif backend_type == "ladybug":
-        backend = _create_ladybug_backend(db_path)
-        if backend is None:
-            return None
-
-    elif backend_type == "falkordb":
-        backend = _create_falkordb_backend(host, port, db_name, kwargs)
-
-    elif backend_type == "neo4j":
-        backend = _create_neo4j_backend(uri, user, password, db_name, kwargs)
-
     elif backend_type in ("postgresql", "age", "pggraph_age"):
         backend = _create_postgresql_backend(backend_type, uri, db_name, kwargs)
 
     elif backend_type == "fanout":
         backend = _create_fanout_backend()
 
-    elif backend_type in ("jena_fuseki", "stardog"):
+    elif backend_type in ("jena_fuseki", "stardog", "ladybug", "falkordb", "neo4j"):
         # Both external SPARQL stores were retired outright (CONCEPT reference
         # not needed): they addressed only already-legacy triplestores out of
         # scope for the federation epistemic-graph now owns. Distinct from the
@@ -1011,16 +898,16 @@ def create_backend(
         # asks for one of these two by name gets a typed, unambiguous signal
         # instead of being told it typo'd an unrecognized type.
         raise LegacyGraphBackendRemovedError(
-            f"the '{backend_type}' graph backend was retired; external SPARQL "
+            f"the '{backend_type}' graph backend was retired; external graph "
             "stores are no longer backed directly here — use epistemic-graph "
-            "federation instead"
+            "federation or its native mirror targets instead"
         )
 
     else:
         logger.error(
             f"Unknown graph backend type: '{backend_type}'. "
             f"Supported: epistemic_graph, fanout, memory, file, postgresql, age, "
-            f"ladybug, falkordb, neo4j"
+            f"(retired: jena_fuseki, stardog, ladybug, falkordb, neo4j)"
         )
         return None
     return _finalize_backend(

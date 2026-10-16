@@ -24,9 +24,9 @@ async def test_assimilation_benchmark_action(monkeypatch):
     # rows into .claims and keeps the full original payload (including
     # "total"/"reproduced"/"markdown") in the first reasoning_trace entry.
     payload = bundle.reasoning_trace[0]["payload"]
-    assert payload["total"] >= 7
+    assert payload["total"] == 6
     # Every assimilated mechanism beat its baseline in the paper's claimed direction.
     assert payload["reproduced"] == payload["total"]
     names = {c["name"] for c in bundle.claims}
-    assert any("PauseRec" in n for n in names)
+    assert any("ScoreGate" in n for n in names)
     assert "markdown" in payload and "claims reproduced" in payload["markdown"]

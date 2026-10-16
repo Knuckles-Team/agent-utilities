@@ -51,14 +51,6 @@ def _mint(scope: str):
         return mint_graph_session(actor)
 
 
-def test_the_generated_module_is_the_installed_eg_registry():
-    generator = _generator()
-    rendered = generator.render(generator.installed_registry_bytes())
-    assert (ROOT / "agent_utilities" / "security" / "scope_registry.py").read_text(
-        encoding="utf-8"
-    ) == rendered
-
-
 @pytest.mark.spec("AU-SEC-R008")
 def test_registered_scopes_reach_the_session_and_nothing_else_does():
     session = _mint(

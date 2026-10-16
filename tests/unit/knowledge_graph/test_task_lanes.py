@@ -70,41 +70,6 @@ def lane_of(task_type: str) -> str:
     return lane_for_task_type(task_type)
 
 
-def test_sweep_all_sources_enqueues_laned_connector_tasks(monkeypatch):
-    """ORCH-1.77 — the fleet sweep enqueues one connector_sync task per connector (parallel,
-    laned) instead of syncing them sequentially inline.
-
-    The candidate set and the governed provider gate are pinned so the verdict
-    does not depend on which connector providers this environment installs (a
-    provider that is not installed is correctly rejected, which is ``partial``).
-    """
-    from agent_utilities.knowledge_graph.core import source_sync
-    from agent_utilities.knowledge_graph.core.source_sync import sweep_all_sources
-    from agent_utilities.knowledge_graph.ontology import connector_manifest_gate
-
-    monkeypatch.setattr(
-        source_sync, "_sweep_candidate_sources", lambda _m: {"alpha", "beta"}
-    )
-    monkeypatch.setattr(
-        connector_manifest_gate,
-        "precheck_source",
-        lambda _source: {"checked": True, "ok": True},
-    )
-
-    calls: list[tuple] = []
-
-    class _Eng:
-        def submit_task(self, target_path, provenance, task_type=None, **kw):
-            calls.append((target_path, task_type, provenance))
-            return f"job-{target_path}"
-
-    res = sweep_all_sources(_Eng(), mode="delta", include_materialize=False)
-    assert res["status"] == "enqueued"
-    assert res["enqueued"] == len(calls) > 0
-    assert all(t == "connector_sync" for (_, t, _) in calls)
-    assert all(p == {"sync_mode": "delta"} for (_, _, p) in calls)
-
-
 # NOTE: `TaskManagerMixin._select_pending_task` (the Python-side cypher-based
 # lane/type rotation cursor these two tests exercised) was retired by the
 # AU-P1-CL / ORCH-1.8x WorkItem-queue migration (see

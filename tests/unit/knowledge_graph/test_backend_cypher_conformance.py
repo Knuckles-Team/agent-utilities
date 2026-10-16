@@ -145,31 +145,10 @@ def _build_inprocess_backend(label: str):
         except Exception as exc:  # engine not reachable in this environment
             pytest.skip(f"epistemic-graph engine unreachable: {exc}")
 
-    if label == "ladybug":
-        try:
-            from agent_utilities.knowledge_graph.backends import (
-                LADYBUG_AVAILABLE,
-                LadybugBackend,
-            )
-        except Exception as exc:
-            pytest.skip(f"ladybug backend import failed: {exc}")
-        if not LADYBUG_AVAILABLE:
-            pytest.skip("ladybug not installed")
-
-        import tempfile
-
-        path = tempfile.mktemp(suffix=".db")  # noqa: S306 - test scratch
-        lb = LadybugBackend(path)
-        try:
-            lb.create_schema()
-        except Exception:
-            pass
-        return lb
-
     raise ValueError(f"unknown in-process backend label: {label!r}")  # pragma: no cover
 
 
-@pytest.mark.parametrize("label", ["epistemic_graph", "ladybug"])
+@pytest.mark.parametrize("label", ["epistemic_graph"])
 def test_inprocess_backend_honours_lifecycle_contract(label):
     """Every in-process backend must honour generic node mutation semantics."""
     backend = _build_inprocess_backend(label)

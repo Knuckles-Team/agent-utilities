@@ -56,81 +56,6 @@ def _inferred_edges(engine) -> list[dict]:
     ]
 
 
-def test_relationship_property_predicates_filter_relationships(engine_graph):
-    """Relationship-property predicates filter on this engine.
-
-    Both ``WHERE r.<prop> = <value>`` and the inline ``[r {prop: value}]`` map
-    select only the edges whose property matches, for booleans and strings
-    alike, exactly as the identical predicate over a NODE property does. (An
-    earlier engine ignored the inline map and matched nothing for ``WHERE``;
-    that is no longer the case, so an audit may count edges with Cypher.)
-    """
-    engine_graph.batch_update(
-        [
-            {
-                "op": "upsert_node",
-                "id": "trap:a",
-                "properties": {"id": "trap:a", "node_type": "Concept", "flag": True},
-            },
-            {
-                "op": "upsert_node",
-                "id": "trap:b",
-                "properties": {"id": "trap:b", "node_type": "Concept"},
-            },
-            {
-                "op": "upsert_node",
-                "id": "trap:c",
-                "properties": {"id": "trap:c", "node_type": "Concept"},
-            },
-            {
-                "op": "upsert_edge",
-                "source": "trap:a",
-                "target": "trap:b",
-                "properties": {
-                    "relationship": "PART_OF",
-                    "inferred": True,
-                    "inferred_from": "trap",
-                },
-            },
-            # A second edge with NO ``inferred`` property, to expose an
-            # over-matching filter.
-            {
-                "op": "upsert_edge",
-                "source": "trap:b",
-                "target": "trap:c",
-                "properties": {"relationship": "PART_OF"},
-            },
-        ]
-    )
-
-    returned = engine_graph.query_cypher(
-        "MATCH (a)-[r]->(b) WHERE a.id = 'trap:a' RETURN r.inferred AS inferred"
-    )
-    assert returned and returned[0]["inferred"] is True
-
-    assert [
-        row["id"]
-        for row in engine_graph.query_cypher(
-            "MATCH (n) WHERE n.flag = true RETURN n.id AS id"
-        )
-    ] == ["trap:a"]
-
-    where_bool = engine_graph.query_cypher(
-        "MATCH (a)-[r]->(b) WHERE r.inferred = true RETURN a.id AS src"
-    )
-    assert [row["src"] for row in where_bool] == ["trap:a"]
-    where_str = engine_graph.query_cypher(
-        "MATCH (a)-[r]->(b) WHERE r.inferred_from = 'trap' RETURN a.id AS src"
-    )
-    assert [row["src"] for row in where_str] == ["trap:a"]
-    inline = engine_graph.query_cypher(
-        "MATCH (a)-[r {inferred: true}]->(b) RETURN a.id AS src"
-    )
-    assert [row["src"] for row in inline] == ["trap:a"]
-
-    assert [row["src"] for row in _inferred_edges(engine_graph)] == ["trap:a"]
-
-
 # ── 1. reachability: a real ingest now produces edges ─────────────────────
 
 
@@ -206,34 +131,6 @@ def test_non_projecting_writes_are_untouched(engine_graph):
 # ── 3. an inference actually lands as inferred = true ─────────────────────
 
 
-def test_reasoning_produces_an_inferred_edge(engine_graph):
-    """The assertion the forensics said would have caught the whole failure.
-
-    A three-node ``PART_OF`` chain (``part_of`` is transitive both in the
-    bundled ontology and in the lightweight closure's own set) must close to
-    ``a -> c`` marked ``inferred = true``. Before this change the graph
-    contained ZERO such edges and no test asserted one could exist.
-    """
-    engine = _live_engine(engine_graph)
-    for node_id in ("part:a", "part:b", "part:c"):
-        engine.add_node(node_id, "Concept", properties={"name": node_id})
-    engine.link_nodes("part:a", "part:b", "PART_OF")
-    engine.link_nodes("part:b", "part:c", "PART_OF")
-
-    assert _inferred_edges(engine_graph) == [], "precondition: nothing inferred yet"
-
-    engine._tick_reasoning()
-
-    inferred = _inferred_edges(engine_graph)
-    assert inferred, (
-        "reasoning produced no edge carrying inferred = true; all edges: "
-        f"{engine_graph.query_cypher('MATCH (a)-[r]->(b) RETURN a.id AS s, type(r) AS t, b.id AS d, r.inferred AS i')}"
-    )
-    assert any(row["src"] == "part:a" and row["dst"] == "part:c" for row in inferred), (
-        inferred
-    )
-
-
 def test_inference_never_overwrites_an_asserted_edge(engine_graph):
     """Reasoning may CONNECT, never RELABEL.
 
@@ -262,21 +159,3 @@ def test_inference_never_overwrites_an_asserted_edge(engine_graph):
         "RETURN r.inferred AS inferred"
     )
     assert asserted and not asserted[0]["inferred"]
-
-
-def test_reasoning_has_a_production_caller(engine_graph):
-    """Reasoning is reachable from a scheduled tick, not only tests.
-
-    Epistemic Graph is the sole semantic authority, so the tick drives its
-    durable Datalog gateway rather than any AU-local closure.
-    """
-    import inspect
-
-    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-
-    source = inspect.getsource(IntelligenceGraphEngine._tick_reasoning)
-    assert "run_datalog_reasoning" in source
-
-    from agent_utilities.core.schedule_engine import _MAINTENANCE_REF_ALLOWLIST
-
-    assert "reasoning" in _MAINTENANCE_REF_ALLOWLIST

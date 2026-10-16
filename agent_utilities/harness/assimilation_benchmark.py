@@ -22,10 +22,9 @@ seed, not a hard benchmark. Every task is seeded, CPU-only, and uses the
 deterministic / lexical code paths of each module (no torch, no LLM, no network),
 so :func:`run_all` is bit-for-bit reproducible.
 
-The eight modules map to seven benchmarks here: the temporal-semantic-ID encoder
-(KG-2.86) is exercised *inside* the PauseRec benchmark (it is the recommender's
-required encoder), so it is measured as part of that task rather than as a
-standalone row.
+The PauseRec recommender (KG-2.93) and its temporal-semantic-ID encoder
+(KG-2.86) are not benchmarked here: recommender ranking is an engine decision
+owned by epistemic-graph (EG-DECISION-ENGINE).
 
 Style mirrors the sibling harness measurement modules
 (``adaptation_speed`` AHE-3.27, ``reliability_scorers`` AHE-3.12): pure,
@@ -36,8 +35,6 @@ the harness mechanisms; it imports them, runs them, and reports — no I/O, no
 network, no upward dependencies.
 """
 
-import math
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -45,21 +42,15 @@ from agent_utilities.harness.explore_exploit_router import ExploreExploitRouter
 from agent_utilities.harness.graph_search_evolution import GraphSearchEvolver
 from agent_utilities.harness.self_guided_play import Guide, SelfGuidedSelfPlay
 from agent_utilities.knowledge_graph.retrieval.adaptive_stopping import IterativeStopper
-from agent_utilities.knowledge_graph.retrieval.generative_recommender import (
-    ImplicitReasoningRecommender,
-)
 from agent_utilities.knowledge_graph.retrieval.iterative_expansion import (
     IterativeQueryExpander,
 )
 from agent_utilities.knowledge_graph.retrieval.score_gate import score_gate
-from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (
-    TemporalSemanticIdEncoder,
-)
 
 if TYPE_CHECKING:
     # Type-only: with `from __future__ import annotations` above, annotations
     # are never evaluated at runtime, so these names need no runtime import.
-    from agent_utilities.numeric import NDArray, RandomGenerator
+    pass
 
 # agent_utilities.numeric always imports successfully -- it defers the
 # certified epistemic_graph.numeric kernel's absence to first actual use
@@ -70,7 +61,6 @@ from agent_utilities.numeric import xp
 
 __all__ = [
     "BenchmarkResult",
-    "bench_pauserec",
     "bench_scoregate",
     "bench_tasr",
     "bench_adore",
@@ -87,7 +77,7 @@ class BenchmarkResult:
     """One paper's measured baseline-vs-ours comparison on a controlled task.
 
     Attributes:
-        name: Human-readable mechanism + concept id, e.g. ``"PauseRec KG-2.93"``.
+        name: Human-readable mechanism + concept id, e.g. ``"ScoreGate KG-2.85"``.
         metric: The metric measured, e.g. ``"Recall@5"`` or ``"rounds"``.
         baseline: The metric value for the baseline (mechanism off / predecessor).
         ours: The metric value for OUR mechanism (mechanism on).
@@ -146,128 +136,6 @@ def _make_result(
 # ----------------------------------------------------------------------------
 # Synthetic-data helpers (seeded native-list boundary)
 # ----------------------------------------------------------------------------
-def _clustered_embeddings(
-    rng: RandomGenerator, *, n_clusters: int, per_cluster: int, dim: int
-) -> tuple[NDArray, list[int]]:
-    """Generate tight clusters of embeddings; return vectors + per-row cluster id.
-
-    Each cluster has a well-separated random centroid (orthogonal-ish on the
-    sphere) plus a little noise, so the geometry is unambiguous and clustering /
-    nearest-neighbour outcomes are stable under the seed.
-    """
-    centroids = rng.normal(size=(n_clusters, dim))
-    for index, centroid in enumerate(centroids):
-        norm = float(xp.linalg.norm(centroid))
-        centroids[index] = [value / (norm + 1e-12) for value in centroid]
-    rows: list[NDArray] = []
-    labels: list[int] = []
-    for c in range(n_clusters):
-        for _ in range(per_cluster):
-            noise = rng.normal(size=dim)
-            rows.append(
-                [
-                    value + 0.05 * delta
-                    for value, delta in zip(centroids[c], noise, strict=True)
-                ]
-            )
-            labels.append(c)
-    return rows, labels
-
-
-def _ndcg_at_k(ranked_relevances: Sequence[float], k: int) -> float:
-    """Normalized DCG@k for a best-first list of graded relevances (0/1 here)."""
-    rels = list(ranked_relevances)[:k]
-    dcg = sum(r / math.log2(i + 2) for i, r in enumerate(rels))
-    ideal = sorted(ranked_relevances, reverse=True)[:k]
-    idcg = sum(r / math.log2(i + 2) for i, r in enumerate(ideal))
-    return float(dcg / idcg) if idcg > 0 else 0.0
-
-
-# ----------------------------------------------------------------------------
-# PauseRec (KG-2.93) + TemporalSemanticIdEncoder (KG-2.86)
-# ----------------------------------------------------------------------------
-def bench_pauserec(*, seed: int = 0) -> BenchmarkResult:
-    """Latent-reasoning budget (pause_steps>0) vs none (pause_steps=0).
-
-    Synthetic task: a clustered catalog where the user's history lives entirely in
-    the target cluster, the relevant items ARE that cluster, but the query points
-    (on content) at a *distractor* cluster. Ranking straight off the projected
-    query (no pausing) lands on the distractor and misses every relevant item;
-    PauseRec's implicit-reasoning steps pull the latent target toward the history
-    (and the items it co-supports), recovering the target cluster — the paper's
-    claim that latent reasoning bridges history/world-knowledge into SID selection.
-
-    Metric: NDCG@k over the relevant cluster. Claim: pausing >= no pausing.
-    Exercises ``TemporalSemanticIdEncoder`` (KG-2.86) as the shared SID encoder.
-    """
-    rng = xp.random.default_rng(seed + 1)
-    dim = 24
-    per_cluster = 6
-    vectors, labels = _clustered_embeddings(
-        rng, n_clusters=4, per_cluster=per_cluster, dim=dim
-    )
-    target_cluster = 0
-    distractor_cluster = 1
-    items = [(f"item-{i}", vectors[i]) for i in range(len(labels))]
-    relevant = {f"item-{i}" for i, c in enumerate(labels) if c == target_cluster}
-
-    encoder_seed = seed + 2
-
-    def _build() -> TemporalSemanticIdEncoder:
-        return TemporalSemanticIdEncoder(
-            n_codebooks=3, codebook_size=8, seed=encoder_seed
-        )
-
-    # The query points (on content) at the WRONG cluster — a distractor — while the
-    # user's history sits firmly in the target cluster. A raw projection (no
-    # pausing) therefore ranks the distractor and misses the relevant items; the
-    # implicit-reasoning steps pull the latent target toward the history (and the
-    # items it co-supports), recovering the target cluster. This is exactly
-    # PauseRec's claim that the latent reasoning bridges history/world-knowledge
-    # into SID selection rather than ranking off the surface query.
-    distractor_vectors = [
-        vector
-        for vector, label in zip(vectors, labels, strict=True)
-        if label == distractor_cluster
-    ]
-    distractor_centroid = [
-        float(xp.mean([vector[column] for vector in distractor_vectors]))
-        for column in range(dim)
-    ]
-    noise = rng.normal(size=dim)
-    query = [
-        0.7 * centroid + 0.3 * delta
-        for centroid, delta in zip(distractor_centroid, noise, strict=True)
-    ]
-
-    top_k = per_cluster
-
-    def _ndcg_for(pause_steps: int) -> float:
-        rec = ImplicitReasoningRecommender(_build(), pause_steps=pause_steps)
-        rec.fit_catalog(items)
-        # History SIDs: three items firmly inside the target cluster.
-        hist_ids = [i for i, c in enumerate(labels) if c == target_cluster][:3]
-        history_sids = [rec._encoder.encode_content(vectors[i]) for i in hist_ids]  # noqa: SLF001
-        ranked = rec.recommend(query, top_k=top_k, history_sids=history_sids)
-        rels = [1.0 if r.item_id in relevant else 0.0 for r in ranked]
-        return _ndcg_at_k(rels, top_k)
-
-    baseline = _ndcg_for(0)
-    ours = _ndcg_for(2)
-    return _make_result(
-        name="PauseRec KG-2.93",
-        metric=f"NDCG@{top_k}",
-        baseline=baseline,
-        ours=ours,
-        higher_is_better=True,
-        detail={
-            "pause_steps_baseline": 0,
-            "pause_steps_ours": 2,
-            "catalog_size": len(items),
-            "relevant_count": len(relevant),
-            "encoder": "TemporalSemanticIdEncoder KG-2.86 (n_codebooks=3)",
-        },
-    )
 
 
 # ----------------------------------------------------------------------------
@@ -680,16 +548,11 @@ def bench_sgs(*, seed: int = 0) -> BenchmarkResult:
 # ----------------------------------------------------------------------------
 # Aggregation + reporting
 # ----------------------------------------------------------------------------
-# NOTE: the trained-pause-token PauseRec benchmark (the literal
-# trainable-``<pause>``-token mechanism via gradient descent, CONCEPT:AU-KG.retrieval.pauserec-implicit-reasoning-generative
-# training track) was re-homed to data-science-mcp
-# (data_science_mcp.training.pause_token_trainer) so agent-utilities core stays
-# torch-free — see AGENTS.md "Dependency discipline". The inference-time
-# deterministic adaptation (:func:`bench_pauserec`) stays here; it is torch-free.
+# NOTE: the PauseRec recommender benchmark left this harness: recommender ranking
+# is an engine decision owned by epistemic-graph (EG-DECISION-ENGINE).
 def run_all(*, seed: int = 0) -> list[BenchmarkResult]:
     """Run every (torch-free) benchmark under one seed and return them in order."""
     return [
-        bench_pauserec(seed=seed),
         bench_scoregate(seed=seed),
         bench_tasr(seed=seed),
         bench_adore(seed=seed),

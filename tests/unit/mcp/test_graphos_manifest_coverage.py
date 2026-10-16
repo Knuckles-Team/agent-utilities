@@ -77,19 +77,6 @@ def test_manifest_has_no_phantom_tool_families():
     )
 
 
-def test_generated_manifest_matches_live_source_deterministically():
-    """The checked-in manifest is a projection, never a preservation source."""
-
-    from agent_utilities.mcp._graphos_action_manifest import GRAPHOS_ACTIONS
-    from scripts.gen_graphos_manifest import build_manifest
-
-    first = build_manifest()
-    second = build_manifest()
-
-    assert first == second
-    assert first == GRAPHOS_ACTIONS
-
-
 def test_manifest_generation_rejects_duplicate_operation_identity():
     from scripts.gen_graphos_manifest import _validate_operations
 

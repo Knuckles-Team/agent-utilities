@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 # Backends whose writes must filter properties to declared columns (mirror of the
 # engine's ``_SCHEMA_BACKED``) so the free default SET clause is correct on them.
-_SCHEMA_BACKED = {"LadybugBackend", "PostgreSQLBackend"}
+_SCHEMA_BACKED = {"PostgreSQLBackend"}
 
 # Properties that must NOT contribute to the content hash: the hash itself, and
 # volatile provenance/observation timestamps that change every ingest.
@@ -131,10 +131,9 @@ def normalize_label(label: str) -> str:
 # ``_shared_scope``; the write-time ACL classification stamp:
 # ``tenant_sharing.stamp_classification`` -> ``classification``) but that no
 # individual ``TableDefinition`` in schema_definition.py declares as a column.
-# Without this, a schema-backed backend (LadybugDB) treats them as undeclared
-# and folds them into the ``metadata`` JSON catch-all instead of the real
-# column ladybug_backend.py's schema creation provisions for them generically
-# — so a stamped write never actually landed a queryable ``tenant_id``/
+# Without this, a schema-backed backend (PostgreSQL) treats them as undeclared
+# and folds them into the ``metadata`` JSON catch-all instead of a real
+# column — so a stamped write never actually landed a queryable ``tenant_id``/
 # ``classification``, and both the mandatory tenant-scoped read (query_cypher)
 # and the ACL-hydration read (secured_reads._durable_access_rows) then matched
 # zero/ungoverned rows for data the caller had just written. Declared once
@@ -150,13 +149,11 @@ def schema_valid_keys(backend: Any, label: str | None) -> set[str] | None:
     default mirror of the engine's ``_schema_valid_keys``)."""
     if backend is None or backend.__class__.__name__ not in _SCHEMA_BACKED or not label:
         return None
-    from ...models.schema_definition import GENERIC_NODE_COLUMNS, SCHEMA
+    from ...models.schema_definition import SCHEMA
 
     for node in SCHEMA.nodes:
         if node.name == label:
             return set(node.columns.keys()) | _GOVERNANCE_COLUMNS
-    if backend.__class__.__name__ == "LadybugBackend":
-        return set(GENERIC_NODE_COLUMNS) | _GOVERNANCE_COLUMNS
     return None
 
 
@@ -168,8 +165,6 @@ def set_clause(
     there is a single implementation."""
     if label:
         label = normalize_label(label)
-    if alias == "r" and backend and backend.__class__.__name__ == "LadybugBackend":
-        return ""
     valid_keys = schema_valid_keys(backend, label)
     # The native epistemic_graph Cypher parser does not support backtick-quoted
     # identifiers at all -- it fails outright with "unexpected character: '`'"
@@ -297,36 +292,6 @@ def _write_authority(
     }
 
 
-def _write_ladybug(
-    backend: Any,
-    entities: list[dict[str, Any]],
-    relationships: list[dict[str, Any]],
-) -> int:
-    """Write one-row batches through Ladybug's supported backend path.
-
-    Ladybug translates the shared ``execute_batch`` contract into one native
-    operation per row. Keeping this projection on that path avoids routing a
-    Ladybug-only multi-clause edge statement through ``execute`` (the native
-    engine write API accepts a narrower Cypher subset).
-    """
-    for row in entities:
-        node_type = safe_label(row.get("node_type"))
-        backend.execute_batch(
-            f"MERGE (n:{node_type} {{id: $id}}){set_clause(row, backend, 'n', node_type)}",
-            [row],
-        )
-    for row in relationships:
-        # Use the REAL rel type so Kuzu builds a typed table, not a generic
-        # collapsed edge; the backend binds the endpoints' rel-pair (KG-2.74).
-        rtype = safe_label(row.get("relationship") or "RELATED")
-        backend.execute_batch(
-            f"MATCH (s {{id: $source}}) MATCH (t {{id: $target}}) "
-            f"MERGE (s)-[r:{rtype}]->(t){set_clause(row, backend, 'r', None)}",
-            [row],
-        )
-    return len(relationships)
-
-
 def _write_entity_batch(backend: Any, label: str, rows: list[dict[str, Any]]) -> None:
     """Write one node-label group through the backend batch API."""
     keys = sorted({key for row in rows for key in row} - {"id"})
@@ -410,10 +375,7 @@ def write_entities(
             authority_backend, domain, entities, rels, skipped_unchanged
         )
 
-    if backend.__class__.__name__ == "LadybugBackend":
-        edges = _write_ladybug(backend, entities, rels)
-    else:
-        edges = _write_batches(backend, entities, rels)
+    edges = _write_batches(backend, entities, rels)
 
     return {
         "status": "success",
