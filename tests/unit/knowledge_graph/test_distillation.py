@@ -11,6 +11,9 @@ Covers:
   - Pydantic model enum integration
 """
 
+import math
+import random
+
 import pytest
 
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
@@ -31,33 +34,27 @@ from agent_utilities.models.knowledge_graph import (
     RegistryEdgeType,
     RegistryNodeType,
 )
-from agent_utilities.numeric import xp as np
 
 # ── Fixtures ──
 
 
+def _normalise(vec: list[float]) -> list[float]:
+    norm = math.sqrt(sum(v * v for v in vec))
+    return [v / norm for v in vec] if norm > 0 else vec
+
+
 def _make_random_embedding(dim: int = 128, seed: int = 0) -> list[float]:
-    """Generate a reproducible random embedding."""
-    rng = np.random.RandomState(seed)
-    vec = rng.randn(dim).astype(np.float32)
-    norm = np.linalg.norm(vec)
-    if norm > 0:
-        vec = vec / norm
-    return vec.tolist()
+    """Generate a reproducible random unit embedding."""
+    rng = random.Random(seed)
+    return _normalise([rng.gauss(0.0, 1.0) for _ in range(dim)])
 
 
 def _make_similar_embedding(
     base: list[float], noise: float = 0.05, seed: int = 1
 ) -> list[float]:
     """Create an embedding similar to base by adding small noise."""
-    rng = np.random.RandomState(seed)
-    vec = np.array(base, dtype=np.float32) + noise * rng.randn(len(base)).astype(
-        np.float32
-    )
-    norm = np.linalg.norm(vec)
-    if norm > 0:
-        vec = vec / norm
-    return vec.tolist()
+    rng = random.Random(seed)
+    return _normalise([v + noise * rng.gauss(0.0, 1.0) for v in base])
 
 
 def _make_block(

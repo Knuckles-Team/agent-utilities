@@ -91,12 +91,12 @@ class TestAlphaCombinationEngine:
     def test_basic_computation(self):
         engine = AlphaCombinationEngine(lookback_d=10)
         # N=3 signals, M=20 periods
-        returns = np.random.randn(3, 20)
+        returns = np.random.default_rng(0).standard_normal((3, 20))
 
         weights = engine.compute_weights(returns)
 
         assert len(weights) == 3
-        assert np.isclose(np.abs(weights).sum(), 1.0)
+        assert np.isclose(sum(abs(w) for w in weights), 1.0)
 
 
 class TestLaplaceEnsembleFusion:
