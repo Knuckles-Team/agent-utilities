@@ -391,19 +391,36 @@ def _entry(root: Path, *, name: str = "provider-a", target: str = "pkg.prompts")
     )
 
 
-def test_editable_registration_uses_pep610_owned_target_without_import(
-    tmp_path: Path, monkeypatch
-) -> None:
-    owned = tmp_path / "pkg" / "prompts"
-    owned.mkdir(parents=True)
-    (owned / "prompt.json").write_text("{}", encoding="utf-8")
-    entry = SimpleNamespace(
+def _editable_entry(root: Path):
+    return SimpleNamespace(
         name="provider-a",
         value="pkg.prompts",
         group=providers.PROMPT_PROVIDER_GROUP,
-        dist=_EditableDistribution(tmp_path),
+        dist=_EditableDistribution(root),
     )
-    monkeypatch.setattr(providers, "entry_points", lambda **_kwargs: [entry])
+
+
+def _serve_entries(monkeypatch, *entries) -> None:
+    monkeypatch.setattr(providers, "entry_points", lambda **_kwargs: list(entries))
+
+
+def _owned_prompts(root: Path, *parts: str) -> Path:
+    owned = root.joinpath(*(parts or ("pkg", "prompts")))
+    owned.mkdir(parents=True)
+    (owned / "prompt.json").write_text("{}", encoding="utf-8")
+    return owned
+
+
+def _first_prompt_registration():
+    return providers.provider_registrations(providers.PROMPT_PROVIDER_GROUP)[0]
+
+
+def test_editable_registration_uses_pep610_owned_target_without_import(
+    tmp_path: Path, monkeypatch
+) -> None:
+    owned = _owned_prompts(tmp_path)
+    entry = _editable_entry(tmp_path)
+    _serve_entries(monkeypatch, entry)
     monkeypatch.setattr(
         "importlib.import_module",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
@@ -411,7 +428,7 @@ def test_editable_registration_uses_pep610_owned_target_without_import(
         ),
     )
 
-    registration = providers.provider_registrations(providers.PROMPT_PROVIDER_GROUP)[0]
+    registration = _first_prompt_registration()
     assets = providers.current_provider_assets(providers.PROMPT_PROVIDER_GROUP)
 
     assert registration.source_root == owned
@@ -423,22 +440,15 @@ def test_editable_registration_uses_pep610_owned_target_without_import(
 def test_editable_registration_honors_safe_setuptools_package_root(
     tmp_path: Path, monkeypatch
 ) -> None:
-    owned = tmp_path / "agent" / "pkg" / "prompts"
-    owned.mkdir(parents=True)
-    (owned / "prompt.json").write_text("{}", encoding="utf-8")
+    owned = _owned_prompts(tmp_path, "agent", "pkg", "prompts")
     (tmp_path / "pyproject.toml").write_text(
         '[tool.setuptools.packages.find]\nwhere = ["agent"]\n',
         encoding="utf-8",
     )
-    entry = SimpleNamespace(
-        name="provider-a",
-        value="pkg.prompts",
-        group=providers.PROMPT_PROVIDER_GROUP,
-        dist=_EditableDistribution(tmp_path),
-    )
-    monkeypatch.setattr(providers, "entry_points", lambda **_kwargs: [entry])
+    entry = _editable_entry(tmp_path)
+    _serve_entries(monkeypatch, entry)
 
-    registration = providers.provider_registrations(providers.PROMPT_PROVIDER_GROUP)[0]
+    registration = _first_prompt_registration()
 
     assert registration.source_root == owned
     assert registration.owned_paths == frozenset({"prompt.json"})
@@ -447,22 +457,15 @@ def test_editable_registration_honors_safe_setuptools_package_root(
 def test_editable_registration_rejects_unsafe_setuptools_package_root(
     tmp_path: Path, monkeypatch
 ) -> None:
-    owned = tmp_path / "pkg" / "prompts"
-    owned.mkdir(parents=True)
-    (owned / "prompt.json").write_text("{}", encoding="utf-8")
+    _owned_prompts(tmp_path)
     (tmp_path / "pyproject.toml").write_text(
         '[tool.setuptools.packages.find]\nwhere = ["../outside"]\n',
         encoding="utf-8",
     )
-    entry = SimpleNamespace(
-        name="provider-a",
-        value="pkg.prompts",
-        group=providers.PROMPT_PROVIDER_GROUP,
-        dist=_EditableDistribution(tmp_path),
-    )
-    monkeypatch.setattr(providers, "entry_points", lambda **_kwargs: [entry])
+    entry = _editable_entry(tmp_path)
+    _serve_entries(monkeypatch, entry)
 
-    registration = providers.provider_registrations(providers.PROMPT_PROVIDER_GROUP)[0]
+    registration = _first_prompt_registration()
 
     assert registration.source_root is None
 
@@ -476,15 +479,10 @@ def test_editable_registration_rejects_linked_target(
     package = tmp_path / "pkg"
     package.mkdir()
     (package / "prompts").symlink_to(outside, target_is_directory=True)
-    entry = SimpleNamespace(
-        name="provider-a",
-        value="pkg.prompts",
-        group=providers.PROMPT_PROVIDER_GROUP,
-        dist=_EditableDistribution(tmp_path),
-    )
-    monkeypatch.setattr(providers, "entry_points", lambda **_kwargs: [entry])
+    entry = _editable_entry(tmp_path)
+    _serve_entries(monkeypatch, entry)
 
-    registration = providers.provider_registrations(providers.PROMPT_PROVIDER_GROUP)[0]
+    registration = _first_prompt_registration()
 
     assert registration.source_root is None
     assert providers.current_provider_assets(providers.PROMPT_PROVIDER_GROUP) == ()
@@ -493,10 +491,8 @@ def test_editable_registration_rejects_linked_target(
 def test_registration_is_distribution_owned_and_never_imports_provider(
     tmp_path: Path, monkeypatch
 ) -> None:
-    owned = tmp_path / "pkg" / "prompts"
-    owned.mkdir(parents=True)
-    (owned / "prompt.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(providers, "entry_points", lambda **_kwargs: [_entry(tmp_path)])
+    owned = _owned_prompts(tmp_path)
+    _serve_entries(monkeypatch, _entry(tmp_path))
     monkeypatch.setattr(
         "importlib.import_module",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
@@ -518,7 +514,7 @@ def test_nonmaterialized_data_provider_group_remains_bounded_and_nonimporting(
     owned.mkdir(parents=True)
     (owned / "mcp_source_presets.json").write_text("{}", encoding="utf-8")
     entry = _entry(tmp_path, target="pkg.connectors")
-    monkeypatch.setattr(providers, "entry_points", lambda **_kwargs: [entry])
+    _serve_entries(monkeypatch, entry)
 
     assert providers.iter_provider_dirs(
         "agent_utilities.source_connector_providers"
@@ -528,27 +524,23 @@ def test_nonmaterialized_data_provider_group_remains_bounded_and_nonimporting(
 def test_unowned_target_is_unresolved_and_not_served(
     tmp_path: Path, monkeypatch
 ) -> None:
-    owned = tmp_path / "different" / "prompts"
-    owned.mkdir(parents=True)
-    (owned / "prompt.json").write_text("{}", encoding="utf-8")
+    _owned_prompts(tmp_path, "different", "prompts")
     entry = _entry(tmp_path, target="pkg.prompts")
-    monkeypatch.setattr(providers, "entry_points", lambda **_kwargs: [entry])
+    _serve_entries(monkeypatch, entry)
 
-    registration = providers.provider_registrations(providers.PROMPT_PROVIDER_GROUP)[0]
+    registration = _first_prompt_registration()
 
     assert registration.source_root is None
     assert providers.current_provider_assets(providers.PROMPT_PROVIDER_GROUP) == ()
 
 
 def test_unrecorded_provider_asset_is_not_served(tmp_path: Path, monkeypatch) -> None:
-    owned = tmp_path / "pkg" / "prompts"
-    owned.mkdir(parents=True)
-    (owned / "prompt.json").write_text("{}", encoding="utf-8")
+    owned = _owned_prompts(tmp_path)
     entry = _entry(tmp_path)
     # Snapshot distribution ownership first, then simulate an injected file in
     # the otherwise-valid data package.
     (owned / "injected.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(providers, "entry_points", lambda **_kwargs: [entry])
+    _serve_entries(monkeypatch, entry)
 
     registrations = providers.provider_registrations(providers.PROMPT_PROVIDER_GROUP)
 
@@ -560,9 +552,7 @@ def test_unrecorded_provider_asset_is_not_served(tmp_path: Path, monkeypatch) ->
 def test_duplicate_and_casefold_provider_owners_fail_closed(
     tmp_path: Path, monkeypatch
 ) -> None:
-    owned = tmp_path / "pkg" / "prompts"
-    owned.mkdir(parents=True)
-    (owned / "prompt.json").write_text("{}", encoding="utf-8")
+    _owned_prompts(tmp_path)
     monkeypatch.setattr(
         providers,
         "entry_points",

@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from agent_utilities.server.routers import runtime as runtime_router
+from tests.unit.durable_engine_support import DurableEngine
 
 
 @pytest.fixture()
@@ -27,16 +28,6 @@ def client(monkeypatch, tmp_path):
     from agent_utilities.orchestration.action_policy import ActionPolicy
     from agent_utilities.runtime import action_policy_gate
 
-    class _DurableEngine:
-        def __init__(self):
-            self.nodes = {}
-
-        def add_node(self, node_id, node_type, properties=None, **_kw):
-            self.nodes[node_id] = {"type": node_type, **(properties or {})}
-
-        def query_cypher(self, *_args, **_kwargs):
-            return []
-
     policy_yml = tmp_path / "policy.yml"
     policy_yml.write_text(
         "version: 1\n"
@@ -47,7 +38,7 @@ def client(monkeypatch, tmp_path):
         "  - {kind: workspace.edit, target: '*', tier: auto}\n",
         encoding="utf-8",
     )
-    policy = ActionPolicy(engine=_DurableEngine(), policy_path=policy_yml)
+    policy = ActionPolicy(engine=DurableEngine(), policy_path=policy_yml)
     monkeypatch.setattr(
         runtime_router, "action_policy_gate", lambda: action_policy_gate(policy)
     )
