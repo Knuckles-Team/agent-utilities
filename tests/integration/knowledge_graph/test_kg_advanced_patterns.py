@@ -86,11 +86,12 @@ def test_hybrid_retriever_fallback(mock_create_model, memory_engine):
     assert "entity:agent_b" not in result_ids  # Too far (2 hops)
 
 
-@patch("agent_utilities.core.model_factory.create_model")
-@patch("pydantic_ai.Agent.run_sync")
-def test_consolidate_memory_llm(mock_run_sync, mock_create_model, memory_engine):
-    """Test memory synthesis using the LLM judge."""
-    mock_run_sync.return_value.output = "This is a synthesized summary."
+@patch("agent_utilities.core.contextual_model.create_context_agent")
+def test_consolidate_memory_llm(mock_create_context_agent, memory_engine):
+    """Test memory synthesis using the governed context agent."""
+    mock_agent = MagicMock()
+    mock_agent.run_sync.return_value.output = "This is a synthesized summary."
+    mock_create_context_agent.return_value = mock_agent
 
     # Mock backend to simulate matching episodes
     mock_backend = MagicMock()
