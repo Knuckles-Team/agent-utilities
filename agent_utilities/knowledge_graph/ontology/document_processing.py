@@ -1660,8 +1660,13 @@ class DocumentProcessor:
 
     @staticmethod
     def _document_id(source: str, content_hash: str) -> str:
-        """Stable, idempotent Document id from source + content hash."""
-        digest = hashlib.sha256(f"{source}\x1f{content_hash}".encode()).hexdigest()[:16]
+        """Stable, idempotent Document id from source + content hash.
+
+        24 hex chars: the envelope privacy gate only treats 24/32/40/64-hex
+        digests as opaque, so a shorter digest fell through to the free-text
+        scan and could trip the IBAN heuristic, rejecting the whole document.
+        """
+        digest = hashlib.sha256(f"{source}\x1f{content_hash}".encode()).hexdigest()[:24]
         return f"doc:{digest}"
 
 

@@ -31,8 +31,19 @@ class _RecordingApp:
 
 
 @pytest.mark.asyncio
-async def test_write_then_engine_reflects_it():
+async def test_write_then_engine_reflects_it(engine_graph):
     kg_server.ensure_tools_registered()
+    # Bind the active engine to this test's isolated real tenant graph so the
+    # shared dispatch writes into (and the assertion reads from) the same graph.
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+    backend = EpistemicGraphBackend(graph_name=engine_graph.graph_name)
+    backend._graph = engine_graph
+    active = IntelligenceGraphEngine(backend=backend, graph=engine_graph)
+    IntelligenceGraphEngine._set_active_for_tests(active)
 
     node_id = "e2e:node:1"
     # Write through the same tool the MCP surface and the REST gateway both call.
