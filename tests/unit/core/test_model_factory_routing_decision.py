@@ -16,6 +16,7 @@ import pytest
 from agent_utilities.core import model_factory
 from agent_utilities.harness import tracing
 from agent_utilities.harness.trace_backend import KGTraceBackend
+from agent_utilities.models import model_registry
 
 pytestmark = pytest.mark.concept(id="AU-ORCH.routing.rejected-candidate-provenance")
 
@@ -60,7 +61,11 @@ def registry_path(tmp_path):
     }
     p = tmp_path / "registry.json"
     p.write_text(json.dumps(data))
-    return str(p)
+    # ``load_active_registry`` caches process-globally; drop any registry an
+    # earlier test left so this file's registry is the one loaded.
+    model_registry.reset_active_registry()
+    yield str(p)
+    model_registry.reset_active_registry()
 
 
 def test_resolve_role_model_persists_routing_decision_on_the_trace(
