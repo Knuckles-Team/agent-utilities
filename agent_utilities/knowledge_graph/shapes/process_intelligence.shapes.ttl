@@ -122,10 +122,30 @@
 
 :NeuralRepresentationShape a sh:NodeShape ;
     sh:targetClass :NeuralRepresentation ;
-    sh:property [
-        sh:path [ sh:inversePath :HAS_NEURAL_REPRESENTATION ] ;
-        sh:minCount 1 ;
-        sh:maxCount 1
+    # Exactly one owner: the engine's SHACL has no inversePath, so the
+    # incoming-edge cardinality is two SPARQL constraints (none / more than one).
+    sh:sparql [
+        sh:message "A NeuralRepresentation must be the target of a HAS_NEURAL_REPRESENTATION edge." ;
+        sh:prefixes [ sh:declare [ sh:prefix "kg" ; sh:namespace "http://knuckles.team/kg#"^^xsd:anyURI ] ] ;
+        sh:select """
+            PREFIX kg: <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                OPTIONAL { ?o kg:HAS_NEURAL_REPRESENTATION $this }
+                FILTER (!BOUND(?o))
+            }
+        """
+    ] ;
+    sh:sparql [
+        sh:message "A NeuralRepresentation must be the target of at most one HAS_NEURAL_REPRESENTATION edge." ;
+        sh:prefixes [ sh:declare [ sh:prefix "kg" ; sh:namespace "http://knuckles.team/kg#"^^xsd:anyURI ] ] ;
+        sh:select """
+            PREFIX kg: <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                ?o1 kg:HAS_NEURAL_REPRESENTATION $this .
+                ?o2 kg:HAS_NEURAL_REPRESENTATION $this .
+                FILTER (?o1 != ?o2)
+            }
+        """
     ] ;
     sh:property [
         sh:path :artifact_ref ;

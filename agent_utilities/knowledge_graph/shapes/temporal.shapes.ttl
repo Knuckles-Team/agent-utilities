@@ -44,6 +44,7 @@
             SELECT $this
             WHERE {
                 ?newer kg:supersedes $this .
-                FILTER NOT EXISTS { $this kg:txTo ?t }
+                OPTIONAL { $this kg:txTo ?t }
+                FILTER (!BOUND(?t))
             }
         """ ] .
