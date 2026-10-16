@@ -2,13 +2,13 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/generate_openapi.py --write`. Source: the served app's own `app.openapi()`, projected from `agent_webui.server.create_agent_web_app` exactly as production builds it — not hand-copied.
 
-This is the generated reference for **Agent Web Dashboard** (OpenAPI 3.1.0) — 192 paths, 215 operations, 215 with a summary. The running server's own interactive `/docs` (Swagger UI) and `/redoc` pages reflect the identical document live; this page is the static, diffable snapshot checked into docs so it cannot silently drift from the code that generates it.
+This is the generated reference for **Agent Web Dashboard** (OpenAPI 3.1.0) — 169 paths, 190 operations, 190 with a summary. The running server's own interactive `/docs` (Swagger UI) and `/redoc` pages reflect the identical document live; this page is the static, diffable snapshot checked into docs so it cannot silently drift from the code that generates it.
 
 ## Coverage note
 
-**This reference does not yet cover the whole live API.** 238 route(s) across 31 mounted path prefix(es) below are served by the app but carry no OpenAPI schema, so `app.openapi()` — and therefore this page — cannot see them:
+**This reference does not yet cover the whole live API.** 203 route(s) across 31 mounted path prefix(es) below are served by the app but carry no OpenAPI schema, so `app.openapi()` — and therefore this page — cannot see them:
 
-`/api/audit`, `/api/chat`, `/api/compliance`, `/api/concept`, `/api/configure`, `/api/connector`, `/api/data`, `/api/document`, `/api/engine`, `/api/epistemic`, `/api/fleet`, `/api/goals`, `/api/graph`, `/api/graphlearn`, `/api/health`, `/api/incident`, `/api/intent`, `/api/media`, `/api/mining`, `/api/object`, `/api/ontology`, `/api/ops`, `/api/pipeline`, `/api/quant`, `/api/research`, `/api/sessions`, `/api/source`, `/api/sparql`, `/api/spec`, `/api/tools`, `/api/usage`
+`/api/audit`, `/api/chat`, `/api/compliance`, `/api/concept`, `/api/configure`, `/api/connector`, `/api/data`, `/api/document`, `/api/engine`, `/api/epistemic`, `/api/fleet`, `/api/goals`, `/api/graph`, `/api/graphlearn`, `/api/health`, `/api/incident`, `/api/intent`, `/api/media`, `/api/object`, `/api/ontology`, `/api/pipeline`, `/api/quant`, `/api/query`, `/api/research`, `/api/sessions`, `/api/skill`, `/api/source`, `/api/sparql`, `/api/spec`, `/api/tools`, `/api/usage`
 
 Those surfaces (the canonical Knowledge Graph REST/graph-execution routes, among others) are mounted as raw Starlette routes rather than typed FastAPI routers, so they carry no request/response schema for FastAPI to introspect — not an omission from this generator. This count is recomputed from the live app every time `python scripts/generate_openapi.py --write` runs (see `schemaless_routes()` in `scripts/generate_openapi.py`), so as typed schemas land for those routes this note shrinks and eventually disappears on its own, with no route list to hand-maintain here.
 
@@ -18,35 +18,18 @@ The full spec (not just this rendering of it) is published at [`openapi.json`](o
 
 | Path prefix | Operations |
 |---|---|
-| `/api/dashboard` | 15 |
 | `/api/enhanced` | 149 |
-| `/api/graph` | 2 |
+| `/api/graph` | 8 |
 | `/api/oauth` | 1 |
 | `/api/objects` | 4 |
-| `/api/ontology` | 23 |
+| `/api/ontology` | 19 |
 | `/api/providers` | 2 |
-| `/api/registry` | 12 |
 | `/api/research` | 7 |
 
 ## All operations
 
 | Method | Path | Summary |
 |---|---|---|
-| GET | `/api/dashboard/daemon/shards` | Daemon Shards |
-| POST | `/api/dashboard/daemon/start` | Daemon Start |
-| GET | `/api/dashboard/daemon/status` | Daemon Status |
-| GET | `/api/dashboard/data` | Get All Data |
-| GET | `/api/dashboard/data-subset` | Get Dashboard Subset |
-| GET | `/api/dashboard/data/{service_id}` | Get Service Data |
-| GET | `/api/dashboard/discover` | Discover Services |
-| GET | `/api/dashboard/full` | Get Full Dashboard |
-| GET | `/api/dashboard/health` | Health Check |
-| POST | `/api/dashboard/hydrate` | Trigger All Hydration |
-| POST | `/api/dashboard/hydrate/{source}` | Trigger Hydration |
-| GET | `/api/dashboard/hydration-status` | Get Hydration Status |
-| GET | `/api/dashboard/layout` | Get Layout |
-| PUT | `/api/dashboard/layout` | Save Layout |
-| GET | `/api/dashboard/widgets` | List Available Widgets |
 | GET | `/api/enhanced/agent-icon` | Get Agent Icon |
 | POST | `/api/enhanced/agent-library/a2a` | Register A2A Agent |
 | GET | `/api/enhanced/agent-library/agents` | List Library Agents |
@@ -65,7 +48,7 @@ The full spec (not just this rendering of it) is published at [`openapi.json`](o
 | GET | `/api/enhanced/code/instances` | Code Instances |
 | POST | `/api/enhanced/code/nav` | Code Nav |
 | GET | `/api/enhanced/commands/autocomplete` | Autocomplete Slash Command |
-| POST | `/api/enhanced/commands/execute` | Run Slash Command |
+| POST | `/api/enhanced/commands/execute` | Execute Slash Command |
 | GET | `/api/enhanced/config` | Get Config File |
 | PUT | `/api/enhanced/config` | Update Config File |
 | GET | `/api/enhanced/config-files` | List Config Files |
@@ -109,7 +92,7 @@ The full spec (not just this rendering of it) is published at [`openapi.json`](o
 | GET | `/api/enhanced/graph/memory/{memory_id}` | Get Memory |
 | PUT | `/api/enhanced/graph/memory/{memory_id}` | Update Memory |
 | GET | `/api/enhanced/graph/nodes` | Get Graph Nodes |
-| POST | `/api/enhanced/graph/query` | Run Cypher |
+| POST | `/api/enhanced/graph/query` | Execute Cypher |
 | GET | `/api/enhanced/graph/relationships` | Get Graph Relationships |
 | GET | `/api/enhanced/graph/search` | Hybrid Search |
 | GET | `/api/enhanced/graph/stats` | Get Graph Stats |
@@ -196,6 +179,12 @@ The full spec (not just this rendering of it) is published at [`openapi.json`](o
 | POST | `/api/enhanced/workflows` | Save Workflow |
 | GET | `/api/enhanced/workflows/capabilities` | Workflow Capabilities |
 | POST | `/api/enhanced/workflows/{wid}/run` | Run Workflow |
+| POST | `/api/graph/search/analogy` | Search by analogy |
+| POST | `/api/graph/search/concept` | Search concepts |
+| POST | `/api/graph/search/dci` | Search with DCI |
+| POST | `/api/graph/search/discover` | Discover graph capabilities |
+| POST | `/api/graph/search/memory` | Search memories |
+| POST | `/api/graph/sql-schema` | Introspect the engine SQL catalog (read-only, no caller SQL) |
 | DELETE | `/api/graph/write` | Delete an edge (graph_write action=delete_edge) |
 | POST | `/api/graph/write` | Write a node/edge or run another graph_write action |
 | GET | `/api/oauth/callback` | Oauth Callback |
@@ -204,11 +193,8 @@ The full spec (not just this rendering of it) is published at [`openapi.json`](o
 | GET | `/api/objects/{object_id}/history` | Get Object History |
 | GET | `/api/objects/{source_id}/path/{target_id}` | Get Object Path |
 | GET | `/api/ontology/catalogue` | Get Ontology Catalogue |
-| GET | `/api/ontology/export` | Export Ontology |
 | GET | `/api/ontology/functions` | List Functions |
 | GET | `/api/ontology/functions/{name}` | Get Function |
-| GET | `/api/ontology/generate` | Generate Ontology Get |
-| POST | `/api/ontology/generate` | Generate Ontology Post |
 | GET | `/api/ontology/interfaces` | List Interfaces |
 | GET | `/api/ontology/interfaces/{name}` | Get Interface Implementers |
 | POST | `/api/ontology/leanix/sync` | Sync Leanix Ontology Route |
@@ -223,27 +209,14 @@ The full spec (not just this rendering of it) is published at [`openapi.json`](o
 | GET | `/api/ontology/sampling-profiles/{task_class}` | Describe Sampling Profile |
 | GET | `/api/ontology/schema-graph` | Get Ontology Schema Graph |
 | GET | `/api/ontology/schema-summary` | Get Ontology Schema Summary |
-| POST | `/api/ontology/validate` | Validate Ontology Candidate |
 | GET | `/api/ontology/value-types` | List Value Types |
 | GET | `/api/ontology/value-types/{name}` | Get Value Type |
 | POST | `/api/providers/{provider_id}/authorize` | Authorize |
 | POST | `/api/providers/{provider_id}/revoke` | Revoke |
-| GET | `/api/registry/discoveries` | List Registry Discoveries |
-| GET | `/api/registry/discoveries/{item_id}` | Get Registry Discoveries |
-| GET | `/api/registry/prompts` | List Registry Prompts |
-| GET | `/api/registry/prompts/{item_id}` | Get Registry Prompts |
-| GET | `/api/registry/resources` | List Registry Resources |
-| GET | `/api/registry/resources/{item_id}` | Get Registry Resources |
-| GET | `/api/registry/servers` | List Registry Servers |
-| GET | `/api/registry/servers/{item_id}` | Get Registry Servers |
-| GET | `/api/registry/skills` | List Registry Skills |
-| GET | `/api/registry/skills/{item_id}` | Get Registry Skills |
-| GET | `/api/registry/tools` | List Registry Tools |
-| GET | `/api/registry/tools/{item_id}` | Get Registry Tools |
 | GET | `/api/research/artifact/{article_id}` | Get Artifact |
 | GET | `/api/research/artifacts` | List Artifacts |
 | POST | `/api/research/capture` | Capture Event |
 | POST | `/api/research/compile` | Compile Artifact |
-| POST | `/api/research/inquire` | Ask |
+| POST | `/api/research/inquire` | Inquire |
 | POST | `/api/research/reason` | Reason |
 | POST | `/api/research/review` | Review Artifact |

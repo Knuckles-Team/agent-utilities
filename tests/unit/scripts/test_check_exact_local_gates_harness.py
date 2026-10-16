@@ -69,7 +69,9 @@ def test_gate_rejects_environment_specific_literals_and_missing_navigation() -> 
 
 def test_gate_rejects_missing_optimizer_and_separate_process_controls() -> None:
     harness, documentation, navigation, workflow, a2a = _sources()
-    harness = harness.replace("_expect_resource_limit(client, graph, invalid)", "pass")
+    harness = harness.replace(
+        "_expect_resource_limit(variant.client, variant.graph, invalid)", "pass"
+    )
     a2a = a2a.replace("first_process.kill()", "first_process.join()")
 
     violations = gate.check_contract(harness, documentation, navigation, workflow, a2a)
