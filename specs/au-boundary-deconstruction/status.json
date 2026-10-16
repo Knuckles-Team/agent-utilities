@@ -1786,7 +1786,7 @@
         "4a5540dd2e3d"
       ],
       "verified_by": [
-        "tests/gates/test_r028x_module_census.py:125"
+        "tests/gates/test_r028x_module_census.py:129"
       ]
     },
     {
@@ -1845,7 +1845,7 @@
         "4a5540dd2e3d"
       ],
       "verified_by": [
-        "tests/gates/test_r028x_module_census.py:136"
+        "tests/gates/test_r028x_module_census.py:140"
       ]
     },
     {
@@ -1870,7 +1870,7 @@
         "4a5540dd2e3d"
       ],
       "verified_by": [
-        "tests/gates/test_r028x_module_census.py:159"
+        "tests/gates/test_r028x_module_census.py:163"
       ]
     },
     {
@@ -1896,7 +1896,7 @@
         "4a5540dd2e3d"
       ],
       "verified_by": [
-        "tests/gates/test_r028x_module_census.py:171"
+        "tests/gates/test_r028x_module_census.py:175"
       ]
     },
     {
