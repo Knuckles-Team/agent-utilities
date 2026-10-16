@@ -24,6 +24,7 @@ from agent_utilities.knowledge_graph.research.trace_pattern_miner import (
     gather_failure_tool_sequences,
     mine_trace_patterns,
 )
+from tests.unit.knowledge_graph._shacl_fakes import AlwaysConformsShaclMixin
 
 pytestmark = pytest.mark.concept("AU-KG.evolution.insight-engine-closed-loop")
 
@@ -242,7 +243,7 @@ def test_candidates_from_sequential_patterns_skips_patterns_with_no_items():
 # ---------------------------------------------------------------------------
 
 
-class _TraceMiningStubEngine:
+class _TraceMiningStubEngine(AlwaysConformsShaclMixin):
     """Same shape as ``test_insight_validation.py``'s ``_InsightStubEngine`` —
     empty governance-adjacent query results ⇒ ``PromotionGovernanceValidator``
     passes by default; ``governance_rules`` relaxes the ActionPolicy tier."""
