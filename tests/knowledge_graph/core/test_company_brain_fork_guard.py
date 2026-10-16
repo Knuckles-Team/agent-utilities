@@ -52,6 +52,13 @@ class _GraphWithFork:
     def get_edges(self) -> list[tuple[str, str, str]]:
         return []
 
+    def get_rdf(self) -> str:
+        return (
+            "<https://agent-utilities.dev/kg#agent_test> "
+            "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type> "
+            "<https://agent-utilities.dev/kg#Agent> .\n"
+        )
+
 
 def test_pre_commit_validate_fails_loudly_not_with_attributeerror_when_fork_is_missing():
     """The B-20 path must never surface a bare AttributeError."""
@@ -84,8 +91,12 @@ def test_pre_commit_validate_does_not_raise_attributeerror_when_fork_is_missing(
         )
 
 
-def test_pre_commit_validate_calls_fork_when_the_graph_supports_it():
-    """A graph object that DOES implement fork() is used, not rejected."""
+@pytest.mark.engine
+def test_pre_commit_validate_calls_fork_when_the_graph_supports_it(tiny_engine):
+    """A graph object that DOES implement fork() is used, not rejected.
+
+    Validation goes through EG's generated ShaclValidate contract, so this runs
+    against the real ephemeral engine."""
     brain = CompanyBrain()
     graph = _GraphWithFork()
 

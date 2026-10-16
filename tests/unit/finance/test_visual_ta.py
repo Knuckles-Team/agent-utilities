@@ -15,15 +15,28 @@ from agent_utilities.domains.finance.visual_ta import (
 from agent_utilities.numeric import xp as np
 
 
+def _add(left, right):
+    """Elementwise left + right; scalars broadcast (the kernel returns plain lists)."""
+    n = len(left) if isinstance(left, list) else len(right)
+    lv = left if isinstance(left, list) else [left] * n
+    rv = right if isinstance(right, list) else [right] * n
+    return [a + b for a, b in zip(lv, rv, strict=True)]
+
+
+def _sub(left, right):
+    rv = [-v for v in right] if isinstance(right, list) else -right
+    return _add(left, rv)
+
+
 @pytest.fixture
 def uptrend_data():
     rng = np.random.default_rng(42)
     n = 100
-    trend = np.linspace(100, 130, n) + rng.normal(0, 1, n)
-    opens = trend - rng.uniform(0, 0.5, n)
-    highs = trend + rng.uniform(0, 2, n)
-    lows = trend - rng.uniform(0, 2, n)
-    closes = trend + rng.normal(0, 0.5, n)
+    trend = _add(np.linspace(100, 130, n), rng.normal(0, 1, n))
+    opens = _sub(trend, rng.uniform(0, 0.5, n))
+    highs = _add(trend, rng.uniform(0, 2, n))
+    lows = _sub(trend, rng.uniform(0, 2, n))
+    closes = _add(trend, rng.normal(0, 0.5, n))
     return opens, highs, lows, closes
 
 
@@ -31,11 +44,11 @@ def uptrend_data():
 def range_bound_data():
     rng = np.random.default_rng(42)
     n = 100
-    base = 100 + rng.normal(0, 2, n)
-    opens = base - rng.uniform(0, 0.5, n)
-    highs = base + rng.uniform(0, 3, n)
-    lows = base - rng.uniform(0, 3, n)
-    closes = base + rng.normal(0, 0.5, n)
+    base = _add(100, rng.normal(0, 2, n))
+    opens = _sub(base, rng.uniform(0, 0.5, n))
+    highs = _add(base, rng.uniform(0, 3, n))
+    lows = _sub(base, rng.uniform(0, 3, n))
+    closes = _add(base, rng.normal(0, 0.5, n))
     return opens, highs, lows, closes
 
 
@@ -73,7 +86,7 @@ class TestPatternDetector:
                 np.linspace(110, 100, 25),  # Decline
             ]
         )
-        highs = prices + 0.5
+        highs = _add(prices, 0.5)
         closes = prices
         detector = PatternDetector()
         patterns = detector.detect_double_top(highs, closes, tolerance=0.02)
@@ -82,10 +95,10 @@ class TestPatternDetector:
 
     def test_detect_breakout(self):
         # Flat range then strong breakout above range highs
-        flat = np.full(30, 100.0) + np.random.default_rng(42).normal(0, 0.3, 30)
+        flat = _add(np.full(30, 100.0), np.random.default_rng(42).normal(0, 0.3, 30))
         breakout = np.linspace(103, 120, 20)  # Clearly above flat range
         prices = np.concatenate([flat, breakout])
-        highs = prices + 0.5
+        highs = _add(prices, 0.5)
         closes = prices
         detector = PatternDetector()
         patterns = detector.detect_breakout(closes, highs, lookback=20)

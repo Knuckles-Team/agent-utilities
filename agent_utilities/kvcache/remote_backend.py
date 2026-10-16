@@ -181,6 +181,15 @@ class EpistemicGraphKVBackend:
         self.config = config or KvCacheConfig()
         self._owns_client = client is None
         self._client = client if client is not None else self._build_client()
+        if client is not None:
+            # An injected client must carry the same routing/audit bindings a
+            # connector-built one does, or tenant mistakes become invisible.
+            if self.config.tenant_ref:
+                self._client.headers["X-Epistemic-Tenant"] = self.config.tenant_ref
+            if self.config.principal_ref:
+                self._client.headers["X-Epistemic-Principal"] = (
+                    self.config.principal_ref
+                )
         self._scope_denied = not self._scope_ready()
         if self._scope_denied and self.config.require_tenant_scope:
             logger.warning(
