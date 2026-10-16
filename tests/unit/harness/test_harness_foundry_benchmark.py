@@ -13,11 +13,8 @@ from agent_utilities.harness.harness_foundry_benchmark import run_all, to_markdo
 
 def test_all_surpass_claims_reproduce(engine_graph):
     results = run_all(engine_graph)
-    assert len(results) == 5
+    assert len(results) == 4
     by_name = {r.name: r for r in results}
-    # Headline: we block the τ³ concentration coupling HarnessX ships into.
-    conc = by_name["concentration_tau3"]
-    assert conc.claim_reproduced and conc.ours < conc.baseline
     # Held-out gate rejects the overfit variant their gate accepts.
     assert by_name["held_out_overfit_guard"].claim_reproduced
     # Cross-harness grouping recovers the cross-scaffold contrast.
@@ -32,5 +29,5 @@ def test_all_surpass_claims_reproduce(engine_graph):
 
 def test_markdown_renders(engine_graph):
     md = to_markdown(run_all(engine_graph))
-    assert "5/5 surpass claims reproduced" in md
-    assert "concentration_tau3" in md
+    assert "4/4 surpass claims reproduced" in md
+    assert "variant_isolation" in md

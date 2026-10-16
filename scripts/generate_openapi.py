@@ -114,40 +114,11 @@ def build_app() -> Any:
     from agent_utilities.core.contextual_model import create_context_agent
 
     with patch("agent_webui.oidc_session.load_settings", return_value=None):
-        app = create_agent_web_app(
+        return create_agent_web_app(
             create_context_agent(TestModel(), default_capabilities=False),
             {"get_path": lambda value: value},
             listener_host="127.0.0.1",
         )
-    _ensure_canonical_graph_routes(app)
-    return app
-
-
-def _ensure_canonical_graph_routes(app: Any) -> None:
-    """Mount the canonical KG REST surface when the web factory did not.
-
-    ``agent-webui`` 2.5.x registers ``register_graph_routes`` inside the same
-    ``try`` that imports ``agent_utilities.gateway.api``. That module was
-    deleted by AU-BOUNDARY-R001.2 (the dashboard router is served by graph-os),
-    so the import fails and the whole canonical surface (/api/ontology,
-    /api/registry, /api/research, /api/objects, ...) is silently skipped.
-    ``register_graph_routes`` is the single canonical registrar, so register it
-    here when the factory left it out; a factory that already mounted it
-    (any ``/api/ontology`` route present) is left untouched.
-    """
-    try:
-        from agent_utilities.gateway.graph_api import register_graph_routes
-    except ImportError as exc:
-        raise RuntimeError(
-            "canonical KG REST surface (agent_utilities.gateway.graph_api) "
-            "failed to import"
-        ) from exc
-
-    if any(
-        getattr(route, "path", "").startswith("/api/ontology") for route in app.routes
-    ):
-        return
-    register_graph_routes(app, prefix="/api")
 
 
 def openapi_spec() -> dict[str, Any]:

@@ -2,9 +2,9 @@
 
 Deterministic, CPU, offline (mirror of `assimilation_benchmark`, AHE-3.47). Each
 case contrasts the HarnessX baseline mechanism with ours on the same scenario and
-reports whether the surpass claim reproduces. The headline is the τ³-Bench
-concentration case: HarnessX's per-edit pass@2 gate ships all five same-dimension
-edits into the coupling tipping point; our SHACL gate blocks them first.
+reports whether the surpass claim reproduces. The cross-round concentration cap
+is an engine decision (epistemic-graph EG-DECISION-ENGINE), so it is not scored
+here.
 """
 
 from __future__ import annotations
@@ -21,36 +21,6 @@ class BenchResult:
     ours: float
     lift: float
     claim_reproduced: bool
-
-
-def _bench_concentration(engine: Any | None = None) -> BenchResult:
-    """τ³-Bench Telecom: 5 shipped edits on one dimension across rounds. HarnessX's
-    per-edit gate has no cross-round view → ships all 5 into the −14% tipping point;
-    our AEGIS loop's SHACL Critic blocks at the coupling cap."""
-    from agent_utilities.harness.aegis_loop import AegisLoop
-
-    seq = {"n": 0}
-
-    def naive_evolver(_landscape):  # always the same dimension (their failure pattern)
-        seq["n"] += 1
-        return {"id": f"edit:{seq['n']}", "dimension": "D2_context"}
-
-    from agent_utilities.harness.harness_gate import HarnessGate
-
-    loop = AegisLoop(naive_evolver, gate=HarnessGate(engine=engine))
-    decisions = loop.run(rounds=6)
-    ours_shipped = sum(1 for d in decisions if d.shipped)
-    baseline_shipped = (
-        6.0  # per-edit gate ships every same-dim edit (no concentration view)
-    )
-    return BenchResult(
-        name="concentration_tau3",
-        metric="same-dimension edits shipped before block (lower = safer)",
-        baseline=baseline_shipped,
-        ours=float(ours_shipped),
-        lift=baseline_shipped - ours_shipped,
-        claim_reproduced=(ours_shipped < 3 <= baseline_shipped),
-    )
 
 
 def _bench_held_out() -> BenchResult:
@@ -167,7 +137,6 @@ def _bench_attribution() -> BenchResult:
 def run_all(engine: Any | None = None) -> list[BenchResult]:
     """Run every claim; ``engine`` is the SHACL authority (ambient when omitted)."""
     return [
-        _bench_concentration(engine),
         _bench_held_out(),
         _bench_cross_harness(),
         _bench_variant_isolation(engine),

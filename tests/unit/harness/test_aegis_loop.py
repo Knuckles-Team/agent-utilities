@@ -16,32 +16,6 @@ from __future__ import annotations
 from agent_utilities.harness.aegis_loop import AegisLoop
 
 
-def test_loop_blocks_concentration_across_rounds():
-    # Naive evolver: always edits the same dimension (the HarnessX failure pattern).
-    def naive_evolver(_landscape):
-        return {"id": None, "dimension": "D2_context"}
-
-    seq = 0
-
-    def evolver(landscape):
-        nonlocal seq
-        seq += 1
-        e = naive_evolver(landscape)
-        e["id"] = f"edit:{seq}"
-        return e
-
-    loop = AegisLoop(evolver)
-    decisions = loop.run(rounds=6)
-    shipped = [d for d in decisions if d.shipped]
-    blocked = [d for d in decisions if not d.shipped]
-    # First two same-dimension edits ship; the 3rd+ are blocked by concentration —
-    # the loop refuses to walk into the tipping point.
-    assert len(shipped) == 2, [(_d.round, _d.shipped) for _d in decisions]
-    assert blocked and all(
-        "concentration" in r.lower() for d in blocked for r in d.reasons
-    )
-
-
 def test_landscape_aware_evolver_diversifies_and_ships_all():
     dims = ["D1_model", "D2_context", "D3_memory", "D4_tools", "D7_control", "D8_obs"]
     seq = 0

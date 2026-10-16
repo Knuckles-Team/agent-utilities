@@ -11,28 +11,9 @@
 # shapes detects and BLOCKS concentration BEFORE the tipping point — a formal
 # guarantee the paper explicitly lacks.
 
-# CONCENTRATION: reject when ≥3 shipped edits target the same HarnessDimension
-# within a 5-round window (sub-threshold coupling tipping point). Expressed as a
-# triple self-join over derived kg:withinCouplingWindow links (the engine's
-# SHACL-SPARQL has no aggregates or arithmetic).
-:HarnessConcentrationShape a sh:NodeShape ;
-    sh:targetClass :HarnessDimension ;
-    sh:sparql [
-        sh:message "Edit concentration: ≥3 shipped edits target this harness dimension within a 5-round window — sub-threshold coupling (the AEGIS τ³-Bench failure mode). Diversify the next edit's dimension (CONCEPT:AHE-3.53)." ;
-        sh:prefixes [ sh:declare [ sh:prefix "kg" ; sh:namespace "http://knuckles.team/kg#"^^xsd:anyURI ] ] ;
-        sh:select """
-            PREFIX kg: <http://knuckles.team/kg#>
-            SELECT $this WHERE {
-                ?e1 kg:targetsDimension $this ;
-                    kg:editStatus "shipped" ;
-                    kg:withinCouplingWindow ?e2 , ?e3 .
-                ?e2 kg:targetsDimension $this ;
-                    kg:editStatus "shipped" ;
-                    kg:withinCouplingWindow ?e3 .
-                FILTER (STR(?e1) < STR(?e2) && STR(?e2) < STR(?e3))
-            }
-        """
-    ] .
+# The cross-round concentration cap (a keep-or-revert threshold) is an
+# engine decision, owned by epistemic-graph EG-DECISION-ENGINE; AU does not
+# derive or enforce it.
 
 # NO-REGRESSION SEESAW: reject an accepted variant whose edit causes a regression
 # on any previously-passing task (the formal seesaw over inferred causesRegression).

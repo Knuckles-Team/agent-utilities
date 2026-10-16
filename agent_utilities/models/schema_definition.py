@@ -3826,13 +3826,6 @@ SCHEMA = GraphSchemaDefinition(
         ),
         # Self-Improvement Relationships
         RelDefinition(
-            type="EXECUTED_ON",
-            connections=[
-                {"from": "RunTrace", "to": "Server"},
-                {"from": "RunTrace", "to": "SpawnedAgent"},
-            ],
-        ),
-        RelDefinition(
             type="PRODUCED_OUTCOME",
             connections=[
                 {"from": "RunTrace", "to": "OutcomeEvaluation"},
