@@ -13,41 +13,51 @@ engine-availability check) when none is available in this environment.
 
 from __future__ import annotations
 
+import pytest
+
 from agent_utilities.harness.harness_gate import HarnessGate
 
+pytestmark = pytest.mark.engine
 
-def test_concentration_blocks_the_tau3_failure():
+
+@pytest.fixture()
+def gate(engine_graph):
+    """A gate bound to the real ephemeral engine (the shapes run in EG)."""
+    return HarnessGate(engine=engine_graph)
+
+
+def test_concentration_blocks_the_tau3_failure(gate):
     # HarnessX τ³-Bench Telecom: 5 shipped edits on the SAME dimension (D2 context)
     # across rounds 2–6. Per-edit pass@2 missed the coupling; our gate blocks it.
     edits = [
         {"id": f"edit:r{r}", "dimension": "D2_context", "round": r, "status": "shipped"}
         for r in range(2, 7)
     ]
-    verdict = HarnessGate().check_facts(edits)
+    verdict = gate.check_facts(edits)
     assert not verdict.passed, "5 same-dimension edits must be blocked (concentration)"
     assert any("concentration" in r.lower() for r in verdict.reasons), verdict.reasons
 
 
-def test_diversified_edits_pass():
+def test_diversified_edits_pass(gate):
     # The same five edits spread across five dimensions: no concentration → ships.
     dims = ["D2_context", "D4_tools", "D7_control", "D3_memory", "D1_model"]
     edits = [
         {"id": f"edit:r{r}", "dimension": d, "round": r, "status": "shipped"}
         for r, d in zip(range(2, 7), dims, strict=True)
     ]
-    assert HarnessGate().check_facts(edits).passed
+    assert gate.check_facts(edits).passed
 
 
-def test_below_threshold_passes():
+def test_below_threshold_passes(gate):
     # Two same-dimension edits (< 3) is below the coupling tipping point → ships.
     edits = [
         {"id": "edit:r2", "dimension": "D2_context", "round": 2, "status": "shipped"},
         {"id": "edit:r3", "dimension": "D2_context", "round": 3, "status": "shipped"},
     ]
-    assert HarnessGate().check_facts(edits).passed
+    assert gate.check_facts(edits).passed
 
 
-def test_no_regression_seesaw_blocks_accepted_variant():
+def test_no_regression_seesaw_blocks_accepted_variant(gate):
     edits = [
         {
             "id": "edit:x",
@@ -58,23 +68,23 @@ def test_no_regression_seesaw_blocks_accepted_variant():
         }
     ]
     variants = [{"id": "variant:1", "status": "accepted", "applies": ["edit:x"]}]
-    verdict = HarnessGate().check_facts(edits, variants=variants)
+    verdict = gate.check_facts(edits, variants=variants)
     assert not verdict.passed
     assert any("regression" in r.lower() for r in verdict.reasons), verdict.reasons
 
 
-def test_reward_hacking_pathology_blocks():
+def test_reward_hacking_pathology_blocks(gate):
     edits = [{"id": "edit:rh", "dimension": "D6_eval", "round": 5, "status": "shipped"}]
     pathologies = [
         {"id": "path:rh", "kind": "reward_hacking", "exhibited_by": "edit:rh"}
     ]
-    verdict = HarnessGate().check_facts(edits, pathologies=pathologies)
+    verdict = gate.check_facts(edits, pathologies=pathologies)
     assert not verdict.passed
     assert any("reward-hacking" in r.lower() for r in verdict.reasons), verdict.reasons
 
 
 # ── Substitution-algebra type safety (CONCEPT:AU-KG.ontology.harness-gate) ──────────────────────
-def test_hook_contract_blocks_modifying_read_only_hook():
+def test_hook_contract_blocks_modifying_read_only_hook(gate):
     # An edit that modifies a field at a read-only hook (task_end) violates the
     # hook contract the paper enforces at runtime — here a reasoned SHACL check.
     edits = [
@@ -88,12 +98,12 @@ def test_hook_contract_blocks_modifying_read_only_hook():
             "operation": "replace",
         }
     ]
-    verdict = HarnessGate().check_facts(edits)
+    verdict = gate.check_facts(edits)
     assert not verdict.passed
     assert any("hook contract" in r.lower() for r in verdict.reasons), verdict.reasons
 
 
-def test_edit_at_writable_hook_passes():
+def test_edit_at_writable_hook_passes(gate):
     edits = [
         {
             "id": "edit:ok",
@@ -105,10 +115,10 @@ def test_edit_at_writable_hook_passes():
             "operation": "replace",
         }
     ]
-    assert HarnessGate().check_facts(edits).passed
+    assert gate.check_facts(edits).passed
 
 
-def test_singleton_exclusion_blocks_two_processors_same_group_and_hook():
+def test_singleton_exclusion_blocks_two_processors_same_group_and_hook(gate):
     edits = [{"id": "edit:p", "dimension": "D4_tools", "round": 2, "status": "shipped"}]
     processors = [
         {
@@ -124,12 +134,12 @@ def test_singleton_exclusion_blocks_two_processors_same_group_and_hook():
             "status": "accepted",
         },
     ]
-    verdict = HarnessGate().check_facts(edits, processors=processors)
+    verdict = gate.check_facts(edits, processors=processors)
     assert not verdict.passed
     assert any("singleton" in r.lower() for r in verdict.reasons), verdict.reasons
 
 
-def test_singleton_distinct_groups_pass():
+def test_singleton_distinct_groups_pass(gate):
     edits = [{"id": "edit:p", "dimension": "D4_tools", "round": 2, "status": "shipped"}]
     processors = [
         {
@@ -145,4 +155,4 @@ def test_singleton_distinct_groups_pass():
             "status": "accepted",
         },
     ]
-    assert HarnessGate().check_facts(edits, processors=processors).passed
+    assert gate.check_facts(edits, processors=processors).passed

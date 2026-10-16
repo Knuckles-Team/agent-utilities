@@ -28,6 +28,10 @@ _SHAPES = (
 )
 
 
+#: Rounds within which same-dimension edits count as coupled.
+_COUPLING_WINDOW = 5
+
+
 @dataclass
 class GateVerdict:
     """Outcome of the harness gate: whether the candidate harness state ships."""
@@ -88,6 +92,7 @@ def build_evolution_graph(
             )
         if e.get("modifies_field"):
             g.add((eid, _KG.modifiesField, rdflib.Literal(e["modifies_field"])))
+    _link_coupling_windows(g, edits)
     for proc in processors or []:
         pid = _KG[proc["id"]]
         g.add((pid, rdflib.RDF.type, _KG.Processor))
@@ -109,6 +114,22 @@ def build_evolution_graph(
         if p.get("exhibited_by"):
             g.add((_KG[p["exhibited_by"]], _KG.exhibitsPathology, pid))
     return g
+
+
+def _link_coupling_windows(g: rdflib.Graph, edits: list[dict[str, Any]]) -> None:
+    """Assert ``withinCouplingWindow`` between same-dimension edits <=5 rounds apart.
+
+    The engine's SHACL-SPARQL has neither aggregates nor arithmetic, so the
+    round-distance fact is derived here and the concentration shape reasons
+    over the links.
+    """
+    for i, a in enumerate(edits):
+        for b in edits[i + 1 :]:
+            if a["dimension"] != b["dimension"] or a["id"] == b["id"]:
+                continue
+            if abs(int(a.get("round", 0)) - int(b.get("round", 0))) <= _COUPLING_WINDOW:
+                g.add((_KG[a["id"]], _KG.withinCouplingWindow, _KG[b["id"]]))
+                g.add((_KG[b["id"]], _KG.withinCouplingWindow, _KG[a["id"]]))
 
 
 class HarnessGate:
