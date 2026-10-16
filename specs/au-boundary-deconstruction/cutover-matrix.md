@@ -4,10 +4,7 @@ Each row is a separately reviewable deliverable. The owner named after the arrow
 
 | Requirement | AU source cut and target behavior | Required acceptance focus |
 |---|---|---|
-| AU-BOUNDARY-R001 | Remove `gateway/**`; graph-os serves gateway routes/widgets, including unique AU behavior | Route parity, artifact tenancy, schema drift, no AU gateway import |
 | AU-BOUNDARY-R002 | Remove `deployment/**` and duplicate scripts; graph-os owns doctor, skill certification and deployment | CLI ownership, dry-run install, no colliding entry points |
-| AU-BOUNDARY-R003 | Remove `mcp/kg_server.py`, `mcp/tools/**` and old action manifest; graph-os serves approved intent operations | Every old action mapped or approved drop, authorization parity |
-| AU-BOUNDARY-R004 | Remove AU multiplexer family; graph-os owns fleet and OAuth host modules | Per-server attribution, failover, no duplicate fleet state |
 | AU-BOUNDARY-R005 | Migrate connector packages A–E to SDK and generated EG client | Import census and real read/write receipt for each package |
 | AU-BOUNDARY-R006 | Migrate connector packages F–J | Same per-package transport and scope proof |
 | AU-BOUNDARY-R007 | Migrate connector packages K–O | Same per-package transport and scope proof |
@@ -16,7 +13,6 @@ Each row is a separately reviewable deliverable. The owner named after the arrow
 | AU-BOUNDARY-R010 | Delete AU connector toolkit and HTTP/credential helpers now replaced in SDK | Zero connector imports of AU toolkit, no compatibility alias |
 | AU-BOUNDARY-R011 | Delete AU source lifecycle and certification code; SDK owns it | Cursor, conflict, mapping and certification conformance |
 | AU-BOUNDARY-R012 | Delete second EG projection and control-plane shim | Generated EG client is sole projection and contract digest |
-| AU-BOUNDARY-R013 | Make graph-os import AU solely via `agent_utilities.api` | AST import census and served agent operation |
 | AU-BOUNDARY-R014 | Move request identity, error and other server boundary modules to graph-os | Principal/tenant/context preservation and deny tests |
 | AU-BOUNDARY-R015 | Move AU `server/**` and A2A/ACP/AG-UI hosting to graph-os | Endpoint and cancellation parity, no AU listener |
 | AU-BOUNDARY-R016 | Split `core/config.py`: agent/model policy stays AU. Connector settings to SDK. Hosting settings to graph-os | Config fixture matrix and no duplicate environment reader |
@@ -43,7 +39,6 @@ Each row is a separately reviewable deliverable. The owner named after the arrow
 | AU-BOUNDARY-R037 | Move development-governance tooling (merge queue, concept reservation) to repository-manager | Interrupted merge-queue recovery and zero AU governance import |
 | AU-CONTEXT-R007 | Move deterministic finance math to EG and feeds/effects to SDK. Retain AU roles | Golden calculations, account scope, paper/live separation |
 | AU-BOUNDARY-R038 | Generate cross-owner component registry and AU path/script guard | New wrong-owner module/script fails a hermetic PR test |
-| AU-BOUNDARY-R039 | Move frontends off AU internals to AU API, graph-os and EG client | Import census and end-to-end user route |
 | AU-BOUNDARY-R040 | Move durable agent memory, learning and media store to EG | Trusted migration/quarantine, scoped read and restart |
 | AU-BOUNDARY-R041 | Remove the finance modules that produced fabricated data | Import census: no listed module and no caller remains |
 | AU-BOUNDARY-R049 | Run every AU write-back sink through the SDK governed write-back contract | Canonical change set, audit reservation, ledger receipt and SDK refusal before the sink |

@@ -18,7 +18,6 @@ Run configured Ruff/mypy, `scripts/check_complexity_staged.py` (CCCC), `scripts/
 
 - **AU-QUAL-R009.1:** `tests/unit/harness/test_red_team_evidence.py::test_probe_result_verdict_fields` preserves all three engine verdicts and separates execution status. No local verdict includes `abstained` or `defended`.
 - **AU-QUAL-R009.2:** `tests/unit/harness/test_red_team_evidence.py::test_no_scorer_abstains`.
-- **AU-QUAL-R009.3:** `tests/unit/harness/test_red_team_evidence.py::test_assess_writes_trace_evidence`.
 - **AU-QUAL-R009.4:** `tests/unit/harness/test_red_team_evidence.py::test_all_abstained_is_not_pass`.
 - **AU-QUAL-R009.5:** `tests/unit/harness/test_red_team_evidence.py::test_evidence_reproduces`.
 - **AU-QUAL-R009.6:** `tests/integration/test_red_team_assess_served.py::test_served_assess_records_evidence` covers every engine verdict, missing verdicts and target errors. Errors carry execution reasons without fabricated verdicts. A report without conclusive verdicts has no defense rate.

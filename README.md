@@ -67,7 +67,7 @@ Synthesized from concept markers in the codebase into **1187 canonical concepts*
 
 ## Architecture
 
-GraphOS owns public MCP, REST, and A2A composition. Agent Utilities owns agent and workflow behavior. The connector SDK owns source transport, while epistemic-graph owns durable graph state, schemas, and reasoning.
+Agent Utilities is the agent harness: it owns agent construction, run loops, context, evaluation, and applying received decisions. GraphOS owns MCP, REST, A2A, authentication, and the operation registry. The connector SDK owns source transport, while epistemic-graph owns durable graph state, schemas, and reasoning.
 
 ![Agent platform runtime architecture](https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg)
 
@@ -75,11 +75,10 @@ People enter through Agent Web UI, Agent Terminal UI, Geniusbot, or messaging. M
 
 ## Quick Start
 
-Python 3.12 or newer is required. Install the serving extra, generate and check a local profile, then start the local MCP server:
+Python 3.12 or newer is required. Agent Utilities is the agent harness only. Install it as a library; Graph OS serves the MCP, REST, and A2A surfaces and the graph-os package provides the server commands.
 
 ```bash
-uvx --from "agent-utilities[serving]" setup-config generate --profile tiny
-uvx --from "agent-utilities[serving]" graph-os --transport stdio
+uv pip install agent-utilities
 ```
 
 The [quick start guide](https://knuckles-team.github.io/agent-utilities/guides/quick-start/) covers provider configuration and other deployment profiles.

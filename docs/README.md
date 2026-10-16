@@ -64,7 +64,6 @@ docs/
     └── 5_agent_os_infrastructure/
         ├── permissions-kernel.md
         ├── OS-5.3-Session_Concurrency_Management.md
-        ├── OS-5.9-Gateway_Service_Dashboard.md
         └── ...
 ```
 
@@ -122,7 +121,6 @@ The Company Brain is the operational state layer that transforms the Knowledge G
 | **Enterprise Agent Governance** | P4 | [pillars/4_ecosystem_peripherals.md#enterprise-agent-governance-au-kgmemoryteam-startup-context-au-osgovernancepermission-policy](pillars/4_ecosystem_peripherals.md#enterprise-agent-governance-au-kgmemoryteam-startup-context-au-osgovernancepermission-policy) |
 | **Graph DB Deployment** | P2 | [guides/graph-db-deployment.md](guides/graph-db-deployment.md) |
 | **OWL Ontology & OS Synergies** | P2/P5 | [owl_kg_synergies.md](owl_kg_synergies.md) |
-| **Gateway Service Dashboard** | GW | [pillars/5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md](pillars/5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md) |
 
 ---
 

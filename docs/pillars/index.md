@@ -129,7 +129,7 @@ Kernel, server-minted identity, externalized state, engine sharding, fleet auton
 - [OS-5.6 — Distributed Replay, Sandboxing, & Epistemic Resource Scheduling](5_agent_os_infrastructure/OS-5.6-Distributed_Replay_And_Coordination.md)
 - [Hardened WASM Sandbox Executor](5_agent_os_infrastructure/OS-5.7-Hardened_WASM_Executor.md)
 - [Epistemic Resource Scheduler](5_agent_os_infrastructure/OS-5.8-Epistemic_Resource_Scheduler.md)
-- [Gateway Service Dashboard](5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md)
+- Gateway Service Dashboard
 - [Ontological Guardrail Engine](5_agent_os_infrastructure/OS-5.9-Ontological_Guardrail_Engine.md)
 
 ## Pillar 6 — GeniusBot Cockpit

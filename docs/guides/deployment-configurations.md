@@ -545,7 +545,7 @@ agent-dispatch-worker --workers 2
 ### Load balancer (Caddy)
 
 N gateway replicas (each `GATEWAY_WORKERS=1`) or one multi-worker gateway —
-both are supported; see [gateway scaling](../architecture/gateway_scaling.md)
+both are supported; see gateway scaling
 for the per-process state table (metrics registries, rate-limit buckets).
 
 ```caddyfile
@@ -756,7 +756,7 @@ Recipe form: [Enterprise](../recipes/enterprise.md).
 - Architecture deep dives:
   [state externalization](../architecture/state_externalization.md),
   [engine sharding](../architecture/engine_sharding.md),
-  [gateway scaling](../architecture/gateway_scaling.md),
+  gateway scaling,
   [agent dispatch](../architecture/agent_dispatch.md),
   [fleet autonomy](../architecture/fleet_autonomy.md),
   [graph service layer](../architecture/graph_service_layer.md)

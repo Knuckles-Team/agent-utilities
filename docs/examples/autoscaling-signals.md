@@ -16,7 +16,7 @@ How the reactive replica autoscaler (CONCEPT:AU-OS.scaling.reactive-replica-auto
 cooldown/flap guard, and what lands in the KG.
 
 Detailed review: [fleet_autonomy.md](../architecture/fleet_autonomy.md) and
-[gateway_scaling.md](../architecture/gateway_scaling.md).
+gateway_scaling.md.
 
 ## Prerequisites (ladder rung)
 

@@ -209,7 +209,7 @@ all byte-for-byte unchanged at defaults:
 | Durable state | One shared Postgres store with SKIP LOCKED queue claims + advisory-lock daemon leadership | `STATE_DB_URI` |
 
 Deep dives: [Engine Sharding](architecture/engine_sharding.md) ·
-[Gateway Scaling](architecture/gateway_scaling.md) ·
+Gateway Scaling ·
 [State Externalization](architecture/state_externalization.md) ·
 [sharding walkthrough](examples/sharding-walkthrough.md).
 

@@ -341,7 +341,7 @@ Enable the claims this normalizer reads, on the client used by callers:
 - [Identity & JWT Auth (worked example)](../examples/identity-jwt.md) —
   minting/validating the gateway-level authenticated identity that this
   feature builds on.
-- [MCP Fleet Authentication (JWT + Eunomia)](mcp_auth.md)
+- MCP Fleet Authentication (JWT + Eunomia)
 - [Configuration Reference & Flag Audit](configuration.md)
 - [OAuth/SSO — RFC 8693 delegation](../guides/oauth_sso.md) — the existing
   downstream-API token exchange referenced in

@@ -200,8 +200,8 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Fleet scale authority](../architecture/fleet-scale-authority.md) — catalog
 - [Fleet Autonomy Control Plane (OS-5.24 — AU-OS.config.health-gated-deploy-rollback, OS-5.29)](../architecture/fleet_autonomy.md) — catalog
 - [FrontendContribution.v1 — package-authored WebUI descriptors (GOC-24)](../architecture/frontend-contributions.md) — catalog
-- [Gateway daemon — the one host process and everything it runs](../architecture/gateway_daemon.md) — catalog
-- [Scaling the Gateway](../architecture/gateway_scaling.md) — catalog
+- Gateway daemon — the one host process and everything it runs — catalog
+- Scaling the Gateway — catalog
 - [Genesis k8s deployment inputs + named environment profiles](../architecture/genesis-environment-profiles.md) — catalog
 - [Global Workspace Attention (GWT)](../architecture/global_workspace_attention.md) — catalog
 - [GOC-44 dependency/runtime compatibility — baseline revalidation (2026-08-16)](../architecture/goc-44-dependency-runtime-compatibility-baseline.md) — catalog
@@ -219,7 +219,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Architecture Reference](../architecture/index.md) — direct nav
 - [Ingestion Throughput — lanes that never starve, ticks that never pile up](../architecture/ingestion_throughput.md) — catalog
 - [Intelligent ingestion — classify, evolve, embed fast, tame the tail](../architecture/intelligent-ingestion.md) — catalog
-- [Intent Surface — Seam 8, Phases 2-5 (complete)](../architecture/intent-surface.md) — catalog
+- Intent Surface — Seam 8, Phases 2-5 (complete) — catalog
 - [KG Connectors, Ingestors & Enrichers — the unified ingestion architecture](../architecture/kg_connectors_and_ingestion.md) — catalog
 - [Knowledge Graph as a Bidirectional ETL Hub (connectors, write-back, lineage)](../architecture/kg_etl_hub.md) — catalog
 - [Knowledge Distillation → Skill-Graphs](../architecture/knowledge_distillation_skill_graphs.md) — catalog
@@ -231,9 +231,9 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Layered Hybrid Architecture — KG Comparative Analysis Pipeline](../architecture/layered_analysis_architecture.md) — catalog
 - [LLM / Embedding Server-Capacity Guard](../architecture/llm-server-capacity-guard.md) — catalog
 - [Mandatory ContextCompiler model boundary](../architecture/mandatory-context-compiler.md) — direct nav
-- [The MCP 2026-07-28 protocol on graph-os's own surface (BUG-069)](../architecture/mcp-2026-protocol-surface.md) — catalog
-- [MCP authentication and network trust](../architecture/mcp_auth.md) — catalog
-- [GraphOS Embedded Fleet Gateway](../architecture/mcp_multiplexer.md) — catalog
+- The MCP 2026-07-28 protocol on graph-os's own surface (BUG-069) — catalog
+- MCP authentication and network trust — catalog
+- GraphOS Embedded Fleet Gateway — catalog
 - [The merge queue — continuous merge, serialized, tiered](../architecture/merge-queue.md) — catalog
 - [Messaging reach — agents message the user (AU-ECO.messaging.messaging-reach-service-governed–4.54)](../architecture/messaging_reach.md) — catalog
 - [Secure messaging ingress — instant push with zero open ports (AU-ECO.messaging.telegram-webhook-receiver-started)](../architecture/messaging_security.md) — catalog
@@ -241,7 +241,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Modular prompt & skill contribution](../architecture/modular-prompt-skill-contribution.md) — catalog
 - [Multi-Agent Social System (MASS)](../architecture/multi_agent_social_system.md) — catalog
 - [Multi-Source Assimilation Program](../architecture/multi_source_assimilation.md) — catalog
-- [Multi-Tenant graph-os over Streamable-HTTP](../architecture/multi_tenant_streamable_http.md) — catalog
+- Multi-Tenant graph-os over Streamable-HTTP — catalog
 - [Native WorkItem resource-reservation boundary](../architecture/native-resource-reservation.md) — catalog
 - [Non-Blocking Hierarchical Execution](../architecture/non-blocking-execution.md) — catalog
 - [North-Star Architecture — one saturating engine, a non-blocking pipeline, and 100% delegation](../architecture/north-star-architecture.md) — catalog
@@ -263,7 +263,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Phased Dependency Release Architecture](../architecture/phased_release_architecture.md) — catalog
 - [Privacy-safe external graph ingestion](../architecture/privacy-safe-external-ingestion.md) — direct nav
 - [Pydantic AI v2 migration](../architecture/pydantic-ai-v2-migration.md) — catalog
-- [RCA: graph-os fleet-mount bookkeeping disagreed with the callable tool surface (D-OB-3)](../architecture/rca-mcp-tool-state-desync.md) — catalog
+- RCA: graph-os fleet-mount bookkeeping disagreed with the callable tool surface (D-OB-3) — catalog
 - [Reactions / Emotes — a system-wide orchestrator output](../architecture/reactions.md) — catalog
 - [Reasoning Algorithms as Versioned Graph Topologies](../architecture/reasoning-graph-topologies.md) — catalog
 - [Relational authority and registry read model](../architecture/relational-authority.md) — catalog
@@ -383,7 +383,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [OS-5.6 — Distributed Replay, Sandboxing, & Epistemic Resource Scheduling](../pillars/5_agent_os_infrastructure/OS-5.6-Distributed_Replay_And_Coordination.md) — catalog
 - [Hardened WASM Sandbox Executor (CONCEPT:AU-OS.governance.wasm-micro-agent-sandbox)](../pillars/5_agent_os_infrastructure/OS-5.7-Hardened_WASM_Executor.md) — catalog
 - [Epistemic Resource Scheduler (CONCEPT:AU-OS.scaling.epistemic-dynamic-priority-quota)](../pillars/5_agent_os_infrastructure/OS-5.8-Epistemic_Resource_Scheduler.md) — catalog
-- [Gateway Service Dashboard (CONCEPT:AU-OS.config.gateway-service-dashboard)](../pillars/5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md) — catalog
+- Gateway Service Dashboard (CONCEPT:AU-OS.config.gateway-service-dashboard) — catalog
 - [Ontological Guardrail Engine (CONCEPT:AU-OS.safety.ontological-guardrail)](../pillars/5_agent_os_infrastructure/OS-5.9-Ontological_Guardrail_Engine.md) — catalog
 - [Pillar 5: Agent OS Infrastructure](../pillars/5_agent_os_infrastructure.md) — catalog
 - [Pillar 6: GeniusBot Desktop Cockpit (GBOT)](../pillars/6_geniusbot_cockpit.md) — catalog
@@ -394,7 +394,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 
 ## Reference
 
-- [API Reference](../reference/api.md) — direct nav
+- API Reference — direct nav
 - [Metrics Reference](../reference/metrics.md) — direct nav
 - [Palantir Foundry Ontology — Reference Capture](../reference/palantir-foundry/README.md) — catalog
 - [Action Types Overview](../reference/palantir-foundry/action-types-overview.md) — catalog

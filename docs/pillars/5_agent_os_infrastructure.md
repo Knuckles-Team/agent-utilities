@@ -88,7 +88,7 @@ The **Gateway** provides a Homepage-style service dashboard for Agent-OS. It is 
 > [!NOTE]
 > Synthesized from the former standalone `service-dashboard-core` package into
 > `agent_utilities/gateway/` to eliminate duplicate registries, duplicate XDG path
-> logic, and an orphaned package dependency. See [AU-OS.config.gateway-service-dashboard](5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md) for full documentation.
+> logic, and an orphaned package dependency. See AU-OS.config.gateway-service-dashboard for full documentation.
 
 ### Key Components
 
@@ -440,7 +440,7 @@ The Python gateway tier is observable and self-protecting:
   on one shared listen socket; the flock host-lock still elects exactly one KG
   host daemon among them.
 
-Full design: [Gateway Scaling](../architecture/gateway_scaling.md);
+Full design: Gateway Scaling;
 walkthrough: [observability example](../examples/observability.md).
 
 ---

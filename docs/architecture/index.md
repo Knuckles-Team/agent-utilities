@@ -23,7 +23,7 @@ Who is acting, on whose behalf, with what authority — from the first request t
 - [Per-Agent On-Behalf-Of Identity (delegation chain, ceiling, revocation)](per-agent-delegation.md)
 - [Verified Identity Carrier Contract (GOC-15)](verified-identity-carrier-contract.md)
 - [IdP-Agnostic Role Inheritance & Identity-Scoped Auto-Load](identity-inheritance.md)
-- [MCP Fleet Authentication (JWT + Eunomia)](mcp_auth.md)
+- MCP Fleet Authentication (JWT + Eunomia)
 - [Engine-authoritative cluster discovery and session continuity](cluster-discovery-session-continuity.md)
 - [Concept hierarchy](concept-hierarchy.md)
 - [Cross-host concept reservation authority](concept-reservation-authority.md)
@@ -112,7 +112,7 @@ How a request becomes a plan, a plan becomes tool calls, and results come back t
 - [Non-Blocking Hierarchical Execution](non-blocking-execution.md)
 - [Unified Agent Entrypoint (verified routing map)](unified-agent-entrypoint.md)
 - [Entrypoint Unification (one orchestrator)](entrypoint-unification.md)
-- [Intent Surface (Seam 8 — condensed tool-surface collapse)](intent-surface.md)
+- Intent Surface (Seam 8 — condensed tool-surface collapse)
 - [Skills-over-MCP (unified capability space)](skills_over_mcp.md)
 - [Edit-Application Engine](edit_application_engine.md)
 - [Chunked Async Drain (full re-ingest, non-blocking)](chunked-async-drain.md)
@@ -154,12 +154,12 @@ Everything about running more than one of something — engine shards, GPUs, gat
 - [graph-os Horizontal Scaling (the HPA blocker, precisely)](graphos-horizontal-scaling.md)
 - [Distributed Multi-GPU Concurrency](distributed_gpu_concurrency.md)
 - [Adaptive Model Concurrency (vLLM auto-scale)](adaptive_model_concurrency.md)
-- [Scaling the Gateway](gateway_scaling.md)
+- Scaling the Gateway
 - [Resource-Priority Edict (interactive over ingestion, end-to-end)](resource-priority-edict.md)
 - [Scaling Authority Contract (NE-164)](scaling-authority.md)
 - [Durable-State Externalization](state_externalization.md)
 - [Event Backbone (Kafka)](event_backbone_architecture.md)
-- [Multi-Tenant graph-os over Streamable-HTTP](multi_tenant_streamable_http.md)
+- Multi-Tenant graph-os over Streamable-HTTP
 - [HNSW Vector Index Lifecycle](vector_index_lifecycle.md)
 - [Task-Aware Sampling Profiles](sampling_profiles.md)
 - [LLM/Embedding Server-Capacity Guard (never OOM the model host)](llm-server-capacity-guard.md)
@@ -167,11 +167,11 @@ Everything about running more than one of something — engine shards, GPUs, gat
 - [KV-Checkpoint Intelligence (when to freeze a context, RAM vs disk)](kv-checkpoint-intelligence.md)
 - [Graph Backend Architecture](graph_backends_architecture.md)
 - [Epistemic Graph Service Layer Architecture](graph_service_layer.md)
-- [GraphOS Embedded Fleet Gateway](mcp_multiplexer.md)
-- [MCP 2026-07-28 Native Protocol Surface](mcp-2026-protocol-surface.md)
+- GraphOS Embedded Fleet Gateway
+- MCP 2026-07-28 Native Protocol Surface
 - [fastmcp 4 as the Default (MCP SDK v2 protocol bridge)](fastmcp4-default.md)
 - [Staged httpx to httpx2 Migration (transport-factory strangler)](httpx_httpx2_migration.md)
-- [Gateway Daemon (all runtime components)](gateway_daemon.md)
+- Gateway Daemon (all runtime components)
 
 ## Observability, governance & safety
 
@@ -210,6 +210,6 @@ Shipping the platform itself — containerization, orchestrator migrations, vers
 The canonical record of what ran, why, and — for closed incidents — what broke and how it was found.
 
 - [Canonical Trace and Outcome Ontology](trace_outcome_ontology.md)
-- [RCA: graph-os fleet-mount state desync (D-OB-3)](rca-mcp-tool-state-desync.md)
+- RCA: graph-os fleet-mount state desync (D-OB-3)
 - [Optimization Campaign Checkpoint](optimization-campaign-checkpoint.md)
 - [Historical Hardening Audit (non-authoritative)](epistemic-os-hardening.md)

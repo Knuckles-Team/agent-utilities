@@ -124,7 +124,7 @@ Reused code:
 - `enforce_tool_pair_safety` (`capabilities/compaction/_shared.py:61`) keeps tool calls and returns together.
 - `ToolOutputEviction` (`capabilities/eviction.py:28`) stays for single oversized results.
 - The L5 writer and `UsageRecorder` stay the only trace and cost path (`harness_record.py`).
-- `readOnlyHint` parsing (`mcp/connector_surface.py:73`) supplies the parallel-execution marker.
+- The received `readOnlyHint` supplies the parallel-execution marker.
 
 New code: `harness_config.py`, `harness_runtime.py`, `harness_plan.py`, the `ContextManager` capability, the guards module and `harness/ablation.py`. No McNemar or paired-ablation code exists; `harness/hote_tri_evolution.py:224` ablates skill evolution and is not reused.
 
