@@ -121,11 +121,13 @@ async def test_parallel_engine_topological_execution():
     agents = [
         AgentSpec(
             agent_id="agent-a",
+            model_id="test:mock-model",
             role="researcher",
             task_template="Research background: {{query}}",
         ),
         AgentSpec(
             agent_id="agent-b",
+            model_id="test:mock-model",
             role="auditor",
             task_template="Audit findings from preceding agents",
             depends_on=["agent-a"],
@@ -206,6 +208,7 @@ async def test_repeated_failure_escalation_tracks_failures():
     agents = [
         AgentSpec(
             agent_id="agent-failing",
+            model_id="test:failing-model",
             role="unstable-worker",
             task_template="Perform volatile work",
         )
