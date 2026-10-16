@@ -42,7 +42,7 @@ def main() -> int:
         computation_ready = utilities_numeric.xp.sum([1.0, 2.0, 3.0]) == 6.0
         release_binding_ready = (
             len(declared) == 1
-            and declared[0].extras == {"full"}
+            and declared[0].extras == {"full", "server"}
             and declared[0].url is None
             and declared[0].marker is None
             and engine_version in declared[0].specifier

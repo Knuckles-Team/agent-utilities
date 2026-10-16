@@ -50,7 +50,7 @@ _SEMVER = re.compile(r"^(?P<major>[0-9]+)\.(?P<minor>[0-9]+)\.(?P<patch>[0-9]+)$
 _BUMP_LEVELS = ("major", "minor", "patch")
 _SEVERITY_RANK = {"none": 0, "patch": 1, "minor": 2, "major": 3}
 
-_ENGINE_REQUIREMENT = re.compile(r'"(epistemic-graph\[full\][^"]*)"')
+_ENGINE_REQUIREMENT = re.compile(r'"(epistemic-graph\[full(?:,server)?\][^"]*)"')
 _VERSION_ASSIGNMENT = re.compile(
     r'(?P<prefix>__version__\s*=\s*")(?P<value>[^"]+)(?P<suffix>")'
 )
@@ -244,10 +244,10 @@ def _engine_requirement_edit(
         requirement = Requirement(current_text)
     except InvalidRequirement as exc:
         raise CascadeError(f"invalid requirement {current_text!r}: {exc}") from exc
-    if requirement.extras != {"full"}:
-        raise CascadeError(f"expected epistemic-graph[full], found {current_text!r}")
+    if requirement.extras != {"full", "server"}:
+        raise CascadeError(f"expected epistemic-graph[full,server], found {current_text!r}")
     ceiling_major = _major(proposed) + 1 if severity == "major" else _major(current) + 1
-    proposed_text = f"epistemic-graph[full]>={proposed},<{ceiling_major}.0.0"
+    proposed_text = f"epistemic-graph[full,server]>={proposed},<{ceiling_major}.0.0"
     return FileEdit(
         path=pyproject,
         kind="engine-dependency",
