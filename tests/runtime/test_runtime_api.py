@@ -10,7 +10,7 @@ from agent_utilities.server.routers import runtime as runtime_router
 
 
 @pytest.fixture()
-def client(monkeypatch):
+def client(monkeypatch, tmp_path):
     from agent_utilities.core.config import config
     from agent_utilities.runtime import LocalWorkspace
 
@@ -20,6 +20,37 @@ def client(monkeypatch):
         def __init__(self, *, run_id, image, network):
             del run_id, image, network
             super().__init__()
+
+    # The policy gate fails closed without a durable audit/receipt authority,
+    # so the unit test supplies a recording engine double and a policy that
+    # auto-allows the workspace mutating actions it drives.
+    from agent_utilities.orchestration.action_policy import ActionPolicy
+    from agent_utilities.runtime import action_policy_gate
+
+    class _DurableEngine:
+        def __init__(self):
+            self.nodes = {}
+
+        def add_node(self, node_id, node_type, properties=None, **_kw):
+            self.nodes[node_id] = {"type": node_type, **(properties or {})}
+
+        def query_cypher(self, *_args, **_kwargs):
+            return []
+
+    policy_yml = tmp_path / "policy.yml"
+    policy_yml.write_text(
+        "version: 1\n"
+        "defaults: {tier: approval_required}\n"
+        "rules:\n"
+        "  - {kind: workspace.cmd, target: '*', tier: auto}\n"
+        "  - {kind: workspace.write, target: '*', tier: auto}\n"
+        "  - {kind: workspace.edit, target: '*', tier: auto}\n",
+        encoding="utf-8",
+    )
+    policy = ActionPolicy(engine=_DurableEngine(), policy_path=policy_yml)
+    monkeypatch.setattr(
+        runtime_router, "action_policy_gate", lambda: action_policy_gate(policy)
+    )
 
     monkeypatch.setattr(runtime_router, "DockerWorkspace", _IsolatedTestWorkspace)
     monkeypatch.setattr(config, "runtime_workspace_images", ["test-image"])
