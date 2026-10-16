@@ -463,12 +463,10 @@ class RuleIngestor:
         )
 
         # Generate embedding if available
-        if self.engine.hybrid_retriever.embed_model:
+        if self.engine.embed_model:
             try:
-                node.embedding = (
-                    self.engine.hybrid_retriever.embed_model.get_text_embedding(
-                        f"{node.name}: {node.description}"
-                    )
+                node.embedding = self.engine.embed_model.get_text_embedding(
+                    f"{node.name}: {node.description}"
                 )
             except Exception as e:  # noqa: BLE001 — this module (despite living under knowledge_graph/security/) ingests engineering-convention rule books, not authz/ACL rules; the RuleBookNode is still created and persisted unconditionally right below regardless of embedding success, only its semantic-similarity retrievability is reduced (it remains reachable by direct id/graph traversal)
                 logger.debug("Failed to embed book %s: %s", book_id, e)
@@ -594,14 +592,10 @@ class RuleIngestor:
         )
 
         # Generate embedding
-        if self.engine.hybrid_retriever.embed_model:
+        if self.engine.embed_model:
             try:
                 embed_text = f"{parsed.title} — {rule_text}"
-                node.embedding = (
-                    self.engine.hybrid_retriever.embed_model.get_text_embedding(
-                        embed_text
-                    )
-                )
+                node.embedding = self.engine.embed_model.get_text_embedding(embed_text)
             except Exception as e:  # noqa: BLE001 — same as _ingest_book's embed failure above: the EngineeringRuleNode is still created and persisted unconditionally right below, only its semantic-similarity retrievability is reduced, not its presence in the graph
                 logger.debug("Failed to embed rule %s: %s", rule_id, e)
 

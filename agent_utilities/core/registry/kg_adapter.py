@@ -141,25 +141,16 @@ class RegistryMixin(_Base):
         query: str,
         max_nodes: int = 150,
         min_centrality: float = 0.01,
-        skip_quality_gate: bool = False,
     ) -> FocusedSubgraph:
         """
         Task-specific subgraph extraction — the core engine behind Codemaps.
         Reuses existing search + topological analysis.
 
-        ``skip_quality_gate`` passes through to :meth:`search_hybrid` — the
-        keyword-fallback path (no embedder available) never stamps a
-        ``_score`` on its candidates, so the retrieval quality gate always
-        sees ``composite=0.0`` and rejects them outright regardless of match
-        quality. Callers that know they are keyword-only (e.g. no configured
-        embedder) can opt out of that gate the same way ``search_hybrid``'s
-        other direct callers already do.
+        Candidates are EG ``Discover``'s ranked rows (via :meth:`search_hybrid`).
         """
         # 1. Hybrid search for initial candidates
         logger.info(f"Extracting subgraph for query: {query}")
-        search_results = self.search_hybrid(
-            query, top_k=max_nodes * 2, skip_quality_gate=skip_quality_gate
-        )
+        search_results = self.search_hybrid(query, top_k=max_nodes * 2)
         logger.info(f"Hybrid search found {len(search_results)} candidates")
 
         # 2. Build initial node set

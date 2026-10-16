@@ -123,23 +123,25 @@ def _outcome(result: Mapping[str, Any]) -> Mapping[str, Any]:
     return outcome if isinstance(outcome, Mapping) else {}
 
 
+def _sql_literal(value: str) -> str:
+    """``value`` as a single-quoted SQL string literal."""
+    return "'" + str(value).replace("'", "''") + "'"
+
+
 def _proven(row: Mapping[str, Any]) -> bool:
     wins, losses = int(row.get("successes") or 0), int(row.get("failures") or 0)
     return bool(row.get("skill_ref")) and wins > losses
 
 
-async def proven_skills(task_iris: Sequence[str]) -> list[str]:
+async def proven_skills(task_iris: Sequence[str], session: Any) -> list[str]:
     """The skills EG proved for ``task_iris``: the ``skill_ref`` of their
-    proven paths that won more judged runs than they lost."""
-    from agent_utilities.decide.learning.ops import literal
-    from agent_utilities.decide.learning.session import current_session
-
-    session = current_session()
+    proven paths that won more judged runs than they lost, read over the
+    assembler's own EG ``session``."""
     if session is None:
         return []
     refs: list[str] = []
     for task in sorted(set(task_iris)):
-        rows = await session.aquery(_PROVEN_SKILLS_SQL.format(task=literal(task)))
+        rows = await session.aquery(_PROVEN_SKILLS_SQL.format(task=_sql_literal(task)))
         refs.extend(str(row["skill_ref"]) for row in rows if _proven(row))
     return list(dict.fromkeys(refs))[:MAX_PROVEN_SKILL_PINS]
 
@@ -201,7 +203,7 @@ class Assembler:
         revision (a skill not in the library is not pinned). Unreadable ->
         no pins (logged): assembly runs as it would without them."""
         try:
-            refs = await proven_skills(task_iris)
+            refs = await proven_skills(task_iris, getattr(self.graphs, "session", None))
             return [pin for ref in refs if (pin := await self._current(ref))]
         except Exception as exc:
             logger.warning("proven skill pins unavailable: %s", exc)

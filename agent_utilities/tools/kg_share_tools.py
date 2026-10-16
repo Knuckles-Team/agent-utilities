@@ -46,12 +46,8 @@ async def export_subgraph(
         return "No active IntelligenceGraphEngine found."
 
     try:
-        if not hasattr(engine, "hybrid_retriever"):
-            return "HybridRetriever not initialized on the active engine."
-
-        subgraph = engine.hybrid_retriever.retrieve_hybrid(
-            topic, context_window=1, multi_hop_depth=depth
-        )
+        # EG's Discover chooses the shortlist; the harness applies no hop expansion.
+        subgraph = engine.search_hybrid(topic, top_k=1)
 
         import json
 

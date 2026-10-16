@@ -38,7 +38,7 @@ through that facade's already-built layers:
     (:pyattr:`KnowledgeGraph.store` ``.execute``) when present, falling back to
     the compute graph;
   - **semantic / hybrid search** through
-    :class:`~agent_utilities.knowledge_graph.retrieval.hybrid_retriever.HybridRetriever`
+    EG ``Discover`` via ``search_hybrid``
     (lazily constructed over an ``IntelligenceGraphEngine`` when one is reachable),
     degrading to a deterministic substring scan when no embedding model / engine
     is available so a search always returns *something*.
@@ -683,13 +683,11 @@ class ObjectSet:
         return hit_ids
 
     def _search_ids(self, query: str, *, limit: int) -> list[str]:
-        """Resolve query → ranked ids via the hybrid retriever, else substring."""
-        retr = _hybrid_retriever_for(self._kg)
-        if retr is not None:
+        """Resolve query → ids EG ranked (``search_hybrid``), else substring."""
+        search = _engine_search_for(self._kg)
+        if search is not None:
             try:
-                nodes = retr.retrieve_hybrid(
-                    query, context_window=limit, skip_quality_gate=True
-                )
+                nodes = search(query, top_k=limit)
                 ids = [str(n.get("id")) for n in nodes if n.get("id") is not None]
                 if ids:
                     return ids
@@ -1005,19 +1003,12 @@ def _resolve_target_types(graph: Any, type_or_interface: str) -> list[str]:
         return [type_or_interface]
 
 
-def _hybrid_retriever_for(graph: Any) -> Any:
-    """Lazily build a HybridRetriever over a reachable engine, else ``None``."""
-    # An IntelligenceGraphEngine carries its own retriever.
-    retr = getattr(graph, "hybrid_retriever", None)
-    if retr is not None:
-        return retr
-    engine = graph if hasattr(graph, "hybrid_retriever") else None
-    # If the facade hands us a store that is itself engine-backed, reuse it.
-    store = getattr(graph, "store", None)
-    if store is not None and hasattr(store, "hybrid_retriever"):
-        return store.hybrid_retriever
-    if engine is not None:
-        return getattr(engine, "hybrid_retriever", None)
+def _engine_search_for(graph: Any) -> Any:
+    """The reachable engine's ``search_hybrid`` (EG ``Discover``), else ``None``."""
+    for candidate in (graph, getattr(graph, "store", None)):
+        search = getattr(candidate, "search_hybrid", None)
+        if callable(search):
+            return search
     return None
 
 

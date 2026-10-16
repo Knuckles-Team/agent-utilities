@@ -120,52 +120,32 @@ def _fused_candidates() -> list[dict]:
 
 # ── default retriever binds the full engine facade (regression) ───────────────
 def test_default_retriever_binds_facade_engine_not_bare_graph_compute(monkeypatch):
-    """Regression: with no injected engine, the default cross-modal retriever must
-    bind ``HybridRetriever`` to the live ``IntelligenceGraphEngine`` facade (which
-    owns ``.backend`` / ``._search_keyword`` / ``.embed_model``) — NOT a bare
-    ``GraphComputeEngine`` (the ``.graph`` compute layer), which lacked ``.backend``
-    and raised "'GraphComputeEngine' object has no attribute 'backend'" on the served
-    ``graph_fork`` cross-modal fan-out. CONCEPT:AU-ORCH.sandbox.crossmodal-fork-fanout
+    """With no injected engine, the default cross-modal candidate source reads
+    the live ``IntelligenceGraphEngine`` facade's ``search_hybrid`` (EG
+    ``Discover`` rows) -- NOT a bare ``GraphComputeEngine``.
+    CONCEPT:AU-ORCH.sandbox.crossmodal-fork-fanout
     """
     import agent_utilities.runtime.crossmodal_fork as mod
     from agent_utilities.knowledge_graph.core import engine as engine_mod
 
+    seen: dict = {}
+
     class _FacadeEngine:
         backend = object()  # the attribute the bare compute engine did not expose
 
-    active = _FacadeEngine()
-    # engine_cross_modal_candidates calls IntelligenceGraphEngine.get_or_create(),
-    # which reads the class attribute `_ACTIVE_ENGINE` directly (NOT via
-    # get_active()) to decide whether to reuse the live singleton or construct
-    # a fresh engine. Patching get_active() alone left _ACTIVE_ENGINE unset, so
-    # get_or_create() fell through to `cls(**kwargs)` -- constructing a real
-    # IntelligenceGraphEngine, which then built its own HybridRetriever(...,
-    # schema_pack=...) before this test's monkeypatched _RecordingRetriever
-    # (whose __init__ takes no schema_pack) ever got a chance to bind to
-    # `active`.
-    monkeypatch.setattr(engine_mod.IntelligenceGraphEngine, "_ACTIVE_ENGINE", active)
-
-    seen: dict = {}
-
-    class _RecordingRetriever:
-        def __init__(self, eng):
-            seen["engine"] = eng
-
-        def retrieve_hybrid(self, query, *, context_window, multi_hop_depth):
+        def search_hybrid(self, query, top_k=10):
             seen["query"] = query
+            seen["top_k"] = top_k
             return [{"id": "n1"}]
 
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.retrieval.hybrid_retriever.HybridRetriever",
-        _RecordingRetriever,
-    )
+    active = _FacadeEngine()
+    monkeypatch.setattr(engine_mod.IntelligenceGraphEngine, "_ACTIVE_ENGINE", active)
 
     out = mod.engine_cross_modal_candidates("hybrid query")
 
     assert out == [{"id": "n1"}]
-    assert seen["engine"] is active  # the live facade, not a fresh GraphComputeEngine
-    assert hasattr(seen["engine"], "backend")
     assert seen["query"] == "hybrid query"
+    assert seen["top_k"] == 10
 
 
 # ── the recompute guard (unit) ────────────────────────────────────────────────

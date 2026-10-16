@@ -158,7 +158,7 @@ DEFAULT_REQUIRED_ROUTES: dict[str, str] = {
         "agent_utilities.knowledge_graph.retrieval.code_context:build_code_context"
     ),
     "graph_search": (
-        "agent_utilities.knowledge_graph.retrieval.hybrid_retriever:HybridRetriever"
+        "agent_utilities.knowledge_graph.orchestration.engine_query:QueryMixin"
     ),
     "connector_coverage": (
         "agent_utilities.knowledge_graph.ingestion.connector_coverage:"

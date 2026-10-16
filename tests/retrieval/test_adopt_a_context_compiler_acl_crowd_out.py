@@ -27,7 +27,7 @@ WITHOUT forwarding the ``session=`` kwarg it already has in scope. Because
 ``session`` argument only (never the ambient session), this omission means
 ``search_hybrid``'s internal ``score_gate`` trim runs COMPLETELY UNFILTERED
 for every ``ContextCompiler.compile()`` call that reaches this branch (any
-engine exposing ``search_hybrid`` and no explicit ``hybrid_retriever=``
+engine exposing ``search_hybrid`` and no explicit ``candidates=``
 override) -- the exact `389f5565` crowd-out defect, reopened one layer up,
 outside that commit's own file list (``engine_query.py``/``gitlab_indexer.py``
 only) and therefore never covered by its tests.
@@ -93,28 +93,28 @@ def _clean_state():
 
 
 class _StubRetriever:
-    """Duck-typed ``HybridRetriever`` stand-in whose ``retrieve_hybrid`` just
-    returns a fixed, RAW-scored candidate pool -- the real production
-    ``QueryMixin.search_hybrid`` (not a hand-written per-test fake) is what
-    performs the score-gate trim under test.
+    """EG ``Discover`` stand-in returning a fixed, EG-ranked candidate pool --
+    the real production ``QueryMixin.search_hybrid`` (not a hand-written
+    per-test fake) applies the ACL boundary and top-k cap under test.
     """
 
     def __init__(self, nodes):
         self._nodes = nodes
 
-    def retrieve_hybrid(self, query, **kwargs):
+    def discover(self, keywords, query_embedding, k):
         return list(self._nodes)
 
 
 class _Engine(QueryMixin):
     """A real ``QueryMixin.search_hybrid`` bound to a stub retriever -- this
     is what makes ``ContextCompiler._retrieve`` take the
-    ``search_hybrid(...)`` branch (no explicit ``hybrid_retriever=``
+    ``search_hybrid(...)`` branch (no explicit ``candidates=``
     override), the branch the missing ``session=`` forward affects.
     """
 
     def __init__(self, nodes):
-        self.hybrid_retriever = _StubRetriever(nodes)
+        self.graph_compute = _StubRetriever(nodes)
+        self.embed_model = None
         self.active_schema_pack = None
 
 

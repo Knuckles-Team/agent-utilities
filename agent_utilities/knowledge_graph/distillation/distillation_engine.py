@@ -395,13 +395,9 @@ class DistillationEngine:
 
     def _get_embed_model(self) -> Any:
         """Attempt to get the embedding model from the KG engine or create one."""
-        # First try the KG engine's existing retriever
-        if (
-            self.kg_engine
-            and hasattr(self.kg_engine, "hybrid_retriever")
-            and self.kg_engine.hybrid_retriever.embed_model
-        ):
-            return self.kg_engine.hybrid_retriever.embed_model
+        # First try the KG engine's query embedder
+        if self.kg_engine and getattr(self.kg_engine, "embed_model", None):
+            return self.kg_engine.embed_model
 
         # Fallback: create one directly
         try:

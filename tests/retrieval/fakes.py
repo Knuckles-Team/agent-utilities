@@ -35,17 +35,17 @@ class _FakeMarkingStore:
 
 
 class FakeRetriever:
-    """Duck-typed stand-in for ``HybridRetriever``/the engine's ``search_hybrid``.
+    """Engine stand-in whose ``search_hybrid`` returns EG-ranked rows.
 
-    Returns a fixed candidate pool regardless of query -- the compiler's
-    scoring/selection is what's under test, not retrieval itself.
+    Returns a fixed candidate pool (as EG's served ``Discover`` would rank
+    it) regardless of query -- the compiler's assembly is what's under test.
     """
 
     def __init__(self, nodes: list[dict]) -> None:
         self._nodes = nodes
 
-    def retrieve_hybrid(self, query, context_window=10, **kwargs):
-        return list(self._nodes)[:context_window]
+    def search_hybrid(self, query, top_k=10, session=None):  # noqa: ARG002
+        return list(self._nodes)[:top_k]
 
 
 def _actor(**kw) -> ActorContext:

@@ -60,7 +60,8 @@ half of the contract: same candidates + same session ⇒ same bundle, and the
 diff two runs.
 
 This is a SELECTION/ASSEMBLY/OPTIMIZATION layer. It does not retrieve (it
-calls the engine's ``search_hybrid`` / a ``HybridRetriever``)
+receives candidates EG's served ``Discover`` ranked, via the engine's
+``search_hybrid`` or an explicit :class:`CandidateSource` port)
 and it does not gate permissions itself (it calls ``permissioning.enforce`` —
 CONCEPT:AU-KG.ontology.redact-object-materialize-restricted). It composes both, plus the epistemic columns, into
 one benchmarkable pass.
@@ -96,10 +97,10 @@ docstring note below on how the two relate).
 import hashlib
 import json
 import logging
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol
 
 from agent_utilities.observability.trace_ontology import trace_candidate_quality
 from agent_utilities.security.persistence_privacy import (
@@ -111,11 +112,43 @@ from ..core.engine import cosine_similarity
 from ..core.session import GraphSession, resolve_session, use_session
 from ..ontology.permissioning import enforce
 from .context_knapsack import fit_to_budget, sizing_key
-from .hybrid_retriever import _parse_instant
 
 logger = logging.getLogger(__name__)
 
+
+def _parse_instant(value: Any) -> datetime | None:
+    """Coerce a timestamp (ISO string or ``datetime``) to a tz-aware UTC instant.
+
+    Returns ``None`` for missing/unparsable values so undated candidates stay
+    neutral.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+    except (ValueError, TypeError):
+        return None
+
+
+class CandidateSource(Protocol):
+    """Port that hands the compiler candidates someone else already ranked.
+
+    The harness never retrieves or ranks: the default source is the engine's
+    ``search_hybrid`` (rows from EG's served ``Discover``); callers that
+    already hold a candidate set (graph traversal, community reports) pass it
+    through this port instead.
+    """
+
+    def __call__(
+        self, query: str, top_k: int, session: GraphSession
+    ) -> Sequence[dict[str, Any]]: ...
+
+
 __all__ = [
+    "CandidateSource",
     "Citation",
     "ProofEdge",
     "ContextItem",
@@ -627,110 +660,56 @@ class ContextCompiler:
     """Assemble a policy-aware, budgeted, cited LLM context bundle (CONCEPT:AU-KG.retrieval.context-compiler, Codex X-7).
 
     Args:
-        engine: An ``IntelligenceGraphEngine`` (preferred — its
-            ``search_hybrid`` already composes the native ANN, quality gate,
-            and score normalization), a bare ``HybridRetriever``, or any
-            duck-typed object exposing ``retrieve_hybrid``/``search_hybrid``.
-        hybrid_retriever: Optional explicit retriever, overriding ``engine``'s
-            own retrieval path (mainly for tests / composition).
+        engine: An ``IntelligenceGraphEngine`` whose ``search_hybrid`` returns
+            the rows EG's served ``Discover`` ranked.
+        candidates: Optional :class:`CandidateSource` that supplies an
+            already-ranked candidate set instead of the engine's search.
     """
 
-    def __init__(self, engine: Any, *, hybrid_retriever: Any | None = None) -> None:
+    def __init__(
+        self, engine: Any, *, candidates: CandidateSource | None = None
+    ) -> None:
         self.engine = engine
-        self._retriever = hybrid_retriever
+        self._candidates = candidates
 
     # ------------------------------------------------------------------
-    # Retrieval (reused, never reimplemented)
+    # Candidates (received, never computed here)
     # ------------------------------------------------------------------
-    def _candidate_source(self) -> Any | None:
-        if self._retriever is not None:
-            return self._retriever
-        if hasattr(self.engine, "retrieve_hybrid"):
-            return self.engine
-        return getattr(self.engine, "hybrid_retriever", None)
-
     def _retrieve(
         self,
         query: str,
         top_k: int,
         *,
-        as_of: str | None,
         session: GraphSession,
     ) -> tuple[list[dict[str, Any]], Any | None]:
         """Return ``(candidates, quality_report)``.
 
-        ``quality_report`` is the ``RetrievalQualityGate``'s
-        ``RetrievalQualityReport`` for this call when the gate ran (the preferred
-        ``engine.search_hybrid`` path, which applies it by default — CONCEPT:
-        AU-KG.retrieval.fail-closed-grounding-contract), or ``None`` when it was
-        explicitly bypassed (the bare-retriever fallback path below, which passes
-        ``skip_quality_gate=True``) — so a bypass is never mistaken for a pass.
+        ``quality_report`` is always ``None``: EG's ``Discover`` serves no
+        retrieval-quality verdict yet, and the harness computes none itself.
         """
         # Retrieval inherits the already-verified authority.  This scope is entered
         # only after ``compile`` resolves the session and requires ``kg:read``;
-        # consequently no ANN/Cypher/backend call can happen before tenant/policy
+        # consequently no engine call can happen before tenant/policy
         # enforcement has succeeded.
         with use_session(session):
+            if self._candidates is not None:
+                return list(self._candidates(query, top_k, session) or []), None
             search_hybrid = getattr(self.engine, "search_hybrid", None)
-            if self._retriever is None and callable(search_hybrid):
-                # NE-050: thread the verified session through so
-                # ``search_hybrid`` (and, inside it, ``retrieve_hybrid``)
-                # ACL/owner/scope-filters the RAW candidate pool BEFORE its
-                # own internal rank/score-gate/trim — not just after
-                # ``compile()``'s later ``enforce()`` pass over whatever this
-                # call already trimmed to ``top_k``. Without this, a denied
-                # high-score node can consume one of the ``top_k`` slots
-                # returned here, silently crowding out an authorized
-                # lower-scored node that never reaches ``compile()``'s own
-                # policy filter at all (the ACL-before-rank invariant
-                # ``search_hybrid``/``retrieve_hybrid`` already enforce for
-                # every OTHER caller that passes a session).
-                nodes = list(
-                    search_hybrid(
-                        query, top_k=top_k, as_of=as_of or None, session=session
-                    )
-                    or []
-                )
-                # ``last_quality_report`` is set synchronously inside the call
-                # just above and read back immediately on this same call
-                # stack. It is backed by a context-local ``ContextVar`` on
-                # ``HybridRetriever`` (D-39), not shared instance state, so a
-                # concurrent caller of the same shared ``HybridRetriever``
-                # cannot race this read — see its own docstring.
-                report = getattr(
-                    getattr(self.engine, "hybrid_retriever", None),
-                    "last_quality_report",
-                    None,
-                )
-                return nodes, report
-            source = self._candidate_source()
-            if source is None:
+            if not callable(search_hybrid):
                 raise TypeError(
-                    "ContextCompiler needs an engine with `search_hybrid`/"
-                    "`retrieve_hybrid`, or an explicit `hybrid_retriever=`."
+                    "ContextCompiler needs an engine with `search_hybrid` or an "
+                    "explicit `candidates=` source."
                 )
-            # Same NE-050 rationale as the ``search_hybrid`` branch above:
-            # the bare-retriever fallback must ACL-filter its raw candidate
-            # pool before ITS OWN internal trim to ``context_window`` too, or
-            # this path reintroduces the identical crowd-out gap.
-            nodes = list(
-                source.retrieve_hybrid(
-                    query,
-                    context_window=top_k,
-                    as_of=as_of,
-                    skip_quality_gate=True,
-                    session=session,
-                )
-                or []
-            )
-            return nodes, None
+            # NE-050: the verified session goes to ``search_hybrid`` so the
+            # ACL/owner/scope boundary filters EG's rows before the top-k cap.
+            return list(search_hybrid(query, top_k=top_k, session=session) or []), None
 
     # ------------------------------------------------------------------
     # Per-axis scoring
     # ------------------------------------------------------------------
     # Priority order for the text whose tokens count against the budget and
     # whose overlap drives the MMR diversity fallback. Broader than
-    # ``HybridRetriever._node_text`` (which omits ``description``, the field
+    # a name-only text (which omits ``description``, the field
     # most KG node bodies actually use — see ``graph_search``'s formatter and
     # ``context_builder.build_contextual_description``) since a compiler that
     # can't see the node's own description would assemble near-empty context.
@@ -1356,9 +1335,7 @@ class ContextCompiler:
         # replacements for the middleware-owned ambient session.
         session = resolve_session(session, required_scope="kg:read")
         pool = max(candidate_pool, top_k)
-        candidates, quality_report = self._retrieve(
-            query, pool, as_of=as_of, session=session
-        )
+        candidates, quality_report = self._retrieve(query, pool, session=session)
         quality_gate_failed, quality_reason = self._compile_quality_gate(quality_report)
         decisions: list[dict[str, Any]] = []
 

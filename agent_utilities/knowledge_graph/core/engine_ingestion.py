@@ -133,14 +133,12 @@ class IngestionMixin(_Base):
         )
 
         # Generate embedding if model available
-        if self.hybrid_retriever.embed_model:
+        if self.embed_model:
             try:
                 ctx_desc = build_contextual_description(
                     node.id, self.graph, node.description or node.name
                 )
-                node.embedding = self.hybrid_retriever.embed_model.get_text_embedding(
-                    ctx_desc
-                )
+                node.embedding = self.embed_model.get_text_embedding(ctx_desc)
             except Exception as e:
                 logger.warning(
                     f"Failed to generate embedding for episode {node.id}: {e}"
@@ -226,17 +224,15 @@ class IngestionMixin(_Base):
                     importance_score=0.8,
                 )
                 # Generate embedding if model available
-                if self.hybrid_retriever.embed_model:
+                if self.embed_model:
                     try:
                         ctx_desc = build_contextual_description(
                             resource.id,
                             self.graph,
                             resource.description or resource.name,
                         )
-                        resource.embedding = (
-                            self.hybrid_retriever.embed_model.get_text_embedding(
-                                ctx_desc
-                            )
+                        resource.embedding = self.embed_model.get_text_embedding(
+                            ctx_desc
                         )
                     except Exception as e:
                         logger.warning(
@@ -362,14 +358,12 @@ class IngestionMixin(_Base):
             importance_score=0.9,
         )
         # Generate embedding if model available
-        if self.hybrid_retriever.embed_model:
+        if self.embed_model:
             try:
                 ctx_desc = build_contextual_description(
                     resource.id, self.graph, resource.description or resource.name
                 )
-                resource.embedding = (
-                    self.hybrid_retriever.embed_model.get_text_embedding(ctx_desc)
-                )
+                resource.embedding = self.embed_model.get_text_embedding(ctx_desc)
             except Exception as e:
                 logger.warning(
                     f"Failed to generate embedding for A2A agent {resource.id}: {e}"
@@ -439,7 +433,7 @@ class IngestionMixin(_Base):
         Fetches the node from the graph, generates its topological context (OWL facts +
         hierarchical radius), embeds the context, and upserts the node.
         """
-        if not self.hybrid_retriever.embed_model:
+        if not self.embed_model:
             return False
 
         if node_id not in self.graph:
@@ -452,9 +446,7 @@ class IngestionMixin(_Base):
 
         try:
             ctx_desc = build_contextual_description(node_id, self.graph, base_desc)
-            new_embedding = self.hybrid_retriever.embed_model.get_text_embedding(
-                ctx_desc
-            )
+            new_embedding = self.embed_model.get_text_embedding(ctx_desc)
 
             # Update NX graph
             self.graph.nodes[node_id]["embedding"] = new_embedding

@@ -253,40 +253,26 @@ def _batch_node_properties(
 
 
 class _StaticCandidateRetriever:
-    """Adapter exposing a fixed candidate list as ``retrieve_hybrid``.
+    """A :class:`~.context_compiler.CandidateSource` over a fixed candidate list.
 
     Lets :class:`~.context_compiler.ContextCompiler` assemble a policy-aware,
-    scored, cited bundle over graph-traversal / community-report results
-    instead of running its own semantic retrieval — the "reuse the
-    ContextCompiler for grounded assembly" seam this module is built on.
+    cited bundle over graph-traversal / community-report results it receives
+    instead of searching. Both call sites size ``candidate_pool`` to cover
+    ``len(candidates)``, so the full list reaches ``compile``'s own
+    ``enforce()`` policy pass (NE-050 ACL-before-rank holds).
     """
 
     def __init__(self, candidates: list[dict[str, Any]]) -> None:
         self._candidates = candidates
 
-    def retrieve_hybrid(
+    def __call__(
         self,
         query: str,  # noqa: ARG002 — candidates are precomputed by the caller
-        *,
-        context_window: int = 0,
-        as_of: str | None = None,  # noqa: ARG002 — precomputed candidates only
-        skip_quality_gate: bool = True,  # noqa: ARG002 — precomputed candidates only
-        session: Any | None = None,  # noqa: ARG002 — see note below
+        top_k: int,
+        session: Any,  # noqa: ARG002 — compile() enforces policy on the full list
     ) -> list[dict[str, Any]]:
-        # NE-050: ``ContextCompiler._retrieve`` now threads ``session`` into
-        # every ``retrieve_hybrid`` it calls so a real backend can ACL-filter
-        # its RAW pool before its own internal trim-to-``context_window``.
-        # This adapter has no such internal ranking/trim to close: BOTH call
-        # sites in this module size ``candidate_pool`` to ``len(candidates)``
-        # (or `max(top_k, len(candidates))`), so ``context_window`` here is
-        # always >= ``len(self._candidates)`` and this always returns the
-        # FULL precomputed list untrimmed — ``ContextCompiler.compile``'s own
-        # ``enforce()`` policy pass (which runs over that full, un-trimmed
-        # list) is therefore already sufficient ACL-before-rank enforcement
-        # for this adapter specifically. ``session`` is accepted only so the
-        # call doesn't raise, not silently dropped as a general precedent.
-        if context_window and context_window > 0:
-            return list(self._candidates[:context_window])
+        if top_k and top_k > 0:
+            return list(self._candidates[:top_k])
         return list(self._candidates)
 
 
@@ -918,9 +904,7 @@ def local_search(
             "reason": "seed entity has no readable properties/neighbors",
         }
 
-    compiler = ContextCompiler(
-        engine, hybrid_retriever=_StaticCandidateRetriever(candidates)
-    )
+    compiler = ContextCompiler(engine, candidates=_StaticCandidateRetriever(candidates))
     bundle = compiler.compile(
         query or seed_ids[0],
         session,
@@ -1121,9 +1105,7 @@ def global_search(
     partial_answers = _map_partial_answers(query, top, llm_fn)
     candidates = _global_search_candidates(partial_answers, top)
 
-    compiler = ContextCompiler(
-        engine, hybrid_retriever=_StaticCandidateRetriever(candidates)
-    )
+    compiler = ContextCompiler(engine, candidates=_StaticCandidateRetriever(candidates))
     bundle = compiler.compile(
         query,
         session,

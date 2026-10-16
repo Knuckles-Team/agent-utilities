@@ -665,13 +665,6 @@ def _embedding_candidate_is_current(node_properties: Mapping[str, Any]) -> bool:
     return not ("embedding" in node_properties and not node_properties.get("embedding"))
 
 
-def _plan_ranks_rows(plan: list[dict[str, Any]]) -> bool:
-    """Whether a unified plan carries a ``Rank`` op (so rows need the fence)."""
-    return any(
-        isinstance(operation, dict) and "Rank" in operation for operation in plan
-    )
-
-
 def _ledger_backend_write(backend: Any, query: str, parameters: dict[str, Any]) -> None:
     """Apply one ledger-replayed write, replacing raw driver detail on failure."""
     try:
@@ -1885,32 +1878,6 @@ def connect_external_read_transport(
     else:
         raise ValueError("external engine endpoint must use tls://, tcp://, or unix://")
     return SyncEpistemicGraphClient.connect(**connect)
-
-
-@functools.lru_cache(maxsize=8)
-def _query_unified_accepts_reorder_kwarg(unified_method: Any) -> bool:
-    """Whether the installed ``epistemic_graph`` client's ``query.unified`` accepts
-    ``reorder_filter_selectivity`` (D-W2X-4).
-
-    ``GraphComputeEngine.query_unified`` assumes a client signature newer than
-    what the frozen ``au 2.0.0`` / ``eg 2.23.1`` pin currently installs;
-    passing the kwarg unconditionally against an older client raises
-    ``TypeError: unified() got an unexpected keyword argument``. Cached (keyed
-    on the bound method itself — hashable, and stable for the client
-    instance's lifetime) so this introspection runs once per client, not once
-    per call.
-    """
-    import inspect
-
-    try:
-        return (
-            "reorder_filter_selectivity" in inspect.signature(unified_method).parameters
-        )
-    except (
-        TypeError,
-        ValueError,
-    ):  # pragma: no cover - defensive: unintrospectable callable
-        return False
 
 
 def _build_engine_transport_argv(
@@ -3773,126 +3740,6 @@ class GraphComputeEngine:
             if len(current) >= n_results:
                 break
         return current
-
-    def query_unified(
-        self,
-        plan: list[dict[str, Any]],
-        *,
-        reorder_filter_selectivity: float | None = None,
-        include_epistemic: bool = False,
-    ) -> list[dict[str, Any]]:
-        """Run one native cross-modal plan with bounded served-read fencing.
-
-        ``plan`` is the engine's closed algebra over a shared ``RowSet`` — an
-        ordered list of externally-tagged ``Op`` dicts (``Scan``/``Filter``/
-        ``Traverse``/``Rank``/``RankText``/``FuseRrf``/``AsOf``/``Limit``) the
-        engine sequences over ONE off-lock snapshot (filter via DataFusion,
-        traverse via petgraph BFS, rank via the native ANN, RRF fusion in-plan).
-        This is the engine doing filter+traverse+vector+rerank itself instead of
-        the old hand-orchestrated Python pipeline of siloed round-trips
-        Returns ``[{"id": str, "score": float|None}]``
-        in the plan's final (post-``Rank``) order.
-
-        Requires an engine built with the ``query`` feature; on a build without it
-        the call raises a clear engine error — there is no O(N) Python fallback.
-        Until the engine publishes GraphCore and SemanticStore under one served
-        barrier, Rank-bearing plans add one bounded property-batch round-trip to
-        reject not-ready/stale vector rows.
-
-        Args:
-            include_epistemic: Opt-in (CONCEPT:AU-KB-CURRENCY, Seam 1 — the
-                ``KnowledgeBatch`` currency, extended from ``KnowledgeGraph.query``
-                to this cross-modal surface). Default ``False`` — byte-for-byte the
-                same ``[{"id", "score"}]`` rows as before this parameter existed.
-                When ``True``, currency-upgrades the SAME ids (in the SAME
-                post-``Rank`` order) via ``explain_provenance_by_ids`` into
-                :class:`~.epistemic_row.EpistemicRow` results carrying the
-                engine's confidence, bitemporal window, evidence provenance, and
-                policy labels — never fabricated, resolved server-side. See
-                ``docs/architecture/epistemic-columns-currency.md``.
-        """
-        rows = self._invoke_unified_plan(plan, reorder_filter_selectivity)
-        if rows and _plan_ranks_rows(plan):
-            rows = self._fence_ranked_rows(rows)
-        return self._attach_epistemic_currency(
-            rows, include_epistemic=include_epistemic
-        )
-
-    def _invoke_unified_plan(
-        self, plan: list[dict[str, Any]], reorder_filter_selectivity: float | None
-    ) -> list[dict[str, Any]]:
-        """Call ``query.unified`` with only the kwargs this client understands.
-
-        D-W2X-4: the installed epistemic_graph client's ``query.unified()`` may
-        predate ``reorder_filter_selectivity`` (a version skew under the
-        au 2.0.0/eg 2.23.1 freeze) -- only pass it when the client's own
-        signature accepts it, rather than assuming the newest wire contract.
-        """
-        unified_fn = self._client.query.unified
-        if _query_unified_accepts_reorder_kwarg(unified_fn):
-            return (
-                unified_fn(plan, reorder_filter_selectivity=reorder_filter_selectivity)
-                or []
-            )
-        if reorder_filter_selectivity is not None:
-            logger.warning(
-                "query_unified: installed epistemic_graph client's "
-                "query.unified() does not accept reorder_filter_selectivity "
-                "(version skew under the au/eg freeze) -- calling without it "
-                "instead of raising; the caller's requested reordering hint "
-                "is dropped, not silently honored."
-            )
-        return unified_fn(plan) or []
-
-    def _fence_ranked_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Drop rows whose durable vector is not-ready or explicitly cleared.
-
-        The engine currently publishes GraphCore fields before its SemanticStore
-        projection inside a cross-modal transaction. Rank rows therefore require
-        the same bounded durable-property fence as ``semantic_search``: a literal
-        not-ready marker or missing vector cannot escape through the unified
-        surface preferred by hybrid and capability retrieval.
-        """
-        ranked_ids = [
-            str(row["id"])
-            for row in rows
-            if isinstance(row, dict) and row.get("id") is not None
-        ]
-        # ONE batched property round-trip for the whole ranked set.
-        properties = self._get_node_properties_batch(ranked_ids)
-        current_rows: list[dict[str, Any]] = []
-        for row in rows:
-            if not isinstance(row, dict) or row.get("id") is None:
-                continue
-            if not _embedding_candidate_is_current(properties.get(str(row["id"]), {})):
-                continue
-            current_rows.append(row)
-        return current_rows
-
-    def _attach_epistemic_currency(
-        self, rows: list[dict[str, Any]], *, include_epistemic: bool
-    ) -> list[dict[str, Any]]:
-        """Currency-upgrade ``rows`` server-side, opt-in or by light default.
-
-        The light epistemic layer (CONCEPT:AU-KB-CURRENCY, Native by default) —
-        see ``KnowledgeGraph.query``'s identical wiring for the full rationale.
-        """
-        if include_epistemic:
-            from .epistemic_row import attach_epistemic_rows
-
-            return attach_epistemic_rows(rows, self.explain_provenance_by_ids)  # type: ignore[return-value]
-        from agent_utilities.core.config import config as _app_config
-
-        from .epistemic_row import (
-            attach_epistemic_columns,
-            should_attach_epistemic_columns,
-        )
-
-        if should_attach_epistemic_columns(
-            rows, default=_app_config.epistemic_light_default
-        ):
-            return attach_epistemic_columns(rows, self.explain_provenance_by_ids)
-        return rows
 
     def query_cypher(self, query: str) -> list[dict[str, Any]]:
         """Run a native Cypher-subset ``query`` server-side and return row dicts (CONCEPT:AU-KG.query.object-graph-mapper).

@@ -235,12 +235,10 @@ class KGSourceResolver:
                     }
                 )
 
-        # Try hybrid search if available for better results
-        if hasattr(self.engine, "hybrid_retriever") and self.engine.hybrid_retriever:
+        # EG-ranked candidates (served ``Discover`` via ``search_hybrid``).
+        if callable(getattr(self.engine, "search_hybrid", None)):
             try:
-                hybrid_results = self.engine.hybrid_retriever.retrieve_hybrid(
-                    query=query, context_window=top_k
-                )
+                hybrid_results = self.engine.search_hybrid(query, top_k=top_k)
                 for hr in hybrid_results:
                     hr_id = (
                         hr.get("id", "")

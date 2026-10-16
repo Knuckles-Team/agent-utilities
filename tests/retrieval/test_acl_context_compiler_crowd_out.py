@@ -71,17 +71,19 @@ class _StubRetriever:
     def __init__(self, nodes: list[dict]) -> None:
         self._nodes = nodes
 
-    def retrieve_hybrid(self, query, **kwargs):  # noqa: ARG002
+    def discover(self, keywords, query_embedding, k):  # noqa: ARG002
+        """EG ``Discover`` stand-in: the rows EG ranked, in EG's order."""
         return list(self._nodes)
 
 
 class _Engine(QueryMixin):
     """A real ``QueryMixin.search_hybrid`` bound to a stub retriever — this is
     the branch of ``ContextCompiler._retrieve`` the missing ``session=``
-    forward broke (no explicit ``hybrid_retriever=`` override)."""
+    forward broke (no explicit ``candidates=`` override)."""
 
     def __init__(self, nodes: list[dict]) -> None:
-        self.hybrid_retriever = _StubRetriever(nodes)
+        self.graph_compute = _StubRetriever(nodes)
+        self.embed_model = None
         self.active_schema_pack = None
 
 

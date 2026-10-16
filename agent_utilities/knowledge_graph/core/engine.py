@@ -240,14 +240,35 @@ class IntelligenceGraphEngine(
             return None
 
     def _setup_retrieval_and_inference(self, schema_pack: Any) -> None:
-        from ..retrieval.hybrid_retriever import HybridRetriever  # type: ignore
         from .inference_engine import InferenceEngine  # type: ignore
 
         self.active_schema_pack = self._resolve_schema_pack(schema_pack)
-        self.hybrid_retriever = HybridRetriever(
-            self, schema_pack=self.active_schema_pack
-        )
         self.inference_engine = InferenceEngine(self)
+
+    @property
+    def embed_model(self) -> Any:
+        """Lazy query embedder, or ``None`` when none is configured.
+
+        The harness only embeds the query text it sends to EG; retrieval and
+        ranking happen in EG's served ``Discover`` (see ``search_hybrid``).
+        """
+        if not getattr(self, "_embed_model_initialized", False):
+            self._embed_model_initialized = True
+            try:
+                from agent_utilities.core.embedding_utilities import (
+                    create_embedding_model,
+                )
+
+                self._embed_model = create_embedding_model()
+            except Exception as exc:  # noqa: BLE001 - embedder is optional
+                logger.warning("Failed to initialize embedding model: %s", exc)
+                self._embed_model = None
+        return getattr(self, "_embed_model", None)
+
+    @embed_model.setter
+    def embed_model(self, value: Any) -> None:
+        self._embed_model = value
+        self._embed_model_initialized = True
 
     def _build_control_backend(self) -> GraphBackend:
         """Return the operational backend that owns native WorkItems.
@@ -501,12 +522,8 @@ class IntelligenceGraphEngine(
         view._process_owned = False
         view._process_root = getattr(self, "_process_root", self)
 
-        from ..retrieval.hybrid_retriever import HybridRetriever
         from .inference_engine import InferenceEngine
 
-        view.hybrid_retriever = HybridRetriever(
-            view, schema_pack=getattr(self, "active_schema_pack", None)
-        )
         view.inference_engine = InferenceEngine(view)
         return view
 
@@ -1152,21 +1169,8 @@ class IntelligenceGraphEngine(
         return False
 
     def _on_schema_pack_change(self, pack: Any) -> None:
-        """Rewire the engine when the active Schema Pack changes (CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit).
-
-        Rebuilds the retriever so the new pack's retrieval signals take effect
-        immediately; the fresh retriever carries the new ``pack.signature()`` so a
-        prior pack's boosted/cut results can never be served after a switch.
-        """
+        """Record the active Schema Pack when it changes (CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit)."""
         self.active_schema_pack = pack
-        try:
-            from ..retrieval.hybrid_retriever import HybridRetriever
-
-            self.hybrid_retriever = HybridRetriever(self, schema_pack=pack)
-        except Exception:  # pragma: no cover - best-effort rewire
-            logger.debug(
-                "Failed to rewire retriever for new schema pack", exc_info=True
-            )
 
     def _audit_candidate_type(
         self, kind: Literal["node", "edge"], type_name: str

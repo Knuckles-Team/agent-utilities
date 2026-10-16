@@ -32,12 +32,10 @@ else:
 
 import logging
 import re
-from dataclasses import dataclass
 from typing import Any
 
 from ...models.knowledge_graph import RegistryNodeType
 from ..retrieval.iterative_expansion import IterativeQueryExpander
-from ..retrieval.score_gate import score_gate
 from ..retrieval.temporal_semantic_id import TemporalSemanticIdEncoder
 
 logger = logging.getLogger(__name__)
@@ -50,6 +48,7 @@ logger = logging.getLogger(__name__)
 _CONTROL_PLANE_LABELS = frozenset({"workitem", "schedule", "profilespan"})
 # Node-pattern label extractor: matches the label after a ':' inside a
 # ``(var:Label`` / ``(:Label`` pattern (Cypher node patterns only).
+_QUERY_TOKEN_RE = re.compile(r"[a-z0-9_]{2,}")
 _NODE_LABEL_RE = re.compile(r"\(\s*\w*\s*:\s*([A-Za-z_][A-Za-z0-9_]*)")
 
 # discover_all_capabilities: node types/resource_types that carry a callable
@@ -130,9 +129,7 @@ def _describe_secured_read_failure(exc: BaseException) -> str:
     collapsing it identically in the SERVER LOG too made every distinct failure —
     a denied scope, a missing node id, a bad durable ACL record, an audit
     infrastructure failure — indistinguishable noise server-side as well
-    (the documented swallowed-error anti-pattern). Mirrors
-    :func:`agent_utilities.knowledge_graph.retrieval.hybrid_retriever._describe_embedding_failure`,
-    extended to walk the FULL cause chain (this boundary wraps up to three deep:
+    (the documented swallowed-error anti-pattern). Walks the FULL cause chain (this boundary wraps up to three deep:
     e.g. ``permit()``'s own wrap over ``_hydrate_missing_acls``'s over a raw
     ``ValueError``), not just one level.
     """
@@ -172,23 +169,6 @@ def _passes_rbac_and_soft_delete(node: dict[str, Any], clearance_level: int) -> 
         return False
     req_class = node.get("requiresClassification", 0)
     return not (isinstance(req_class, int) and req_class > clearance_level)
-
-
-@dataclass
-class _HybridSearchRequest:
-    """Bundles ``search_hybrid``'s per-call options so the retrieval-mode
-    dispatch helper stays within the <=7 parameter cap."""
-
-    query: str
-    top_k: int
-    skip_quality_gate: bool
-    relevance_threshold: float | None
-    target_paths: list[str] | None
-    mode: str
-    self_correct: bool
-    corpus_id: str | None
-    as_of: str | None
-    session: GraphSession | None
 
 
 def _scope_aggregate_cypher(
@@ -1083,153 +1063,51 @@ class QueryMixin(_Base):
         query: str,
         top_k: int = 10,
         include_archived: bool = False,
-        skip_quality_gate: bool = False,
-        relevance_threshold: float | None = None,
-        target_paths: list[str] | None = None,
-        mode: str = "standard",
-        self_correct: bool = False,
-        corpus_id: str | None = None,
-        as_of: str | None = None,
         session: GraphSession | None = None,
     ) -> list[dict[str, Any]]:
-        """Perform a multi-faceted search using Hybrid GraphRAG.
+        """Return the ranked shortlist EG's served ``Discover`` method chose.
 
-        CONCEPT:AU-KG.retrieval.memory-first-retrieval — when ``mode`` is ``"hyde"``/``"deep"`` (or ``self_correct`` is set),
-        delegates to the memory-first ``plan_and_retrieve`` policy (HyDE multi-query plan, dual
-        thresholds, and an evidence-gated second pass). ``mode="standard"`` preserves the prior
-        single-query behavior.
+        The harness never ranks: retrieval and ranking are epistemic-graph
+        decisions (boundary rule). This method shapes the request (query
+        keywords plus the query embedding, when an embedder is configured),
+        receives EG's ranked rows via :meth:`GraphComputeEngine.discover`, and
+        then only APPLIES limits it holds: the per-node ACL/owner/scope boundary
+        for an explicit ``session`` (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval),
+        the archived-row filter, and the ``top_k`` cap. EG's order is kept.
 
-        ``as_of`` (ISO-8601) sets the reference time for pack-driven recency decay,
-        enabling knowledge-state-as-of-date-D retrieval (CONCEPT:EG-KG.compute.rust-native-training-loss).
-
-        ``session`` (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval): optional
-        explicit :class:`~..core.session.GraphSession` this read runs under.
-        ``None`` (the default) is a **no-op** — exactly the prior, unfiltered
-        behavior, for the many existing internal/test callers with no backing
-        ACL infrastructure. Passing a session applies the SAME per-node ACL +
-        owner/scope + audit boundary :meth:`query_cypher` already applies to
-        raw Cypher reads: the vector/hybrid path previously returned every
-        ranked node completely unfiltered even when the caller held a verified
-        session, unlike the guarded Cypher path. The served ``graph_search``
-        MCP tool passes its ambient session explicitly, so the actual
-        externally-reachable surface is governed by default with no operator
-        configuration; enforcement never silently no-ops once a session IS
-        supplied — an infrastructure failure raises ``PermissionError`` rather
-        than falling back to unfiltered results.
+        ``session=None`` is a no-op for the ACL step; once a session is
+        supplied an enforcement failure raises ``PermissionError``.
         """
-        self._ensure_hybrid_retriever()
-        request = _HybridSearchRequest(
-            query=query,
-            top_k=top_k,
-            skip_quality_gate=skip_quality_gate,
-            relevance_threshold=relevance_threshold,
-            target_paths=target_paths,
-            mode=mode,
-            self_correct=self_correct,
-            corpus_id=corpus_id,
-            as_of=as_of,
-            session=session,
-        )
-        results = self._raw_hybrid_results(request)
-        # U-107/U-132 (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval): ACL/owner/
-        # scope enforcement runs on the RAW candidate set, before archive trimming,
-        # the score gate, or any other ranking/fusion step. A denied high-score
-        # candidate must never be able to consume top-k capacity that an
-        # authorized lower-score candidate would otherwise have won — enforcing
-        # ACL only at the very end (the prior order) let unauthorized rows crowd
-        # authorized ones out of the response even though they were never
-        # returned themselves. `_enforce_acl_on_results` is a no-op when
-        # `session` is None, matching prior behavior exactly for callers that
-        # pass none.
+        rows = self._discovered_rows(query, top_k)
         results = self._enforce_acl_on_results(
-            results, session=session, summary="hybrid-search"
+            rows, session=session, summary="hybrid-search"
         )
         if not include_archived:
             results = [
                 r for r in results if str(r.get("status", "")).upper() != "ARCHIVED"
             ]
-        # CONCEPT:AU-KG.retrieval.unset-dependency-free (ScoreGate) — adaptively trim the weak tail by statistically
-        # fusing the bi-encoder (`_score`) and cross-encoder (`_rerank_score`) signals
-        # rather than a blind top_k cut. Recall-safe: keeps >= min_results, never more
-        # than top_k, and only trims results more than ~1σ below the fused mean.
-        results = score_gate(
-            results, min_results=min(top_k, 5), max_results=top_k, keep_z=-1.0
-        )
+        results = results[:top_k]
         # CONCEPT:AU-KG.query.chronoid-fits-residual-quantization (ChronoID) — infuse an explicit temporal-recency bucket onto
         # every result so generative/recommendation consumers can condition on time.
         self._annotate_time_buckets(results)
-        # Public contract: every search result exposes its relevance under the
-        # `score` key. The hybrid retriever ranks into the internal `_score` (it
-        # re-weights it during fusion); without this projection the MCP formatter
-        # and other consumers read `score`, miss the value, and show 0.00 even
-        # though the ranking is correct. (Fix: producer wrote `_score`, consumers
-        # read `score`, no layer mapped them.)
-        for r in results:
-            if isinstance(r, dict) and r.get("score") is None and "_score" in r:
-                r["score"] = r["_score"]
         return results
 
-    def _ensure_hybrid_retriever(self) -> None:
-        # Lazy-ensure the retriever (CONCEPT:AU-KG.retrieval.memory-first-retrieval): the background-task host and
-        # some engine-construction paths can reach search before ``__init__`` wired
-        # ``hybrid_retriever``, which made deep_analysis / discover_innovations
-        # AttributeError. Build it on first use so the path is always live.
-        if getattr(self, "hybrid_retriever", None) is not None:
-            return
-        from ..retrieval.hybrid_retriever import HybridRetriever
-
-        # ``self`` is the QueryMixin composed into the live IntelligenceGraphEngine
-        # at runtime; mypy sees only the mixin type.
-        self.hybrid_retriever = HybridRetriever(
-            self,  # type: ignore[arg-type]
-            schema_pack=getattr(self, "active_schema_pack", None),
-        )
-
-    @staticmethod
-    def _normalized_planned_results(planned: Any) -> list[dict[str, Any]]:
-        # ``plan_and_retrieve`` may return either the node list or a wrapper
-        # dict ({results|nodes: [...]}); normalize to the node list.
-        if isinstance(planned, list):
-            return planned
-        return planned.get("results") or planned.get("nodes") or []
-
-    def _raw_hybrid_results(
-        self, request: _HybridSearchRequest
-    ) -> list[dict[str, Any]]:
-        if request.mode in ("hyde", "deep") or request.self_correct:
-            planned = self.hybrid_retriever.plan_and_retrieve(
-                request.query,
-                context_window=request.top_k * 2,
-                mode=(
-                    request.mode
-                    if request.mode in ("hyde", "standard", "deep")
-                    else "hyde"
-                ),
-                self_correct=request.self_correct,
-                corpus_id=request.corpus_id,
-                # GOC-83-W04: thread through so each sub-query's own
-                # retrieve_hybrid ACL-filters its raw pool before internal
-                # trim, same as the non-hyde/deep branch below. No-op when
-                # `session` is None.
-                session=request.session,
-            )
-            return self._normalized_planned_results(planned)
-        return self.hybrid_retriever.retrieve_hybrid(
-            request.query,
-            context_window=request.top_k * 2,
-            skip_quality_gate=request.skip_quality_gate,
-            relevance_threshold=request.relevance_threshold,
-            target_paths=request.target_paths,
-            corpus_id=request.corpus_id,
-            as_of=request.as_of,
-            # GOC-83-W04: thread the session down so `retrieve_hybrid`
-            # ACL-filters its OWN raw candidate pools before its internal
-            # sort/rerank/trim — closing the crowd-out channel that lives
-            # inside the retriever, not just at this method's own return
-            # (see `retrieve_hybrid`'s `session` docstring). No-op when
-            # `session` is None, matching every other caller exactly.
-            session=request.session,
-        )
+    def _discovered_rows(self, query: str, top_k: int) -> list[dict[str, Any]]:
+        """Call EG ``Discover`` for ``query``; rows come back ranked by EG."""
+        compute = getattr(self, "graph_compute", None)
+        if compute is None or not str(query or "").strip():
+            return []
+        keywords = list(dict.fromkeys(_QUERY_TOKEN_RE.findall(str(query).lower())))
+        embedding: list[float] = []
+        embed_model = getattr(self, "embed_model", None)
+        if embed_model is not None:
+            try:
+                embedding = [float(x) for x in embed_model.get_text_embedding(query)]
+            except Exception as exc:  # noqa: BLE001 - EG degrades to keywords
+                logger.debug("search_hybrid: query embedding unavailable: %s", exc)
+        # Over-fetch so ACL/archive filtering cannot starve the top_k cap.
+        rows = compute.discover(keywords, embedding, k=max(top_k * 2, top_k))
+        return [dict(r) for r in rows or [] if isinstance(r, dict)]
 
     def _enforce_acl_on_results(
         self,
@@ -1652,20 +1530,9 @@ class QueryMixin(_Base):
             hop_nodes, session=resolved_session, summary="dci-traversal"
         )
 
-    def search_memories(
-        self, query: str, top_k: int = 5, skip_quality_gate: bool = False
-    ) -> list[dict[str, Any]]:
-        """Search specifically for memory nodes.
-
-        ``skip_quality_gate`` forwards to :meth:`search_hybrid`: the retrieval
-        quality gate scores relevance from embeddings, so without an embedding
-        model configured every result scores as low-relevance and gets
-        dropped even for an exact content match. Defaults to ``False`` to
-        preserve existing behavior for callers that rely on the gate.
-        """
-        results = self.search_hybrid(
-            query, top_k=50, skip_quality_gate=skip_quality_gate
-        )
+    def search_memories(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
+        """Search specifically for memory nodes (EG ``Discover`` ranks them)."""
+        results = self.search_hybrid(query, top_k=50)
         # 'type' is the retired node property (see engine.py::_serialize_node,
         # which folds it into 'node_type' before every write) -- reading
         # 'type' here silently matched nothing, so search_memories() always
@@ -2491,12 +2358,7 @@ class QueryMixin(_Base):
         )
 
         # 1. Run hybrid vector search with low threshold to cast wide net
-        raw_results = self.search_hybrid(
-            query,
-            top_k=top_k * 3,
-            skip_quality_gate=True,
-            relevance_threshold=relevance_threshold,
-        )
+        raw_results = self.search_hybrid(query, top_k=top_k * 3)
 
         # 2. Enrich each result with innovation signals
         enriched = []
