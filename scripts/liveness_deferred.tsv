@@ -21,20 +21,16 @@
 # entry past its review-by date ALSO fails the gate, forcing an active
 # renew-or-resolve decision instead of silent rot.
 
-# Mathematical/reasoning primitive toolkit built ahead of consumers
-# (DEAD-CODE-INTENT-RECOVERY.md Section 3.5): the MODULE is live (5 real call
-# sites + referenced by module-path string in
-# core/registry/service_adapter.py's capability registry), but 23 of its
-# ~40+ public functions have zero callers anywhere. Each is a distinct,
-# citation-backed (MIT 6.042J) implementation, not a duplicate — wire
-# opportunistically as reasoning pipelines mature.
-dead_definitions	agent_utilities/knowledge_graph/core/formal_reasoning_core.py	# owner=@genius review-by=2026-10-01 note=toolkit-ahead-of-consumers-see-DEAD-CODE-INTENT-RECOVERY-3.5
-
-# Ontology node models scaffolded ahead of ingestion demand
-# (DEAD-CODE-INTENT-RECOVERY.md Section 3.6): ~84 Pydantic *Node/*Record
-# classes with zero references anywhere else in the repo. Needs a real
-# PRODUCER decision per node kind, not a wiring line.
-dead_definitions	agent_utilities/models/knowledge_graph.py	# owner=@genius review-by=2026-10-01 note=ontology-scaffolded-ahead-of-ingestion-see-DEAD-CODE-INTENT-RECOVERY-3.6
+# Resolved on evidence 2026-10-16 (not re-dated): the dead symbols formerly covered by
+# the two whole-file entries for formal_reasoning_core.py / models/knowledge_graph.py
+# were DELETED (with their tests and docs). Exactly one symbol per file survives, and
+# each has a real production consumer the static detector cannot see (string dispatch).
+# BayesianBeliefPropagator is loaded by name from the capability registry
+# (core/registry/service_adapter.py, "entry": "BayesianBeliefPropagator").
+dead_definitions	agent_utilities/knowledge_graph/core/formal_reasoning_core.py	# owner=@genius PERMANENT reason=BayesianBeliefPropagator-is-loaded-by-name-from-core/registry/service_adapter.py-capability-registry-(string-dispatch-the-detector-cannot-see)
+# CodeNode is a public lazy export: agent_utilities.knowledge_graph.__getattr__ imports it
+# from models.knowledge_graph on attribute access (downstream `from agent_utilities.knowledge_graph import CodeNode`).
+dead_definitions	agent_utilities/models/knowledge_graph.py	# owner=@genius PERMANENT reason=CodeNode-is-a-public-lazy-export-via-agent_utilities.knowledge_graph.__getattr__-(string-dispatch-the-detector-cannot-see)
 
 # The five entries formerly here (harness/memorydata/*, api/sparql_server.py,
 # protocols/dataflows.py, protocols/quant_agent.py, ecosystem/agent_manager_dashboard.py)

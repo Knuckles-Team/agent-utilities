@@ -10,11 +10,7 @@ from agent_utilities.harness.continuous_evaluation_engine import (
     BacktestMetric,
 )
 from agent_utilities.models.knowledge_graph import (
-    BacktestMetricNode,
-    BacktestRunNode,
     RegistryEdgeType,
-    RegistryNode,
-    RegistryNodeType,
 )
 
 
@@ -151,82 +147,7 @@ class TestBacktestHarness:
 
 
 class TestBacktestKGNodes:
-    def test_run_node(self):
-        node = BacktestRunNode(
-            id="bt:001",
-            name="Momentum V2 Backtest",
-            strategy_id="strat:momentum_v2",
-            start_date="2024-01-01",
-            end_date="2024-12-31",
-            initial_capital=100_000.0,
-            final_capital=115_000.0,
-            total_trades=120,
-            parameters={"lookback": 20, "threshold": 0.02},
-            walk_forward_windows=4,
-            benchmark_id="bench:SP500",
-        )
-        assert node.type == RegistryNodeType.BACKTEST_RUN
-        assert node.strategy_id == "strat:momentum_v2"
-        assert node.walk_forward_windows == 4
-
-    def test_metric_node(self):
-        node = BacktestMetricNode(
-            id="bm:001",
-            name="Sharpe Ratio",
-            metric_name="sharpe_ratio",
-            value=1.45,
-            benchmark_value=1.20,
-            is_passing=True,
-        )
-        assert node.type == RegistryNodeType.BACKTEST_METRIC
-        assert node.value == 1.45
-
     def test_edge_types(self):
         assert RegistryEdgeType.EVALUATED_STRATEGY == "evaluated_strategy"
         assert RegistryEdgeType.HAS_METRIC == "has_metric"
         assert RegistryEdgeType.COMPARED_TO_BENCHMARK == "compared_to_benchmark"
-
-    def test_backtest_graph(self):
-        from agent_utilities.knowledge_graph.core.graph_compute import (
-            GraphComputeEngine,
-        )
-
-        g = GraphComputeEngine(backend_type="rust")
-
-        from agent_utilities.models.knowledge_graph import StrategyNode
-
-        strat = StrategyNode(id="strat:v2", name="Momentum V2")
-        bt = BacktestRunNode(id="bt:001", name="BT", strategy_id="strat:v2")
-        m1 = BacktestMetricNode(
-            id="bm:sr", name="Sharpe", metric_name="sharpe_ratio", value=1.5
-        )
-        m2 = BacktestMetricNode(
-            id="bm:dd", name="Drawdown", metric_name="max_drawdown", value=0.1
-        )
-
-        def _kg_dump(node: RegistryNode) -> dict:
-            """Translate a RegistryNode's Pydantic dump to GraphComputeEngine's
-            canonical node property shape: the semantic ``type`` field becomes
-            ``node_type`` (mirrors
-            ``agent_utilities.knowledge_graph.kb.ingestion._canonical_node_dump``
-            — ``GraphComputeEngine.add_node`` retired accepting ``type`` directly)."""
-            data = node.model_dump()
-            node_type = data.pop("type")
-            data["node_type"] = getattr(node_type, "value", node_type)
-            return data
-
-        for n in [strat, bt, m1, m2]:
-            g.add_node(n.id, **_kg_dump(n))
-
-        g.add_edge(bt.id, strat.id, relationship=RegistryEdgeType.EVALUATED_STRATEGY)
-        g.add_edge(bt.id, m1.id, relationship=RegistryEdgeType.HAS_METRIC)
-        g.add_edge(bt.id, m2.id, relationship=RegistryEdgeType.HAS_METRIC)
-
-        assert g.out_degree(bt.id) == 3
-        # Traverse from backtest to all metrics
-        metric_ids = [
-            t
-            for _, t, d in g.out_edges(bt.id, data=True)
-            if d.get("relationship") == RegistryEdgeType.HAS_METRIC
-        ]
-        assert len(metric_ids) == 2

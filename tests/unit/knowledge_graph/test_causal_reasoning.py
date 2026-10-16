@@ -9,10 +9,8 @@ from agent_utilities.knowledge_graph.core.formal_reasoning_core import (
     CausalEdge,
     CausalFactor,
     CausalVerifier,
-    CounterfactualGenerator,
     SpuriousnessDetector,
     StructuralCausalModel,
-    trajectory_causal_alignment_score,
 )
 
 
@@ -157,46 +155,3 @@ class TestSpuriousnessDetector:
         detector = SpuriousnessDetector(medical_scm)
         results = detector.detect_spurious_edges([("unknown", "cancer")])
         assert results[0]["is_spurious"]
-
-
-class TestCounterfactualGenerator:
-    """Tests for counterfactual generation (MedCausalX §3.1)."""
-
-    def test_generate_counterfactuals(self, medical_scm):
-        gen = CounterfactualGenerator(medical_scm)
-        queries = gen.generate_counterfactuals("outcome")
-        assert len(queries) > 0
-        assert all(q.target_node == "outcome" for q in queries)
-
-    def test_closest_ancestors_first(self, medical_scm):
-        gen = CounterfactualGenerator(medical_scm)
-        queries = gen.generate_counterfactuals("outcome", max_interventions=2)
-        assert queries[0].intervention_node == "treatment"  # Closest
-
-    def test_missing_target(self, medical_scm):
-        gen = CounterfactualGenerator(medical_scm)
-        queries = gen.generate_counterfactuals("nonexistent")
-        assert len(queries) == 0
-
-
-class TestTrajectoryAlignment:
-    """Tests for trajectory-level causal alignment scoring."""
-
-    def test_aligned_trajectory(self, medical_scm):
-        steps = [
-            {"cause": "smoking", "effect": "cancer"},
-            {"cause": "cancer", "effect": "treatment"},
-        ]
-        score = trajectory_causal_alignment_score(steps, medical_scm)
-        assert score == 1.0
-
-    def test_misaligned_trajectory(self, medical_scm):
-        steps = [
-            {"cause": "outcome", "effect": "smoking"},  # Wrong direction
-        ]
-        score = trajectory_causal_alignment_score(steps, medical_scm)
-        assert score < 1.0
-
-    def test_empty_trajectory(self, medical_scm):
-        score = trajectory_causal_alignment_score([], medical_scm)
-        assert score == 1.0
