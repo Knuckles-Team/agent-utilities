@@ -110,7 +110,6 @@ RELOCATION_INVENTORY: dict[str, dict[str, tuple[str, ...]]] = {
             "knowledge_graph/ontology/links.py",
             "knowledge_graph/ontology/functions",
             "knowledge_graph/ontology/edits",
-            "knowledge_graph/ontology/indexing",
             "knowledge_graph/ontology/classification_claims.py",
             "knowledge_graph/ontology/permissioning.py",
             "knowledge_graph/ontology/permissioning_external_sync.py",

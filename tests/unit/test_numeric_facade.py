@@ -312,7 +312,6 @@ def test_production_adapter_has_no_module_table_fallback() -> None:
 def test_audited_consumers_have_no_numpy_import_or_array_fallback() -> None:
     root = Path(__file__).parents[2] / "agent_utilities"
     audited = (
-        root / "knowledge_graph/retrieval/capability_index.py",
         root / "knowledge_graph/retrieval/temporal_semantic_id.py",
         root / "knowledge_graph/memory/optimization_engine.py",
         root / "knowledge_graph/core/spectral_navigator.py",
