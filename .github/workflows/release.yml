@@ -856,3 +856,38 @@ jobs:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
       DOCKER_REPOSITORY: ${{ secrets.DOCKER_REPOSITORY }}
+
+  # GitHub release page, created only AFTER the wheel is verifiably on PyPI
+  # (needs: publish-pypi). Tag pushes only; marked latest; links the PyPI
+  # project version and carries the pip install line. Idempotent on re-runs.
+  github-release:
+    name: GitHub release (links PyPI)
+    needs: publish-pypi
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create or update the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          {
+            echo "## agent-utilities ${version}"
+            echo
+            echo "Published to PyPI: https://pypi.org/project/agent-utilities/${version}/"
+            echo
+            echo '```bash'
+            echo "pip install agent-utilities==${version}"
+            echo '```'
+          } > "$RUNNER_TEMP/notes.md"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --latest --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            gh release create "$TAG" --verify-tag --latest --title "$TAG" --generate-notes --notes-file "$RUNNER_TEMP/notes.md"
+          fi
