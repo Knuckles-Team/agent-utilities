@@ -554,6 +554,28 @@ def _governed_cypher_rows(
     return rows
 
 
+def _uql_result_rows(result: Any) -> list[dict[str, Any]]:
+    """Unwrap the engine client's ``query.uql`` result into its row list.
+
+    ``epistemic_graph.client`` ``QueryClient.uql`` returns ONE dict whose
+    ``"kind"`` says what ran: ``"rows"``/``"profile"`` carry the result rows
+    under ``"rows"``; ``"explain"`` executes nothing. Iterating that dict
+    directly (the previous ``list(uql_fn(query))``) yielded its KEYS as
+    string "rows", which the row-policy pass then rejected.
+    """
+    if not isinstance(result, dict):
+        raise TypeError(
+            "engine query.uql must return the client result dict, got "
+            f"{type(result).__name__}"
+        )
+    kind = result.get("kind")
+    if kind == "explain":
+        return []
+    if kind not in {"rows", "profile"}:
+        raise TypeError(f"engine query.uql returned an unknown result kind: {kind!r}")
+    return list(result.get("rows") or [])
+
+
 def _governed_engine_surface_rows(
     rows: list[dict[str, Any]],
     *,
@@ -863,7 +885,7 @@ class QueryMixin(_Base):
                 "'query' feature)."
             )
         rows = _governed_engine_surface_rows(
-            list(uql_fn(query) or []), surface="uql", query=query
+            _uql_result_rows(uql_fn(query)), surface="uql", query=query
         )
         fetch = getattr(graph, "explain_provenance_by_ids", None)
         if include_epistemic:
