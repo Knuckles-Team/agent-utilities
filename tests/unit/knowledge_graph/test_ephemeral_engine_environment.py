@@ -294,6 +294,41 @@ def test_engine_locator_uses_the_active_distribution_record_only(
     assert engine_helper.resolve_engine_binary() == candidate
 
 
+def test_engine_locator_prefers_the_server_distribution_and_falls_back(
+    tmp_path, monkeypatch
+) -> None:
+    """The executable ships in `epistemic-graph-server` since 2.27.1; older
+    engines recorded it inside `epistemic-graph` itself."""
+    server_binary = _executable(tmp_path / "server" / "epistemic-graph-server")
+    engine_binary = _executable(tmp_path / "engine" / "epistemic-graph-server")
+
+    class _Server:
+        files = (Path("../../../bin/epistemic-graph-server"),)
+
+        def locate_file(self, _record: Path) -> Path:
+            return server_binary
+
+    class _Engine:
+        files = (Path("epistemic-graph-1.0.0.data/scripts/epistemic-graph-server"),)
+
+        def locate_file(self, _record: Path) -> Path:
+            return engine_binary
+
+    _clear_locator_env(monkeypatch)
+    installed = {"epistemic-graph-server": _Server(), "epistemic-graph": _Engine()}
+
+    def distribution(name: str):
+        if name not in installed:
+            raise engine_helper.importlib_metadata.PackageNotFoundError(name)
+        return installed[name]
+
+    monkeypatch.setattr(engine_helper.importlib_metadata, "distribution", distribution)
+    assert engine_helper.resolve_engine_binary() == server_binary
+
+    del installed["epistemic-graph-server"]
+    assert engine_helper.resolve_engine_binary() == engine_binary
+
+
 def test_distribution_engine_identity_records_the_selected_script(
     tmp_path, monkeypatch
 ) -> None:
