@@ -6,6 +6,8 @@ CONCEPT:AU-KG.query.object-graph-mapper — Granular Resource Queries
 CONCEPT:AU-KG.query.object-graph-mapper — Workspace Reload
 """
 
+from typing import Any
+
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -343,7 +345,7 @@ class TestMCPServerCatalog:
     an ambiguous name that invited exactly the two-sources-of-truth defect
     BUG-042 records, once a second, unrelated worker independently sourced
     the WebUI's MCP-servers-to-dispatch panel from
-    ``agent_utilities.mcp.shared_multiplexer`` (live per-session
+    the graph-os shared multiplexer (live per-session
     dispatchable truth). Renamed to ``get_registered_mcp_servers`` to name
     exactly what it answers -- "what is registered in the KG" -- which is a
     real, distinct question from "what is dispatchable right now", never a
@@ -408,7 +410,7 @@ class TestMCPServerCatalog:
 
     # ── BUG-042 anti-divergence guard ──────────────────────────────────
     #
-    # The multiplexer (``agent_utilities.mcp.shared_multiplexer.list_catalog``)
+    # The multiplexer (graph-os ``shared_multiplexer.list_catalog``)
     # and this method are BOTH allowed to exist because they answer
     # genuinely different questions (registered vs. dispatchable). What
     # must never happen again is one of them silently growing a field that
@@ -437,6 +439,19 @@ class TestMCPServerCatalog:
             "stale",
         }
     )
+
+    @staticmethod
+    def _assert_never_claims_live_dispatchability(
+        rows: list[dict[str, Any]],
+    ) -> None:
+        for row in rows:
+            leaked = set(row) & TestMCPServerCatalog._LIVE_DISPATCH_ONLY_FIELDS
+            assert not leaked, (
+                "get_registered_mcp_servers row leaked live-dispatch field(s) "
+                f"{sorted(leaked)}; that truth belongs ONLY to "
+                "graph-os shared_multiplexer.list_catalog (BUG-042) "
+                f"-- got row {row!r}"
+            )
 
     def test_get_registered_mcp_servers_never_claims_live_dispatchability(
         self, engine: IntelligenceGraphEngine
