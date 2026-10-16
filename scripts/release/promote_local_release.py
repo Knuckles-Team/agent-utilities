@@ -981,7 +981,7 @@ def validate_wheelhouse(
             raise ReleaseError("required-package-mismatch")
     if locked["agent-utilities"].extras != frozenset({"serving"}):
         raise ReleaseError("agent-utilities-extras-mismatch")
-    if locked["epistemic-graph"].extras != frozenset({"full", "server"}):
+    if locked["epistemic-graph"].extras != frozenset({"full"}):
         raise ReleaseError("epistemic-graph-extras-mismatch")
     if locked["langfuse-agent"].extras != frozenset({"mcp"}):
         raise ReleaseError("langfuse-agent-extras-mismatch")

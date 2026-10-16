@@ -5,11 +5,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.metadata
-import os
-import stat
-import sys
 import traceback
-from pathlib import Path
 
 from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
@@ -29,31 +25,20 @@ def main() -> int:
             canonicalize_name(value)
             for value in engine_metadata.get_all("Provides-Extra") or ()
         }
-        server_name = (
-            "epistemic-graph-server.exe"
-            if os.name == "nt"
-            else "epistemic-graph-server"
-        )
-        server = Path(sys.executable).with_name(server_name)
-        server_metadata = server.lstat()
         engine_numeric = importlib.import_module("epistemic_graph.numeric")
         utilities_numeric = importlib.import_module("agent_utilities.numeric")
         kernel_ready = getattr(engine_numeric, "__kernel__", None) == "eg-numeric"
         computation_ready = utilities_numeric.xp.sum([1.0, 2.0, 3.0]) == 6.0
         release_binding_ready = (
             len(declared) == 1
-            and declared[0].extras == {"full", "server"}
+            and declared[0].extras == {"full"}
             and declared[0].url is None
             and declared[0].marker is None
             and engine_version in declared[0].specifier
             and {"full", "numeric"} <= provided_extras
-            and stat.S_ISREG(server_metadata.st_mode)
-            and not server.is_symlink()
-            and os.access(server, os.X_OK)
         )
     except Exception as exc:
-        # A missing epistemic-graph install, a missing server binary, and a
-        # broken kernel all used to print this identical line -- the concrete
+        # A missing epistemic-graph install and a broken kernel both used to print this identical line -- the concrete
         # exception type/message plus a traceback lets a CI log tell them
         # apart without reproducing locally.
         print(
