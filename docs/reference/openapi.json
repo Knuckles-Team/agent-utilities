@@ -73,142 +73,6 @@
         "title": "Body_upload_file_api_enhanced_upload_post",
         "type": "object"
       },
-      "DashboardLayout-Input": {
-        "description": "Full dashboard configuration \u2014 groups, settings, theme.\n\nPersisted to YAML at the XDG config path.",
-        "properties": {
-          "auto_refresh": {
-            "default": true,
-            "title": "Auto Refresh",
-            "type": "boolean"
-          },
-          "card_size": {
-            "default": "medium",
-            "description": "Card size: small, medium, large",
-            "title": "Card Size",
-            "type": "string"
-          },
-          "columns": {
-            "default": 4,
-            "description": "Number of grid columns",
-            "maximum": 12.0,
-            "minimum": 1.0,
-            "title": "Columns",
-            "type": "integer"
-          },
-          "groups": {
-            "items": {
-              "$ref": "#/components/schemas/ServiceGroup-Input"
-            },
-            "maxItems": 128,
-            "title": "Groups",
-            "type": "array"
-          },
-          "refresh_interval": {
-            "default": 30,
-            "description": "Global default refresh interval in seconds",
-            "maximum": 86400.0,
-            "minimum": 1.0,
-            "title": "Refresh Interval",
-            "type": "integer"
-          },
-          "show_search": {
-            "default": true,
-            "title": "Show Search",
-            "type": "boolean"
-          },
-          "show_status_indicators": {
-            "default": true,
-            "title": "Show Status Indicators",
-            "type": "boolean"
-          },
-          "theme": {
-            "default": "system",
-            "description": "Theme: system, dark, light, glass",
-            "title": "Theme",
-            "type": "string"
-          }
-        },
-        "title": "DashboardLayout",
-        "type": "object"
-      },
-      "DashboardLayout-Output": {
-        "description": "Full dashboard configuration \u2014 groups, settings, theme.\n\nPersisted to YAML at the XDG config path.",
-        "properties": {
-          "auto_refresh": {
-            "default": true,
-            "title": "Auto Refresh",
-            "type": "boolean"
-          },
-          "card_size": {
-            "default": "medium",
-            "description": "Card size: small, medium, large",
-            "title": "Card Size",
-            "type": "string"
-          },
-          "columns": {
-            "default": 4,
-            "description": "Number of grid columns",
-            "maximum": 12.0,
-            "minimum": 1.0,
-            "title": "Columns",
-            "type": "integer"
-          },
-          "groups": {
-            "items": {
-              "$ref": "#/components/schemas/ServiceGroup-Output"
-            },
-            "maxItems": 128,
-            "title": "Groups",
-            "type": "array"
-          },
-          "refresh_interval": {
-            "default": 30,
-            "description": "Global default refresh interval in seconds",
-            "maximum": 86400.0,
-            "minimum": 1.0,
-            "title": "Refresh Interval",
-            "type": "integer"
-          },
-          "show_search": {
-            "default": true,
-            "title": "Show Search",
-            "type": "boolean"
-          },
-          "show_status_indicators": {
-            "default": true,
-            "title": "Show Status Indicators",
-            "type": "boolean"
-          },
-          "theme": {
-            "default": "system",
-            "description": "Theme: system, dark, light, glass",
-            "title": "Theme",
-            "type": "string"
-          }
-        },
-        "title": "DashboardLayout",
-        "type": "object"
-      },
-      "DashboardResponse": {
-        "properties": {
-          "data": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/WidgetData"
-            },
-            "title": "Data",
-            "type": "object"
-          },
-          "layout": {
-            "$ref": "#/components/schemas/DashboardLayout-Output"
-          }
-        },
-        "required": [
-          "layout",
-          "data"
-        ],
-        "title": "DashboardResponse",
-        "type": "object"
-      },
       "EditorContextPayload": {
         "description": "Published by the `agent-webui-bridge` openvscode-server extension (R4):\nthe workbench's active file, selection, cursor, dirty state, and\ndiagnostics, so the shell -- and the chat agent -- always has context for\nwhat the operator is looking at in the embedded Workspace IDE.",
         "properties": {
@@ -477,752 +341,37 @@
         "title": "OntologyEnvelope",
         "type": "object"
       },
-      "OntologyGenerateRequest": {
-        "description": "Request body for ``POST /ontology/generate``.",
-        "properties": {
-          "object_type": {
-            "default": "",
-            "description": "Optional domain hint, e.g. 'clinical_trial'.",
-            "title": "Object Type",
-            "type": "string"
-          },
-          "sample_text": {
-            "default": "",
-            "description": "Representative document/business-scenario text to model.",
-            "title": "Sample Text",
-            "type": "string"
-          }
-        },
-        "title": "OntologyGenerateRequest",
-        "type": "object"
-      },
       "OntologyLoadRequest": {
         "description": "Request body for ``POST /ontology/load``.",
         "properties": {
-          "category": {
-            "default": "",
-            "description": "Optional catalogue category label, e.g. 'finance'.",
-            "title": "Category",
-            "type": "string"
-          },
           "iri": {
-            "default": "",
-            "description": "Optional IRI override (defaults to the ontology's own declared IRI).",
+            "description": "Stable caller-owned ontology IRI.",
             "title": "Iri",
             "type": "string"
           },
           "source": {
-            "default": "",
-            "description": "A .ttl/OWL file path, HTTP(S) URL, or raw turtle/RDF text.",
+            "description": "A UTF-8 Turtle file path or raw Turtle document.",
             "title": "Source",
             "type": "string"
           },
           "source_type": {
             "default": "auto",
-            "description": "How to read `source`: 'file' | 'url' | 'text' | 'auto' (sniff).",
+            "description": "How to read `source`: 'file' | 'text' | 'auto' (sniff).",
             "title": "Source Type",
             "type": "string"
           },
-          "tags": {
-            "description": "Optional catalogue tags.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Tags",
-            "type": "array"
-          },
           "version": {
-            "default": "",
-            "description": "Optional version (defaults to '1.0.0').",
+            "description": "Stable caller-owned ontology version.",
             "title": "Version",
             "type": "string"
           }
         },
+        "required": [
+          "source",
+          "iri",
+          "version"
+        ],
         "title": "OntologyLoadRequest",
-        "type": "object"
-      },
-      "OntologyValidateRequest": {
-        "description": "Request body for ``POST /ontology/validate``.",
-        "properties": {
-          "source": {
-            "default": "",
-            "description": "A .ttl/OWL file path, HTTP(S) URL, or raw turtle/RDF text.",
-            "title": "Source",
-            "type": "string"
-          },
-          "source_type": {
-            "default": "auto",
-            "description": "How to read `source`: 'file' | 'url' | 'text' | 'auto'.",
-            "title": "Source Type",
-            "type": "string"
-          }
-        },
-        "title": "OntologyValidateRequest",
-        "type": "object"
-      },
-      "RegistryDiscovery": {
-        "additionalProperties": false,
-        "description": "Privacy-safe observed discovery state for one server.",
-        "properties": {
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "last_error": {
-            "default": "",
-            "title": "Last Error",
-            "type": "string"
-          },
-          "observed_at": {
-            "default": "",
-            "title": "Observed At",
-            "type": "string"
-          },
-          "prompt_count": {
-            "default": 0,
-            "title": "Prompt Count",
-            "type": "integer"
-          },
-          "reachable": {
-            "default": false,
-            "title": "Reachable",
-            "type": "boolean"
-          },
-          "resource_count": {
-            "default": 0,
-            "title": "Resource Count",
-            "type": "integer"
-          },
-          "server_id": {
-            "title": "Server Id",
-            "type": "string"
-          },
-          "server_name": {
-            "title": "Server Name",
-            "type": "string"
-          },
-          "skill_count": {
-            "default": 0,
-            "title": "Skill Count",
-            "type": "integer"
-          },
-          "tool_count": {
-            "default": 0,
-            "title": "Tool Count",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "id",
-          "server_id",
-          "server_name"
-        ],
-        "title": "RegistryDiscovery",
-        "type": "object"
-      },
-      "RegistryItemEnvelope_RegistryDiscovery_": {
-        "properties": {
-          "item": {
-            "$ref": "#/components/schemas/RegistryDiscovery"
-          },
-          "status": {
-            "const": "ok",
-            "default": "ok",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "item"
-        ],
-        "title": "RegistryItemEnvelope[RegistryDiscovery]",
-        "type": "object"
-      },
-      "RegistryItemEnvelope_RegistryPrompt_": {
-        "properties": {
-          "item": {
-            "$ref": "#/components/schemas/RegistryPrompt"
-          },
-          "status": {
-            "const": "ok",
-            "default": "ok",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "item"
-        ],
-        "title": "RegistryItemEnvelope[RegistryPrompt]",
-        "type": "object"
-      },
-      "RegistryItemEnvelope_RegistryResource_": {
-        "properties": {
-          "item": {
-            "$ref": "#/components/schemas/RegistryResource"
-          },
-          "status": {
-            "const": "ok",
-            "default": "ok",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "item"
-        ],
-        "title": "RegistryItemEnvelope[RegistryResource]",
-        "type": "object"
-      },
-      "RegistryItemEnvelope_RegistryServer_": {
-        "properties": {
-          "item": {
-            "$ref": "#/components/schemas/RegistryServer"
-          },
-          "status": {
-            "const": "ok",
-            "default": "ok",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "item"
-        ],
-        "title": "RegistryItemEnvelope[RegistryServer]",
-        "type": "object"
-      },
-      "RegistryItemEnvelope_RegistrySkill_": {
-        "properties": {
-          "item": {
-            "$ref": "#/components/schemas/RegistrySkill"
-          },
-          "status": {
-            "const": "ok",
-            "default": "ok",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "item"
-        ],
-        "title": "RegistryItemEnvelope[RegistrySkill]",
-        "type": "object"
-      },
-      "RegistryItemEnvelope_RegistryTool_": {
-        "properties": {
-          "item": {
-            "$ref": "#/components/schemas/RegistryTool"
-          },
-          "status": {
-            "const": "ok",
-            "default": "ok",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "item"
-        ],
-        "title": "RegistryItemEnvelope[RegistryTool]",
-        "type": "object"
-      },
-      "RegistryPage_RegistryDiscovery_": {
-        "additionalProperties": false,
-        "properties": {
-          "count": {
-            "minimum": 0.0,
-            "title": "Count",
-            "type": "integer"
-          },
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/RegistryDiscovery"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "kind": {
-            "title": "Kind",
-            "type": "string"
-          },
-          "next_cursor": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Next Cursor"
-          },
-          "status": {
-            "const": "ok",
-            "default": "ok",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "items",
-          "count"
-        ],
-        "title": "RegistryPage[RegistryDiscovery]",
-        "type": "object"
-      },
-      "RegistryPage_RegistryPrompt_": {
-        "additionalProperties": false,
-        "properties": {
-          "count": {
-            "minimum": 0.0,
-            "title": "Count",
-            "type": "integer"
-          },
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/RegistryPrompt"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "kind": {
-            "title": "Kind",
-            "type": "string"
-          },
-          "next_cursor": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Next Cursor"
-          },
-          "status": {
-            "const": "ok",
-            "default": "ok",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "items",
-          "count"
-        ],
-        "title": "RegistryPage[RegistryPrompt]",
-        "type": "object"
-      },
-      "RegistryPage_RegistryResource_": {
-        "additionalProperties": false,
-        "properties": {
-          "count": {
-            "minimum": 0.0,
-            "title": "Count",
-            "type": "integer"
-          },
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/RegistryResource"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "kind": {
-            "title": "Kind",
-            "type": "string"
-          },
-          "next_cursor": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Next Cursor"
-          },
-          "status": {
-            "const": "ok",
-            "default": "ok",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "items",
-          "count"
-        ],
-        "title": "RegistryPage[RegistryResource]",
-        "type": "object"
-      },
-      "RegistryPage_RegistryServer_": {
-        "additionalProperties": false,
-        "properties": {
-          "count": {
-            "minimum": 0.0,
-            "title": "Count",
-            "type": "integer"
-          },
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/RegistryServer"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "kind": {
-            "title": "Kind",
-            "type": "string"
-          },
-          "next_cursor": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Next Cursor"
-          },
-          "status": {
-            "const": "ok",
-            "default": "ok",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "items",
-          "count"
-        ],
-        "title": "RegistryPage[RegistryServer]",
-        "type": "object"
-      },
-      "RegistryPage_RegistrySkill_": {
-        "additionalProperties": false,
-        "properties": {
-          "count": {
-            "minimum": 0.0,
-            "title": "Count",
-            "type": "integer"
-          },
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/RegistrySkill"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "kind": {
-            "title": "Kind",
-            "type": "string"
-          },
-          "next_cursor": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Next Cursor"
-          },
-          "status": {
-            "const": "ok",
-            "default": "ok",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "items",
-          "count"
-        ],
-        "title": "RegistryPage[RegistrySkill]",
-        "type": "object"
-      },
-      "RegistryPage_RegistryTool_": {
-        "additionalProperties": false,
-        "properties": {
-          "count": {
-            "minimum": 0.0,
-            "title": "Count",
-            "type": "integer"
-          },
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/RegistryTool"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "kind": {
-            "title": "Kind",
-            "type": "string"
-          },
-          "next_cursor": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Next Cursor"
-          },
-          "status": {
-            "const": "ok",
-            "default": "ok",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "items",
-          "count"
-        ],
-        "title": "RegistryPage[RegistryTool]",
-        "type": "object"
-      },
-      "RegistryPrompt": {
-        "additionalProperties": false,
-        "properties": {
-          "description": {
-            "default": "",
-            "title": "Description",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "server_id": {
-            "title": "Server Id",
-            "type": "string"
-          },
-          "server_name": {
-            "title": "Server Name",
-            "type": "string"
-          },
-          "uri": {
-            "default": "",
-            "title": "Uri",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "server_id",
-          "server_name",
-          "name"
-        ],
-        "title": "RegistryPrompt",
-        "type": "object"
-      },
-      "RegistryResource": {
-        "additionalProperties": false,
-        "properties": {
-          "description": {
-            "default": "",
-            "title": "Description",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "mime_type": {
-            "default": "",
-            "title": "Mime Type",
-            "type": "string"
-          },
-          "name": {
-            "default": "",
-            "title": "Name",
-            "type": "string"
-          },
-          "resource_kind": {
-            "default": "",
-            "title": "Resource Kind",
-            "type": "string"
-          },
-          "server_id": {
-            "title": "Server Id",
-            "type": "string"
-          },
-          "server_name": {
-            "title": "Server Name",
-            "type": "string"
-          },
-          "uri": {
-            "default": "",
-            "title": "Uri",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "server_id",
-          "server_name"
-        ],
-        "title": "RegistryResource",
-        "type": "object"
-      },
-      "RegistryServer": {
-        "additionalProperties": false,
-        "description": "Public desired registration metadata (never credentials).",
-        "properties": {
-          "enabled": {
-            "default": false,
-            "title": "Enabled",
-            "type": "boolean"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "transport": {
-            "default": "",
-            "title": "Transport",
-            "type": "string"
-          },
-          "url": {
-            "default": "",
-            "title": "Url",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name"
-        ],
-        "title": "RegistryServer",
-        "type": "object"
-      },
-      "RegistrySkill": {
-        "additionalProperties": false,
-        "properties": {
-          "classification": {
-            "default": "",
-            "title": "Classification",
-            "type": "string"
-          },
-          "description": {
-            "default": "",
-            "title": "Description",
-            "type": "string"
-          },
-          "enabled": {
-            "default": false,
-            "title": "Enabled",
-            "type": "boolean"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "mcp_server": {
-            "default": "",
-            "title": "Mcp Server",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "provider": {
-            "default": "",
-            "title": "Provider",
-            "type": "string"
-          },
-          "skill_type": {
-            "default": "",
-            "title": "Skill Type",
-            "type": "string"
-          },
-          "uri": {
-            "default": "",
-            "title": "Uri",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name"
-        ],
-        "title": "RegistrySkill",
-        "type": "object"
-      },
-      "RegistryTool": {
-        "additionalProperties": false,
-        "description": "Public tool contract metadata; raw schema is intentionally omitted.",
-        "properties": {
-          "description": {
-            "default": "",
-            "title": "Description",
-            "type": "string"
-          },
-          "enabled": {
-            "default": false,
-            "title": "Enabled",
-            "type": "boolean"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "schema_digest": {
-            "default": "",
-            "title": "Schema Digest",
-            "type": "string"
-          },
-          "server_id": {
-            "title": "Server Id",
-            "type": "string"
-          },
-          "server_name": {
-            "title": "Server Name",
-            "type": "string"
-          },
-          "tool_mode": {
-            "default": "",
-            "title": "Tool Mode",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "server_id",
-          "server_name",
-          "name"
-        ],
-        "title": "RegistryTool",
         "type": "object"
       },
       "ResearchEnvelope": {
@@ -1241,414 +390,25 @@
         "title": "ResearchEnvelope",
         "type": "object"
       },
-      "ServiceCategory": {
-        "description": "Categories for grouping services on the dashboard.",
-        "enum": [
-          "Infrastructure",
-          "DevOps",
-          "Media",
-          "Productivity",
-          "Lifestyle",
-          "Security",
-          "Communication",
-          "Observability",
-          "Business",
-          "Data & Research",
-          "Custom"
-        ],
-        "title": "ServiceCategory",
-        "type": "string"
-      },
-      "ServiceConfig-Input": {
-        "description": "Configuration for a single service instance.\n\nLoaded from ``services.yaml`` or auto-discovered from ``mcp_config.json``.\nMirrors Homepage's per-service YAML structure.",
+      "SearchTextResponse": {
+        "description": "Success envelope shared by every ``/api/graph/search/*`` route in this module.\n\nThe ``graph_search`` tool (``query_tools.py``) returns a plain, already\nhuman-formatted string \u2014 never structured JSON \u2014 so ``result`` is genuinely\nfree-form text here, not an object. Typical shapes: newline/``---``-separated\n``\"[Type] Name (ID: ...) - Score: 0.87\\n<description>\"`` blocks, a bare\n``\"No results found for query: '<query>'\"`` / ``\"Error: Unknown search mode\n'<mode>'\"`` message, or (``mode='discover'``) a ``\"- name: description\"`` list.\nA caller wanting structured results should prefer the graph_search\n``mode='compiled'`` path (which returns a citation-bearing text bundle) or a\ntyped ``/api/graph/analyze/*`` route instead of parsing this text.",
         "properties": {
-          "api_key": {
-            "default": "",
-            "maxLength": 65536,
-            "title": "Api Key",
+          "result": {
+            "description": "The raw formatted search result text (or a 'No results found' / 'Error: Unknown search mode' message on a benign miss \u2014 those are NOT HTTP errors, they are 200s with an explanatory result string).",
+            "title": "Result",
             "type": "string"
           },
-          "category": {
-            "$ref": "#/components/schemas/ServiceCategory",
-            "default": "Custom"
-          },
-          "column_span": {
-            "default": 1,
-            "description": "Grid column span",
-            "maximum": 4.0,
-            "minimum": 1.0,
-            "title": "Column Span",
-            "type": "integer"
-          },
-          "credential_refs": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "description": "Runtime secret references keyed by credential field name",
-            "maxProperties": 32,
-            "title": "Credential Refs",
-            "type": "object"
-          },
-          "description": {
-            "default": "",
-            "description": "Short description",
-            "maxLength": 2048,
-            "title": "Description",
-            "type": "string"
-          },
-          "env_prefix": {
-            "default": "",
-            "description": "Env var prefix for auto-resolving credentials, e.g. 'PORTAINER'",
-            "maxLength": 64,
-            "title": "Env Prefix",
-            "type": "string"
-          },
-          "fields": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "maxItems": 128,
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Specific fields to show (None = all available)",
-            "title": "Fields"
-          },
-          "href": {
-            "default": "",
-            "description": "URL to open when clicking the service card header",
-            "maxLength": 8192,
-            "title": "Href",
-            "type": "string"
-          },
-          "icon": {
-            "default": "",
-            "description": "Icon identifier (Lucide name, URL, or emoji)",
-            "maxLength": 512,
-            "title": "Icon",
-            "type": "string"
-          },
-          "id": {
-            "description": "Unique service ID",
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "description": "Display name",
-            "maxLength": 256,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
-          },
-          "order": {
-            "default": 0,
-            "description": "Sort order within group",
-            "title": "Order",
-            "type": "integer"
-          },
-          "password": {
-            "default": "",
-            "maxLength": 65536,
-            "title": "Password",
-            "type": "string"
-          },
-          "refresh_interval": {
-            "default": 30,
-            "description": "Polling interval in seconds",
-            "maximum": 86400.0,
-            "minimum": 1.0,
-            "title": "Refresh Interval",
-            "type": "integer"
-          },
-          "row_span": {
-            "default": 1,
-            "description": "Grid row span",
-            "maximum": 100.0,
-            "minimum": 1.0,
-            "title": "Row Span",
-            "type": "integer"
-          },
-          "target": {
-            "default": "_blank",
-            "description": "Link target",
-            "pattern": "^_(?:blank|self)$",
-            "title": "Target",
-            "type": "string"
-          },
-          "url": {
-            "default": "",
-            "description": "Service base URL",
-            "maxLength": 8192,
-            "title": "Url",
-            "type": "string"
-          },
-          "username": {
-            "default": "",
-            "maxLength": 65536,
-            "title": "Username",
-            "type": "string"
-          },
-          "visible": {
-            "default": true,
-            "description": "Whether the widget is shown",
-            "title": "Visible",
-            "type": "boolean"
-          },
-          "websocket": {
-            "default": false,
-            "description": "Use WebSocket for real-time updates if available",
-            "title": "Websocket",
-            "type": "boolean"
-          },
-          "widget_type": {
-            "description": "Widget type key from registry, e.g. 'portainer'",
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Widget Type",
+          "status": {
+            "description": "Always 'success' on this envelope.",
+            "title": "Status",
             "type": "string"
           }
         },
         "required": [
-          "id",
-          "name",
-          "widget_type"
+          "status",
+          "result"
         ],
-        "title": "ServiceConfig",
-        "type": "object"
-      },
-      "ServiceConfig-Output": {
-        "description": "Configuration for a single service instance.\n\nLoaded from ``services.yaml`` or auto-discovered from ``mcp_config.json``.\nMirrors Homepage's per-service YAML structure.",
-        "properties": {
-          "category": {
-            "$ref": "#/components/schemas/ServiceCategory",
-            "default": "Custom"
-          },
-          "column_span": {
-            "default": 1,
-            "description": "Grid column span",
-            "maximum": 4.0,
-            "minimum": 1.0,
-            "title": "Column Span",
-            "type": "integer"
-          },
-          "credential_refs": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "description": "Runtime secret references keyed by credential field name",
-            "maxProperties": 32,
-            "title": "Credential Refs",
-            "type": "object"
-          },
-          "description": {
-            "default": "",
-            "description": "Short description",
-            "maxLength": 2048,
-            "title": "Description",
-            "type": "string"
-          },
-          "env_prefix": {
-            "default": "",
-            "description": "Env var prefix for auto-resolving credentials, e.g. 'PORTAINER'",
-            "maxLength": 64,
-            "title": "Env Prefix",
-            "type": "string"
-          },
-          "fields": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "maxItems": 128,
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Specific fields to show (None = all available)",
-            "title": "Fields"
-          },
-          "href": {
-            "default": "",
-            "description": "URL to open when clicking the service card header",
-            "maxLength": 8192,
-            "title": "Href",
-            "type": "string"
-          },
-          "icon": {
-            "default": "",
-            "description": "Icon identifier (Lucide name, URL, or emoji)",
-            "maxLength": 512,
-            "title": "Icon",
-            "type": "string"
-          },
-          "id": {
-            "description": "Unique service ID",
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "description": "Display name",
-            "maxLength": 256,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
-          },
-          "order": {
-            "default": 0,
-            "description": "Sort order within group",
-            "title": "Order",
-            "type": "integer"
-          },
-          "refresh_interval": {
-            "default": 30,
-            "description": "Polling interval in seconds",
-            "maximum": 86400.0,
-            "minimum": 1.0,
-            "title": "Refresh Interval",
-            "type": "integer"
-          },
-          "row_span": {
-            "default": 1,
-            "description": "Grid row span",
-            "maximum": 100.0,
-            "minimum": 1.0,
-            "title": "Row Span",
-            "type": "integer"
-          },
-          "target": {
-            "default": "_blank",
-            "description": "Link target",
-            "pattern": "^_(?:blank|self)$",
-            "title": "Target",
-            "type": "string"
-          },
-          "url": {
-            "default": "",
-            "description": "Service base URL",
-            "maxLength": 8192,
-            "title": "Url",
-            "type": "string"
-          },
-          "visible": {
-            "default": true,
-            "description": "Whether the widget is shown",
-            "title": "Visible",
-            "type": "boolean"
-          },
-          "websocket": {
-            "default": false,
-            "description": "Use WebSocket for real-time updates if available",
-            "title": "Websocket",
-            "type": "boolean"
-          },
-          "widget_type": {
-            "description": "Widget type key from registry, e.g. 'portainer'",
-            "maxLength": 128,
-            "minLength": 1,
-            "title": "Widget Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "widget_type"
-        ],
-        "title": "ServiceConfig",
-        "type": "object"
-      },
-      "ServiceGroup-Input": {
-        "description": "A named group of services displayed as a section.\n\nMirrors Homepage's YAML group structure.",
-        "properties": {
-          "collapsed": {
-            "default": false,
-            "title": "Collapsed",
-            "type": "boolean"
-          },
-          "icon": {
-            "default": "",
-            "maxLength": 512,
-            "title": "Icon",
-            "type": "string"
-          },
-          "name": {
-            "description": "Group name",
-            "maxLength": 256,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
-          },
-          "order": {
-            "default": 0,
-            "title": "Order",
-            "type": "integer"
-          },
-          "services": {
-            "items": {
-              "$ref": "#/components/schemas/ServiceConfig-Input"
-            },
-            "maxItems": 512,
-            "title": "Services",
-            "type": "array"
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "title": "ServiceGroup",
-        "type": "object"
-      },
-      "ServiceGroup-Output": {
-        "description": "A named group of services displayed as a section.\n\nMirrors Homepage's YAML group structure.",
-        "properties": {
-          "collapsed": {
-            "default": false,
-            "title": "Collapsed",
-            "type": "boolean"
-          },
-          "icon": {
-            "default": "",
-            "maxLength": 512,
-            "title": "Icon",
-            "type": "string"
-          },
-          "name": {
-            "description": "Group name",
-            "maxLength": 256,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
-          },
-          "order": {
-            "default": 0,
-            "title": "Order",
-            "type": "integer"
-          },
-          "services": {
-            "items": {
-              "$ref": "#/components/schemas/ServiceConfig-Output"
-            },
-            "maxItems": 512,
-            "title": "Services",
-            "type": "array"
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "title": "ServiceGroup",
+        "title": "SearchTextResponse",
         "type": "object"
       },
       "StartGoalPayload": {
@@ -1731,93 +491,6 @@
         ],
         "title": "ValidationError",
         "type": "object"
-      },
-      "WidgetData": {
-        "description": "Data returned from a widget's fetch_data() method.\n\nMirrors Homepage's useWidgetAPI response shape.",
-        "properties": {
-          "error": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Error message if status is not ok",
-            "title": "Error"
-          },
-          "fields": {
-            "additionalProperties": true,
-            "description": "Key-value pairs of metric data, keyed by WidgetField.key",
-            "title": "Fields",
-            "type": "object"
-          },
-          "raw": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional raw response data for advanced views",
-            "title": "Raw"
-          },
-          "status": {
-            "default": "ok",
-            "description": "Service status: ok, error, unreachable, unknown",
-            "title": "Status",
-            "type": "string"
-          },
-          "timestamp": {
-            "format": "date-time",
-            "title": "Timestamp",
-            "type": "string"
-          }
-        },
-        "title": "WidgetData",
-        "type": "object"
-      },
-      "WidgetListItem": {
-        "properties": {
-          "category": {
-            "title": "Category",
-            "type": "string"
-          },
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
-          "display_name": {
-            "title": "Display Name",
-            "type": "string"
-          },
-          "icon": {
-            "title": "Icon",
-            "type": "string"
-          },
-          "supports_websocket": {
-            "title": "Supports Websocket",
-            "type": "boolean"
-          },
-          "widget_type": {
-            "title": "Widget Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "widget_type",
-          "display_name",
-          "icon",
-          "category",
-          "description",
-          "supports_websocket"
-        ],
-        "title": "WidgetListItem",
-        "type": "object"
       }
     }
   },
@@ -1827,447 +500,6 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/api/dashboard/daemon/shards": {
-      "get": {
-        "description": "Engine shard topology + per-shard reachability (CONCEPT:AU-OS.scaling.shard-topology-visibility-per).\n\nReports the configured ``GRAPH_SERVICE_ENDPOINTS`` topology (single vs\nsharded), a transport-level reachability probe per shard, and each shard's\ncircuit-breaker state. Refreshes the\n``agent_utilities_engine_shard_up{endpoint}`` gauge as a side effect.",
-        "operationId": "daemon_shards_api_dashboard_daemon_shards_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Daemon Shards Api Dashboard Daemon Shards Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Daemon Shards",
-        "tags": [
-          "dashboard"
-        ]
-      }
-    },
-    "/api/dashboard/daemon/start": {
-      "post": {
-        "description": "Ensure the single consolidated KG daemon is running in this gateway.",
-        "operationId": "daemon_start_api_dashboard_daemon_start_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Daemon Start Api Dashboard Daemon Start Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Daemon Start",
-        "tags": [
-          "dashboard"
-        ]
-      }
-    },
-    "/api/dashboard/daemon/status": {
-      "get": {
-        "description": "Status of the single consolidated KG background daemon (CONCEPT:EG-KG.storage.nonblocking-checkpoint).\n\nThe gateway is the daemon host; this surfaces the one daemon's role, live\nthreads, registered maintenance jobs, and queue depth.",
-        "operationId": "daemon_status_api_dashboard_daemon_status_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Daemon Status Api Dashboard Daemon Status Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Daemon Status",
-        "tags": [
-          "dashboard"
-        ]
-      }
-    },
-    "/api/dashboard/data": {
-      "get": {
-        "description": "Fetch data from all active widgets.",
-        "operationId": "get_all_data_api_dashboard_data_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "$ref": "#/components/schemas/WidgetData"
-                  },
-                  "title": "Response Get All Data Api Dashboard Data Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Get All Data",
-        "tags": [
-          "dashboard"
-        ]
-      }
-    },
-    "/api/dashboard/data-subset": {
-      "get": {
-        "description": "REST twin of ``fetch_dashboard_subset`` (Two-Surfaces-by-default) --\nfetch exactly the named widgets in one call, e.g.\n``?widget_id=jellyfin&widget_id=pihole``.",
-        "operationId": "get_dashboard_subset_api_dashboard_data_subset_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "widget_id",
-            "required": false,
-            "schema": {
-              "default": [],
-              "items": {
-                "type": "string"
-              },
-              "title": "Widget Id",
-              "type": "array"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "$ref": "#/components/schemas/WidgetData"
-                  },
-                  "title": "Response Get Dashboard Subset Api Dashboard Data Subset Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Dashboard Subset",
-        "tags": [
-          "dashboard"
-        ]
-      }
-    },
-    "/api/dashboard/data/{service_id}": {
-      "get": {
-        "description": "Fetch data for a single service.",
-        "operationId": "get_service_data_api_dashboard_data__service_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "service_id",
-            "required": true,
-            "schema": {
-              "title": "Service Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WidgetData"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Service Data",
-        "tags": [
-          "dashboard"
-        ]
-      }
-    },
-    "/api/dashboard/discover": {
-      "get": {
-        "description": "Auto-discover services from mcp_config.json and return a layout.",
-        "operationId": "discover_services_api_dashboard_discover_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DashboardLayout-Output"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Discover Services",
-        "tags": [
-          "dashboard"
-        ]
-      }
-    },
-    "/api/dashboard/full": {
-      "get": {
-        "description": "Get layout + data in a single request (initial page load).",
-        "operationId": "get_full_dashboard_api_dashboard_full_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DashboardResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Get Full Dashboard",
-        "tags": [
-          "dashboard"
-        ]
-      }
-    },
-    "/api/dashboard/health": {
-      "get": {
-        "description": "LIVENESS: always 200, with the shared truthful health report as body.\n\nDispatches into the SAME\n:func:`~agent_utilities.observability.runtime_health.collect_health` core\nused by the graph-os MCP server and the top-level gateway ``/health`` \u2014\nnever a second implementation. See ``GET /health/ready`` on the top-level\napp for the readiness twin that reflects status in the HTTP code\n(CONCEPT:AU-OS.deployment.liveness-vs-readiness-split).",
-        "operationId": "health_check_api_dashboard_health_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Health Check",
-        "tags": [
-          "dashboard"
-        ]
-      }
-    },
-    "/api/dashboard/hydrate": {
-      "post": {
-        "description": "Manually trigger hydration for all configured/active sources sequentially.",
-        "operationId": "trigger_all_hydration_api_dashboard_hydrate_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Trigger All Hydration Api Dashboard Hydrate Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Trigger All Hydration",
-        "tags": [
-          "dashboard"
-        ]
-      }
-    },
-    "/api/dashboard/hydrate/{source}": {
-      "post": {
-        "description": "Manually trigger hydration for a specific external source.",
-        "operationId": "trigger_hydration_api_dashboard_hydrate__source__post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "source",
-            "required": true,
-            "schema": {
-              "title": "Source",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Trigger Hydration Api Dashboard Hydrate  Source  Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Trigger Hydration",
-        "tags": [
-          "dashboard"
-        ]
-      }
-    },
-    "/api/dashboard/hydration-status": {
-      "get": {
-        "description": "Retrieve configuration status of all hydration sources.",
-        "operationId": "get_hydration_status_api_dashboard_hydration_status_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Hydration Status Api Dashboard Hydration Status Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Get Hydration Status",
-        "tags": [
-          "dashboard"
-        ]
-      }
-    },
-    "/api/dashboard/layout": {
-      "get": {
-        "description": "Get the current dashboard layout configuration.",
-        "operationId": "get_layout_api_dashboard_layout_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DashboardLayout-Output"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Get Layout",
-        "tags": [
-          "dashboard"
-        ]
-      },
-      "put": {
-        "description": "Save a new dashboard layout configuration.",
-        "operationId": "save_layout_api_dashboard_layout_put",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DashboardLayout-Input"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Save Layout Api Dashboard Layout Put",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Save Layout",
-        "tags": [
-          "dashboard"
-        ]
-      }
-    },
-    "/api/dashboard/widgets": {
-      "get": {
-        "description": "List all widget types available for configuration.",
-        "operationId": "list_available_widgets_api_dashboard_widgets_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/WidgetListItem"
-                  },
-                  "title": "Response List Available Widgets Api Dashboard Widgets Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List Available Widgets",
-        "tags": [
-          "dashboard"
-        ]
-      }
-    },
     "/api/enhanced/agent-icon": {
       "get": {
         "description": "Retrieve the agent's avatar icon, falling back to repository defaults.\n\nReturns:\n    A response containing bounded image data.",
@@ -7519,6 +5751,247 @@
         "summary": "Run Workflow"
       }
     },
+    "/api/graph/search/analogy": {
+      "post": {
+        "description": "Search the knowledge graph for analogous concepts.",
+        "operationId": "graph_search_analogy_endpoint_api_graph_search_analogy_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "description": "Body shared by ``POST /api/graph/search/concept``, ``/analogy``, ``/memory``,\nand ``/dci`` \u2014 each fixes ``graph_search``'s ``mode`` to its own route name and\nreads only ``query``/``top_k`` from the body via ``.get(...)``, silently ignoring\nanything else (hence ``extra='allow'``).",
+                "properties": {
+                  "query": {
+                    "default": "",
+                    "description": "Natural language search query.",
+                    "title": "Query",
+                    "type": "string"
+                  },
+                  "top_k": {
+                    "default": 10,
+                    "description": "Maximum results to return.",
+                    "title": "Top K",
+                    "type": "integer"
+                  }
+                },
+                "title": "SearchQueryTopKRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchTextResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Search by analogy"
+      }
+    },
+    "/api/graph/search/concept": {
+      "post": {
+        "description": "Search the knowledge graph using concept retrieval.",
+        "operationId": "graph_search_concept_endpoint_api_graph_search_concept_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "description": "Body shared by ``POST /api/graph/search/concept``, ``/analogy``, ``/memory``,\nand ``/dci`` \u2014 each fixes ``graph_search``'s ``mode`` to its own route name and\nreads only ``query``/``top_k`` from the body via ``.get(...)``, silently ignoring\nanything else (hence ``extra='allow'``).",
+                "properties": {
+                  "query": {
+                    "default": "",
+                    "description": "Natural language search query.",
+                    "title": "Query",
+                    "type": "string"
+                  },
+                  "top_k": {
+                    "default": 10,
+                    "description": "Maximum results to return.",
+                    "title": "Top K",
+                    "type": "integer"
+                  }
+                },
+                "title": "SearchQueryTopKRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchTextResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Search concepts"
+      }
+    },
+    "/api/graph/search/dci": {
+      "post": {
+        "description": "Search the knowledge graph using DCI retrieval.",
+        "operationId": "graph_search_dci_endpoint_api_graph_search_dci_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "description": "Body shared by ``POST /api/graph/search/concept``, ``/analogy``, ``/memory``,\nand ``/dci`` \u2014 each fixes ``graph_search``'s ``mode`` to its own route name and\nreads only ``query``/``top_k`` from the body via ``.get(...)``, silently ignoring\nanything else (hence ``extra='allow'``).",
+                "properties": {
+                  "query": {
+                    "default": "",
+                    "description": "Natural language search query.",
+                    "title": "Query",
+                    "type": "string"
+                  },
+                  "top_k": {
+                    "default": 10,
+                    "description": "Maximum results to return.",
+                    "title": "Top K",
+                    "type": "integer"
+                  }
+                },
+                "title": "SearchQueryTopKRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchTextResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Search with DCI"
+      }
+    },
+    "/api/graph/search/discover": {
+      "post": {
+        "description": "Discover ingested graph capabilities matching a query.",
+        "operationId": "graph_search_discover_endpoint_api_graph_search_discover_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "description": "Body of ``POST /api/graph/search/discover`` \u2014 cross-references ``query``\nagainst all ingested content via ``graph_search`` mode ``discover``. Unlike its\nsibling granular search routes, the handler does not read ``top_k`` at all (a\n``top_k`` field in the body is accepted but has no effect), so it is not part of\nthis model \u2014 only ``query`` is read.",
+                "properties": {
+                  "query": {
+                    "default": "",
+                    "description": "Natural language search query.",
+                    "title": "Query",
+                    "type": "string"
+                  }
+                },
+                "title": "SearchDiscoverRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchTextResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Discover graph capabilities"
+      }
+    },
+    "/api/graph/search/memory": {
+      "post": {
+        "description": "Search retained graph memories.",
+        "operationId": "graph_search_memory_endpoint_api_graph_search_memory_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "description": "Body shared by ``POST /api/graph/search/concept``, ``/analogy``, ``/memory``,\nand ``/dci`` \u2014 each fixes ``graph_search``'s ``mode`` to its own route name and\nreads only ``query``/``top_k`` from the body via ``.get(...)``, silently ignoring\nanything else (hence ``extra='allow'``).",
+                "properties": {
+                  "query": {
+                    "default": "",
+                    "description": "Natural language search query.",
+                    "title": "Query",
+                    "type": "string"
+                  },
+                  "top_k": {
+                    "default": 10,
+                    "description": "Maximum results to return.",
+                    "title": "Top K",
+                    "type": "integer"
+                  }
+                },
+                "title": "SearchQueryTopKRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchTextResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Search memories"
+      }
+    },
+    "/api/graph/sql-schema": {
+      "post": {
+        "description": "Return the `catalogs -> tables/views -> columns` projection of the engine's synthesized, read-only `information_schema` -- the schema tree a catalog browser renders. Accepts an OPTIONAL JSON body `{\"schema\": \"<name>\"}`; it carries **no SQL**. Every statement issued is a server-authored constant (`agent_utilities.mcp.tools.graph_tools.CATALOG_STATEMENTS`) and the schema filter is validated as a SQL identifier and applied in Python, so there is no interpolation and no path to row data. Dispatches through the same `_execute_tool` action core as the MCP `graph_table` tool, under the caller's own GraphSession (`kg:read`) and the engine's row-level isolation. Fails closed: an unreadable catalog is a typed 4xx/5xx error, never an empty success. The response's `capabilities` block reports which facets the engine can actually answer (primary keys and nullability are currently not tracked engine-side).",
+        "operationId": "graph_sql_schema_api_graph_sql_schema_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Introspect the engine SQL catalog (read-only, no caller SQL)"
+      }
+    },
     "/api/graph/write": {
       "delete": {
         "description": "Deletes one edge identified by source_id/target_id/rel_type. Equivalent to POST /graph/write with action='delete_edge'; kept as a dedicated DELETE verb on the same collapsed path so a REST-verb-first caller does not lose the capability the removed DELETE /graph/write/edge granular route had.",
@@ -7604,17 +6077,10 @@
                         "type": "string"
                       },
                       "properties": {
-                        "anyOf": [
-                          {
-                            "additionalProperties": true,
-                            "type": "object"
-                          },
-                          {
-                            "type": "string"
-                          }
-                        ],
+                        "additionalProperties": true,
                         "description": "JSON object of edge properties, OR an already-JSON-encoded string (both accepted).",
-                        "title": "Properties"
+                        "title": "Properties",
+                        "type": "object"
                       },
                       "rel_type": {
                         "description": "The edge's relationship type.",
@@ -7684,22 +6150,15 @@
                         "type": "string"
                       },
                       "properties": {
-                        "anyOf": [
-                          {
-                            "additionalProperties": true,
-                            "type": "object"
-                          },
-                          {
-                            "type": "string"
-                          }
-                        ],
+                        "additionalProperties": true,
                         "description": "JSON object of node properties, OR an already-JSON-encoded string (both accepted; forwarded to the graph_write tool as a JSON-encoded string either way \u2014 the base /graph/write route has historically taken a raw pre-encoded string here, so both forms are supported for compatibility).",
                         "examples": [
                           {
                             "label": "example"
                           }
                         ],
-                        "title": "Properties"
+                        "title": "Properties",
+                        "type": "object"
                       }
                     },
                     "required": [
@@ -8373,58 +6832,8 @@
     },
     "/api/ontology/catalogue": {
       "get": {
-        "description": "Browsable gallery over the hosted-ontology registry.\n\nGranular typed twin of ``graph_ontology(action='list')`` with search/facet\nfiltering. The storage/lifecycle half already existed (``graph_ontology``\nhosts arbitrary named/versioned OWL/RDF ontologies); this is the curated-\nlibrary browse surface Ontology-Playground's catalogue offers, scoped to\nwhat this platform actually hosts \u2014 see the coverage report's row #4\nrationale (one continuously-extended ontology library, not many\ninterchangeable demo ontologies). Each entry already carries its\n#classes/#properties/#axioms counts (``OntologyLifecycle._public``).",
+        "description": "List generated GraphSchema metadata for admin-owned ontology sources.",
         "operationId": "get_ontology_catalogue_api_ontology_catalogue_get",
-        "parameters": [
-          {
-            "description": "Case-insensitive substring filter over iri/version/source.",
-            "in": "query",
-            "name": "search",
-            "required": false,
-            "schema": {
-              "default": "",
-              "description": "Case-insensitive substring filter over iri/version/source.",
-              "title": "Search",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Filter to ontologies loaded with this catalogue category.",
-            "in": "query",
-            "name": "category",
-            "required": false,
-            "schema": {
-              "default": "",
-              "description": "Filter to ontologies loaded with this catalogue category.",
-              "title": "Category",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Filter by how the ontology was loaded: 'file' | 'url' | 'text'.",
-            "in": "query",
-            "name": "source",
-            "required": false,
-            "schema": {
-              "default": "",
-              "description": "Filter by how the ontology was loaded: 'file' | 'url' | 'text'.",
-              "title": "Source",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Filter to ontologies carrying this catalogue tag.",
-            "in": "query",
-            "name": "tag",
-            "required": false,
-            "schema": {
-              "default": "",
-              "description": "Filter to ontologies carrying this catalogue tag.",
-              "title": "Tag",
-              "type": "string"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "content": {
@@ -8435,76 +6844,9 @@
               }
             },
             "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
           }
         },
         "summary": "Get Ontology Catalogue",
-        "tags": [
-          "ontology"
-        ]
-      }
-    },
-    "/api/ontology/export": {
-      "get": {
-        "description": "Re-serialize a hosted ontology to turtle (the Import/Export modal's Export button).\n\nGranular typed twin of ``graph_ontology(action='get', serialize=true)``.\nThe response is the standard :class:`OntologyEnvelope` (turtle text lives at\n``result.ontology.turtle``) \u2014 consistent with every other route in this\nmodule \u2014 the caller builds the downloadable file client-side from that string.",
-        "operationId": "export_ontology_api_ontology_export_get",
-        "parameters": [
-          {
-            "description": "Ontology IRI to export.",
-            "in": "query",
-            "name": "iri",
-            "required": true,
-            "schema": {
-              "description": "Ontology IRI to export.",
-              "title": "Iri",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Version to export (omit for the newest loaded).",
-            "in": "query",
-            "name": "version",
-            "required": false,
-            "schema": {
-              "default": "",
-              "description": "Version to export (omit for the newest loaded).",
-              "title": "Version",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OntologyEnvelope"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Export Ontology",
         "tags": [
           "ontology"
         ]
@@ -8570,104 +6912,6 @@
           }
         },
         "summary": "Get Function",
-        "tags": [
-          "ontology"
-        ]
-      }
-    },
-    "/api/ontology/generate": {
-      "get": {
-        "description": "From-scratch standalone Interface/LinkType proposal (GET, short samples).\n\nSame schema-discovery LLM path as ``discover_extensions``, run against an\nEMPTY base instead of a live-ontology diff. Always a human-reviewed\nproposal \u2014 never auto-applied/merged.",
-        "operationId": "generate_ontology_get_api_ontology_generate_get",
-        "parameters": [
-          {
-            "description": "Representative document/business-scenario text to model.",
-            "in": "query",
-            "name": "sample_text",
-            "required": false,
-            "schema": {
-              "default": "",
-              "description": "Representative document/business-scenario text to model.",
-              "title": "Sample Text",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Optional domain hint, e.g. 'clinical_trial'.",
-            "in": "query",
-            "name": "object_type",
-            "required": false,
-            "schema": {
-              "default": "",
-              "description": "Optional domain hint, e.g. 'clinical_trial'.",
-              "title": "Object Type",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OntologyEnvelope"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Generate Ontology Get",
-        "tags": [
-          "ontology"
-        ]
-      },
-      "post": {
-        "description": "From-scratch standalone Interface/LinkType proposal (POST, full document body).\n\nSame core as :func:`generate_ontology_get` \u2014 POST for a longer\n``sample_text`` than comfortably fits a query string.",
-        "operationId": "generate_ontology_post_api_ontology_generate_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/OntologyGenerateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OntologyEnvelope"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Generate Ontology Post",
         "tags": [
           "ontology"
         ]
@@ -8868,7 +7112,7 @@
     },
     "/api/ontology/load": {
       "post": {
-        "description": "Parse + SHACL-validate + register + activate a hosted ontology.\n\nGranular typed twin of ``graph_ontology(action='load')`` \u2014 the route the\nagent-webui Import/Export modal POSTs a dropped/pasted ``.ttl``/RDF file\n(or a file path / URL) to. Same core as the collapsed MCP surface; no new\nbusiness logic here.",
+        "description": "Attach an admin-owned ontology document through EG GraphSchema.\n\nGranular typed twin of ``graph_ontology(action='load')`` \u2014 the route the\nagent-webui Import/Export modal POSTs a dropped/pasted ``.ttl``/RDF file\n(or a file path) to. EG validates the composed schema atomically; AU does\nnot parse or retain the body.",
         "operationId": "load_ontology_api_ontology_load_post",
         "requestBody": {
           "content": {
@@ -9217,48 +7461,6 @@
         ]
       }
     },
-    "/api/ontology/validate": {
-      "post": {
-        "description": "Run the valid/connected/SHACL gate on a candidate WITHOUT committing it.\n\nGranular typed twin of ``graph_ontology(action='validate')`` \u2014 dispatches\nthrough the same tool/core (the ``lifecycle.py`` docstring already named\nthis route; it was documented but never wired until now). The result\nincludes a ``shacl_report`` (``conforms``/``text``/``turtle``) whenever\npyshacl is installed and bundled shapes exist, so a caller gets the literal\nSHACL validation report, not just the derived valid/errors/warnings summary.",
-        "operationId": "validate_ontology_candidate_api_ontology_validate_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/OntologyValidateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OntologyEnvelope"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Validate Ontology Candidate",
-        "tags": [
-          "ontology"
-        ]
-      }
-    },
     "/api/ontology/value-types": {
       "get": {
         "description": "List all constrained value-type names.",
@@ -9417,384 +7619,6 @@
         "summary": " Revoke",
         "tags": [
           "remote-oauth"
-        ]
-      }
-    },
-    "/api/registry/discoveries": {
-      "get": {
-        "operationId": "list_registry_discoveries_api_registry_discoveries_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RegistryPage_RegistryDiscovery_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List Registry Discoveries",
-        "tags": [
-          "registry"
-        ]
-      }
-    },
-    "/api/registry/discoveries/{item_id}": {
-      "get": {
-        "operationId": "get_registry_discoveries_api_registry_discoveries__item_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "item_id",
-            "required": true,
-            "schema": {
-              "title": "Item Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RegistryItemEnvelope_RegistryDiscovery_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Registry Discoveries",
-        "tags": [
-          "registry"
-        ]
-      }
-    },
-    "/api/registry/prompts": {
-      "get": {
-        "operationId": "list_registry_prompts_api_registry_prompts_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RegistryPage_RegistryPrompt_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List Registry Prompts",
-        "tags": [
-          "registry"
-        ]
-      }
-    },
-    "/api/registry/prompts/{item_id}": {
-      "get": {
-        "operationId": "get_registry_prompts_api_registry_prompts__item_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "item_id",
-            "required": true,
-            "schema": {
-              "title": "Item Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RegistryItemEnvelope_RegistryPrompt_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Registry Prompts",
-        "tags": [
-          "registry"
-        ]
-      }
-    },
-    "/api/registry/resources": {
-      "get": {
-        "operationId": "list_registry_resources_api_registry_resources_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RegistryPage_RegistryResource_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List Registry Resources",
-        "tags": [
-          "registry"
-        ]
-      }
-    },
-    "/api/registry/resources/{item_id}": {
-      "get": {
-        "operationId": "get_registry_resources_api_registry_resources__item_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "item_id",
-            "required": true,
-            "schema": {
-              "title": "Item Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RegistryItemEnvelope_RegistryResource_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Registry Resources",
-        "tags": [
-          "registry"
-        ]
-      }
-    },
-    "/api/registry/servers": {
-      "get": {
-        "operationId": "list_registry_servers_api_registry_servers_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RegistryPage_RegistryServer_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List Registry Servers",
-        "tags": [
-          "registry"
-        ]
-      }
-    },
-    "/api/registry/servers/{item_id}": {
-      "get": {
-        "operationId": "get_registry_servers_api_registry_servers__item_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "item_id",
-            "required": true,
-            "schema": {
-              "title": "Item Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RegistryItemEnvelope_RegistryServer_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Registry Servers",
-        "tags": [
-          "registry"
-        ]
-      }
-    },
-    "/api/registry/skills": {
-      "get": {
-        "operationId": "list_registry_skills_api_registry_skills_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RegistryPage_RegistrySkill_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List Registry Skills",
-        "tags": [
-          "registry"
-        ]
-      }
-    },
-    "/api/registry/skills/{item_id}": {
-      "get": {
-        "operationId": "get_registry_skills_api_registry_skills__item_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "item_id",
-            "required": true,
-            "schema": {
-              "title": "Item Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RegistryItemEnvelope_RegistrySkill_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Registry Skills",
-        "tags": [
-          "registry"
-        ]
-      }
-    },
-    "/api/registry/tools": {
-      "get": {
-        "operationId": "list_registry_tools_api_registry_tools_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RegistryPage_RegistryTool_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List Registry Tools",
-        "tags": [
-          "registry"
-        ]
-      }
-    },
-    "/api/registry/tools/{item_id}": {
-      "get": {
-        "operationId": "get_registry_tools_api_registry_tools__item_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "item_id",
-            "required": true,
-            "schema": {
-              "title": "Item Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RegistryItemEnvelope_RegistryTool_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Registry Tools",
-        "tags": [
-          "registry"
         ]
       }
     },

@@ -2172,11 +2172,6 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_loops", "action": "gap", "name": "graph_loops_gap"},
     {"tool": "graph_loops", "action": "gaps", "name": "graph_loops_gaps"},
     {"tool": "graph_loops", "action": "list", "name": "graph_loops_list"},
-    {
-        "tool": "graph_loops",
-        "action": "placement_control",
-        "name": "graph_loops_placement_control",
-    },
     {"tool": "graph_loops", "action": "prioritize", "name": "graph_loops_prioritize"},
     {"tool": "graph_loops", "action": "review", "name": "graph_loops_review"},
     {"tool": "graph_loops", "action": "run", "name": "graph_loops_run"},
