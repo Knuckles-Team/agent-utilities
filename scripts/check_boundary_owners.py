@@ -7,7 +7,7 @@ or agent-connector-sdk (see that file's header for why boundary seeds live
 there rather than in the signed ``component-registry.yml``). This gate fails
 when a real module file, or a ``[project.scripts]`` console-script target, in
 this repository matches one of those seeds AND the covering row in
-``specs/au-boundary-deconstruction/coverage.md`` does not record it as
+``specs/au-boundary-deconstruction/plan.md`` does not record it as
 "relocate to <owner>" -- coverage.md's own phrasing for "moving, still
 present". As each path is actually cut over, its row stops saying that, and a
 reappearance of the path is then rejected rather than silently tolerated.

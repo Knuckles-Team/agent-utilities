@@ -1,6 +1,6 @@
 """Typed inventory: AU-side duplicates of epistemic-graph's native engine.
 
-Requirements AU-BOUNDARY-R018, R019, R020, R021, and R022 delete AU's own
+Requirements AU-BOUNDARY-R018, AU-BOUNDARY-R019, AU-BOUNDARY-R020, AU-BOUNDARY-R021, and AU-BOUNDARY-R022 delete AU's own
 graph engine facade, graph-compute/state facades, durable work/queue/state
 modules, tenancy/topology/admission modules, and reasoning/analytics
 duplicates once each has proven native, equivalent coverage in
@@ -178,11 +178,11 @@ def test_inventory_covers_exactly_the_assigned_rows() -> None:
 @pytest.mark.spec("AU-BOUNDARY-R019.1")
 @pytest.mark.parametrize("module_path", EG_DUPLICATE_INVENTORY["AU-BOUNDARY-R019"][1])
 def test_r019_facade_module_is_inventoried_and_present(module_path: str) -> None:
-    """Each R019 graph-compute/state-facade module exists and is recorded."""
+    """Each AU-BOUNDARY-R019 graph-compute/state-facade module exists and is recorded."""
     assert (PACKAGE_ROOT / module_path).exists(), module_path
 
 
 @pytest.mark.spec("AU-BOUNDARY-R019.1")
 def test_r019_inventory_is_exactly_the_seven_named_modules() -> None:
-    """The R019 inventory names exactly the seven modules the row lists."""
+    """The AU-BOUNDARY-R019 inventory names exactly the seven modules the row lists."""
     assert len(EG_DUPLICATE_INVENTORY["AU-BOUNDARY-R019"][1]) == 7

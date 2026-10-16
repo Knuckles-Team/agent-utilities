@@ -43,7 +43,7 @@ _GATE_SPEC.loader.exec_module(gate)
 
 @pytest.fixture(autouse=True)
 def _engine_shacl(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Shapes validation is engine-owned (R006.5.5); stub the engine call."""
+    """Shapes validation is engine-owned (AU-BOUNDARY-R006.5.5); stub the engine call."""
     from agent_utilities.knowledge_graph.integrations import connector_certification
 
     monkeypatch.setattr(

@@ -224,7 +224,7 @@ def test_labelled_fake_internal_hostname_passes() -> None:
 # --------------------------------------------------------------------------- #
 # Shared-fix regression: ``_MACHINE_HOST_ID_RE``'s lookbehind did not exclude
 # ``-``, so a hyphen-joined requirement ID (``AU-BOUNDARY-R016``) false-
-# positived as a machine host alias (``r016``/``host...``-shaped suffix).
+# positived as a machine host alias (an ``r`` plus three digits, or a ``host...``-shaped suffix).
 # Fixed by widening the lookbehind to ``(?<![a-z0-9-])`` -- the same
 # one-character fix as pipelines PR #41 (pipelines_hooks/privacy/patterns.py)
 # and epistemic-graph's local copy (D-EG-PRIVACY-R001-FALSEPOS). Both

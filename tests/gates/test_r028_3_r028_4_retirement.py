@@ -1,11 +1,11 @@
 """Acceptance tests for AU-BOUNDARY-R028.3 and AU-BOUNDARY-R028.4.
 
-R028.3: ``kg/quantum/{budget,__init__}.py`` and ``observability/quantum_trace.py``
+AU-BOUNDARY-R028.3: ``kg/quantum/{budget,__init__}.py`` and ``observability/quantum_trace.py``
 are retired: none of the three files exists, and no production module imports
 the deleted files or references their symbols
 (``reserve_quantum_budget``/``QuantumBudgetExceeded``/``persist_quantum_job``).
 
-R028.4: ``kg/security/cognitive_trap_defense.py`` is deleted (it had only a
+AU-BOUNDARY-R028.4: ``kg/security/cognitive_trap_defense.py`` is deleted (it had only a
 test importer). The remaining three -- ``policy_ingestor.py``,
 ``rule_ingestor.py``, ``graph_validator.py`` -- stay, because each still has
 a real production importer with no epistemic-graph client equivalent yet
