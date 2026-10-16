@@ -188,7 +188,9 @@ def test_invalid_values_timestamps_and_metadata_fail_closed() -> None:
         _sample(event_time=NOW)
     with pytest.raises(ValidationError, match="confidence"):
         _sample(confidence=1.1)
-    with pytest.raises(ValidationError, match="evidence_ref contains unsupported characters"):
+    with pytest.raises(
+        ValidationError, match="evidence_ref contains unsupported characters"
+    ):
         _sample(evidence_ref="bearer=not-a-reference")  # type: ignore[call-arg]
 
 

@@ -28,6 +28,7 @@ def _blob(rng, count: int, center: list[float]) -> list[list[float]]:
         for row in rng.standard_normal((count, len(center)))
     ]
 
+
 # ── KG-2.34: Spectral Cluster Navigator ──────────────────────────────
 
 

@@ -29,6 +29,7 @@ def sample_ohlcv():
     rng = np.random.default_rng(42)
     n = 300
     dates = pd.bdate_range(end="2024-12-31", periods=n)
+
     def noise(draws):
         return pd.Series(list(draws), index=dates)
 

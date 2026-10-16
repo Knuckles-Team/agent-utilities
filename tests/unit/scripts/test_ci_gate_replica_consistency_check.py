@@ -222,10 +222,17 @@ def test_pages_job_delegates_to_the_shared_pipeline_without_runtime_dependencies
     # report-only job, which must not need the package or engine installed.
     privacy = doc["jobs"]["pages-privacy-check"]
     commands = "\n".join(step.get("run", "") for step in privacy["steps"])
-    for prohibited in ("pip install -e", "uv sync", "agent-utilities", "epistemic-graph"):
+    for prohibited in (
+        "pip install -e",
+        "uv sync",
+        "agent-utilities",
+        "epistemic-graph",
+    ):
         assert prohibited not in commands
     assert "scripts/check_tracked_privacy.py" in commands
-    assert all(step.get("continue-on-error") for step in privacy["steps"] if "run" in step)
+    assert all(
+        step.get("continue-on-error") for step in privacy["steps"] if "run" in step
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────

@@ -144,7 +144,9 @@ def test_queue_and_contributor_hook_use_the_shared_runner() -> None:
         in queue_config
     )
     hook = hook_config.split("- id: contract-checks", 1)[1].split("- id:", 1)[0]
-    assert "entry: scripts/hook_python.sh scripts/security/run_contract_checks.py" in hook
+    assert (
+        "entry: scripts/hook_python.sh scripts/security/run_contract_checks.py" in hook
+    )
     assert "--exclude check_current_only_contract_gate.py" in hook
     assert "--exclude check_sbom_licenses.py" in hook
     assert "python3 -c" not in hook
