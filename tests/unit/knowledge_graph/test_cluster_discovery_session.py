@@ -205,7 +205,13 @@ def test_transport_drain_stops_admission_and_reports_timeout_explicitly() -> Non
     assert gate.status().active_requests == 0
 
 
-def _parse_direct(authority: ClusterTopologyAuthority, answer: Any, *, context: dict[str, str], prior: Any = None) -> Any:
+def _parse_direct(
+    authority: ClusterTopologyAuthority,
+    answer: Any,
+    *,
+    context: dict[str, str],
+    prior: Any = None,
+) -> Any:
     return authority._parse(
         answer,
         verified_context=context,
