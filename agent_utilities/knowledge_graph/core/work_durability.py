@@ -213,7 +213,6 @@ _FIELDS: tuple[str, ...] = (
     "assigned_to",
     "created_by",
     "metadata",
-    "loop_statechart_instance_id",
     "consent_required",
     "consent_scope",
     "consent_subject",
@@ -2718,13 +2717,30 @@ def set_loop_statechart_instance_id(
     caller-supplied id support, unlike ``submit_work_item``'s
     ``work_item_id``), so the returned id is stored here and read back by
     ``research.loops.ensure_loop_statechart_instance`` on every subsequent
-    call. Best-effort metadata, not part of the lease/fencing authority — a
-    plain upsert (mirrors how ``research.loops.submit_loop`` upserts its
-    Concept definition), not a CAS-guarded field.
+    call. Non-authority metadata, so it rides the engine-native
+    ``CasWorkItemMetadata`` RPC (the generic ``AddNode`` upsert this used to
+    do is refused by the engine's native-WorkItem-authority guard). Stored
+    under ``metadata["loop_statechart_instance_id"]``.
     """
-    _authority(engine).add_node(
-        item_id, _NODE_LABEL, properties={"loop_statechart_instance_id": instance_id}
-    )
+    now = _now()
+    for _ in range(_CAS_LOOP_MAX_RETRIES):
+        item = get_work_item(engine, item_id)
+        if item is None:
+            return
+        old_metadata = dict(item.get("metadata") or {})
+        if old_metadata.get("loop_statechart_instance_id") == instance_id:
+            return
+        new_metadata = {**old_metadata, "loop_statechart_instance_id": instance_id}
+        if _cas_work_item_metadata(
+            engine,
+            tenant=str(item.get("tenant") or ""),
+            item_id=item_id,
+            expected_status=[str(item.get("status"))],
+            now=now,
+            expected_metadata=old_metadata,
+            set_metadata=new_metadata,
+        ):
+            return
 
 
 def ensure_loop_work_item(

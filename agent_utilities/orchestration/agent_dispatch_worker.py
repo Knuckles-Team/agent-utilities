@@ -2032,7 +2032,8 @@ def _dead_letter_poison_envelope(
             engine,
             kind="dispatch_poison",
             payload_ref=f"poison:{_poison_delivery_digest(payload)}",
-            tenant="__system__",
+            # The verified request tenant (the engine refuses a claim whose
+            # tenant differs from the verified principal's).
             resource_class="agent_dispatch",
             work_item_id=work_item_id,
             idempotency_key=work_item_id,

@@ -479,7 +479,7 @@ def ensure_loop_statechart_instance(engine: Any, loop_id: str) -> str | None:
     ``instance_id`` (unlike ``submit_work_item``'s caller-supplied
     ``work_item_id``) — extending that wire op to accept a caller-supplied id
     is out of scope for W2.5. So the server-returned id is stored back onto
-    the Loop's backing WorkItem (``loop_statechart_instance_id``) right after
+    the Loop's backing WorkItem (``metadata.loop_statechart_instance_id``) right after
     instantiation, and read back from there on every subsequent call — a
     disclosed, reasonable deviation from the design doc's deterministic-
     ``instance_id`` proposal. Returns ``None`` if the backing WorkItem doesn't
@@ -491,7 +491,7 @@ def ensure_loop_statechart_instance(engine: Any, loop_id: str) -> str | None:
     item = _wi.get_work_item(engine, item_id)
     if item is None:
         return None
-    existing = item.get("loop_statechart_instance_id")
+    existing = (item.get("metadata") or {}).get("loop_statechart_instance_id")
     if existing:
         return str(existing)
     def_id = loop_def_id(engine)
