@@ -13,7 +13,7 @@ _PYPROJECT_TEMPLATE = """\
 name = "agent-utilities"
 dynamic = ["version"]
 dependencies = [
-    "epistemic-graph[full,server]>={engine_version},<{engine_ceiling_major}.0.0",
+    "epistemic-graph[full]>={engine_version},<{engine_ceiling_major}.0.0",
     "pydantic>=2.0.0",
 ]
 """
@@ -221,8 +221,8 @@ def test_engine_major_bump_rewrites_au_band_and_matrix(tmp_path: Path) -> None:
 
     tier2_edits = {edit.kind: edit for edit in plan.edits if edit.tier == 2}
     engine_dependency = tier2_edits["engine-dependency"]
-    assert engine_dependency.current == "epistemic-graph[full,server]>=2.23.2,<3.0.0"
-    assert engine_dependency.proposed == "epistemic-graph[full,server]>=3.0.0,<4.0.0"
+    assert engine_dependency.current == "epistemic-graph[full]>=2.23.2,<3.0.0"
+    assert engine_dependency.proposed == "epistemic-graph[full]>=3.0.0,<4.0.0"
 
     matrix_edit = tier2_edits["compatibility-matrix:epistemic-graph.version"]
     assert '"==2.23.2"' in matrix_edit.current
@@ -251,7 +251,7 @@ def test_engine_minor_bump_moves_floor_only(tmp_path: Path) -> None:
         edit for edit in plan.edits if edit.kind == "engine-dependency"
     )
     # floor moves to the new exact version, ceiling major is unchanged
-    assert engine_dependency.proposed == "epistemic-graph[full,server]>=2.24.0,<3.0.0"
+    assert engine_dependency.proposed == "epistemic-graph[full]>=2.24.0,<3.0.0"
 
 
 def test_missing_ceiling_detected_and_repaired_under_patch_bump(

@@ -427,7 +427,7 @@ def check_wheel(path: Path) -> None:
                 raise WheelContractError("metadata-invalid") from exc
             if (
                 len(engine_requirements) != 1
-                or engine_requirements[0].extras != {"full", "server"}
+                or engine_requirements[0].extras != {"full"}
                 or engine_requirements[0].url is not None
                 # RF-ADR-009 SUPERSEDES GOC-73: epistemic-graph[full] moved back to a
                 # hard BASE dependency (pyproject.toml's `[project.dependencies]`;

@@ -284,7 +284,7 @@ def validate(root: Path = ROOT) -> list[str]:
         engine_next_major = f"{int(engine_version.split('.')[0]) + 1}.0.0"
         if (
             len(engine_requirements) != 1
-            or engine_requirements[0].extras != {"full", "server"}
+            or engine_requirements[0].extras != {"full"}
             or str(engine_requirements[0].specifier)
             != f"<{engine_next_major},>={engine_version}"
         ):
