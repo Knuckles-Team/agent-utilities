@@ -191,7 +191,12 @@ class TestIngestion:
             "MATCH (s:Server {id: 'srv:filesystem'}) RETURN s.id as id, s.url as url"
         )
         assert len(res) > 0
-        assert res[0]["url"] == "http://localhost:3000"
+        # The endpoint is persisted as an opaque reference, never the raw URL.
+        from agent_utilities.security.persistence_privacy import persistence_reference
+
+        assert res[0]["url"] == persistence_reference(
+            "mcp_endpoint", "http://localhost:3000", namespace="filesystem"
+        )
 
         # Verify callable resources
         res = engine.query_cypher(
@@ -366,9 +371,17 @@ class TestSelfImprovement:
     def test_optimize_prompt(self, engine):
         # Create a base prompt
         base_id = "prompt:test-base"
-        engine.backend.execute(
-            "CREATE (p:SystemPrompt {id: $id, content: $content, tags: ['agent-base'], source: 'MANUAL', version: 'v1'})",
-            {"id": base_id, "content": "You are a helpful assistant."},
+        # Through the stamped upsert seam: a raw CREATE writes an unowned row that
+        # secured reads default-deny.
+        engine._upsert_node(
+            "SystemPrompt",
+            base_id,
+            {
+                "content": "You are a helpful assistant.",
+                "tags": ["agent-base"],
+                "source": "MANUAL",
+                "version": "v1",
+            },
         )
 
         # Create a critique
@@ -398,9 +411,10 @@ class TestSelfImprovement:
         engine.record_outcome(ep_id, reward=-1.0, feedback="Missed edge cases")
 
         base_id = "prompt:cycle-base"
-        engine.backend.execute(
-            "CREATE (p:SystemPrompt {id: $id, content: $content, source: 'MANUAL', version: 'v1'})",
-            {"id": base_id, "content": "Review code carefully."},
+        engine._upsert_node(
+            "SystemPrompt",
+            base_id,
+            {"content": "Review code carefully.", "source": "MANUAL", "version": "v1"},
         )
 
         # Spawn agent and link to episode and prompt

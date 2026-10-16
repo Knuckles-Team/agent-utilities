@@ -308,15 +308,13 @@ class IngestionMixin(_Base):
                     exc,
                 )
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        backend.execute(
-            "MERGE (s:Server {id: $id}) "
-            "SET s.name = $name, s.url = $url, s.timestamp = $ts",
-            {
-                "id": f"srv:{name}",
-                "name": name,
-                "url": endpoint_reference,
-                "ts": ts,
-            },
+        # Through the stamped upsert seam (ownership/ACL), not a raw MERGE: an
+        # unstamped row is default-denied by secured reads and would be invisible
+        # to the very callers that registered it.
+        self._upsert_node(
+            "Server",
+            f"srv:{name}",
+            {"name": name, "url": endpoint_reference, "timestamp": ts},
         )
 
     def ingest_a2a_agent_card(self, url: str, card: dict[str, Any]):
