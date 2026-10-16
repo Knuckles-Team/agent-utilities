@@ -324,13 +324,8 @@ async def global_elicitation_callback(context: Any = None, params: Any = None) -
     # PAUSE — wait for the UI OR the messaging reply to resolve via /api/approve.
     result = await elicitation_manager.wait_for_approval(request_id)
 
-    # If called from MCP session, try to return ElicitResult
-    try:
-        from mcp import types as mcp_types
-
-        return mcp_types.ElicitResult(**result)
-    except Exception:
-        return result
+    # graph-os maps this plain result onto its own protocol elicitation reply.
+    return result
 
 
 def _bridge_elicitation_to_messaging(

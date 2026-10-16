@@ -48,7 +48,9 @@ The Company Brain treats **humans, SI agents, automated services, and hybrid hum
 ```python
 from agent_utilities.knowledge_graph.core.company_brain import CompanyBrain
 from agent_utilities.models.company_brain import (
-    ActorType, DataClassification, MergeStrategy
+    ActorType,
+    DataClassification,
+    MergeStrategy,
 )
 
 # Initialize the Company Brain
@@ -66,12 +68,10 @@ engineering = brain.tenancy.create_tenant(
 
 # Add both human and AI members
 brain.tenancy.add_member(
-    "analyst:jane", ActorType.HUMAN,
-    engineering.tenant_id, role="admin"
+    "analyst:jane", ActorType.HUMAN, engineering.tenant_id, role="admin"
 )
 brain.tenancy.add_member(
-    "agent:code-reviewer", ActorType.AI_AGENT,
-    engineering.tenant_id, role="member"
+    "agent:code-reviewer", ActorType.AI_AGENT, engineering.tenant_id, role="member"
 )
 
 # Track a node for concurrency control
@@ -79,9 +79,7 @@ brain.concurrency.track_node("service:api-gateway")
 
 # Set data-level permissions
 brain.permissions.classify_node(
-    "service:api-gateway",
-    DataClassification.CONFIDENTIAL,
-    data_owner="analyst:jane"
+    "service:api-gateway", DataClassification.CONFIDENTIAL, data_owner="analyst:jane"
 )
 
 # Record provenance on a write

@@ -71,7 +71,9 @@ class _Counter(ast.NodeVisitor):
     def visit_Match(self, node: ast.Match) -> None:
         # A wildcard `case _` is the default arm and is not itself a decision.
         for case in node.cases:
-            if not (isinstance(case.pattern, ast.MatchAs) and case.pattern.pattern is None):
+            if not (
+                isinstance(case.pattern, ast.MatchAs) and case.pattern.pattern is None
+            ):
                 self.score += 1
         self.generic_visit(node)
 

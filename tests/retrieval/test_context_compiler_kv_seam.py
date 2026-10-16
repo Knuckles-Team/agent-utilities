@@ -32,7 +32,12 @@ from agent_utilities.knowledge_graph.retrieval.context_compiler import (
     ContextCompiler,
     compute_bundle_cache_key,
 )
-from tests.retrieval.fakes import FakeRetriever, _FakeMarkingStore, _actor, _grant_public
+from tests.retrieval.fakes import (
+    FakeRetriever,
+    _actor,
+    _FakeMarkingStore,
+    _grant_public,
+)
 
 
 @pytest.fixture(autouse=True)

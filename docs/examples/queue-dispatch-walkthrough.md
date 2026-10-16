@@ -214,12 +214,15 @@ material is not copied into another node or exposed as job metadata:
 
 ```python
 # while executing
-{'kind': 'orchestrator_task', 'status': 'running',
- 'payload_ref': 'orch-1a2b3c4d'}
+{"kind": "orchestrator_task", "status": "running", "payload_ref": "orch-1a2b3c4d"}
 
 # after native commit
-{'kind': 'orchestrator_task', 'status': 'succeeded',
- 'payload_ref': 'orch-1a2b3c4d', 'result_ref': 'outcome:...'}
+{
+    "kind": "orchestrator_task",
+    "status": "succeeded",
+    "payload_ref": "orch-1a2b3c4d",
+    "result_ref": "outcome:...",
+}
 ```
 
 An unknown job returns `{'status': 'not_found', 'error': 'Job ... not found'}`.

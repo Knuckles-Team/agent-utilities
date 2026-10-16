@@ -15,8 +15,8 @@ from agent_utilities.observability.gateway_metrics import (
     GatewayMetricsMiddleware,
     _NoopMetric,
     _route_template,
-    metrics_endpoint,
     render_metrics,
+    render_metrics_with_engine,
 )
 
 # ---------------------------------------------------------------------------
@@ -118,12 +118,14 @@ class TestFallback:
         assert b"metrics unavailable" in body
         assert content_type.startswith("text/plain")
 
-    async def test_metrics_endpoint_returns_response(self):
-        response = await metrics_endpoint()
-        assert response.status_code == 200
-        assert response.body
+    async def test_render_metrics_with_engine_returns_body(self):
+        body, content_type = await render_metrics_with_engine()
+        assert body
+        assert content_type
 
-    async def test_metrics_endpoint_engine_unreachable_signals_down(self, monkeypatch):
+    async def test_render_metrics_with_engine_unreachable_signals_down(
+        self, monkeypatch
+    ):
         # Force the fetch to fail regardless of what happens to be listening
         # on 127.0.0.1:9101 in the ambient environment (dev hosts run
         # node-exporter on that same port outside the pod netns, so a "just
@@ -136,18 +138,18 @@ class TestFallback:
             raise httpx.ConnectError("connection refused (test)")
 
         monkeypatch.setattr(httpx.AsyncClient, "get", raise_connect_error)
-        response = await metrics_endpoint()
-        body = response.body
+        body, _content_type = await render_metrics_with_engine()
         assert b"graph_os_engine_metrics_up 0" in body
         assert b"engine metrics unavailable" in body
 
-    async def test_metrics_endpoint_engine_reachable_merges_series(self, monkeypatch):
+    async def test_render_metrics_with_engine_reachable_merges_series(
+        self, monkeypatch
+    ):
         async def fake_fetch():
             return b"epistemic_graph_fake_metric 42\n", True
 
         monkeypatch.setattr(gm, "_fetch_engine_metrics", fake_fetch)
-        response = await metrics_endpoint()
-        body = response.body
+        body, _content_type = await render_metrics_with_engine()
         assert b"graph_os_engine_metrics_up 1" in body
         assert b"epistemic_graph_fake_metric 42" in body
 

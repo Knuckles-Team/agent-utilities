@@ -14,8 +14,6 @@ pattern) — no live IdP is required.
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
 
 from agent_utilities.security import delegation as deleg
@@ -143,38 +141,40 @@ def test_mint_spawn_run_token_scopes_and_caps_ttl(
 
 
 # ---------------------------------------------------------------------------
-# Decision 1 — RFC 8693 exchange (mocked at the delegated_auth seam)
+# Decision 1 — RFC 8693 exchange (graph-os performs it behind the host port)
 # ---------------------------------------------------------------------------
 
-_IDP_CFG = {
-    "token_endpoint": "https://keycloak.example/realms/homelab/protocol/openid-connect/token",
-    "oidc_client_id": "graph-os",
-    "oidc_client_secret": "s3cret",
-    "audience": "agent-services",
-}
 
+def test_exchange_routes_through_the_host_identity_port() -> None:
+    from agent_utilities import host_ports
 
-def test_exchange_appends_acting_agent() -> None:
-    import agent_utilities.graphos_client.delegated_auth as da
+    seen: list[str] = []
 
-    with patch.object(
-        da, "_post_token", return_value={"access_token": "DELEGATED"}
-    ) as m:
-        out = da.exchange_token_for_agent(
-            "agent:researcher:run-1", subject_token="CALLER.JWT", config=_IDP_CFG
+    def _exchange(label: str) -> str:
+        seen.append(label)
+        return "DELEGATED"
+
+    host_ports.register_delegated_identity_provider(
+        host_ports.DelegatedIdentityProvider(
+            user_token=lambda: "CALLER.JWT", exchange_for_agent=_exchange
         )
-    assert out == "DELEGATED"
-    sent = m.call_args[0][1]
-    assert sent["grant_type"] == "urn:ietf:params:oauth:grant-type:token-exchange"
-    assert sent["subject_token"] == "CALLER.JWT"
-    assert sent["act_as"] == "agent:researcher:run-1"
+    )
+    try:
+        assert host_ports.current_user_token() == "CALLER.JWT"
+        assert (
+            host_ports.exchange_token_for_agent("agent:researcher:run-1") == "DELEGATED"
+        )
+    finally:
+        host_ports.register_delegated_identity_provider(None)
+    assert seen == ["agent:researcher:run-1"]
 
 
-def test_exchange_requires_a_caller_token() -> None:
-    import agent_utilities.graphos_client.delegated_auth as da
+def test_exchange_without_a_host_has_no_delegated_token() -> None:
+    from agent_utilities import host_ports
 
-    with pytest.raises(ValueError):
-        da.exchange_token_for_agent("agent:x", subject_token=None, config=_IDP_CFG)
+    host_ports.register_delegated_identity_provider(None)
+    assert host_ports.current_user_token() is None
+    assert host_ports.exchange_token_for_agent("agent:x") is None
 
 
 # ---------------------------------------------------------------------------

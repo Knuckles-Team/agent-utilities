@@ -56,7 +56,9 @@ def test_no_client_live_mode_marks_skipped(monkeypatch: pytest.MonkeyPatch) -> N
     assert _fields(result) == (0, 0, 1, [])
 
 
-def test_no_client_dry_run_defaults_type_to_user(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_client_dry_run_defaults_type_to_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _no_client(monkeypatch)
     sink = KeycloakSink()
     ops: dict[str, Any] = {"creations": [{"name": "alice"}]}
@@ -66,7 +68,9 @@ def test_no_client_dry_run_defaults_type_to_user(monkeypatch: pytest.MonkeyPatch
     ]
 
 
-def test_dry_run_application_type_and_custom_realm(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_dry_run_application_type_and_custom_realm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _no_client(monkeypatch)
     sink = KeycloakSink()
     ops: dict[str, Any] = {
@@ -79,7 +83,9 @@ def test_dry_run_application_type_and_custom_realm(monkeypatch: pytest.MonkeyPat
     ]
 
 
-def test_creation_missing_name_is_silently_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_creation_missing_name_is_silently_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     _no_client(monkeypatch)
     sink = KeycloakSink()
     ops: dict[str, Any] = {"creations": [{"type": "user"}]}

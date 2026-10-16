@@ -58,6 +58,7 @@ flowchart LR
 ```python
 # programmatic
 from agent_utilities.knowledge_graph.research.golden_loop import run_assimilation_pass
+
 run_assimilation_pass(synthesize=True, top_n=10)
 ```
 ```

@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import hashlib
 
-import pytest
-from agent_connector_sdk.mcp.content import ConnectorContent, register_connector_content
-from fastmcp import Client, FastMCP
+from agent_connector_sdk.mcp.content import ConnectorContent
 
 import agent_utilities
 from agent_utilities.content import agent_utilities_content
@@ -25,16 +23,3 @@ def test_agent_utilities_content_uses_the_canonical_sdk_contract() -> None:
     resource = content.package_root / _RESOURCE_RELATIVE_PATH
     assert resource.is_file(), _RESOURCE_URI
     assert hashlib.sha256(resource.read_bytes()).hexdigest() == _RESOURCE_SHA256
-
-
-@pytest.mark.anyio
-async def test_agent_utilities_content_registers_the_canonical_shape_resource() -> None:
-    mcp = FastMCP("agent-utilities-content-test")
-    registration = register_connector_content(mcp, agent_utilities_content())
-
-    assert registration.resources == 1
-    async with Client(mcp) as client:
-        resource_uris = {
-            str(resource.uri) for resource in await client.list_resources()
-        }
-    assert _RESOURCE_URI in resource_uris

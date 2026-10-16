@@ -162,9 +162,8 @@ def test_writable_source_file_is_persisted_and_verified(tmp_path):
     assert result["reason"] is None
 
     # The file itself was actually rewritten -- not just claimed.
-    written = (
-        (tmp_path / "skills" / "misc" / "mystery-skill" / "SKILL.md")
-        .read_text(encoding="utf-8")
+    written = (tmp_path / "skills" / "misc" / "mystery-skill" / "SKILL.md").read_text(
+        encoding="utf-8"
     )
     assert "skill_type: workflow" in written
     assert "skill_type: mystery" not in written
@@ -215,9 +214,8 @@ def test_read_only_source_tree_falls_back_to_durable_override(tmp_path):
     assert result["catalog_refreshed"] is True
 
     # The source file was NOT modified.
-    unwritten = (
-        (tmp_path / "skills" / "misc" / "mystery-skill" / "SKILL.md")
-        .read_text(encoding="utf-8")
+    unwritten = (tmp_path / "skills" / "misc" / "mystery-skill" / "SKILL.md").read_text(
+        encoding="utf-8"
     )
     assert "skill_type: mystery" in unwritten
 

@@ -139,9 +139,7 @@ def main() -> int:
     problems: list[str] = []
 
     gitignore_tokens = _gitignore_tokens()
-    missing = sorted(
-        req for req in REQUIRED if _normalize(req) not in gitignore_tokens
-    )
+    missing = sorted(req for req in REQUIRED if _normalize(req) not in gitignore_tokens)
     if missing:
         problems.append(
             "Missing from .gitignore (fleet-shared REQUIRED set):\n"

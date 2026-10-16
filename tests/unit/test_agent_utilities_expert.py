@@ -286,17 +286,36 @@ def test_resolve_toolset_ids_binds_live_toolsets(monkeypatch) -> None:
 
     CONCEPT:AU-ORCH.adapter.transport-toolset-factory — the binding seam. With no ``:Server`` node present it falls
     back to the fleet served-URL convention (the same resolution the focused-tools
-    path uses), binding one callable ``MCPToolset`` per id.
+    path uses), binding one host-built toolset per id.
     """
+    from pydantic_ai.toolsets import FunctionToolset
+
+    from agent_utilities import host_ports
+
+    built: list[tuple[str, str | None]] = []
+
+    def _build(url: str, toolset_id: str | None, _timeout: float) -> FunctionToolset:
+        built.append((url, toolset_id))
+        return FunctionToolset(id=toolset_id)
+
     monkeypatch.setenv("FLEET_MCP_URL_TEMPLATE", "https://{server}.example.test/mcp")
+    host_ports.register_remote_toolset_provider(
+        host_ports.RemoteToolsetProvider(
+            build_url_toolset=_build, load_config_toolsets=lambda _path: []
+        )
+    )
     engine = _isolated_engine()
     ids = ["repository-manager-mcp", "data-science-mcp"]
-    toolsets = _resolve_toolset_ids(engine, ids)
+    try:
+        toolsets = _resolve_toolset_ids(engine, ids)
+    finally:
+        host_ports.register_remote_toolset_provider(None)
     assert len(toolsets) == len(ids)
+    assert [toolset_id for _url, toolset_id in built] == ids
     # Each is a real callable toolset (supports tool filtering — the least-privilege
     # contract _execute_single_server relies on), not a prompt string.
     for ts in toolsets:
-        assert hasattr(ts, "filtered"), "bound object must be a real MCPToolset"
+        assert hasattr(ts, "filtered"), "bound object must be a real toolset"
 
     # An empty id is skipped (no phantom toolset).
     assert _resolve_toolset_ids(engine, ["", None]) == []  # type: ignore[list-item]

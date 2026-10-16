@@ -48,9 +48,11 @@ def test_alert_intake_token_resolution_uses_runtime_secret_reference(monkeypatch
     monkeypatch.setattr(
         alert_intake,
         "setting",
-        lambda key, *_args: "env://ALERT_INTAKE_TOKEN"
-        if key == "MESSAGING_ALERT_INTAKE_TOKEN_REF"
-        else "",
+        lambda key, *_args: (
+            "env://ALERT_INTAKE_TOKEN"
+            if key == "MESSAGING_ALERT_INTAKE_TOKEN_REF"
+            else ""
+        ),
     )
 
     class _Secrets:

@@ -772,6 +772,7 @@ def test_release_wheel_rejects_a_gutted_release_schema(tmp_path: Path) -> None:
     # above is attributable to the gutted schema and nothing else.
     wheel_contract.check_wheel(_synthetic_release_wheel(tmp_path / "clean.whl"))
 
+
 def test_signed_release_inputs_carry_no_hardlink_alias() -> None:
     """D-CDX-79 hydration regression: catch a re-introduced hardlink early.
 

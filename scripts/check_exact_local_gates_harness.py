@@ -14,19 +14,6 @@ DOCUMENTATION = ROOT / "docs" / "release" / "exact-local-gates.md"
 NAVIGATION = ROOT / "mkdocs.yml"
 WORKFLOW = ROOT / ".github" / "workflows" / "advisory.yml"
 
-EXPECTED_INTENT_TOOLS = (
-    "act",
-    "ask",
-    "find",
-    "find_tools",
-    "list_catalog",
-    "load_tools",
-    "manage",
-    "multiplexer_status",
-    "unload_tools",
-    "why",
-    "write",
-)
 EXPECTED_MODALITIES = (
     "text",
     "document",
@@ -89,24 +76,6 @@ EXPECTED_G35_RUNTIME_CASES = (
     "invalid_authority_and_policy_rejected",
 )
 
-REQUIRED_G26_CASES = (
-    "test_intent_mode_registers_verbs_and_keeps_the_granular_surface",
-    "test_intent_verbs_and_gating_are_active_by_default",
-    "test_intent_surface_selection_accuracy_meets_measured_floor",
-    "test_ask_routes_to_the_right_tool_and_dispatches_via_execute_tool",
-    "test_load_tools_reveals_a_gated_local_tool",
-    "test_auto_unload_retracts_the_tool_after_its_next_call",
-    "test_manage_verb_lifecycle_action_loads_and_unloads",
-    "test_non_read_requires_bound_preview_and_surfaces_safety_plan",
-    "test_destructive_plan_requires_exact_tool_approval",
-    "test_candidate_build_preserves_exact_authority_order",
-    "test_candidate_build_fails_closed_on_any_packaged_verb_drift",
-    "test_pinned_execution_and_caller_feedback_cannot_poison_learning",
-    "test_outcome_partition_covers_verified_tenant_policy_audience_and_scopes",
-    "test_prompt_injection_is_denied_before_resolution_or_execution",
-    "test_ambiguous_non_read_intent_never_executes",
-    "test_human_approval_class_routes_to_exact_tool_even_when_not_destructive",
-)
 REQUIRED_G32_CASES = (
     "test_marker_v2_is_closed_bounded_path_free_and_atomic",
     "test_unmarked_operator_destination_is_never_replaced",
@@ -169,14 +138,6 @@ REQUIRED_SOURCE_TOKENS = (
     "release_distribution_uses_source_checkout",
     "graphos_release_interpreter_mismatch",
     "graphos_engine_binary_mismatch",
-    "g26_initial_surface_mismatch",
-    "g26_dynamic_load_mismatch",
-    "g26_dynamic_unload_mismatch",
-    "g26_dynamic_approval_not_preserved",
-    "g26_plan_binding_tamper_accepted",
-    "g26_exact_tool_approval_route_failed",
-    "g26_injection_not_denied",
-    "g26_poisoned_feedback_not_denied",
     "program_optimization_result",
     "optimizer_budget_projection_mismatch",
     "optimizer_valid_promotion_missing",
@@ -226,7 +187,6 @@ REQUIRED_SOURCE_TOKENS = (
 )
 REQUIRED_DOCUMENTATION_TOKENS = (
     "# Exact installed local certification",
-    "exactly six intent verbs and five control tools",
     "exactly 13 semantic optimizer families",
     "one current spelling each",
     "`tool_policy` artifacts",
@@ -410,8 +370,14 @@ def check_contract(
     except SyntaxError:
         return ("harness_syntax_invalid",)
     assignments = _literal_assignments(tree)
-    if assignments.get("INTENT_TOOLS") != EXPECTED_INTENT_TOOLS:
-        violations.append("intent_surface_drift")
+    # The MCP intent surface is graph-os's (graph-os MCP wired to EG); the
+    # harness carries no MCP code, so this campaign has no G-26 gate.
+    if (
+        "INTENT_TOOLS" in assignments
+        or "G26_REQUIRED_TESTS" in assignments
+        or "_certify_intent_stdio" in harness_text
+    ):
+        violations.append("intent_surface_reintroduced")
     if assignments.get("MODALITIES") != EXPECTED_MODALITIES:
         violations.append("modality_matrix_drift")
     optimizer_families = assignments.get("OPTIMIZER_FAMILIES")
@@ -451,9 +417,6 @@ def check_contract(
     if assignments.get("G35_RUNTIME_CASES") != EXPECTED_G35_RUNTIME_CASES:
         violations.append("g35_runtime_case_matrix_drift")
 
-    g26_cases = assignments.get("G26_REQUIRED_TESTS", ())
-    if g26_cases != REQUIRED_G26_CASES:
-        violations.append("g26_adversarial_cases_incomplete")
     g32_cases = assignments.get("G32_REQUIRED_TESTS", ())
     if g32_cases != REQUIRED_G32_CASES:
         violations.append("g32_provider_cases_incomplete")
@@ -558,9 +521,6 @@ def check_contract(
         <= worker_entry_calls
     ):
         violations.append("exact_runtime_worker_entry_missing")
-    intent_calls = _called_names(_function(tree, "_certify_intent_stdio"))
-    if not {"_start_graphos", "_call_tool", "_tool_names"} <= intent_calls:
-        violations.append("intent_behavior_control_missing")
     writer_calls = _called_names(_function(tree, "_write_evidence"))
     if not {"_open_output_parent", "link", "fsync"} <= writer_calls:
         violations.append("evidence_publication_control_missing")

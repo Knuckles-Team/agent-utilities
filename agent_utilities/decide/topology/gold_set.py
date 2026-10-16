@@ -16,8 +16,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from agent_utilities.decide.consumers.topology_learning import (
-    QUESTION,
     Q32_ONE,
+    QUESTION,
     plan_features,
 )
 from agent_utilities.decide.schemas import feature_schema_body

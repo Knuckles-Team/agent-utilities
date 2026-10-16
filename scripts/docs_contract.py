@@ -37,7 +37,6 @@ DOCS = ROOT / "docs"
 MKDOCS = ROOT / "mkdocs.yml"
 DOC_CATALOG = DOCS / "reference" / "documentation-catalog.md"
 CONFIG_CATALOG = DOCS / "reference" / "runtime-configuration.md"
-CAPABILITY_CATALOG = DOCS / "capabilities-power.md"
 CAPABILITY_DATA = DOCS / "capabilities-power.json"
 GRAPHOS_SURFACE_DOC = DOCS / "pillars" / "4_ecosystem_peripherals.md"
 SKILL_CERTIFICATION_DOC = DOCS / "release" / "skill-validation-certification.md"
@@ -51,7 +50,6 @@ REQUIRED_NAV = frozenset(
         "architecture/privacy-safe-external-ingestion.md",
         "architecture/self-evolution-flywheel.md",
         "architecture/universal-external-graph-connectors.md",
-        "capabilities-power.md",
         "ecosystem-capability-fleet.md",
         "guides/kg-skill-suite.md",
         "reference/documentation-catalog.md",
@@ -516,8 +514,8 @@ def render_document_catalog() -> str:
         f"direct nav targets · {capabilities} public capabilities · {actions} action rows · "
         f"{typed_count} typed configuration fields · {len(dynamic)} runtime-only call-site inputs.",
         "",
-        "The detailed public capability/action contract is the "
-        "[generated Capability Power catalog](../capabilities-power.md). The complete "
+        "The public capability/action data is "
+        "`docs/capabilities-power.json`. The complete "
         "configuration contract is the "
         "[generated Runtime Configuration catalog](runtime-configuration.md).",
         "",

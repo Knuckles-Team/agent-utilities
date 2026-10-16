@@ -53,7 +53,9 @@ def test_submission_id_is_deterministic_for_identical_manifest():
 
 
 def test_submission_id_differs_for_different_manifest():
-    assert submission_id_for(_manifest()) != submission_id_for(_manifest(body="SELECT 2"))
+    assert submission_id_for(_manifest()) != submission_id_for(
+        _manifest(body="SELECT 2")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -121,20 +123,27 @@ def test_submit_transform_explicit_submission_id_dedupes(monkeypatch):
 
     async def fake(**kwargs):
         calls.append(kwargs)
-        return {"run_id": "run-x", "transform": "t", "status": "succeeded", "output_snapshot_id": "1"}
+        return {
+            "run_id": "run-x",
+            "transform": "t",
+            "status": "succeeded",
+            "output_snapshot_id": "1",
+        }
 
     _patch_call_tool_once(monkeypatch, fake)
     client = SparkJobsClient()
     client.submit_transform(_manifest(), submission_id="fixed-id")
-    client.submit_transform(_manifest(body="different but same submission_id"), submission_id="fixed-id")
+    client.submit_transform(
+        _manifest(body="different but same submission_id"), submission_id="fixed-id"
+    )
     assert len(calls) == 1
 
 
 def test_submit_transform_missing_tool_raises_named_error(monkeypatch):
     async def fake(**kwargs):
-        raise mcp_tool.McpToolSourceError("MCP source tool call failed (ToolError)") from RuntimeError(
-            "Unknown tool: spark_submit_transform"
-        )
+        raise mcp_tool.McpToolSourceError(
+            "MCP source tool call failed (ToolError)"
+        ) from RuntimeError("Unknown tool: spark_submit_transform")
 
     _patch_call_tool_once(monkeypatch, fake)
     client = SparkJobsClient()
@@ -144,7 +153,9 @@ def test_submit_transform_missing_tool_raises_named_error(monkeypatch):
 
 def test_submit_transform_generic_failure_raises_spark_job_error(monkeypatch):
     async def fake(**kwargs):
-        raise mcp_tool.McpToolSourceError("MCP source tool call failed (ConnectionError)")
+        raise mcp_tool.McpToolSourceError(
+            "MCP source tool call failed (ConnectionError)"
+        )
 
     _patch_call_tool_once(monkeypatch, fake)
     client = SparkJobsClient()
@@ -164,10 +175,19 @@ def test_poll_status_uses_ledger_transform_name(monkeypatch):
     async def fake(**kwargs):
         calls.append(kwargs)
         if kwargs["tool"] == SPARK_SUBMIT_TOOL:
-            return {"run_id": "run-1", "transform": "agg_daily", "status": "running", "output_snapshot_id": None}
+            return {
+                "run_id": "run-1",
+                "transform": "agg_daily",
+                "status": "running",
+                "output_snapshot_id": None,
+            }
         assert kwargs["tool"] == SPARK_LIST_RUNS_TOOL
         assert kwargs["params"]["transform"] == "agg_daily"
-        return {"runs": [{"run_id": "run-1", "status": "succeeded", "output_snapshot_id": "222"}]}
+        return {
+            "runs": [
+                {"run_id": "run-1", "status": "succeeded", "output_snapshot_id": "222"}
+            ]
+        }
 
     _patch_call_tool_once(monkeypatch, fake)
     client = SparkJobsClient()
@@ -185,7 +205,11 @@ def test_poll_status_unknown_run_without_transform_name_fails_loudly():
 
 def test_poll_status_explicit_transform_name_for_cold_ledger(monkeypatch):
     async def fake(**kwargs):
-        return {"runs": [{"run_id": "run-9", "status": "failed", "output_snapshot_id": None}]}
+        return {
+            "runs": [
+                {"run_id": "run-9", "status": "failed", "output_snapshot_id": None}
+            ]
+        }
 
     _patch_call_tool_once(monkeypatch, fake)
     client = SparkJobsClient()  # fresh process, empty ledger
@@ -200,7 +224,13 @@ def test_poll_status_explicit_transform_name_for_cold_ledger(monkeypatch):
 
 def test_fence_refuses_a_failed_submission(monkeypatch):
     async def fake(**kwargs):
-        return {"run_id": "run-1", "transform": "agg_daily", "status": "failed", "error": "boom", "output_snapshot_id": None}
+        return {
+            "run_id": "run-1",
+            "transform": "agg_daily",
+            "status": "failed",
+            "error": "boom",
+            "output_snapshot_id": None,
+        }
 
     _patch_call_tool_once(monkeypatch, fake)
     client = SparkJobsClient()

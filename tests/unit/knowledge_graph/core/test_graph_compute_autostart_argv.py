@@ -84,7 +84,9 @@ class TestBuildEngineTransportArgv:
             "127.0.0.1:54732",
         ]
 
-    def test_tls_and_metrics_flags_are_independently_optional(self, monkeypatch) -> None:
+    def test_tls_and_metrics_flags_are_independently_optional(
+        self, monkeypatch
+    ) -> None:
         """Only the cert is set: only ``--tcp-tls-cert`` is emitted, nothing else."""
 
         monkeypatch.delenv("GRAPH_SERVICE_TCP_ADDR", raising=False)

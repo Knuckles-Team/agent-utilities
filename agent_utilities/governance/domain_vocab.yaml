@@ -77,7 +77,7 @@ pillars:
     messaging:     [messaging, telegram, slack, teams, reach, inbound, chat, voice, image]
     bus:           [bus, agent-bus, topic, presence, store-forward, relay]
     multiplexer:   [multiplexer, mux, child-resilience, mcp-fleet, dynamic-mode]
-    mcp:           [mcp, tool-surface, verbose-tools, tool-mode, server-factory, fastmcp]
+    mcp:           [mcp, tool-surface, verbose-tools, tool-mode, server-factory]
     toolkit:       [toolkit, ingestion-toolkit, unified, universal-toolkit]
     reactions:     [reactions, emote, reaction]
     connector:     [connector, source, preset, mcp-tool, source-connector, rss, freshrss]

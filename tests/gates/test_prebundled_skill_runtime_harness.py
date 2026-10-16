@@ -14,12 +14,12 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from fastmcp.exceptions import ToolError
-from fastmcp.utilities.json_schema_type import json_schema_to_type
 from jsonschema import Draft202012Validator
 from pydantic import BaseModel, ValidationError
 
 import agent_utilities.skills.runtime_validation as runtime_harness
+from agent_utilities import host_ports
+from agent_utilities.host_ports import HostToolError as ToolError
 from agent_utilities.security.persistence_privacy import persistence_reference
 from agent_utilities.skills.runtime_validation import (
     _ARCHITECTURE_LAYOUT_REQUIREMENTS,
@@ -358,11 +358,30 @@ def test_direct_authority_ttl_covers_the_complete_bounded_case() -> None:
     assert required == 215
 
 
+def _install_credentials(monkeypatch, *, header, provider=None) -> None:
+    """Bind a fake graph-os outbound credential provider for one test."""
+
+    def refresh() -> None:
+        if provider is None:
+            raise RuntimeError("outbound credential renewal requires the graph-os host")
+        provider.get_token(force=True)
+
+    monkeypatch.setattr(
+        host_ports,
+        "_CREDENTIALS",
+        host_ports.OutboundCredentialProvider(
+            auth=lambda: None,
+            header=lambda: header(None),
+            status=lambda: {"mode": "synthetic", "ready": True},
+            refresh=refresh,
+        ),
+    )
+
+
 @pytest.mark.asyncio
 async def test_direct_session_forces_refresh_when_cached_lease_is_too_short(
     monkeypatch,
 ) -> None:
-    from agent_utilities.graphos_client import client_credentials
     from agent_utilities.knowledge_graph.core.session import SessionExpiredError
 
     headers_seen: list[str] = []
@@ -393,8 +412,7 @@ async def test_direct_session_forces_refresh_when_cached_lease_is_too_short(
             raise SessionExpiredError("synthetic")
         return renewed
 
-    monkeypatch.setattr(client_credentials, "child_auth_header", child_header)
-    monkeypatch.setattr(client_credentials, "get_provider", lambda: Provider())
+    _install_credentials(monkeypatch, header=child_header, provider=Provider())
     monkeypatch.setattr(runtime_harness, "_verified_validation_session", verify)
 
     session = await _renew_direct_validation_session(
@@ -408,8 +426,6 @@ async def test_direct_session_forces_refresh_when_cached_lease_is_too_short(
 
 @pytest.mark.asyncio
 async def test_direct_session_rejects_any_authority_change(monkeypatch) -> None:
-    from agent_utilities.graphos_client import client_credentials
-
     expected = {
         "principal": "subject:opaque:synthetic",
         "roles": ["kg:read"],
@@ -421,10 +437,9 @@ async def test_direct_session_rejects_any_authority_change(monkeypatch) -> None:
         engine_verified_context=lambda: {**expected, "roles": ["kg:admin"]},
     )
 
-    monkeypatch.setattr(
-        client_credentials,
-        "child_auth_header",
-        lambda _existing: {"Authorization": "Bearer current-token"},
+    _install_credentials(
+        monkeypatch,
+        header=lambda _existing: {"Authorization": "Bearer current-token"},
     )
 
     async def verify(_headers, *, minimum_ttl_seconds):
@@ -443,8 +458,6 @@ async def test_direct_session_rejects_any_authority_change(monkeypatch) -> None:
 async def test_delegated_session_always_force_refreshes_and_revalidates(
     monkeypatch,
 ) -> None:
-    from agent_utilities.graphos_client import client_credentials
-
     force_values: list[bool] = []
     current_token = ["cached-token"]
     authority = {"principal": "subject:opaque:synthetic", "tenant": _TENANT_ID}
@@ -460,11 +473,10 @@ async def test_delegated_session_always_force_refreshes_and_revalidates(
             current_token[0] = "renewed-token"
             return current_token[0]
 
-    monkeypatch.setattr(client_credentials, "get_provider", lambda: Provider())
-    monkeypatch.setattr(
-        client_credentials,
-        "child_auth_header",
-        lambda _existing: {"Authorization": f"Bearer {current_token[0]}"},
+    _install_credentials(
+        monkeypatch,
+        header=lambda _existing: {"Authorization": f"Bearer {current_token[0]}"},
+        provider=Provider(),
     )
 
     async def verify(headers, *, minimum_ttl_seconds):
@@ -484,8 +496,6 @@ async def test_delegated_session_always_force_refreshes_and_revalidates(
 
 @pytest.mark.asyncio
 async def test_delegated_session_rejects_changed_authority(monkeypatch) -> None:
-    from agent_utilities.graphos_client import client_credentials
-
     expected = {
         "principal": "subject:opaque:synthetic",
         "roles": ["kg:read"],
@@ -500,11 +510,10 @@ async def test_delegated_session_rejects_changed_authority(monkeypatch) -> None:
             assert force is True
             return "renewed-token"
 
-    monkeypatch.setattr(client_credentials, "get_provider", lambda: Provider())
-    monkeypatch.setattr(
-        client_credentials,
-        "child_auth_header",
-        lambda _existing: {"Authorization": "Bearer renewed-token"},
+    _install_credentials(
+        monkeypatch,
+        header=lambda _existing: {"Authorization": "Bearer renewed-token"},
+        provider=Provider(),
     )
 
     async def verify(_headers, *, minimum_ttl_seconds):
@@ -633,21 +642,18 @@ def test_structured_mcp_arbitrary_object_remains_rejected() -> None:
 
 
 def test_structured_mcp_generated_dataclass_is_normalized_after_bounds() -> None:
-    payload_type = json_schema_to_type(
-        {
-            "type": "object",
-            "properties": {
-                "status": {"type": "string"},
-                "row": {
-                    "type": "object",
-                    "properties": {"matched": {"type": "integer"}},
-                    "required": ["matched"],
-                },
-            },
-            "required": ["status", "row"],
-        }
-    )
-    payload = payload_type(status="completed", row={"matched": 1})
+    from dataclasses import dataclass
+
+    @dataclass
+    class Row:
+        matched: int
+
+    @dataclass
+    class Payload:
+        status: str
+        row: Row
+
+    payload = Payload(status="completed", row=Row(matched=1))
     result = SimpleNamespace(
         data={"result": payload}, structured_content=None, content=[]
     )

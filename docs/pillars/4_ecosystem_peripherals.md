@@ -198,8 +198,8 @@ checked session, scope, approval, or mutation policy. The source contracts
 are `agent_utilities/mcp/intent_contract.py`,
 `agent_utilities/mcp/graphos_surface.py`,
 `agent_utilities/mcp/tools/intent_tools.py`, and
-`agent_utilities/mcp/tool_specs.py`; the generated inventory is
-[Capability Power](../capabilities-power.md).
+`agent_utilities/mcp/tool_specs.py`; the capability data is
+`docs/capabilities-power.json`.
 
 ### Server Endpoints
 

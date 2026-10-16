@@ -87,21 +87,25 @@ Formalize source authority so the conflict resolver knows which sources to trust
 from agent_utilities.models.company_brain import TrustHierarchyEntry
 
 # Define source trust levels
-brain.provenance.add_trust_entry(TrustHierarchyEntry(
-    source_system="crm",
-    data_domain="customer",
-    authority_level=0.95,
-    rationale="CRM is the system of record for customer master data",
-    overrides=["slack", "email"],
-))
+brain.provenance.add_trust_entry(
+    TrustHierarchyEntry(
+        source_system="crm",
+        data_domain="customer",
+        authority_level=0.95,
+        rationale="CRM is the system of record for customer master data",
+        overrides=["slack", "email"],
+    )
+)
 
-brain.provenance.add_trust_entry(TrustHierarchyEntry(
-    source_system="human_review",
-    data_domain="compliance",
-    authority_level=0.99,
-    rationale="Regulatory decisions require human sign-off per SOX",
-    overrides=["crm", "internal_model"],
-))
+brain.provenance.add_trust_entry(
+    TrustHierarchyEntry(
+        source_system="human_review",
+        data_domain="compliance",
+        authority_level=0.99,
+        rationale="Regulatory decisions require human sign-off per SOX",
+        overrides=["crm", "internal_model"],
+    )
+)
 
 # Query trust level
 trust = brain.provenance.get_trust_level("crm", "customer")  # → 0.95

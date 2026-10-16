@@ -12,7 +12,7 @@ flows through a *learned* confidence so a role whose cheap/local model keeps
 succeeding is routed DOWN the ladder (cheaper) and one that keeps failing is
 escalated UP — and the routing improves from recorded outcomes.
 
-The confidence is a per-route reward-EMA (same mechanism as `CapabilityIndex`),
+The confidence is a per-route reward-EMA (same mechanism as EG capability designation),
 fed by :func:`record_model_outcome` from the action-outcome loop (AHE-3.62). It is
 process-local (a routing cache); durable cross-process learning rides on the
 canonical reward EMA via ``graph_feedback action_outcome target_id=model_route:<role>``.

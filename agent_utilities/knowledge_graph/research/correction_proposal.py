@@ -63,9 +63,13 @@ class MaterializationReceipt:
 
     def __post_init__(self) -> None:
         if not self.receipt_id:
-            raise CorrectionProposalRefused("materialization receipt requires a receipt_id")
+            raise CorrectionProposalRefused(
+                "materialization receipt requires a receipt_id"
+            )
         if not self.commit_ref:
-            raise CorrectionProposalRefused("materialization receipt requires a commit_ref")
+            raise CorrectionProposalRefused(
+                "materialization receipt requires a commit_ref"
+            )
         if not self.materialized_at:
             raise CorrectionProposalRefused(
                 "materialization receipt requires a materialized_at timestamp"
@@ -94,15 +98,21 @@ class CorrectionProposal:
         if not self.gap_ref:
             raise CorrectionProposalRefused("a correction proposal requires a gap_ref")
         if not self.specification:
-            raise CorrectionProposalRefused("a correction proposal requires a specification")
+            raise CorrectionProposalRefused(
+                "a correction proposal requires a specification"
+            )
         if not self.change_ref:
-            raise CorrectionProposalRefused("a correction proposal requires a change_ref")
+            raise CorrectionProposalRefused(
+                "a correction proposal requires a change_ref"
+            )
         if not self.evidence:
             raise CorrectionProposalRefused(
                 "a correction proposal requires at least one evidence reference"
             )
         if self.status not in _VALID_STATUSES:
-            raise CorrectionProposalRefused(f"unknown correction proposal status: {self.status!r}")
+            raise CorrectionProposalRefused(
+                f"unknown correction proposal status: {self.status!r}"
+            )
         if self.status == STATUS_MATERIALIZED and self.receipt is None:
             raise CorrectionProposalRefused(
                 "a materialized correction proposal requires a MaterializationReceipt"

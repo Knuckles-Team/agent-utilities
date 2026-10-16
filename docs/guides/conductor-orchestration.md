@@ -20,7 +20,9 @@ The `refined_subtask` field on `ExecutionStep` carries a natural-language instru
 ExecutionStep(
     node_id="python_programmer",
     refined_subtask="Implement a FastAPI REST API with JWT authentication middleware",
-    access_list=["researcher"],  # CONCEPT:AU-ORCH.planning.recursion-nesting-depth: only sees researcher output
+    access_list=[
+        "researcher"
+    ],  # CONCEPT:AU-ORCH.planning.recursion-nesting-depth: only sees researcher output
 )
 ```
 
@@ -90,8 +92,8 @@ The `model_synergies` field on `MemoryRetrieverNode` (in `models/knowledge_graph
 
 ```python
 model_synergies = {
-    "model-a|model-b": 0.85,    # Strong combination
-    "model-c|model-d": 0.45,    # Weak combination
+    "model-a|model-b": 0.85,  # Strong combination
+    "model-c|model-d": 0.45,  # Weak combination
 }
 ```
 

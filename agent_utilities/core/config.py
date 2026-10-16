@@ -7777,7 +7777,7 @@ def load_specialized_prompts(prompt_name: str) -> str:
     return f"You are a helpful assistant specialized in {prompt_name}."
 
 
-# --- Migrated from mcp/config_loader.py ---
+# --- Client configuration loading ---
 import os
 import shutil
 import tempfile
@@ -7934,31 +7934,15 @@ def _attach_mcp_toolset_ids(
         logger.debug(f"MCP Config: Loaded server '{name}'")
 
 
-def _mcp_protocol_hooks() -> tuple[Any, Any]:
-    """Install the MCP v2 bridge and return ``(load_mcp_toolsets, legacy_mode)``.
+def _load_mcp_toolsets_from_payload(expanded_content: str) -> list[Any]:
+    """Materialise the payload to a temp file and load it via the host port."""
+    from agent_utilities.host_ports import load_config_toolsets
 
-    Imported at call time so the loader stays patchable at ``pydantic_ai.mcp``.
-    """
-    from pydantic_ai.mcp import load_mcp_toolsets
-
-    from agent_utilities.graphos_client.protocol_compat import (
-        force_legacy_protocol_mode,
-        install_mcp_v2_bridge,
-    )
-
-    install_mcp_v2_bridge()
-    return load_mcp_toolsets, force_legacy_protocol_mode
-
-
-def _load_mcp_toolsets_from_payload(
-    expanded_content: str, load_mcp_toolsets: Any, force_legacy_protocol_mode: Any
-) -> list[Any]:
-    """Materialise the payload to a temp file and load it into toolsets."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
         tmp.write(expanded_content)
         tmp_path = tmp.name
     try:
-        servers = force_legacy_protocol_mode(load_mcp_toolsets(tmp_path))
+        servers = load_config_toolsets(tmp_path)
         config_data = json.loads(expanded_content)
         _attach_mcp_toolset_ids(servers, config_data.get("mcpServers", {}))
         return servers
@@ -7978,22 +7962,18 @@ def load_mcp_servers_from_config(config_path: str | Path) -> list[Any]:
         config_path: Path to the mcp_config.json file.
 
     Returns:
-        A list of initialized pydantic_ai.mcp.MCPServer objects (technically
-        MCPToolSet in newer versions, but returned as list of servers here).
+        The client toolsets the graph-os host built for the declared servers
+        (:func:`agent_utilities.host_ports.load_config_toolsets`).
 
     """
     from agent_utilities.base_utilities import expand_env_vars
-
-    load_mcp_toolsets, force_legacy_protocol_mode = _mcp_protocol_hooks()
 
     try:
         path = Path(config_path)
         if not path.exists():
             return []
         payload = _prevalidated_mcp_payload(expand_env_vars(path.read_text()))
-        return _load_mcp_toolsets_from_payload(
-            payload, load_mcp_toolsets, force_legacy_protocol_mode
-        )
+        return _load_mcp_toolsets_from_payload(payload)
     except Exception as e:
         logger.error("Failed to load MCP configuration: %s", e)
         return []

@@ -167,7 +167,7 @@ for record in pending:
         sink.write(record)
     except Exception:
         log.warning("write failed")
-    record.consumed = True      # ← unconditional
+    record.consumed = True  # ← unconditional
     store.save(record)
 ```
 
@@ -180,8 +180,8 @@ found, in queue drains, ingestion cursors and reconciliation passes.
 ```python
 # RIGHT — the flag is derived from the write's confirmed result
 for record in pending:
-    result = sink.write(record)     # raises, or returns a confirmation
-    record.consumed = result.ok     # ← derived, never assumed
+    result = sink.write(record)  # raises, or returns a confirmation
+    record.consumed = result.ok  # ← derived, never assumed
     store.save(record)
 ```
 

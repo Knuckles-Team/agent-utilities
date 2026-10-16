@@ -651,11 +651,13 @@ retriever = HybridRetriever(engine, schema_pack=pack)
 from agent_utilities.models.schema_pack import SchemaPack, SchemaPackMode
 from agent_utilities.models.schema_packs import register_schema_pack
 
+
 class LegalSchemaPack(SchemaPack):
     name: str = "legal"
     mode: SchemaPackMode = SchemaPackMode.EXCLUSIVE
     node_types: set = {RegistryNodeType.REGULATION, RegistryNodeType.DOCUMENT}
     edge_types: set = {RegistryEdgeType.CITES_SOURCE, RegistryEdgeType.BROADER}
+
 
 register_schema_pack("legal", LegalSchemaPack)
 ```

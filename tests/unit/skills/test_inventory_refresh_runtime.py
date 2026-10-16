@@ -11,9 +11,7 @@ from agent_utilities.skills import inventory_refresh_runtime as runtime
 def test_refresh_prints_plan_before_mutating(tmp_path, monkeypatch, capsys) -> None:
     root = tmp_path / "skills"
     monkeypatch.setattr(runtime, "unified_skills_dir", lambda: root)
-    monkeypatch.setattr(
-        runtime, "provider_registrations", lambda _group: ()
-    )
+    monkeypatch.setattr(runtime, "provider_registrations", lambda _group: ())
     monkeypatch.setattr(runtime, "install_unified", lambda: {})
 
     plan = runtime.print_skills_refresh_plan()
@@ -27,9 +25,7 @@ def test_refresh_prints_plan_before_mutating(tmp_path, monkeypatch, capsys) -> N
 def test_refresh_returns_entries_without_raising(tmp_path, monkeypatch) -> None:
     root = tmp_path / "skills"
     monkeypatch.setattr(runtime, "unified_skills_dir", lambda: root)
-    monkeypatch.setattr(
-        runtime, "provider_registrations", lambda _group: ()
-    )
+    monkeypatch.setattr(runtime, "provider_registrations", lambda _group: ())
     monkeypatch.setattr(runtime, "install_unified", lambda: {})
 
     entries = runtime.refresh_skills_inventory()

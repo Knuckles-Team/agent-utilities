@@ -4,7 +4,7 @@ from __future__ import annotations
 """Embedding versioning — a vector from model A must never be silently compared
 against model B's (CONCEPT:AU-KG.retrieval.embedding-version-identity).
 
-**The problem this closes.** `CapabilityIndex` (the HNSW/native ANN index behind
+**The problem this closes.** EG capability designation (the native ANN index behind
 `designate`/`retrieve_hybrid`) previously stored *only* the raw vector per id —
 no record of which embedding model produced it. Re-pointing
 `default_embedding_model` at a new model (a routine operational change — model
@@ -16,15 +16,15 @@ worst kind, because nothing fails, results just quietly get worse.
 
 **The fix.** Every embedding carries an explicit :class:`EmbeddingVersion`
 (``provider:model``, the identity of the space it lives in — dimensionality is
-already guarded separately by `CapabilityIndex`'s existing dim-mismatch check).
-`CapabilityIndex` is single-version-per-instance: the first vector `add()`ed
+already guarded separately by EG capability designation's existing dim-mismatch check).
+EG capability designation is single-version-per-instance: the first vector `add()`ed
 pins the index's version, and every subsequent `add()`/`designate()` call is
 checked against it. A mismatch raises :class:`EmbeddingVersionMismatchError`
 loudly instead of silently inserting or ranking a foreign-space vector.
 
 **Re-indexing.** Because an index is pinned to one version, a model change
 cannot be applied in place — it is a **generation swap**: build a new
-`CapabilityIndex` tagged with the new version, re-embed and populate it (via
+EG capability designation tagged with the new version, re-embed and populate it (via
 the same `create_embedding_model`/`make_embed_fn` path — never a second
 embedding factory), and cut retrieval traffic over once it is populated. A
 **partial** re-index is the same swap scoped to the subset of documents whose
@@ -64,7 +64,7 @@ class EmbeddingVersionMismatchError(RuntimeError):
     """A vector's embedding version does not match the expected/index version.
 
     Raised **loudly** (never swallowed into a silent fallback) by
-    ``CapabilityIndex.add``/``designate`` when a caller supplies a vector or
+    EG capability designation when a caller supplies a vector or
     query produced by a different embedding model than the index is pinned
     to (CONCEPT:AU-KG.retrieval.embedding-version-identity). The fix is a
     re-index (see module docstring), never a forced comparison.
@@ -91,7 +91,7 @@ class EmbeddingVersion:
     second source of truth, just the subset of that identity worth persisting
     alongside a vector. Dimensionality is intentionally excluded: two models
     can coincidentally share a dimension while producing incomparable spaces,
-    and `CapabilityIndex` already has an independent, unconditional dim-mismatch
+    and EG capability designation already has an independent, unconditional dim-mismatch
     guard in `add()` — conflating the two would weaken both checks.
     """
 

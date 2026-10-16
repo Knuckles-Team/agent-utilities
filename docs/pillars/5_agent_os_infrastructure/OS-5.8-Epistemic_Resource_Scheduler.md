@@ -101,11 +101,11 @@ Each `AgentProcess` carries an `InferenceBudget` with cost-aware tier management
 
 ```python
 budget = InferenceBudget(
-    cost_budget_usd=1.0,        # Max $1 spend
-    current_tier="standard",     # Start with GPT-4o class
-    auto_downgrade=True,         # Degrade before preempting
+    cost_budget_usd=1.0,  # Max $1 spend
+    current_tier="standard",  # Start with GPT-4o class
+    auto_downgrade=True,  # Degrade before preempting
     fallback_chain=["super", "standard", "lite"],
-    downgrade_threshold=0.70,    # Downgrade at 70% budget usage
+    downgrade_threshold=0.70,  # Downgrade at 70% budget usage
 )
 ```
 

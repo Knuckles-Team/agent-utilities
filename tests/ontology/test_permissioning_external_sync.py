@@ -21,7 +21,11 @@ from agent_utilities.knowledge_graph.ontology import permissioning_external_sync
 
 def _predicate_json(name: str, column: str = sync.RESERVED_MARKING_COLUMN) -> str:
     return json.dumps(
-        {"kind": "requires_role", "role": f"{sync.MARKING_ROLE_PREFIX}{name}", "column": column}
+        {
+            "kind": "requires_role",
+            "role": f"{sync.MARKING_ROLE_PREFIX}{name}",
+            "column": column,
+        }
     )
 
 
@@ -38,7 +42,11 @@ def _fixture_bundle(
     The default caller is NOT cleared for `confidential`, i.e. the ordinary
     case: a bundle whose one subject lacks the marking role.
     """
-    markings = markings if markings is not None else {"confidential": _predicate_json("confidential")}
+    markings = (
+        markings
+        if markings is not None
+        else {"confidential": _predicate_json("confidential")}
+    )
     raw = {
         "version": "policy-bundle-v1",
         "generated_from": "epoch:sha256:deadbeef",
@@ -96,12 +104,19 @@ def test_schema_round_trip_matches_eg_bundle_shape():
         "cannot answer; it is deleted, not adapted"
     )
     predicate = bundle.markings["confidential"].decode()
-    assert predicate == sync.RequiresRolePredicate(role="marking:confidential", column="_markings")
+    assert predicate == sync.RequiresRolePredicate(
+        role="marking:confidential", column="_markings"
+    )
     assert predicate.marking_name == "confidential"
 
 
 def test_missing_required_field_raises():
-    raw = {"version": "policy-bundle-v1", "generated_from": "x", "governs": ["M1"], "tenant": "t"}
+    raw = {
+        "version": "policy-bundle-v1",
+        "generated_from": "x",
+        "governs": ["M1"],
+        "tenant": "t",
+    }
     with pytest.raises(ValueError):
         sync.PolicyBundle.from_json(raw)
 
@@ -153,8 +168,12 @@ def test_governs_recognized(governs, expected):
 def test_trino_renderer_emits_pushdown_filter_only_for_columned_tables():
     bundle = _fixture_bundle()
     tables = (
-        sync.TrinoTargetTable("lakehouse", "analytics", "docs", has_markings_column=True),
-        sync.TrinoTargetTable("lakehouse", "analytics", "no_column_yet", has_markings_column=False),
+        sync.TrinoTargetTable(
+            "lakehouse", "analytics", "docs", has_markings_column=True
+        ),
+        sync.TrinoTargetTable(
+            "lakehouse", "analytics", "no_column_yet", has_markings_column=False
+        ),
     )
     rendered = sync.TrinoRenderer(tables=tables).render(bundle)
 
@@ -191,7 +210,11 @@ def test_trino_renderer_never_emits_a_catch_all_user_rule():
     table rules first-match-wins, so one such rule silently disables every rule
     appended after it."""
     bundle = _fixture_bundle()  # caller holds kg:read only -- holds no marking role
-    tables = (sync.TrinoTargetTable("lakehouse", "analytics", "docs", has_markings_column=True),)
+    tables = (
+        sync.TrinoTargetTable(
+            "lakehouse", "analytics", "docs", has_markings_column=True
+        ),
+    )
     rendered = sync.TrinoRenderer(tables=tables).render(bundle)
 
     assert rendered.payload, "the caller lacks the role, so it must still be filtered"
@@ -210,7 +233,11 @@ def test_trino_renderer_cleared_caller_emits_no_rule_but_reports_the_gap():
     """The other side of C-7: when the caller IS cleared there is nothing to
     filter for it, and still nothing may be asserted about anyone else."""
     bundle = _cleared_bundle()
-    tables = (sync.TrinoTargetTable("lakehouse", "analytics", "docs", has_markings_column=True),)
+    tables = (
+        sync.TrinoTargetTable(
+            "lakehouse", "analytics", "docs", has_markings_column=True
+        ),
+    )
     rendered = sync.TrinoRenderer(tables=tables).render(bundle)
     assert rendered.payload == []
     assert "single-caller bundle" in _reasons(rendered)
@@ -228,11 +255,16 @@ def test_trino_renderer_one_marking_never_shadows_another():
             "restricted": _predicate_json("restricted"),
         }
     )
-    tables = (sync.TrinoTargetTable("lakehouse", "analytics", "docs", has_markings_column=True),)
+    tables = (
+        sync.TrinoTargetTable(
+            "lakehouse", "analytics", "docs", has_markings_column=True
+        ),
+    )
     rendered = sync.TrinoRenderer(tables=tables).render(bundle)
 
     marking_names = {
-        name for name in ("confidential", "restricted")
+        name
+        for name in ("confidential", "restricted")
         for row in rendered.payload
         if f"'{name}'" in row["filter"]
     }
@@ -308,7 +340,9 @@ def test_opensearch_renderer_query_matches_ca24_render_dls_query_for_role():
 
     bundle = _fixture_bundle()
     rendered = sync.OpenSearchRenderer(index_patterns=("kg-*",)).render(bundle)
-    restricted_row = next(r for r in rendered.payload if r["role"] == "ca26-svc:restricted")
+    restricted_row = next(
+        r for r in rendered.payload if r["role"] == "ca26-svc:restricted"
+    )
     expected = render_dls_query_for_role(["kg:read"], ["confidential"])
     assert restricted_row["dls_query"] == expected
 
@@ -385,9 +419,15 @@ def test_applier_disabled_by_default_flag(monkeypatch):
 
 def test_applier_denies_all_targets_on_missing_bundle():
     applier, clients = _applier()
-    fetched = sync.FetchedBundle(bundle=None, fetched_at_monotonic=0.0, error="fetch failed")
+    fetched = sync.FetchedBundle(
+        bundle=None, fetched_at_monotonic=0.0, error="fetch failed"
+    )
     report = applier.apply_all(fetched)
-    assert {o["target"] for o in report["outcomes"]} == {"trino", "opensearch", "lakekeeper"}
+    assert {o["target"] for o in report["outcomes"]} == {
+        "trino",
+        "opensearch",
+        "lakekeeper",
+    }
     for outcome in report["outcomes"]:
         assert outcome["action"] == "denied-all"
     for client in clients.values():
@@ -397,7 +437,9 @@ def test_applier_denies_all_targets_on_missing_bundle():
 
 def test_applier_denies_all_targets_on_unrecognized_governs():
     applier, clients = _applier()
-    fetched = sync.FetchedBundle(bundle=_fixture_bundle(governs=["M6"]), fetched_at_monotonic=0.0)
+    fetched = sync.FetchedBundle(
+        bundle=_fixture_bundle(governs=["M6"]), fetched_at_monotonic=0.0
+    )
     report = applier.apply_all(fetched)
     for outcome in report["outcomes"]:
         assert outcome["action"] == "denied-all"
@@ -446,7 +488,10 @@ def test_applier_reapplies_when_bundle_content_changes():
 
 def test_applier_rejects_renderer_client_name_mismatch():
     with pytest.raises(ValueError):
-        sync.Applier({"trino": sync.TrinoRenderer(tables=())}, {"opensearch": sync.InMemoryTargetClient("opensearch")})
+        sync.Applier(
+            {"trino": sync.TrinoRenderer(tables=())},
+            {"opensearch": sync.InMemoryTargetClient("opensearch")},
+        )
 
 
 # ── invalidate_cache / dirty-tenant bookkeeping ─────────────────────────────

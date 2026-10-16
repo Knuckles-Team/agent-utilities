@@ -38,10 +38,10 @@ from pathlib import Path
 from typing import Annotated, Any, Literal, NoReturn, TypeGuard
 
 import yaml
-from fastmcp.exceptions import ToolError
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, create_model
 
 from agent_utilities.core._env import setting
+from agent_utilities.host_ports import HostToolError
 from agent_utilities.orchestration.run_identity import is_run_id, new_run_id
 from agent_utilities.release_catalogs import prebundled_skill_catalog_digest
 from agent_utilities.security.persistence_privacy import (
@@ -1120,7 +1120,7 @@ class _PayloadScan:
             self._expand_mapping(current, depth, stack)
         elif isinstance(current, list | tuple):
             self._expand_sequence(current, depth, stack)
-        elif _is_fastmcp_structured_dataclass(current):
+        elif _is_structured_result_dataclass(current):
             self._expand_structured(current, depth, stack)
         else:
             raise TypeError("payload_type_invalid")
@@ -1179,30 +1179,30 @@ def _validate_tool_payload_bounds(value: Any) -> None:
         scan.visit(current, depth, stack)
 
 
-def _is_fastmcp_structured_dataclass(value: Any) -> bool:
-    """Recognize only FastMCP's validated JSON-schema result containers."""
+def _is_structured_result_dataclass(value: Any) -> bool:
+    """Recognize the host client's validated structured-result containers.
 
-    return bool(
-        not isinstance(value, type)
-        and is_dataclass(value)
-        and type(value).__module__ == "fastmcp.utilities.json_schema_type"
-    )
+    The graph-os tool client may decode a tool's output schema into dataclass
+    instances; any dataclass *instance* (never a class) is a structured result.
+    """
+
+    return bool(not isinstance(value, type) and is_dataclass(value))
 
 
-def _normalize_fastmcp_structured_data(value: Any) -> Any:
-    """Convert an already bounded FastMCP result tree into plain JSON data."""
+def _normalize_structured_result_data(value: Any) -> Any:
+    """Convert an already bounded structured result tree into plain JSON data."""
 
-    if _is_fastmcp_structured_dataclass(value):
+    if _is_structured_result_dataclass(value):
         return {
-            member.name: _normalize_fastmcp_structured_data(getattr(value, member.name))
+            member.name: _normalize_structured_result_data(getattr(value, member.name))
             for member in dataclass_fields(value)
         }
     if isinstance(value, dict):
         return {
-            key: _normalize_fastmcp_structured_data(item) for key, item in value.items()
+            key: _normalize_structured_result_data(item) for key, item in value.items()
         }
     if isinstance(value, list | tuple):
-        return [_normalize_fastmcp_structured_data(item) for item in value]
+        return [_normalize_structured_result_data(item) for item in value]
     return value
 
 
@@ -1217,7 +1217,7 @@ def _decode_structured_value(value: Any) -> Any:
     if isinstance(value, BaseModel):
         value = value.model_dump(mode="json")
     _validate_tool_payload_bounds(value)
-    return _normalize_fastmcp_structured_data(value)
+    return _normalize_structured_result_data(value)
 
 
 def _decode_structured_attributes(result: Any) -> Any:
@@ -1293,7 +1293,7 @@ def _extract_delegation_envelope(value: Any) -> tuple[Any, str]:
     # ``{"result": ...}`` object below.
     if isinstance(value, str):
         value = _parse_json_text(value)
-    # FastMCP exposes a tool annotated as returning ``str`` through the current
+    # The tool protocol exposes a tool annotated as returning ``str`` through the current
     # structured-result envelope.  Unwrap that wire-level representation once;
     # the contained GraphOS object is still validated against the sole strict
     # delegation contract below.
@@ -2086,12 +2086,15 @@ async def _renew_direct_validation_session(
 ) -> Any:
     """Mint current direct-case authority without changing its verified grant."""
 
+    from agent_utilities.host_ports import (
+        outbound_auth_header,
+        refresh_outbound_credentials,
+    )
     from agent_utilities.knowledge_graph.core.session import SessionExpiredError
-    from agent_utilities.graphos_client.client_credentials import child_auth_header, get_provider
 
     async def mint_from_current_bearer() -> Any:
         headers = await _bounded_sync_call(
-            lambda: child_auth_header({}),
+            outbound_auth_header,
             _AUTHORITY_RENEWAL_TIMEOUT_SECONDS,
         )
         return await _verified_validation_session(
@@ -2104,13 +2107,15 @@ async def _renew_direct_validation_session(
         # The provider normally refreshes within its expiry skew. A direct case
         # may require a longer lease than that skew, so proactively rotate the
         # bearer once and re-verify it instead of starting work that can expire.
-        provider = get_provider()
-        if provider is None:
-            raise RuntimeError("direct_identity_renewal_unavailable") from None
-        await _bounded_sync_call(
-            lambda: provider.get_token(force=True),
-            _AUTHORITY_RENEWAL_TIMEOUT_SECONDS,
-        )
+        try:
+            await _bounded_sync_call(
+                refresh_outbound_credentials,
+                _AUTHORITY_RENEWAL_TIMEOUT_SECONDS,
+            )
+        except RuntimeError as exc:
+            if "graph-os host" in str(exc):
+                raise RuntimeError("direct_identity_renewal_unavailable") from None
+            raise
         session = await mint_from_current_bearer()
 
     if session.engine_verified_context() != expected_authority:
@@ -2123,17 +2128,22 @@ async def _renew_delegated_validation_session(
 ) -> Any:
     """Force a fresh bearer before one bounded delegated validation case."""
 
-    from agent_utilities.graphos_client.client_credentials import child_auth_header, get_provider
-
-    provider = get_provider()
-    if provider is None:
-        raise RuntimeError("delegated_identity_renewal_unavailable")
-    await _bounded_sync_call(
-        lambda: provider.get_token(force=True),
-        _AUTHORITY_RENEWAL_TIMEOUT_SECONDS,
+    from agent_utilities.host_ports import (
+        outbound_auth_header,
+        refresh_outbound_credentials,
     )
+
+    try:
+        await _bounded_sync_call(
+            refresh_outbound_credentials,
+            _AUTHORITY_RENEWAL_TIMEOUT_SECONDS,
+        )
+    except RuntimeError as exc:
+        if "graph-os host" in str(exc):
+            raise RuntimeError("delegated_identity_renewal_unavailable") from None
+        raise
     headers = await _bounded_sync_call(
-        lambda: child_auth_header({}),
+        outbound_auth_header,
         _AUTHORITY_RENEWAL_TIMEOUT_SECONDS,
     )
     session = await _verified_validation_session(
@@ -2461,7 +2471,7 @@ async def _wait_for_expected_trace(
                 from_timestamp=started_at,
                 expected_name=expected_name,
             )
-        except (ToolError, ValidationChildToolError):
+        except (HostToolError, ValidationChildToolError):
             # An exact-name trace read is idempotent, and GraphOS may fail the
             # outer call after a successful provider read when its mandatory
             # parent ChangeEnvelope races another graph writer. Retry only the
@@ -2523,7 +2533,7 @@ async def _verify_parent_ingested_trace(
                 arguments,
                 min(15.0, remaining),
             )
-        except (ToolError, ValidationChildToolError):
+        except (HostToolError, ValidationChildToolError):
             attempts = await _next_transient_retry(transient_tool_errors, deadline)
             if attempts is None:
                 raise
@@ -4055,23 +4065,16 @@ async def run(args: argparse.Namespace) -> list[CaseResult]:
 
     graph_os_url = _validated_graph_os_url(args)
 
-    from agent_utilities.graphos_client.client_credentials import child_auth, child_auth_header
-    from agent_utilities.graphos_client.toolset_factory import build_http_toolset
+    from agent_utilities.host_ports import open_tool_client, outbound_auth_header
 
-    headers = child_auth_header({})
+    headers = outbound_auth_header()
     identity_session = await _verified_validation_session(
         headers, minimum_ttl_seconds=1
     )
     tenant_id = str(identity_session.tenant)
     expected_authority = identity_session.engine_verified_context()
-    toolset = build_http_toolset(
-        graph_os_url,
-        auth=child_auth({}),
-        timeout=args.case_timeout,
-        toolset_id="skill-validation",
-    )
     results: list[CaseResult] = []
-    async with toolset.client as client:
+    async with open_tool_client(graph_os_url, timeout=args.case_timeout) as client:
         langfuse_tool = await _prepare_validation_tools(client, cases, tenant_id)
         for case in cases:
             item = await _run_validation_case(

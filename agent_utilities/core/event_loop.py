@@ -135,7 +135,7 @@ def run_sync_isolated(fn: Callable[[], _T]) -> _T:
     """Run a blocking ``asyncio.run``-based callable (e.g. ``Agent.run_sync``)
     safely regardless of whether the calling thread already has a running loop.
 
-    Not to be confused with :func:`agent_utilities.graphos_client.concurrency.run_blocking`
+    Not to be confused with :func:`agent_utilities.core.concurrency.run_blocking`
     (an ``async def`` helper an *async* caller ``await``s to offload a blocking
     call off the event loop). This one is for plain **sync** call sites that
     themselves invoke a sync-facade-over-asyncio (``Agent.run_sync``) and may be

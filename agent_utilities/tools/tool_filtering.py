@@ -258,12 +258,12 @@ def skill_matches_tags(skill_dir: str, tags: list[str]) -> bool:
 def extract_tool_tags(tool_def: Any) -> list[str]:
     """Extract tags from multiple potential locations in a tool definition.
 
-    Handles FastMCP tool metadata, standard Pydantic AI metadata dictionaries,
-    and direct 'tags' attributes to ensure robust discovery across protocol
-    versions.
+    Reads the protocol-neutral ``tags`` the graph-os host normalizes into a
+    tool's ``meta``/``metadata`` (the host owns any server-vendor metadata
+    namespace), plus a direct ``tags`` attribute.
 
     Args:
-        tool_def: The tool definition object (e.g. from MCPServer).
+        tool_def: The tool definition object (from a host-provided toolset).
 
     Returns:
         A list of tag strings associated with the tool.
@@ -273,11 +273,6 @@ def extract_tool_tags(tool_def: Any) -> list[str]:
 
     meta = getattr(tool_def, "meta", None)
     if isinstance(meta, dict):
-        fastmcp = meta.get("fastmcp") or meta.get("_fastmcp") or {}
-        tags_list = fastmcp.get("tags", [])
-        if tags_list:
-            return tags_list
-
         tags_list = meta.get("tags", [])
         if tags_list:
             return tags_list
@@ -289,11 +284,6 @@ def extract_tool_tags(tool_def: Any) -> list[str]:
             return tags_list
 
         meta_nested = metadata.get("meta") or {}
-        fastmcp = meta_nested.get("fastmcp") or meta_nested.get("_fastmcp") or {}
-        tags_list = fastmcp.get("tags", [])
-        if tags_list:
-            return tags_list
-
         tags_list = meta_nested.get("tags", [])
         if tags_list:
             return tags_list

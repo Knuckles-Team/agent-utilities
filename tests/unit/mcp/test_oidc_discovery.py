@@ -92,27 +92,3 @@ def test_oidc_clients_admit_only_canonicalized_loopback_http(
         assert kwargs["allow_loopback"] is True
         assert kwargs["trust_env"] is False
         assert kwargs["follow_redirects"] is False
-
-
-def test_minter_token_url_from_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
-    from agent_utilities.graphos_client import client_credentials
-
-    monkeypatch.delenv("OIDC_TOKEN_URL", raising=False)
-    monkeypatch.setenv("OIDC_ISSUER", ISS)
-    assert client_credentials._derive_token_url() == DOC["token_endpoint"]
-
-
-def test_minter_explicit_token_url_wins(monkeypatch: pytest.MonkeyPatch) -> None:
-    from agent_utilities.graphos_client import client_credentials
-
-    monkeypatch.setenv("OIDC_TOKEN_URL", "http://explicit.test/token")
-    monkeypatch.setenv("OIDC_ISSUER", ISS)
-    assert client_credentials._derive_token_url() == "http://explicit.test/token"
-
-
-def test_minter_multi_issuer_uses_primary(monkeypatch: pytest.MonkeyPatch) -> None:
-    from agent_utilities.graphos_client import client_credentials
-
-    monkeypatch.delenv("OIDC_TOKEN_URL", raising=False)
-    monkeypatch.setenv("OIDC_ISSUER", f"{ISS},{OKTA}")  # primary = first
-    assert client_credentials._derive_token_url() == DOC["token_endpoint"]

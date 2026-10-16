@@ -201,12 +201,16 @@ class TestBaseBrowserAuthManager:
         }
 
         with (
-            patch.object(manager, "_start_loopback_server", return_value=server) as start,
+            patch.object(
+                manager, "_start_loopback_server", return_value=server
+            ) as start,
             patch(
                 "agent_utilities.security.browser_auth.generate_pkce",
                 return_value=("verifier", "challenge"),
             ),
-            patch("agent_utilities.security.browser_auth.webbrowser.open") as open_browser,
+            patch(
+                "agent_utilities.security.browser_auth.webbrowser.open"
+            ) as open_browser,
             patch("httpx.post", return_value=response) as post,
         ):
             tokens = manager.login()

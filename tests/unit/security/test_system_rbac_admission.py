@@ -254,9 +254,7 @@ def test_ensure_entrypoint_reads_live_identity_from_eg_consensus(
         client, "_client", lambda: SimpleNamespace(consensus=_Consensus())
     )
 
-    outcome = sra.ensure_system_principal_access(
-        "graph-os-scheduler", client=client
-    )
+    outcome = sra.ensure_system_principal_access("graph-os-scheduler", client=client)
 
     assert outcome.already_held is True
     assert "System authority" in outcome.detail
@@ -274,8 +272,7 @@ def test_get_identity_engine_contract_is_read_only_and_admin_gated() -> None:
     """
 
     ledger_path = (
-        Path(__file__).resolve().parents[3]
-        / "docs/_vendor_eg_capability_ledger.json"
+        Path(__file__).resolve().parents[3] / "docs/_vendor_eg_capability_ledger.json"
     )
     ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
     contract = ledger["rows"]["GetIdentity"]
@@ -297,9 +294,7 @@ def _bound_principal(monkeypatch: pytest.MonkeyPatch):
     """
 
     monkeypatch.delenv(admission_authority.SIGNER_REGISTRY_ENV, raising=False)
-    actor = brain_context.ActorContext(
-        actor_id=ADMITTING_PRINCIPAL, authenticated=True
-    )
+    actor = brain_context.ActorContext(actor_id=ADMITTING_PRINCIPAL, authenticated=True)
     token = brain_context.set_actor(actor)
     try:
         yield
@@ -321,9 +316,7 @@ def _count_resolutions(monkeypatch: pytest.MonkeyPatch) -> list[int]:
         calls[0] += 1
         return real()
 
-    monkeypatch.setattr(
-        admission_authority, "resolve_admission_authority", _counting
-    )
+    monkeypatch.setattr(admission_authority, "resolve_admission_authority", _counting)
     return calls
 
 
@@ -339,7 +332,6 @@ def _hold_signer_key(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 # ensure_system_principal_access: idempotent cache + honest degrade + backoff
 # ---------------------------------------------------------------------------
-
 
 
 def test_ensure_admission_is_idempotent_across_repeated_calls(
@@ -392,9 +384,7 @@ def test_already_system_identity_is_authorized_noop_without_signer_key() -> None
         "roles": [],
     }
 
-    outcome = sra.ensure_system_principal_access(
-        "graph-os-scheduler", client=client
-    )
+    outcome = sra.ensure_system_principal_access("graph-os-scheduler", client=client)
 
     assert outcome.already_held is True
     assert "System authority" in outcome.detail
@@ -510,7 +500,6 @@ def test_ensure_admission_degrades_honestly_on_missing_credential() -> None:
     deployment. This must raise a clear, actionable, non-secret-leaking
     error — never crash with an unrelated exception, and never return a
     value that looks like success."""
-
 
     client = sra.FixtureSystemAdmissionClient()
     with pytest.raises(sra.SystemAdmissionError) as exc_info:
@@ -636,14 +625,10 @@ def test_cli_dry_run_never_touches_a_live_client_or_credential(
 ) -> None:
     calls = _count_resolutions(monkeypatch)
     principals = [sra.SystemPrincipal(agent_id="graph-os-scheduler", existing_roles=())]
-    result = cli.run_system_admission(
-        principals, apply=False
-    )
+    result = cli.run_system_admission(principals, apply=False)
     assert result.all_admitted is True
     assert result.role == sra.CONTROL_ROLE_NAME
-    assert calls[0] == 0, (
-        'dry-run must resolve no credential at all'
-    )
+    assert calls[0] == 0, "dry-run must resolve no credential at all"
 
 
 def test_cli_apply_without_a_signer_key_raises_the_one_credential_error() -> None:

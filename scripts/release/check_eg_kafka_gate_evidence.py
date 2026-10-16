@@ -25,7 +25,9 @@ from typing import Any, Final
 
 _REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 DEFAULT_PYPROJECT: Final = _REPO_ROOT / "pyproject.toml"
-DEFAULT_EVIDENCE: Final = _REPO_ROOT / "deploy" / "release" / "eg-kafka-gate-evidence.json"
+DEFAULT_EVIDENCE: Final = (
+    _REPO_ROOT / "deploy" / "release" / "eg-kafka-gate-evidence.json"
+)
 
 _PIN_RE: Final = re.compile(
     r'"epistemic-graph(?:\[[^\]]*\])?>=(?P<version>\d+\.\d+\.\d+)'

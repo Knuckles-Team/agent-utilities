@@ -7,12 +7,10 @@ under ``uv run --all-extras`` in pre-commit), which makes embedding-dependent
 "unit" tests hang on a refused TCP connection until the pytest timeout fires.
 
 We neutralize it the same way a provider-less environment does: the factory
-raises, and :class:`HybridRetriever` transparently falls back to its lexical
-path (``embed_model is None``). Tests that need a functioning embedder still
-``@patch`` the factory themselves, and that per-test patch overrides this one.
+raises, and callers fall back to their lexical path (``embed_model is None``).
+Tests that need a functioning embedder still ``@patch`` the factory
+themselves, and that per-test patch overrides this one.
 """
-
-import importlib
 
 import pytest
 
@@ -22,35 +20,6 @@ import pytest
 CANONICAL_EMBEDDING_FACTORY = (
     "agent_utilities.core.embedding_utilities.create_embedding_model"
 )
-
-#: Modules that bind ``create_embedding_model`` by name at import time. Patching
-#: the canonical factory alone would not intercept those already-bound
-#: references, so they are patched too -- but ONLY where they are importable.
-#: ``hybrid_retriever`` transitively imports ``agent_utilities.numeric``, which
-#: by contract requires the certified native numeric kernel and refuses to
-#: provide a fallback. In the documented lean (kernel-free) profile that import
-#: legitimately fails, and an unconditional patch turned every pure unit test
-#: into a fixture-setup error.
-OPTIONAL_EMBEDDING_FACTORY_REBINDS = (
-    "agent_utilities.knowledge_graph.retrieval.hybrid_retriever.create_embedding_model",
-)
-
-
-def _importable(target: str) -> bool:
-    """Return whether ``target``'s owning module can actually be imported.
-
-    Deliberately probes the real import rather than :func:`importlib.util.find_spec`:
-    an optional consumer can be *present* yet still refuse to import (the numeric
-    adapter, for example, additionally rejects an uncertified kernel). Only a real
-    import answers the question the caller is actually asking, and it keeps this
-    harness from naming any specific optional distribution.
-    """
-    module_name, _, _attr = target.rpartition(".")
-    try:
-        importlib.import_module(module_name)
-    except ImportError:
-        return False
-    return True
 
 
 @pytest.fixture(autouse=True)
@@ -63,12 +32,9 @@ def _hermetic_embeddings(monkeypatch):
             "hermetic; patch it explicitly in tests that need an embedder."
         )
 
-    targets = [CANONICAL_EMBEDDING_FACTORY]
-    targets.extend(t for t in OPTIONAL_EMBEDDING_FACTORY_REBINDS if _importable(t))
-    # An unimportable rebind is unreachable by definition, so skipping it cannot
-    # open a network path: no test can call through a module it cannot import.
-    for target in targets:
-        monkeypatch.setattr(target, _no_network_embeddings, raising=False)
+    # No module rebinds the factory by name at import time, so patching the
+    # canonical factory intercepts every call.
+    monkeypatch.setattr(CANONICAL_EMBEDDING_FACTORY, _no_network_embeddings)
 
 
 @pytest.fixture(autouse=True)

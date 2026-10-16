@@ -54,7 +54,8 @@ Check resolution:
 
 ```python
 from agent_utilities.ecosystem.ea_clients import get_leanix_client
-print(get_leanix_client())   # None ⇒ not configured
+
+print(get_leanix_client())  # None ⇒ not configured
 ```
 
 ## 2. Discover the metamodel → OWL

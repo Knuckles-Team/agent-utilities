@@ -1,7 +1,7 @@
 """Tests for governed fleet write-back actions (CONCEPT:AU-KG.ontology.batch-actions-executor).
 
 Exercises the reusable ``call_tool_once`` write helper against an in-process
-FastMCP server (the write-side twin of the KG-2.59 source connector) and asserts
+fake tool server (the write-side twin of the KG-2.59 source connector) and asserts
 ``fleet.write_record`` is registered as a governed EXTERNAL action.
 """
 
@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 
 import pytest
-from fastmcp import FastMCP
 
 from agent_utilities.knowledge_graph.actions import DEFAULT_REGISTRY, fleet_writeback
 from agent_utilities.knowledge_graph.actions.fleet_writeback import FLEET_WRITE_RECORD
@@ -18,10 +17,11 @@ from agent_utilities.knowledge_graph.actions.models import ActionEffect
 from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (
     call_tool_once,
 )
+from tests.fake_tool_server import FakeToolServer
 
 
 def _fake_fleet_server():
-    server = FastMCP("fake-servicenow-mcp")
+    server = FakeToolServer("fake-servicenow-mcp")
     calls: list = []
 
     @server.tool

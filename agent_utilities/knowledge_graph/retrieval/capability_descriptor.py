@@ -10,8 +10,8 @@ required data/resource types, tenant/authz scopes, cost/latency/reliability/
 locality, and a policy/approval class — the full contract a router needs to make
 an accountable placement decision, not just "does it match".
 
-Design, consistent with the rest of AU-P1-3's philosophy (``durable_outcome_store``'s
-docstring: "Deliberately NOT a new node type / table"):
+Design, consistent with the rest of AU-P1-3's philosophy (deliberately NOT a new
+node type / table):
 
 * :class:`CapabilityDescriptor` is a plain dataclass — the schema for a set of
   node properties on the SAME capability/tool node the engine already carries
@@ -22,9 +22,9 @@ docstring: "Deliberately NOT a new node type / table"):
   uses — no new node type, no new store.
 * ``reliability`` / ``success_count`` are NEVER written by
   :meth:`to_node_properties` — they are read-derived from the engine's
-  ``capability_reward`` / ``capability_reward_count`` properties (the durable
-  contextual-bandit outcome :mod:`.durable_outcome_store` already owns), so the
-  descriptor's calibrated success history is always the live bandit state, never
+  ``capability_reward`` / ``capability_reward_count`` properties (the outcome
+  reward epistemic-graph learns and owns, EG-DECISION-ENGINE-R172.5), so the
+  descriptor's calibrated success history is always the live learned state, never
   a second, driftable copy.
 * :class:`CapabilityDescriptorRegistry` is the AU-side in-process index the X-4
   task explicitly asks for ("AU holds the descriptor index + explanations; engine/
@@ -49,7 +49,7 @@ __all__ = [
 
 # The subset of node properties this module owns (written by to_node_properties /
 # read by from_node_properties). Deliberately excludes capability_reward* — those
-# belong to durable_outcome_store and are only ever READ here.
+# belong to EG's reward learning and are only ever READ here.
 _DESCRIPTOR_PROPS: tuple[str, ...] = (
     "capability_version",
     "capability_type",
@@ -133,7 +133,7 @@ class CapabilityDescriptor:
         required_resource_types: Resource types it needs provisioned (e.g. GPU,
             a specific external service).
         tenant_scopes: Tenants this instance is authorized for. Empty = every
-            tenant (mirrors :class:`~.capability_index.CapabilityIndex`'s
+            tenant (mirrors EG capability designation's
             tenant-agnostic default).
         authz_scopes: Auth scopes the CALLER must hold to invoke this capability
             (distinct from ``tenant_scopes``, which scope who owns the tool).
@@ -153,8 +153,7 @@ class CapabilityDescriptor:
             :data:`SIDE_EFFECT_DESTRUCTIVE` and no explicit value was given —
             fail-closed, never silently auto-approved.
         reliability: Calibrated success rate — READ-ONLY here; it mirrors the
-            durable contextual-bandit reward EMA
-            (:func:`~.durable_outcome_store.read_capability_reward`), never an
+            engine-learned outcome reward (``capability_reward``), never an
             independently-tracked value. 0.5 = unproven/neutral.
         success_count: Number of outcomes the reliability EMA has absorbed
             (mirrors ``capability_reward_count``).
@@ -253,7 +252,7 @@ class CapabilityDescriptorRegistry:
     is a plain dict keyed by entity id, hydrated from and persisted to the engine
     via the module-level :func:`persist_capability_descriptor` /
     :func:`load_capability_descriptor` functions. No CDC/ANN machinery of its own
-    — it composes with :class:`~.capability_index.CapabilityIndex` /
+    — it composes with EG capability designation /
     :mod:`.engine_capability_search` for candidate selection; this registry answers
     "what IS this capability's contract", not "which capability matches".
     """
@@ -310,10 +309,9 @@ def persist_capability_descriptor(
 ) -> bool:
     """Durably write ``descriptor``'s owned properties onto the engine node.
 
-    Mirrors :func:`~.durable_outcome_store.persist_capability_reward`'s pattern
-    exactly: a plain ``SET`` over the node's own properties, no new node type.
+    A plain ``SET`` over the node's own properties, no new node type.
     Never writes ``capability_reward``/``capability_reward_count`` — those stay
-    owned by the durable bandit. Returns ``False`` (no-op, never raises) when no
+    owned by EG's reward learning. Returns ``False`` (no-op, never raises) when no
     engine backend is reachable.
     """
     backend = getattr(engine, "backend", None)

@@ -54,7 +54,6 @@ def _provisioner_secret_json(agent_id: str = "graph-os:process") -> str:
 # ---------------------------------------------------------------------------
 
 
-
 ADMITTING_PRINCIPAL = "graph-os:process"
 
 
@@ -63,9 +62,7 @@ def _bound_principal(monkeypatch: pytest.MonkeyPatch):
     """Bind a verified principal; start from "this process holds no key"."""
 
     monkeypatch.delenv(admission_authority.SIGNER_REGISTRY_ENV, raising=False)
-    actor = brain_context.ActorContext(
-        actor_id=ADMITTING_PRINCIPAL, authenticated=True
-    )
+    actor = brain_context.ActorContext(actor_id=ADMITTING_PRINCIPAL, authenticated=True)
     token = brain_context.set_actor(actor)
     try:
         yield
@@ -83,9 +80,7 @@ def _hold_signer_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_dry_run_never_resolves_secrets_and_reports_a_real_preview() -> None:
-    result = cli.run_tier2_admission(
-        _admin_grant_manifest(), apply=False
-    )
+    result = cli.run_tier2_admission(_admin_grant_manifest(), apply=False)
     assert result.all_admitted is True
     assert result.bootstrap_attempted is True
     assert result.bootstrap_succeeded is True
@@ -103,9 +98,7 @@ def test_apply_resolves_credentials_and_admits_against_injected_client(
     _hold_signer_key(monkeypatch)
     client = era.FixtureEngineAdmissionClient()
 
-    result = cli.run_tier2_admission(
-        _admin_grant_manifest(), apply=True, client=client
-    )
+    result = cli.run_tier2_admission(_admin_grant_manifest(), apply=True, client=client)
 
     assert result.all_admitted is True
     assert result.bootstrap_succeeded is True
@@ -123,12 +116,8 @@ def test_apply_is_idempotent_across_two_runs_with_the_same_client(
     _hold_signer_key(monkeypatch)
     client = era.FixtureEngineAdmissionClient()
 
-    first = cli.run_tier2_admission(
-        _admin_grant_manifest(), apply=True, client=client
-    )
-    second = cli.run_tier2_admission(
-        _admin_grant_manifest(), apply=True, client=client
-    )
+    first = cli.run_tier2_admission(_admin_grant_manifest(), apply=True, client=client)
+    second = cli.run_tier2_admission(_admin_grant_manifest(), apply=True, client=client)
 
     assert first.bootstrap_succeeded is True
     assert second.bootstrap_succeeded is False
@@ -156,14 +145,14 @@ def test_apply_with_a_malformed_signer_registry_fails_loud(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv(admission_authority.SIGNER_REGISTRY_ENV, "not json")
-    with pytest.raises(admission_authority.AdmissionAuthorityError, match="not valid JSON"):
+    with pytest.raises(
+        admission_authority.AdmissionAuthorityError, match="not valid JSON"
+    ):
         cli.run_tier2_admission(
             _admin_grant_manifest(),
             apply=True,
             client=era.FixtureEngineAdmissionClient(),
         )
-
-
 
 
 def test_an_engine_admission_error_is_never_swallowed(
@@ -189,9 +178,7 @@ def test_an_engine_admission_error_is_never_swallowed(
     ]
 
     with pytest.raises(cli.Tier2AdmissionError, match="Tier-2 admission failed"):
-        cli.run_tier2_admission(
-            manifest, apply=True, client=client
-        )
+        cli.run_tier2_admission(manifest, apply=True, client=client)
 
     # The failed attempt must not have silently admitted the service.
     assert client.has_admin_capability("service:webui") is False

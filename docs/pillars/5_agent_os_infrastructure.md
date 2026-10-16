@@ -231,9 +231,11 @@ To prevent runtime `ImportError` failures when individual packages or tools are 
 ```python
 try:
     from agent_utilities.core.paths import log_dir
+
     logs_dir = log_dir()
 except ImportError:
     import platformdirs
+
     logs_dir = Path(platformdirs.user_log_path("agent-utilities", "knuckles-team"))
 ```
 

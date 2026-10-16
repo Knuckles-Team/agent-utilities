@@ -34,31 +34,38 @@ The `EventStreamIngester` supports multiple source types:
 ```python
 from agent_utilities.knowledge_graph.core.company_brain import CompanyBrain
 from agent_utilities.models.company_brain import (
-    ActorType, EventSourceType, EventStreamConfig, WebhookEvent
+    ActorType,
+    EventSourceType,
+    EventStreamConfig,
+    WebhookEvent,
 )
 
 brain = CompanyBrain()
 
 # Register a Slack webhook stream
-brain.events.register_stream(EventStreamConfig(
-    name="Slack Engineering",
-    source_type=EventSourceType.WEBHOOK,
-    endpoint="https://hooks.slack.com/events/T0001/...",
-    tenant_id="engineering",
-    actor_id="service:slack-integration",
-    actor_type=ActorType.AUTOMATED_SERVICE,
-    batch_size=10,
-))
+brain.events.register_stream(
+    EventStreamConfig(
+        name="Slack Engineering",
+        source_type=EventSourceType.WEBHOOK,
+        endpoint="https://hooks.slack.com/events/T0001/...",
+        tenant_id="engineering",
+        actor_id="service:slack-integration",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        batch_size=10,
+    )
+)
 
 # Register a GitHub webhook stream
-brain.events.register_stream(EventStreamConfig(
-    name="GitHub PRs",
-    source_type=EventSourceType.WEBHOOK,
-    endpoint="https://api.github.com/webhooks/...",
-    tenant_id="engineering",
-    actor_id="service:github-integration",
-    actor_type=ActorType.AUTOMATED_SERVICE,
-))
+brain.events.register_stream(
+    EventStreamConfig(
+        name="GitHub PRs",
+        source_type=EventSourceType.WEBHOOK,
+        endpoint="https://api.github.com/webhooks/...",
+        tenant_id="engineering",
+        actor_id="service:github-integration",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+    )
+)
 ```
 
 ---
@@ -69,32 +76,36 @@ Events are submitted to the queue and processed in batches:
 
 ```python
 # A human posts a message in Slack
-brain.events.submit_event(WebhookEvent(
-    source_type="slack",
-    event_type="message.posted",
-    payload={
-        "channel": "#engineering",
-        "user": "jane",
-        "text": "Deploying API gateway v2.3 to production",
-    },
-    actor_id="analyst:jane",
-    actor_type=ActorType.HUMAN,
-    tenant_id="engineering",
-))
+brain.events.submit_event(
+    WebhookEvent(
+        source_type="slack",
+        event_type="message.posted",
+        payload={
+            "channel": "#engineering",
+            "user": "jane",
+            "text": "Deploying API gateway v2.3 to production",
+        },
+        actor_id="analyst:jane",
+        actor_type=ActorType.HUMAN,
+        tenant_id="engineering",
+    )
+)
 
 # An AI agent creates a Jira ticket
-brain.events.submit_event(WebhookEvent(
-    source_type="jira",
-    event_type="issue.created",
-    payload={
-        "project": "ENG",
-        "summary": "API gateway health check timeout",
-        "priority": "high",
-    },
-    actor_id="agent:monitoring",
-    actor_type=ActorType.AI_AGENT,
-    tenant_id="engineering",
-))
+brain.events.submit_event(
+    WebhookEvent(
+        source_type="jira",
+        event_type="issue.created",
+        payload={
+            "project": "ENG",
+            "summary": "API gateway health check timeout",
+            "priority": "high",
+        },
+        actor_id="agent:monitoring",
+        actor_type=ActorType.AI_AGENT,
+        tenant_id="engineering",
+    )
+)
 
 # Process all queued events
 result = brain.events.process_batch()

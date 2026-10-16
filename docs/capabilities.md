@@ -39,13 +39,18 @@ Add knowledge and query it back — no external DB required.
 from agent_utilities.mcp import kg_server
 
 # Write a node
-await kg_server._execute_tool("graph_write", action="add_node",
-    node_id="svc:payments", node_type="Service",
-    properties='{"team":"fintech","tier":"critical"}')
+await kg_server._execute_tool(
+    "graph_write",
+    action="add_node",
+    node_id="svc:payments",
+    node_type="Service",
+    properties='{"team":"fintech","tier":"critical"}',
+)
 
 # Query it
-res = await kg_server._execute_tool("graph_query",
-    cypher="MATCH (n:Service) WHERE n.tier='critical' RETURN n")
+res = await kg_server._execute_tool(
+    "graph_query", cypher="MATCH (n:Service) WHERE n.tier='critical' RETURN n"
+)
 ```
 
 | Capability | MCP tool | Action(s) |
@@ -59,8 +64,9 @@ res = await kg_server._execute_tool("graph_query",
 
 ```python
 # Ingest a directory, repo, or document set into the KG
-await kg_server._execute_tool("graph_ingest", action="ingest",
-    path="./docs", content_type="auto")
+await kg_server._execute_tool(
+    "graph_ingest", action="ingest", path="./docs", content_type="auto"
+)
 ```
 
 `graph_ingest` actions include `ingest`, `corpus`, `jobs`, `job_status`,
@@ -90,8 +96,9 @@ the `kg-ingest` consumer group from any host. See
 
 ```python
 # Decompose a goal into a coordinated team at runtime
-await kg_server._execute_tool("graph_orchestrate",
-    agent_name="researcher", task="Summarize Q3 incident trends")
+await kg_server._execute_tool(
+    "graph_orchestrate", agent_name="researcher", task="Summarize Q3 incident trends"
+)
 ```
 
 `graph_orchestrate` delegates one named agent. Focused current surfaces own the
@@ -119,8 +126,12 @@ with run lineage written back to close the descriptive↔executable loop
 
 ```python
 # Launch a background goal loop (durable, resumable)
-await kg_server._execute_tool("graph_goals", action="create",
-    goal="Keep the incident KB current", session_id="ops-1")
+await kg_server._execute_tool(
+    "graph_goals",
+    action="create",
+    goal="Keep the incident KB current",
+    session_id="ops-1",
+)
 ```
 
 `graph_goals`: `create`, `list`, `iterations`, `cancel`. `graph_sessions`:
@@ -133,8 +144,12 @@ state store for the whole fleet via `STATE_DB_URI` (AU-OS.state.unified-durable-
 
 ```python
 await kg_server._execute_tool("ontology_interface", action="list")
-await kg_server._execute_tool("object_set", action="create",
-    name="critical-services", filter='{"tier":"critical"}')
+await kg_server._execute_tool(
+    "object_set",
+    action="create",
+    name="critical-services",
+    filter='{"tier":"critical"}',
+)
 ```
 
 Tools: `ontology_interface`, `ontology_value_types`, `ontology_property_types`,

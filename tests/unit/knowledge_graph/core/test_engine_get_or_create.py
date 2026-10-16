@@ -114,7 +114,7 @@ def test_get_or_create_only_warns_on_the_winning_construction(caplog):
         _NoOpEngine._ACTIVE_ENGINE = None
 
 
-def test_engine_has_no_graphos_client_import():
+def test_engine_has_no_host_ports_import():
     tree = ast.parse(inspect.getsource(engine_module))
     imported_modules = {
         node.module
@@ -128,5 +128,5 @@ def test_engine_has_no_graphos_client_import():
         for alias in node.names
     )
     assert not {
-        m for m in imported_modules if m.startswith("agent_utilities.graphos_client")
+        m for m in imported_modules if m.startswith("agent_utilities.host_ports")
     }

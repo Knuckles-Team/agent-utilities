@@ -322,7 +322,7 @@ def record_shape_outcome(
       job re-plans instead of repeating a shape that failed; a success leaves it cached.
     * **Learned shape policy (ORCH-1.71)** — when the run's ``shape`` and ``latency_s`` are known,
       reward that shape's archetype for the task-class by ``success × speed`` (``outcome_reward``)
-      via the shared ``OutcomeRouter``/``CapabilityIndex`` reward-EMA, so the policy learns which
+      via the shared ``OutcomeRouter``/EG capability designation reward-EMA, so the policy learns which
       shape wins per task-class.
 
     Cheap, in-process, best-effort — never raises into the caller's result path.
@@ -351,7 +351,7 @@ def _resolve_job_capabilities(
 
     Uses the engine's ``search_hybrid`` (``HybridRetriever`` → ``graph_compute`` → the Rust
     tokio/MessagePack engine over UDS) instead of a per-process Python HNSW cold-build — ~15×
-    faster live (~4.5 s incl. the query embedding vs >70 s for the Python ``CapabilityIndex``).
+    faster live (~4.5 s incl. the query embedding vs >70 s for the former Python capability index).
     Returns the hit list (possibly empty), or ``None`` when search is unavailable (so the caller
     keeps the safe full-graph default rather than mistaking "unavailable" for "no match").
     """
@@ -522,7 +522,7 @@ def _plan_base_shape(
 # The heuristic cascade above is a PRIOR; an outcome-learned policy refines which shape
 # (lean direct-completion vs full graph) actually wins per task-class, learned from real run
 # outcomes (success × speed). It collapses into the ONE shared reward-EMA spine
-# (``OutcomeRouter`` → ``CapabilityIndex``) that the KG-2.68 reasoner router and AHE-3.38
+# (``OutcomeRouter`` → EG capability designation) that the KG-2.68 reasoner router and AHE-3.38
 # profile evolution already use — not a new bandit — and adds ~zero per-call overhead (a free
 # task-class classify + two O(1) reward reads; NO per-turn embedding).
 _SHAPE_LEAN = "lean"

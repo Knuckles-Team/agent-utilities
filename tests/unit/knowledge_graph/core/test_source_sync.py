@@ -1801,7 +1801,7 @@ def _install_ops_provider(monkeypatch, package):
     # tool_schema_sha256 above (agent_utilities.protocols.source_connectors.
     # tool_schema.validate_live_tool_contract). That is the correct, real
     # check for the actual production tool — but these tests inject a
-    # deliberately minimal hand-written FastMCP stand-in whose JSON schema was
+    # deliberately minimal hand-written tool-server stand-in whose JSON schema was
     # never signed, so it can never hash-match the real pinned digest. Make
     # the digest comparison a no-op for exactly the signed tool name (real
     # tool-existence/argument-type validation still runs against the live
@@ -1912,12 +1912,11 @@ def test_l27_connectors_all_registered_and_gate_checked():
 
 
 def test_container_manager_mcp_sync_runs_and_ingests(monkeypatch):
-    from fastmcp import FastMCP
-
     from agent_utilities.security.persistence_privacy import persistence_reference
+    from tests.fake_tool_server import FakeToolServer
 
     _install_ops_provider(monkeypatch, "container-manager-mcp")
-    server = FastMCP("container-manager-mcp")
+    server = FakeToolServer("container-manager-mcp")
 
     # The signed preset declares params_style: args (agent_utilities/knowledge_graph/
     # ontology/connector_manifests/container-manager-mcp/connector_manifest.yml) —
@@ -1968,12 +1967,11 @@ def test_container_manager_mcp_sync_runs_and_ingests(monkeypatch):
 
 
 def test_container_manager_mcp_reconcile_tombstones(monkeypatch):
-    from fastmcp import FastMCP
-
     from agent_utilities.security.persistence_privacy import persistence_reference
+    from tests.fake_tool_server import FakeToolServer
 
     _install_ops_provider(monkeypatch, "container-manager-mcp")
-    server = FastMCP("container-manager-mcp")
+    server = FakeToolServer("container-manager-mcp")
 
     @server.tool
     def cm_container_operations(
@@ -2058,10 +2056,10 @@ def test_documentdb_mcp_unconfigured_server_fails_closed(monkeypatch):
 
 
 def test_systems_manager_sync_runs_via_generic_ops_handler(monkeypatch):
-    from fastmcp import FastMCP
+    from tests.fake_tool_server import FakeToolServer
 
     _install_ops_provider(monkeypatch, "systems-manager")
-    server = FastMCP("systems-manager")
+    server = FakeToolServer("systems-manager")
 
     # The signed manifest's ONLY schema-pinned preset (and, per
     # ``_install_ops_provider``'s pinned-first reorder, the one
@@ -2085,10 +2083,10 @@ def test_systems_manager_sync_runs_via_generic_ops_handler(monkeypatch):
 
 
 def test_ops_connector_response_schema_drift_applies_no_records(monkeypatch):
-    from fastmcp import FastMCP
+    from tests.fake_tool_server import FakeToolServer
 
     _install_ops_provider(monkeypatch, "container-manager-mcp")
-    server = FastMCP("container-manager-mcp")
+    server = FakeToolServer("container-manager-mcp")
 
     @server.tool
     def cm_container_operations(action: str, all_containers: bool = False) -> dict:
@@ -2141,11 +2139,11 @@ def test_ops_connector_schema_drift_is_quarantined_without_checkpoint_advance(
     that grows an undeclared field is held -- nothing applied, the watermark
     unchanged, a SchemaDriftReport and a Gap recorded -- and re-syncing keeps
     holding it (no ContractEvolutionPolicy declares the class)."""
-    from fastmcp import FastMCP
+    from tests.fake_tool_server import FakeToolServer
 
     _install_ops_provider(monkeypatch, "systems-manager")
     state: dict = {"extra": {}, "watermark_before": None}
-    server = FastMCP("systems-manager")
+    server = FakeToolServer("systems-manager")
 
     @server.tool
     def sm_service_operations(action: str) -> dict:

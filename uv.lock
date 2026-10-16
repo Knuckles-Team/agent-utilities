@@ -14,7 +14,6 @@ prerelease-mode = "allow"
 overrides = [
     { name = "beartype", specifier = ">=0.22.9,<0.23.0.dev0" },
     { name = "curl-cffi", specifier = ">=0.16.3,<0.16.4.dev0" },
-    { name = "fastmcp-slim", extras = ["client", "server"], specifier = ">=4.0.11" },
     { name = "httpcore2", specifier = ">=2.12.0" },
     { name = "httpx2", specifier = ">=2.12.0" },
     { name = "logfire-api", specifier = ">=3.14.1,<6.0.0.dev0" },
@@ -28,18 +27,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/07/e9/8b283567c1fef7c24d1f390b37daede8b61593d8cdaffb8e95d571699e83/aenum-3.1.17.tar.gz", hash = "sha256:a969a4516b194895de72c875ece355f17c0d272146f7fda346ef74f93cf4d5ba", size = 137648, upload-time = "2026-03-20T20:43:29.846Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/48/8d/1fe30c6fd8999b9d462547c4a1bb6690bda24af38f2913c4bec7decb81f2/aenum-3.1.17-py3-none-any.whl", hash = "sha256:8b883a37a04e74cc838ac442bdd28c266eae5bbf13e1342c7ef123ed25230139", size = 165560, upload-time = "2026-03-20T20:43:27.681Z" },
-]
-
-[[package]]
-name = "ag-ui-protocol"
-version = "0.1.22"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pydantic" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e8/f7/9bf788e7d3608725d022a248a58427040f4f930ab87ddb54bd29ee4d9a51/ag_ui_protocol-0.1.22.tar.gz", hash = "sha256:d21f265284a50d9fc87ad7bcbd58f737b4b16eef7b5375f13a6e925117b52046", size = 18110, upload-time = "2026-08-31T18:20:04.334Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/be/6c/af3d577e68c9474c99600e65b2c6283772aae187edca6f0f2f5cbd9f565a/ag_ui_protocol-0.1.22-py3-none-any.whl", hash = "sha256:fca13ee7820f8f53e869c19e09ddd75826c1799b27c2adb6f2e567295433c704", size = 22068, upload-time = "2026-08-31T18:20:03.43Z" },
 ]
 
 [[package]]
@@ -153,18 +140,13 @@ agent-groq = [
 ]
 agent-headless = [
     { name = "fasta2a", extra = ["pydantic-ai"] },
-    { name = "fastapi" },
-    { name = "fastmcp" },
     { name = "httpx" },
     { name = "pydantic-ai-harness" },
     { name = "pydantic-ai-skills" },
-    { name = "pydantic-ai-slim", extra = ["cli", "mcp", "openai", "web"] },
+    { name = "pydantic-ai-slim", extra = ["cli", "openai"] },
     { name = "pydantic-graph" },
     { name = "pydantic-monty" },
-    { name = "pyjwt" },
-    { name = "python-multipart" },
     { name = "skill-graphs" },
-    { name = "starlette" },
     { name = "universal-skills" },
     { name = "wasmtime" },
 ]
@@ -177,18 +159,13 @@ agent-mistral = [
 agent-runtime = [
     { name = "agent-terminal-ui" },
     { name = "fasta2a", extra = ["pydantic-ai"] },
-    { name = "fastapi" },
-    { name = "fastmcp" },
     { name = "httpx" },
     { name = "pydantic-ai-harness" },
     { name = "pydantic-ai-skills" },
-    { name = "pydantic-ai-slim", extra = ["ag-ui", "cli", "mcp", "openai", "ui", "web"] },
+    { name = "pydantic-ai-slim", extra = ["cli", "openai"] },
     { name = "pydantic-graph" },
     { name = "pydantic-monty" },
-    { name = "pyjwt" },
-    { name = "python-multipart" },
     { name = "skill-graphs" },
-    { name = "starlette" },
     { name = "universal-skills" },
     { name = "wasmtime" },
 ]
@@ -199,8 +176,6 @@ all = [
     { name = "confluent-kafka" },
     { name = "discord-py" },
     { name = "fasta2a", extra = ["pydantic-ai"] },
-    { name = "fastapi" },
-    { name = "fastmcp" },
     { name = "feedparser" },
     { name = "google-api-python-client" },
     { name = "google-auth" },
@@ -220,25 +195,20 @@ all = [
     { name = "neonize" },
     { name = "nest-asyncio" },
     { name = "networkx" },
-    { name = "opentelemetry-instrumentation-asgi" },
-    { name = "opentelemetry-instrumentation-fastapi" },
-    { name = "opentelemetry-instrumentation-starlette" },
     { name = "pandas" },
     { name = "playwright" },
     { name = "pyarrow" },
     { name = "pydantic-ai-harness", extra = ["acp"] },
     { name = "pydantic-ai-skills" },
-    { name = "pydantic-ai-slim", extra = ["ag-ui", "anthropic", "cli", "google", "groq", "huggingface", "mcp", "mistral", "openai", "ui", "web"] },
+    { name = "pydantic-ai-slim", extra = ["anthropic", "cli", "google", "groq", "huggingface", "mistral", "openai"] },
     { name = "pydantic-graph" },
     { name = "pydantic-monty" },
-    { name = "pyjwt" },
     { name = "pystardog" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-env" },
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
-    { name = "python-multipart" },
     { name = "python-telegram-bot" },
     { name = "rdflib" },
     { name = "ruff" },
@@ -247,7 +217,6 @@ all = [
     { name = "slack-bolt" },
     { name = "sqlalchemy" },
     { name = "sqlalchemy-trino" },
-    { name = "starlette" },
     { name = "statsmodels" },
     { name = "syrupy" },
     { name = "trino" },
@@ -317,15 +286,6 @@ langfuse = [
 ]
 logfire = [
     { name = "logfire", extra = ["httpx"] },
-]
-mcp = [
-    { name = "fastapi" },
-    { name = "fastmcp" },
-    { name = "httpx" },
-    { name = "pydantic-ai-slim", extra = ["openai"] },
-    { name = "pyjwt" },
-    { name = "python-multipart" },
-    { name = "starlette" },
 ]
 messaging = [
     { name = "botbuilder-core" },
@@ -420,8 +380,6 @@ sandbox = [
 ]
 serving = [
     { name = "fasta2a", extra = ["pydantic-ai"] },
-    { name = "fastapi" },
-    { name = "fastmcp" },
     { name = "feedparser" },
     { name = "httpx" },
     { name = "hvac" },
@@ -433,15 +391,12 @@ serving = [
     { name = "prometheus-client" },
     { name = "pydantic-ai-harness" },
     { name = "pydantic-ai-skills" },
-    { name = "pydantic-ai-slim", extra = ["cli", "mcp", "openai", "web"] },
+    { name = "pydantic-ai-slim", extra = ["cli", "openai"] },
     { name = "pydantic-graph" },
     { name = "pydantic-monty" },
-    { name = "pyjwt" },
-    { name = "python-multipart" },
     { name = "python-telegram-bot" },
     { name = "rdflib" },
     { name = "skill-graphs" },
-    { name = "starlette" },
     { name = "universal-skills" },
     { name = "wasmtime" },
 ]
@@ -457,8 +412,6 @@ test = [
     { name = "aiohttp" },
     { name = "confluent-kafka" },
     { name = "fasta2a", extra = ["pydantic-ai"] },
-    { name = "fastapi" },
-    { name = "fastmcp" },
     { name = "feedparser" },
     { name = "hmmlearn" },
     { name = "httpx" },
@@ -467,30 +420,24 @@ test = [
     { name = "mypy" },
     { name = "nest-asyncio" },
     { name = "networkx" },
-    { name = "opentelemetry-instrumentation-asgi" },
-    { name = "opentelemetry-instrumentation-fastapi" },
-    { name = "opentelemetry-instrumentation-starlette" },
     { name = "pandas" },
     { name = "pyarrow" },
     { name = "pydantic-ai-harness", extra = ["acp"] },
     { name = "pydantic-ai-skills" },
-    { name = "pydantic-ai-slim", extra = ["ag-ui", "anthropic", "cli", "google", "groq", "huggingface", "mcp", "mistral", "openai", "ui", "web"] },
+    { name = "pydantic-ai-slim", extra = ["anthropic", "cli", "google", "groq", "huggingface", "mistral", "openai"] },
     { name = "pydantic-graph" },
     { name = "pydantic-monty" },
-    { name = "pyjwt" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-env" },
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
-    { name = "python-multipart" },
     { name = "rdflib" },
     { name = "ruff" },
     { name = "setuptools" },
     { name = "skill-graphs" },
     { name = "sqlalchemy" },
     { name = "sqlalchemy-trino" },
-    { name = "starlette" },
     { name = "statsmodels" },
     { name = "syrupy" },
     { name = "trino" },
@@ -505,8 +452,6 @@ test-backends = [
     { name = "aiokafka" },
     { name = "confluent-kafka" },
     { name = "fasta2a", extra = ["pydantic-ai"] },
-    { name = "fastapi" },
-    { name = "fastmcp" },
     { name = "feedparser" },
     { name = "hmmlearn" },
     { name = "httpx" },
@@ -515,32 +460,26 @@ test-backends = [
     { name = "mypy" },
     { name = "nest-asyncio" },
     { name = "networkx" },
-    { name = "opentelemetry-instrumentation-asgi" },
-    { name = "opentelemetry-instrumentation-fastapi" },
-    { name = "opentelemetry-instrumentation-starlette" },
     { name = "pandas" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg-pool" },
     { name = "pyarrow" },
     { name = "pydantic-ai-harness", extra = ["acp"] },
     { name = "pydantic-ai-skills" },
-    { name = "pydantic-ai-slim", extra = ["ag-ui", "anthropic", "cli", "google", "groq", "huggingface", "mcp", "mistral", "openai", "ui", "web"] },
+    { name = "pydantic-ai-slim", extra = ["anthropic", "cli", "google", "groq", "huggingface", "mistral", "openai"] },
     { name = "pydantic-graph" },
     { name = "pydantic-monty" },
-    { name = "pyjwt" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-env" },
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
-    { name = "python-multipart" },
     { name = "rdflib" },
     { name = "ruff" },
     { name = "setuptools" },
     { name = "skill-graphs" },
     { name = "sqlalchemy" },
     { name = "sqlalchemy-trino" },
-    { name = "starlette" },
     { name = "statsmodels" },
     { name = "syrupy" },
     { name = "testcontainers" },
@@ -576,18 +515,18 @@ guardrails = [
 requires-dist = [
     { name = "agent-connector-sdk", editable = ".uv-workspace-siblings/agent-connector-sdk" },
     { name = "agent-terminal-ui", marker = "extra == 'terminal'", specifier = ">=1.0.0" },
-    { name = "agent-utilities", extras = ["acp", "agent-anthropic", "agent-google", "agent-groq", "agent-huggingface", "agent-mistral", "agent-runtime", "ann", "auth", "browser", "documents", "embeddings-huggingface", "embeddings-ollama", "embeddings-openai", "feeds", "finance", "langfuse", "logfire", "mcp", "messaging", "pyarrow", "rdf", "sandbox", "stardog", "test", "vault"], marker = "extra == 'all'", specifier = ">=1.0.0" },
+    { name = "agent-utilities", extras = ["acp", "agent-anthropic", "agent-google", "agent-groq", "agent-huggingface", "agent-mistral", "agent-runtime", "ann", "auth", "browser", "documents", "embeddings-huggingface", "embeddings-ollama", "embeddings-openai", "feeds", "finance", "langfuse", "logfire", "messaging", "pyarrow", "rdf", "sandbox", "stardog", "test", "vault"], marker = "extra == 'all'", specifier = ">=1.0.0" },
     { name = "agent-utilities", extras = ["acp", "agent-anthropic", "agent-google", "agent-groq", "agent-huggingface", "agent-mistral", "agent-runtime", "event-kafka", "feeds", "finance", "pyarrow", "rdf", "sandbox", "trino"], marker = "extra == 'test'" },
-    { name = "agent-utilities", extras = ["agent-headless", "auth", "embeddings-openai", "feeds", "langfuse", "logfire", "mcp", "messaging-mattermost", "messaging-telegram", "metrics", "otel", "rdf", "vault"], marker = "extra == 'serving'" },
+    { name = "agent-utilities", extras = ["agent-headless", "auth", "embeddings-openai", "feeds", "langfuse", "logfire", "messaging-mattermost", "messaging-telegram", "metrics", "otel", "rdf", "vault"], marker = "extra == 'serving'" },
     { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-huggingface'", specifier = ">=1.0.0" },
     { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", specifier = ">=1.0.0" },
     { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-openai'", specifier = ">=1.0.0" },
     { name = "agent-utilities", extras = ["finance"], marker = "extra == 'finance-kronos'" },
     { name = "agent-utilities", extras = ["fuseki", "kafka", "postgresql", "rdf", "test"], marker = "extra == 'test-backends'" },
-    { name = "agent-utilities", extras = ["mcp", "sandbox"], marker = "extra == 'agent-headless'", specifier = ">=1.0.0" },
-    { name = "agent-utilities", extras = ["mcp", "sandbox", "terminal"], marker = "extra == 'agent-runtime'", specifier = ">=1.0.0" },
     { name = "agent-utilities", extras = ["messaging-discord", "messaging-googlechat", "messaging-googlemeet", "messaging-irc", "messaging-line", "messaging-matrix", "messaging-mattermost", "messaging-nextcloud", "messaging-signal", "messaging-slack", "messaging-synology", "messaging-teams", "messaging-telegram", "messaging-twitch", "messaging-voicecall", "messaging-whatsapp"], marker = "extra == 'messaging'" },
     { name = "agent-utilities", extras = ["rdf"], marker = "extra == 'stardog'" },
+    { name = "agent-utilities", extras = ["sandbox"], marker = "extra == 'agent-headless'", specifier = ">=1.0.0" },
+    { name = "agent-utilities", extras = ["sandbox", "terminal"], marker = "extra == 'agent-runtime'", specifier = ">=1.0.0" },
     { name = "aiohttp", marker = "extra == 'test'", specifier = ">=3.14.1" },
     { name = "aiokafka", marker = "extra == 'kafka'", specifier = ">=0.14.0" },
     { name = "botbuilder-core", marker = "extra == 'messaging-teams'", specifier = ">=4.17.1" },
@@ -600,8 +539,6 @@ requires-dist = [
     { name = "epistemic-graph", extras = ["full"], editable = ".uv-workspace-siblings/epistemic-graph" },
     { name = "fasta2a", extras = ["pydantic-ai"], marker = "extra == 'agent-headless'", specifier = ">=0.6.1,<1.0.0" },
     { name = "fasta2a", extras = ["pydantic-ai"], marker = "extra == 'agent-runtime'", specifier = ">=0.6.1,<1.0.0" },
-    { name = "fastapi", marker = "extra == 'mcp'", specifier = ">=0.139.2" },
-    { name = "fastmcp", marker = "extra == 'mcp'", specifier = ">=4.0.11" },
     { name = "feedparser", marker = "extra == 'feeds'", specifier = ">=6.0.12" },
     { name = "filelock", specifier = ">=3.32.0" },
     { name = "google-api-python-client", marker = "extra == 'messaging-googlechat'", specifier = ">=2.198.0" },
@@ -612,9 +549,10 @@ requires-dist = [
     { name = "great-expectations", marker = "extra == 'data-quality-ge'", specifier = ">=1.3.0,<2" },
     { name = "hmmlearn", marker = "extra == 'finance'", specifier = ">=0.3.3" },
     { name = "hnswlib", marker = "extra == 'ann'", specifier = ">=0.8.0" },
+    { name = "httpx", marker = "extra == 'agent-headless'", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'agent-runtime'", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'finance'", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'fuseki'", specifier = ">=0.28.1" },
-    { name = "httpx", marker = "extra == 'mcp'", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'messaging-nextcloud'", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'messaging-synology'", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'messaging-whatsapp'", specifier = ">=0.28.1" },
@@ -639,9 +577,6 @@ requires-dist = [
     { name = "networkx", marker = "extra == 'test'", specifier = ">=3.6.1" },
     { name = "opensearch-py", marker = "extra == 'opensearch'", specifier = ">=2.6.0" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'", specifier = ">=1.30.0,<2" },
-    { name = "opentelemetry-instrumentation-asgi", marker = "extra == 'test'", specifier = ">=0.60b0" },
-    { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'test'", specifier = ">=0.60b0" },
-    { name = "opentelemetry-instrumentation-starlette", marker = "extra == 'test'", specifier = ">=0.60b0" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.30.0,<2" },
     { name = "packaging", specifier = ">=26.2.0" },
     { name = "pandas", marker = "extra == 'finance'", specifier = ">=2.2,<3" },
@@ -664,19 +599,17 @@ requires-dist = [
     { name = "pydantic-ai-harness", extras = ["dynamic-workflow"], marker = "extra == 'dynamic-workflow'", specifier = ">=0.54.0,<0.55.0" },
     { name = "pydantic-ai-skills", marker = "extra == 'agent-headless'", specifier = ">=2.1.0,<3.0.0" },
     { name = "pydantic-ai-skills", marker = "extra == 'agent-runtime'", specifier = ">=2.1.0,<3.0.0" },
-    { name = "pydantic-ai-slim", extras = ["ag-ui", "cli", "mcp", "openai", "ui", "web"], marker = "extra == 'agent-runtime'", specifier = "==2.54.0" },
     { name = "pydantic-ai-slim", extras = ["anthropic"], marker = "extra == 'agent-anthropic'", specifier = "==2.54.0" },
-    { name = "pydantic-ai-slim", extras = ["cli", "mcp", "openai", "web"], marker = "extra == 'agent-headless'", specifier = "==2.54.0" },
+    { name = "pydantic-ai-slim", extras = ["cli", "openai"], marker = "extra == 'agent-headless'", specifier = "==2.54.0" },
+    { name = "pydantic-ai-slim", extras = ["cli", "openai"], marker = "extra == 'agent-runtime'", specifier = "==2.54.0" },
     { name = "pydantic-ai-slim", extras = ["google"], marker = "extra == 'agent-google'", specifier = "==2.54.0" },
     { name = "pydantic-ai-slim", extras = ["groq"], marker = "extra == 'agent-groq'", specifier = "==2.54.0" },
     { name = "pydantic-ai-slim", extras = ["huggingface"], marker = "extra == 'agent-huggingface'", specifier = "==2.54.0" },
     { name = "pydantic-ai-slim", extras = ["mistral"], marker = "extra == 'agent-mistral'", specifier = "==2.54.0" },
-    { name = "pydantic-ai-slim", extras = ["openai"], marker = "extra == 'mcp'", specifier = "==2.54.0" },
     { name = "pydantic-graph", marker = "extra == 'agent-headless'", specifier = "==2.54.0" },
     { name = "pydantic-graph", marker = "extra == 'agent-runtime'", specifier = "==2.54.0" },
     { name = "pydantic-monty", marker = "extra == 'sandbox'", specifier = ">=1.1.0,<2.0.0" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
-    { name = "pyjwt", marker = "extra == 'mcp'", specifier = ">=2.13.0" },
     { name = "pypdf", specifier = ">=6.16.1" },
     { name = "pystardog", marker = "extra == 'stardog'", specifier = ">=0.20.0" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.4.0" },
@@ -684,7 +617,6 @@ requires-dist = [
     { name = "pytest-env", marker = "extra == 'test'", specifier = ">=1.7.0" },
     { name = "pytest-timeout", marker = "extra == 'test'", specifier = ">=2.4.0" },
     { name = "pytest-xdist", marker = "extra == 'test'", specifier = ">=3.8.0" },
-    { name = "python-multipart", marker = "extra == 'mcp'", specifier = ">=0.0.32" },
     { name = "python-telegram-bot", marker = "extra == 'messaging-telegram'", specifier = ">=22.8" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "rdflib", marker = "extra == 'fuseki'", specifier = ">=7.6.0" },
@@ -698,7 +630,6 @@ requires-dist = [
     { name = "slack-bolt", marker = "extra == 'messaging-slack'", specifier = ">=1.30.0" },
     { name = "sqlalchemy", marker = "extra == 'trino'", specifier = ">=2.0.51" },
     { name = "sqlalchemy-trino", marker = "extra == 'trino'", specifier = ">=0.5.0" },
-    { name = "starlette", marker = "extra == 'mcp'", specifier = ">=1.3.1" },
     { name = "statsmodels", marker = "extra == 'finance'", specifier = ">=0.14.6" },
     { name = "syrupy", marker = "extra == 'test'", specifier = ">=5.5.3" },
     { name = "testcontainers", marker = "extra == 'test-backends'", specifier = ">=4.14.2" },
@@ -713,7 +644,7 @@ requires-dist = [
     { name = "websockets", marker = "extra == 'finance'", specifier = ">=16.1.1" },
     { name = "yfinance", marker = "extra == 'finance'", specifier = ">=1.5.1" },
 ]
-provides-extras = ["graphos", "sandbox", "feeds", "kafka", "opensearch", "metrics", "otel", "nats", "pyarrow", "data-quality-ge", "data-quality-pandera", "mcp", "agent-runtime", "agent-headless", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "dynamic-workflow", "terminal", "browser", "computer-use", "acp", "documents", "embeddings", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "langfuse", "ann", "rdf", "stardog", "fuseki", "event-kafka", "ingest-dedup", "vault", "auth", "serving", "finance", "finance-kronos", "hr", "medical", "science", "law", "government", "postgresql", "trino", "messaging-discord", "messaging-slack", "messaging-telegram", "messaging-whatsapp", "messaging-teams", "messaging-googlechat", "messaging-googlemeet", "messaging-mattermost", "messaging-matrix", "messaging-irc", "messaging-signal", "messaging-imessage", "messaging-line", "messaging-twitch", "messaging-synology", "messaging-voicecall", "messaging-nextcloud", "messaging", "test", "test-backends", "all"]
+provides-extras = ["graphos", "sandbox", "feeds", "kafka", "opensearch", "metrics", "otel", "nats", "pyarrow", "data-quality-ge", "data-quality-pandera", "agent-runtime", "agent-headless", "agent-google", "agent-groq", "agent-mistral", "agent-anthropic", "agent-huggingface", "dynamic-workflow", "terminal", "browser", "computer-use", "acp", "documents", "embeddings", "embeddings-openai", "embeddings-huggingface", "embeddings-ollama", "logfire", "langfuse", "ann", "rdf", "stardog", "fuseki", "event-kafka", "ingest-dedup", "vault", "auth", "serving", "finance", "finance-kronos", "hr", "medical", "science", "law", "government", "postgresql", "trino", "messaging-discord", "messaging-slack", "messaging-telegram", "messaging-whatsapp", "messaging-teams", "messaging-googlechat", "messaging-googlemeet", "messaging-mattermost", "messaging-matrix", "messaging-irc", "messaging-signal", "messaging-imessage", "messaging-line", "messaging-twitch", "messaging-synology", "messaging-voicecall", "messaging-nextcloud", "messaging", "test", "test-backends", "all"]
 
 [package.metadata.requires-dev]
 build = [
@@ -1000,15 +931,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/87/6f/5a73f04007ca950701765949209f068da628bd11f9c2da287278ce91e0ee/argcomplete-3.7.2.tar.gz", hash = "sha256:aad8b69a0b9969edb62db0d1752354c0d50717b10e0cbb00e2a958381b9fc6b9", size = 74473, upload-time = "2026-08-06T04:53:21.662Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/46/bd/551ee6af426af84ca33e02622be722925c196608e9127d731ef17c47f06e/argcomplete-3.7.2-py3-none-any.whl", hash = "sha256:6029205678bdd9c1c728a155f5f9ecf5812393f969eef58807641a2bc2aa5b19", size = 43294, upload-time = "2026-08-06T04:53:20.246Z" },
-]
-
-[[package]]
-name = "asgiref"
-version = "3.12.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e6/26/3b59f2bdae5f640389becb1f673cded775287f5fc4f816309d9ca9a3f93d/asgiref-3.12.1.tar.gz", hash = "sha256:59dcb51c272ad209d59bed5708a64a333083e86017d7fcdd67498eeab7784340", size = 42378, upload-time = "2026-07-14T09:56:18.087Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c0/1b/54f4ad77cd8a584fa70746c47df988e002cf1ee1eba43364d46f87803647/asgiref-3.12.1-py3-none-any.whl", hash = "sha256:fe386d1c2bff7259ea95929266d12a8cf9a8b5a1c2598402967d8792e7a7c094", size = 25478, upload-time = "2026-07-14T09:56:16.926Z" },
 ]
 
 [[package]]
@@ -1599,7 +1521,7 @@ name = "container-manager-mcp"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "agent-utilities", extra = ["mcp"] },
+    { name = "agent-utilities" },
     { name = "docker", extra = ["ssh"] },
     { name = "tunnel-manager" },
 ]
@@ -1974,23 +1896,6 @@ wheels = [
 [package.optional-dependencies]
 pydantic-ai = [
     { name = "pydantic-ai-slim" },
-]
-
-[[package]]
-name = "fastapi"
-version = "0.142.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "annotated-doc" },
-    { name = "opentelemetry-api" },
-    { name = "pydantic" },
-    { name = "starlette" },
-    { name = "typing-extensions" },
-    { name = "typing-inspection" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/56/4f/f7c30a73127e0a8bbffe788369b8359e530b01ae06e2757936fa35bc5e6d/fastapi-0.142.2.tar.gz", hash = "sha256:06366626f2e70576367714d9ab2fe8472e6c8456dba69b399f9f797ab5e92570", size = 466721, upload-time = "2026-09-30T09:51:11.277Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a0/b6/78aaf9141fb46742928c113f3cf6ef2259d538cb02b604b7656c1dc9883c/fastapi-0.142.2-py3-none-any.whl", hash = "sha256:bd5f4d81f1e93a88bcd77caf4dfe3c2dbffc3805407a0007e9a114c18b3a670b", size = 144409, upload-time = "2026-09-30T09:51:09.8Z" },
 ]
 
 [[package]]
@@ -4185,38 +4090,6 @@ wheels = [
 ]
 
 [[package]]
-name = "opentelemetry-instrumentation-asgi"
-version = "0.65b0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "asgiref" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-instrumentation" },
-    { name = "opentelemetry-semantic-conventions" },
-    { name = "opentelemetry-util-http" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/17/83/8e8e83b7ac285281687c7be2fd305213ccccbb8c0a2dd4fb45a8ccaf12c7/opentelemetry_instrumentation_asgi-0.65b0.tar.gz", hash = "sha256:892bca67c56522ffa85a8a83cf934d7b50b3be2132e45cbee705825f0a5ba426", size = 26140, upload-time = "2026-07-16T15:25:54.544Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/0b/9c/376962840b619d2d55fe8ee2285f8c70971c090e5fff614516fc654a6f3a/opentelemetry_instrumentation_asgi-0.65b0-py3-none-any.whl", hash = "sha256:3a845a8ebd1c4ef0d8263401e6545f5b219b2feee612090d50f578a87e71fd65", size = 15903, upload-time = "2026-07-16T15:24:57.198Z" },
-]
-
-[[package]]
-name = "opentelemetry-instrumentation-fastapi"
-version = "0.65b0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-instrumentation" },
-    { name = "opentelemetry-instrumentation-asgi" },
-    { name = "opentelemetry-semantic-conventions" },
-    { name = "opentelemetry-util-http" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/30/23/b057f8196d06efdc1b50e3ff11fbc499a7d96b35c87f217eb7885542f4ea/opentelemetry_instrumentation_fastapi-0.65b0.tar.gz", hash = "sha256:10a3a95486036230413a58fe4fdf4a83fa6bba46918407e527476994bd92bd97", size = 26236, upload-time = "2026-07-16T15:26:05.954Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/fa/b0/c9b0300d33349ecc3dfd2362516eaffc44877e90970e6a52178ff953fec3/opentelemetry_instrumentation_fastapi-0.65b0-py3-none-any.whl", hash = "sha256:cda2610a0ec1b22d19886f33e4d861e9f5dbb886aeaa3a1263b47aff82c36943", size = 13261, upload-time = "2026-07-16T15:25:12.429Z" },
-]
-
-[[package]]
 name = "opentelemetry-instrumentation-httpx"
 version = "0.65b0"
 source = { registry = "https://pypi.org/simple" }
@@ -4230,22 +4103,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/61/03/a529140241addd4d0acc73bafbd6f74691651b92fc0ae9b4513cf80f07fa/opentelemetry_instrumentation_httpx-0.65b0.tar.gz", hash = "sha256:4627aa9c6bb99bf4462c8b565b0ef6aeb9ffad95c6c92868be1ef7895de112ee", size = 26309, upload-time = "2026-07-16T15:26:07.973Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9d/0f/c6144096b4914bbf44b43ba21c962e8f333ff045770b50a3e79ed8bd455f/opentelemetry_instrumentation_httpx-0.65b0-py3-none-any.whl", hash = "sha256:400f1b78afa4ee2332b5debe58e1ed1b317913d58812c952576be76660aeadb1", size = 17436, upload-time = "2026-07-16T15:25:15.772Z" },
-]
-
-[[package]]
-name = "opentelemetry-instrumentation-starlette"
-version = "0.65b0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-instrumentation" },
-    { name = "opentelemetry-instrumentation-asgi" },
-    { name = "opentelemetry-semantic-conventions" },
-    { name = "opentelemetry-util-http" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ee/87/60df780aa0c80f7bbd5707754e9f240174b56ea115e43508da5939472336/opentelemetry_instrumentation_starlette-0.65b0.tar.gz", hash = "sha256:2ec3269c684617bdaaba06ec90fc3f3bfd5e90f51dae3f62f014fd15e488a81a", size = 14382, upload-time = "2026-07-16T15:26:20.401Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d4/31/3fdc98cc902162511a3e48f358477c4cb8f58f63deefe00ce1b3e78788f9/opentelemetry_instrumentation_starlette-0.65b0-py3-none-any.whl", hash = "sha256:365539afdc4d379b54a8be9aad07989e686dadaf9c0e356400d584991a0e4c5c", size = 11106, upload-time = "2026-07-16T15:25:33.957Z" },
 ]
 
 [[package]]
@@ -4990,10 +4847,6 @@ wheels = [
 ]
 
 [package.optional-dependencies]
-ag-ui = [
-    { name = "ag-ui-protocol" },
-    { name = "starlette" },
-]
 anthropic = [
     { name = "anthropic" },
 ]
@@ -5014,22 +4867,12 @@ huggingface = [
     { name = "hf-xet", marker = "platform_machine == 'AMD64' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64'" },
     { name = "huggingface-hub" },
 ]
-mcp = [
-    { name = "fastmcp-slim", extra = ["client", "server"] },
-]
 mistral = [
     { name = "mistralai" },
 ]
 openai = [
     { name = "openai" },
     { name = "tiktoken" },
-]
-ui = [
-    { name = "starlette" },
-]
-web = [
-    { name = "starlette" },
-    { name = "uvicorn" },
 ]
 
 [[package]]

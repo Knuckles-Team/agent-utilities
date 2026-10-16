@@ -13,7 +13,7 @@ designed, not a bug. Their skills are therefore *structurally* invisible to
 in-process discovery, no matter how correct the downstream ingestion is.
 
 The fix does not install anything. Each fleet child ALREADY publishes its
-skills as fastmcp-4 ``skill://{name}/SKILL.md`` resources (via
+skills as ``skill://{name}/SKILL.md`` resources (via
 ``server_factory._register_skill_providers``), and the multiplexer ALREADY
 holds a live session to it during its probe sweep. So graph-os *pulls* the
 bodies over that existing connection

@@ -142,21 +142,14 @@ graph_query(
 
 ```python
 # Cross-reference a paper's topic against the full KG
-graph_search(
-    mode="discover",
-    query="memory-augmented LLM systems synthesis",
-    top_k=20
-)
+graph_search(mode="discover", query="memory-augmented LLM systems synthesis", top_k=20)
 ```
 
 ### Method 3: Concept Cross-Reference
 
 ```python
 # Check a paper against a specific concept
-graph_search(
-    mode="analogy",
-    query="KG-2.1 tiered memory context compaction"
-)
+graph_search(mode="analogy", query="KG-2.1 tiered memory context compaction")
 ```
 
 ### Per-Paper Relevance Scoring

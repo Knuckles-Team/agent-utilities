@@ -197,8 +197,8 @@ registry.reseed_defaults()
 
 ```python
 # Search by tag
-registry.search("devops")      # → 8 packages
-registry.search("media")       # → 6 packages
-registry.search("community")   # → 5 packages
-registry.search("os_subsystem") # → 4 packages
+registry.search("devops")  # → 8 packages
+registry.search("media")  # → 6 packages
+registry.search("community")  # → 5 packages
+registry.search("os_subsystem")  # → 4 packages
 ```

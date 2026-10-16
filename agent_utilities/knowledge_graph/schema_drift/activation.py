@@ -23,7 +23,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from .candidate import APPROVED_SOURCE_PREFIX, approved_candidate_digest, record_contract
+from .candidate import (
+    APPROVED_SOURCE_PREFIX,
+    approved_candidate_digest,
+    record_contract,
+)
 from .contract_store import ApprovedContract, ContractStoreUnavailable, save_contract
 from .eg_port import SchemaRepairPort
 from .repair import PROPOSAL_LABEL

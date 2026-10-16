@@ -34,7 +34,7 @@ Design notes (mirrors KG-2.307):
   * **Reuses existing seams.** Working-set read + clustering compose the KG-2.307
     :class:`MemoryLifecycle` (never edited); LLM calls default to the shared
     ``memento_compressor._memento_llm`` one-shot helper; writes go through
-    ``engine.store_memory``; the flywheel is the same ``CapabilityIndex`` the router
+    ``engine.store_memory``; the flywheel is the same EG capability designation the router
     and :class:`FeedbackService` already use.
   * **Injectable LLM + flywheel seams; clean fallback with no LLM.** Tests inject a
     stub LLM/flywheel; with no model the distiller degrades to a safe skip and

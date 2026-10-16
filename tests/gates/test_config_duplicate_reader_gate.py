@@ -8,13 +8,14 @@ move to the agent connector SDK and hosting settings move to graph-os.
 from __future__ import annotations
 
 import ast
-import tempfile
 from collections import Counter
 from pathlib import Path
 
 import pytest
 
-_CONFIG_PATH = Path(__file__).resolve().parents[2] / "agent_utilities" / "core" / "config.py"
+_CONFIG_PATH = (
+    Path(__file__).resolve().parents[2] / "agent_utilities" / "core" / "config.py"
+)
 
 
 def _env_var_names(source: str) -> list[str]:
@@ -28,9 +29,7 @@ def _env_var_names(source: str) -> list[str]:
             attr = func.attr
             owner = func.value
             is_os_getenv = (
-                attr == "getenv"
-                and isinstance(owner, ast.Name)
-                and owner.id == "os"
+                attr == "getenv" and isinstance(owner, ast.Name) and owner.id == "os"
             )
             is_environ_get = (
                 attr == "get"

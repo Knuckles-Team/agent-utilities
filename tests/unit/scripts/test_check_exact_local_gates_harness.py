@@ -28,15 +28,16 @@ def test_current_exact_local_certification_contract_is_complete() -> None:
     assert gate.check_contract(*_sources()) == ()
 
 
-def test_gate_rejects_intent_matrix_and_exact_artifact_drift() -> None:
+def test_gate_rejects_reintroduced_intent_gate_and_exact_artifact_drift() -> None:
     harness, documentation, navigation, workflow = _sources()
-    harness = harness.replace('    "why",\n', "", 1).replace(
+    harness = harness.replace(
         '    parser.add_argument("--engine-sha256", required=True)\n', "", 1
     )
+    harness += '\nINTENT_TOOLS = ("ask",)\n'
 
     violations = gate.check_contract(harness, documentation, navigation, workflow)
 
-    assert "intent_surface_drift" in violations
+    assert "intent_surface_reintroduced" in violations
     assert "exact_artifact_arguments_drift" in violations
 
 

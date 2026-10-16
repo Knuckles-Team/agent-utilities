@@ -37,7 +37,7 @@ brain = CompanyBrain()
 brain.permissions.classify_node(
     "customer:001:ssn",
     DataClassification.RESTRICTED,
-    data_owner="compliance:officer-smith"
+    data_owner="compliance:officer-smith",
 )
 
 # Classify with default INTERNAL
@@ -95,7 +95,7 @@ result = brain.permissions.check_permission(
     action="read",
 )
 print(result.allowed)  # False
-print(result.reason)   # "Read access denied"
+print(result.reason)  # "Read access denied"
 ```
 
 ---

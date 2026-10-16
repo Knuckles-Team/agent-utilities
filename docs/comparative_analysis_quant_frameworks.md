@@ -114,10 +114,11 @@ self-improving one.
 
 ```python
 from agent_utilities.domains.finance import TradeJournalAuditor, Roundtrip
+
 auditor = TradeJournalAuditor()
-profile = auditor.audit("acct_42", roundtrips)   # win rate, PnL ratio, max DD, 4 biases
-profile.bias("disposition_effect").severity      # low | medium | high
-auditor.persist(profile, backend)                # -> :TraderProfile + :BehavioralBias KG nodes
+profile = auditor.audit("acct_42", roundtrips)  # win rate, PnL ratio, max DD, 4 biases
+profile.bias("disposition_effect").severity  # low | medium | high
+auditor.persist(profile, backend)  # -> :TraderProfile + :BehavioralBias KG nodes
 ```
 
 - **Real maths:** FIFO-matched roundtrips in; win rate, avg holding period, PnL
@@ -134,13 +135,15 @@ auditor.persist(profile, backend)                # -> :TraderProfile + :Behavior
 
 ```python
 from agent_utilities.domains.finance import (
-    CalibrationTracker, apply_calibration_to_swarm,
+    CalibrationTracker,
+    apply_calibration_to_swarm,
 )
+
 t = CalibrationTracker()
 t.record_call("quant_01", direction=+1, confidence=0.85, subject="ACME")
 t.record_outcome("quant_01", realized_direction=+1, subject="ACME")
-t.score("quant_01")                       # accuracy + Brier + calibration in [0,1]
-apply_calibration_to_swarm(swarm, t)      # LIVE wire: mutates swarm.config.role_weights
+t.score("quant_01")  # accuracy + Brier + calibration in [0,1]
+apply_calibration_to_swarm(swarm, t)  # LIVE wire: mutates swarm.config.role_weights
 ```
 
 - **Brier:** engine `client.finance.brier_score` when reachable, vetted local
@@ -159,9 +162,10 @@ apply_calibration_to_swarm(swarm, t)      # LIVE wire: mutates swarm.config.role
 
 ```python
 from agent_utilities.domains.finance import evaluate_persona, evaluate_all
+
 ev = evaluate_persona("graham_investor", {"pe": 11, "pb": 1.1, "margin_of_safety": 0.4})
-ev.verdict        # bullish | neutral | bearish | insufficient_data
-ev.citation()     # names the exact passing/failing rules
+ev.verdict  # bullish | neutral | bearish | insufficient_data
+ev.citation()  # names the exact passing/failing rules
 ```
 
 - **Structured heuristics:** `PERSONA_HEURISTICS` attaches typed `Heuristic`

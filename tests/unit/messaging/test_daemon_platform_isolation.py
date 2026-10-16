@@ -92,8 +92,7 @@ def test_dropping_one_platform_leaves_the_other_listener_running(monkeypatch) ->
         # Give a cancellation-that-shouldn't-happen a fair chance to show up.
         time.sleep(0.2)
         assert not tasks["telegram"].done(), (
-            "telegram's listener task must NOT be touched by mattermost's "
-            "lease loss"
+            "telegram's listener task must NOT be touched by mattermost's lease loss"
         )
         assert not stop_event.is_set(), (
             "losing one of two leases must not request the full daemon stop"

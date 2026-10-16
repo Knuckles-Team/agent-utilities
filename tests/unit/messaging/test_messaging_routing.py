@@ -591,62 +591,6 @@ async def test_two_turns_share_one_session_for_continuity(monkeypatch) -> None:
     assert sessions[0] == sessions[1] == "messaging:telegram:42"
 
 
-def test_validate_fleet_auth_consumes_xdg_config_contract(monkeypatch) -> None:
-    import agent_utilities.core.config as config_module
-    import agent_utilities.graphos_client.client_credentials as client_credentials
-    from agent_utilities.messaging import daemon
-
-    calls: list[str] = []
-    monkeypatch.setattr(config_module, "load_config", lambda: calls.append("load"))
-    monkeypatch.setattr(
-        client_credentials,
-        "outbound_auth_configuration_status",
-        lambda: {
-            "mode": "oidc-client-credentials",
-            "ready": True,
-            "missing": (),
-            "invalid": (),
-            "redacted": True,
-        },
-    )
-    monkeypatch.setattr(
-        client_credentials,
-        "validate_outbound_auth_configuration",
-        lambda: calls.append("validate"),
-    )
-
-    daemon._validate_fleet_auth()
-
-    assert calls == ["load", "validate"]
-
-
-def test_validate_fleet_auth_fails_closed_when_configuration_is_incomplete(
-    monkeypatch,
-) -> None:
-    import agent_utilities.graphos_client.client_credentials as client_credentials
-    from agent_utilities.messaging import daemon
-
-    monkeypatch.setattr(
-        client_credentials,
-        "outbound_auth_configuration_status",
-        lambda: {
-            "mode": "oidc-client-credentials",
-            "ready": False,
-            "missing": ("OIDC_AUDIENCE",),
-            "invalid": (),
-            "redacted": True,
-        },
-    )
-    monkeypatch.setattr(
-        client_credentials,
-        "validate_outbound_auth_configuration",
-        lambda: (_ for _ in ()).throw(RuntimeError("incomplete")),
-    )
-
-    with pytest.raises(RuntimeError, match="incomplete"):
-        daemon._validate_fleet_auth()
-
-
 @pytest.mark.asyncio
 async def test_image_turn_routes_to_vision_responder(
     monkeypatch: pytest.MonkeyPatch,

@@ -1379,7 +1379,7 @@ def _annotation_pairs(node: ast.expr | None) -> list[tuple[str, ast.expr]]:
 def _annotations_mark_mutating(node: ast.expr | None) -> bool:
     """``annotations={"destructiveHint": True}`` / ``{"readOnlyHint": False}``,
     as either a dict literal or a ``ToolAnnotations(...)`` call — both are
-    valid ``fastmcp`` ``@mcp.tool(annotations=...)`` shapes."""
+    valid connector ``@mcp.tool(annotations=...)`` shapes."""
     for name, value in _annotation_pairs(node):
         if name == "destructiveHint" and _bool_constant(value, expected=True):
             return True

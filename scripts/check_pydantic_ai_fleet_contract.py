@@ -34,11 +34,11 @@ _PYDANTIC_REQUIREMENT_RE = re.compile(
 _AGENT_UTILITIES_EXTRA_RE = re.compile(
     r"\bagent-utilities\[([^\]\r\n]+)\]", re.IGNORECASE
 )
-# These AU extras expose the Pydantic-AI-backed agent/MCP runtime.  Keep this
+# These AU extras expose the Pydantic-AI-backed agent runtime.  Keep this
 # set as an integration rule, not a version authority: the version still comes
-# only from ``protocol_compat.py`` below. ``graphos`` alone is intentionally not
+# only from ``core/pydantic_ai_contract.py`` below. ``graphos`` alone is intentionally not
 # listed: it is the engine-only extra and must not force a Python agent runtime.
-_PYDANTIC_AI_AU_EXTRAS = frozenset({"agent-headless", "agent-runtime", "mcp"})
+_PYDANTIC_AI_AU_EXTRAS = frozenset({"agent-headless", "agent-runtime"})
 _SUPPORTED_FILENAMES = {"uv.lock", "pyproject.toml", "requirements.txt"}
 _SIBLINGS_MARKER = ".uv-workspace-siblings"
 _WINDOWS_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:[\\/]")
@@ -149,7 +149,8 @@ def default_contract_source() -> Path:
     """Return the AU source file containing the canonical version literal."""
 
     return (
-        Path(__file__).resolve().parents[1] / "agent_utilities/graphos_client/protocol_compat.py"
+        Path(__file__).resolve().parents[1]
+        / "agent_utilities/core/pydantic_ai_contract.py"
     )
 
 

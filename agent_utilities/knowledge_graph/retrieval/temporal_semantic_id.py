@@ -27,9 +27,8 @@ Layer contract: this is a pure, self-contained L2 retrieval helper. It performs
 no I/O and no network calls, and shares the recency /
 ``event_time`` framing of
 :mod:`agent_utilities.knowledge_graph.core.bitemporal` (age = ``now`` minus
-``event_time``; ``None`` event-time means "unknown") and the defensive native
-L2-normalization used by
-:mod:`agent_utilities.knowledge_graph.retrieval.capability_index`.
+``event_time``; ``None`` event-time means "unknown") and a defensive native
+L2-normalization.
 """
 
 import math
@@ -97,7 +96,7 @@ def _l2_normalize(vec: Sequence[float]) -> list[float]:
     """Return ``vec`` scaled to unit L2 norm, with NaN/inf scrubbed to 0.
 
     Zero (or all-non-finite) vectors are returned unchanged after scrubbing, so
-    quantization never sees NaN. Mirrors ``capability_index._l2_normalize`` plus
+    quantization never sees NaN. Plain L2 normalization plus
     a defensive ``nan_to_num``.
     """
     return _l2_normalize_many([vec])[0]

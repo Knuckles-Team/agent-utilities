@@ -36,10 +36,9 @@ FunctionalStatus = Literal[
 #: ingress, ...). Highest priority: an explicit SSE/HTTP URL.
 _URL_ENV = "SKILL_HARNESS_GRAPH_OS_URL"
 #: Fallback: a stdio command to spawn, e.g. the local console script
-#: (`graph-os`) resolved from PATH — passed straight to fastmcp's `Client`,
-#: which infers a stdio transport from a bare command string. Still just a
-#: *client* — the process this spawns is graph-os itself acting as an MCP
-#: server, not a helper the harness owns.
+#: (`graph-os`) resolved from PATH — passed straight to the graph-os host's
+#: tool client factory (``host_ports.open_tool_client``), which infers a stdio
+#: transport from a bare command string.
 _COMMAND_ENV = "SKILL_HARNESS_GRAPH_OS_COMMAND"
 _DEFAULT_COMMAND = "graph-os"
 
@@ -53,20 +52,15 @@ ClientFactory = Callable[[], AbstractAsyncContextManager[Any]]
 
 @asynccontextmanager
 async def default_client() -> AsyncIterator[Any]:
-    """The default graph-os MCP client: URL first, then a spawned stdio command.
+    """The default graph-os tool client: URL first, then a spawned stdio command.
 
-    Import of ``fastmcp`` is deliberately lazy — the static layer must import
-    cleanly with no MCP/network deps installed.
+    The session comes from the graph-os host port; without a host it fails
+    closed (the static layer still imports cleanly with no network deps).
     """
-    from fastmcp import Client
+    from agent_utilities.host_ports import open_tool_client
 
-    url = os.environ.get(_URL_ENV)
-    if url:
-        async with Client(url) as client:
-            yield client
-        return
-    command = os.environ.get(_COMMAND_ENV, _DEFAULT_COMMAND)
-    async with Client(command) as client:
+    target = os.environ.get(_URL_ENV) or os.environ.get(_COMMAND_ENV, _DEFAULT_COMMAND)
+    async with open_tool_client(target) as client:
         yield client
 
 

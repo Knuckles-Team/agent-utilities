@@ -155,10 +155,14 @@ Reproduce with:
 ```python
 from agent_utilities.orchestration.action_policy import ActionPolicy, ActionRequest
 
-policy = ActionPolicy(engine=None,
-                      policy_path="examples/action-policies/scoped-autonomous.yml")
-print(policy.decide(ActionRequest(kind="scale_service", target="vector-mcp",
-                                  source="autoscaler")).decision)
+policy = ActionPolicy(
+    engine=None, policy_path="examples/action-policies/scoped-autonomous.yml"
+)
+print(
+    policy.decide(
+        ActionRequest(kind="scale_service", target="vector-mcp", source="autoscaler")
+    ).decision
+)
 # -> "allow_notify"
 ```
 

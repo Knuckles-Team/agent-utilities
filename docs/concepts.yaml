@@ -1645,7 +1645,7 @@ concepts:
   code_paths:
   - agent_utilities/mcp/__init__.py
   - agent_utilities/mcp/action_dispatch.py
-  - agent_utilities/graphos_client/concurrency.py
+  - agent_utilities/core/concurrency.py
   - agent_utilities/mcp/context_helpers.py
   - agent_utilities/graphos_client/delegated_auth.py
   - agent_utilities/mcp/multiplexer.py

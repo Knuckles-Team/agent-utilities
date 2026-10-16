@@ -167,7 +167,7 @@ def test_catalog_requires_composition_registry(monkeypatch):
     assert postgresql["connectionNames"] == ["postgresql"]
 
 
-_MCP_MODULE = "agent_utilities.graphos_client"
+_MCP_MODULE = "agent_utilities.host_ports"
 _DYNAMIC_IMPORTS = frozenset({"__import__", "import_module"})
 
 
@@ -383,7 +383,7 @@ def _resolved_import_graph(
 
 
 def test_catalog_and_federation_have_no_mcp_import_edge():
-    """KG layers never import the graph-os client; they reach served capabilities only through composition."""
+    """KG layers never import the graph-os host ports; they reach served capabilities only through composition."""
     edges: set[tuple[str, str]] = set()
     unresolved: list[str] = []
     for module in (source_catalog, engine_federation):
@@ -400,10 +400,10 @@ def test_catalog_and_federation_have_no_mcp_import_edge():
     forbidden = sorted(
         (source, target)
         for source, target in edges
-        if target == "agent_utilities.graphos_client"
-        or target.startswith("agent_utilities.graphos_client.")
+        if target == "agent_utilities.host_ports"
+        or target.startswith("agent_utilities.host_ports.")
     )
-    assert not forbidden, f"resolved KG-to-graphos_client import edges: {forbidden}"
+    assert not forbidden, f"resolved KG-to-host_ports import edges: {forbidden}"
 
 
 def test_import_graph_tracks_dynamic_aliases_and_unknown_targets(tmp_path):
@@ -411,7 +411,7 @@ def test_import_graph_tracks_dynamic_aliases_and_unknown_targets(tmp_path):
     path.write_text(
         "from builtins import __import__ as builtin_loader\n"
         "from importlib import import_module as module_loader\n"
-        'literal = module_loader("agent_utilities.graphos_client")\n'
+        'literal = module_loader("agent_utilities.host_ports")\n'
         "def load_unknown(target):\n"
         "    return builtin_loader(target)\n"
         "def load_from_assignment(target):\n"
@@ -458,7 +458,7 @@ def test_import_graph_reports_internal_discovery_failure(
 ):
     path = tmp_path / "unavailable_module.py"
     path.write_text(
-        "from agent_utilities.graphos_client import host\n", encoding="utf-8"
+        "from agent_utilities.host_ports import fleet_catalog\n", encoding="utf-8"
     )
     if discovery_failure == "none":
         monkeypatch.setattr(importlib.util, "find_spec", lambda _target: None)

@@ -16,9 +16,9 @@ from __future__ import annotations
 import logging
 
 import pytest
+from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import HybridRetriever
 
 from agent_utilities.knowledge_graph.retrieval import hybrid_retriever as hr_module
-from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import HybridRetriever
 
 
 class _StubBreaker:

@@ -35,7 +35,7 @@ Usage::
 
     python3 scripts/find_callers.py agent_utilities.security.threat_defense_engine.GuardrailEngine
     python3 scripts/find_callers.py secured_reads.scope --roots agent_utilities,tests
-    python3 scripts/find_callers.py agent_utilities.graphos_client.host.fleet_catalog --json
+    python3 scripts/find_callers.py agent_utilities.host_ports.fleet_catalog --json
 
 Exit status is always 0 (this is a discovery tool, not a gate); pipe to
 ``--json`` for machine consumption.

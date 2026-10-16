@@ -128,16 +128,20 @@ the hand-rolled `compose.test.yml` approach in e.g. `vector-mcp`). A minimal
 ```python
 import pytest
 
+
 @pytest.fixture(scope="session")
 def ephemeral_pg():
     pytest.importorskip("testcontainers")
     from testcontainers.postgres import PostgresContainer
+
     with PostgresContainer("postgres:16") as pg:
         yield pg.get_connection_url()
 
+
 @pytest.mark.live
-def test_against_real_pg(ephemeral_pg):
-    ...  # build the client from the URI, run real assertions
+def test_against_real_pg(
+    ephemeral_pg,
+): ...  # build the client from the URI, run real assertions
 ```
 
 Conventions to keep parity with this package:
@@ -184,6 +188,7 @@ Opt a test into the real DB by **requesting `engine_graph`** (or marking it
 import pytest
 
 pytestmark = pytest.mark.engine
+
 
 def test_node_roundtrip(engine_graph):
     engine_graph.add_node("alpha", {"type": "Agent", "score": 7})

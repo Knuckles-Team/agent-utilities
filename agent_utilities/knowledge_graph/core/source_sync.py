@@ -985,7 +985,7 @@ def _write_fleet_nodes(
     "skills": [{name, uri, description}], "error": str|None}}`` map returned by
     :meth:`MCPMultiplexer.probe_catalog` (``skills`` is the Skills-over-MCP
     subset of a probed server's Resources, CONCEPT:AU-ECO.mcp.skills-over-mcp-provider — absent/empty for
-    a fastmcp-3 or pre-skills server). For each reachable server every tool
+    a pre-skills server). For each reachable server every tool
     becomes a ``Tool`` node and every ``skill://{name}/SKILL.md`` resource
     becomes a ``Skill`` node, both carrying the schema the dispatcher/ranker
     reads (``name``, ``description``, ``mcp_server``, ``tags``,

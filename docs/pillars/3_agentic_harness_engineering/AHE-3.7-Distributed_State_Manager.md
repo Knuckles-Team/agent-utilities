@@ -49,9 +49,7 @@ locker.fork_state("workflow_state_01", "programmer_branch")
 
 # 2. Update branch state staging
 locker.update_branch_state(
-    "workflow_state_01",
-    "programmer_branch",
-    {"staged_code": "def hello(): pass"}
+    "workflow_state_01", "programmer_branch", {"staged_code": "def hello(): pass"}
 )
 
 # 3. Merge branch back to base state, resolving concurrent updates safely

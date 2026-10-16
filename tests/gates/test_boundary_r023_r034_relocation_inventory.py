@@ -159,7 +159,6 @@ RELOCATION_INVENTORY: dict[str, dict[str, tuple[str, ...]]] = {
     },
     "AU-BOUNDARY-R034": {
         EPISTEMIC_GRAPH: (
-            "knowledge_graph/retrieval/hybrid_retriever.py",
             "knowledge_graph/retrieval/semantic_retrieval_engine.py",
             "knowledge_graph/retrieval/neural_reranker.py",
             "knowledge_graph/retrieval/hierarchical_document_retriever.py",

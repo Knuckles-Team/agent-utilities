@@ -43,7 +43,7 @@ _RESOLVER = (
     'echo "REFUSED - cannot locate agent-utilities/scripts from $repo '
     '(set AGENT_UTILITIES_ROOT)" >&2; exit 1; fi; '
     'python3 "$root/scripts/check_complexity.py" '
-    '--baseline .complexity-baseline.json{cap}'
+    "--baseline .complexity-baseline.json{cap}"
 )
 
 
@@ -102,11 +102,16 @@ def main() -> int:
             r = subprocess.run(
                 [sys.executable, str(script), "--baseline", str(base)]
                 + (["--cap", str(args.cap)] if args.cap else []),
-                cwd=repo, capture_output=True, text=True, check=False,
+                cwd=repo,
+                capture_output=True,
+                text=True,
+                check=False,
             )
             tag = "OK  " if r.returncode == 0 else f"FAIL({r.returncode})"
-            print(f"  {tag} {repo.relative_to(args.root)}: "
-                  f"{(r.stdout or r.stderr).strip().splitlines()[-1] if (r.stdout or r.stderr).strip() else ''}")
+            print(
+                f"  {tag} {repo.relative_to(args.root)}: "
+                f"{(r.stdout or r.stderr).strip().splitlines()[-1] if (r.stdout or r.stderr).strip() else ''}"
+            )
             failed += r.returncode != 0
             continue
 
@@ -120,7 +125,9 @@ def main() -> int:
             skipped += 1
             continue
         if "- repo: local" not in text:
-            print(f"  SKIP {repo.relative_to(args.root)}: no `- repo: local` block to extend")
+            print(
+                f"  SKIP {repo.relative_to(args.root)}: no `- repo: local` block to extend"
+            )
             skipped += 1
             continue
 
@@ -133,11 +140,16 @@ def main() -> int:
         # which would block every commit in the repo.
         r = subprocess.run(
             [sys.executable, str(script), "--baseline", str(base), "--write"],
-            cwd=repo, capture_output=True, text=True, check=False,
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         if r.returncode != 0:
-            print(f"  FAIL {repo.relative_to(args.root)}: baseline: "
-                  f"{(r.stderr or r.stdout).strip()[:120]}")
+            print(
+                f"  FAIL {repo.relative_to(args.root)}: baseline: "
+                f"{(r.stderr or r.stdout).strip()[:120]}"
+            )
             failed += 1
             continue
 
@@ -150,9 +162,15 @@ def main() -> int:
         print(f"  ADD  {repo.relative_to(args.root)}: {r.stdout.strip()}")
         installed += 1
 
-    verb = "verified" if args.verify else ("would install" if args.dry_run else "installed")
-    print(f"\n{verb}: {installed}, skipped: {skipped}, failed: {failed}, "
-          f"repos considered: {len(repos)}")
+    verb = (
+        "verified"
+        if args.verify
+        else ("would install" if args.dry_run else "installed")
+    )
+    print(
+        f"\n{verb}: {installed}, skipped: {skipped}, failed: {failed}, "
+        f"repos considered: {len(repos)}"
+    )
     return 1 if failed else 0
 
 

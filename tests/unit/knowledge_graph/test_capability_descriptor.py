@@ -31,9 +31,8 @@ class _FakeCypherBackend:
     """A minimal in-memory Cypher executor honouring ``SET n.x = $y`` assignments
     and ``RETURN n.x AS y`` aliases by NAME, not by coincidental param-key match.
 
-    Faithful enough to serve BOTH ``durable_outcome_store`` (SET params named
-    ``r``/``c``/``ts``, aliased back out as ``reward``/``count``) and
-    ``capability_descriptor`` (SET/RETURN params named after the property itself)
+    Faithful enough to serve BOTH the engine-side reward write (SET params named
+    ``r``/``c``) and ``capability_descriptor`` (SET/RETURN params named after the property itself)
     against the SAME in-memory node store — exactly what a real engine's property
     projection does, and exactly why ``capability_descriptor`` never needs its own
     reward properties: they live on the identical node.
@@ -241,19 +240,20 @@ def test_load_unknown_id_returns_a_minimal_descriptor_not_none():
     assert loaded.capability_type == ""
 
 
-def test_reliability_reflects_the_durable_bandit_reward_after_outcome_persist():
-    """A CapabilityDescriptor reloaded after the durable bandit records an outcome
-    (via durable_outcome_store, reusing the SAME node) reflects the live reward —
+def test_reliability_reflects_the_engine_learned_reward_on_the_same_node():
+    """A CapabilityDescriptor reloaded after EG learns an outcome (EG writes the
+    reward onto the SAME node, EG-DECISION-ENGINE-R172.5) reflects the live reward —
     proving the descriptor never carries a second, driftable reward copy."""
-    from agent_utilities.knowledge_graph.retrieval.durable_outcome_store import (
-        persist_capability_reward,
-    )
-
     engine = _make_engine(_FakeCypherBackend())
     d = CapabilityDescriptor(id="tool:dns", capability_type="DNSCapability")
     persist_capability_descriptor(engine, d)
 
-    persist_capability_reward(engine, "tool:dns", success=True, alpha=1.0)
+    # The engine-side reward write (EG owns reward learning; AU only reads it).
+    engine.backend.execute(
+        "MATCH (n) WHERE n.id = $id SET n.capability_reward = $r, "
+        "n.capability_reward_count = $c",
+        {"id": "tool:dns", "r": 1.0, "c": 1},
+    )
 
     reloaded = load_capability_descriptor(engine, "tool:dns")
     assert reloaded.reliability == pytest.approx(1.0)

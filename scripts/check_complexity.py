@@ -35,6 +35,7 @@ _walk away.
 Exit codes: 0 pass, 1 violation, 2 the gate could not run (an ENVIRONMENT fact,
 never reported as a clean pass -- a gate that could not run has not found nothing).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -56,15 +57,33 @@ DEFAULT_MAX_COGNITIVE = 15
 _BUCKETS = (10, 15, 20, 30, 50, 100, 200, 300)
 
 _SKIP_PARTS = {
-    ".git", ".venv", "venv", "node_modules", "__pycache__", "build", "dist",
-    "target", "target-isolated", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-    "site-packages", ".tox", ".eggs", "htmlcov", "vendor", "third_party",
-    ".hypothesis", ".pytest_tmp", "dist-primary", "dist-reproduction",
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "__pycache__",
+    "build",
+    "dist",
+    "target",
+    "target-isolated",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "site-packages",
+    ".tox",
+    ".eggs",
+    "htmlcov",
+    "vendor",
+    "third_party",
+    ".hypothesis",
+    ".pytest_tmp",
+    "dist-primary",
+    "dist-reproduction",
     "build-artifacts",
 }
 
 
-def _fail_env(msg: str) -> "None":
+def _fail_env(msg: str) -> None:
     print(f"complexity gate: CANNOT RUN: {msg}", file=sys.stderr)
     raise SystemExit(2)
 
@@ -102,8 +121,9 @@ def _resolve_cccc() -> str:
 def _walk(fn: dict, rel: str, prefix: str, out: list) -> None:
     """Collect a function AND its nested children. See the docstring."""
     name = f"{prefix}{fn['name']}"
-    out.append({"fn": name, "file": rel,
-                "ccn": fn["cyclomatic"], "cog": fn["cognitive"]})
+    out.append(
+        {"fn": name, "file": rel, "ccn": fn["cyclomatic"], "cog": fn["cognitive"]}
+    )
     for kid in fn.get("children", ()):
         _walk(kid, rel, f"{name}.", out)
 
@@ -114,8 +134,12 @@ def measure(paths: list[str]) -> list[dict]:
     if not real:
         return []
     try:
-        r = subprocess.run([exe, *real, "--min", "1", "--jobs", "8"],
-                           capture_output=True, text=True, timeout=3600)
+        r = subprocess.run(
+            [exe, *real, "--min", "1", "--jobs", "8"],
+            capture_output=True,
+            text=True,
+            timeout=3600,
+        )
     except subprocess.TimeoutExpired:
         _fail_env(f"cccc timed out over {len(real)} path(s)")
     except OSError as exc:
@@ -170,8 +194,11 @@ def main() -> int:
     ap.add_argument("paths", nargs="*", default=["."])
     ap.add_argument("--max-cyclomatic", type=int, default=DEFAULT_MAX_CYCLOMATIC)
     ap.add_argument("--max-cognitive", type=int, default=DEFAULT_MAX_COGNITIVE)
-    ap.add_argument("--report", action="store_true",
-                    help="print the distribution and exit 0 without enforcing")
+    ap.add_argument(
+        "--report",
+        action="store_true",
+        help="print the distribution and exit 0 without enforcing",
+    )
     # RETIRED, kept so a re-introduction fails loudly rather than looking like a typo.
     ap.add_argument("--baseline", type=Path, default=None, help=argparse.SUPPRESS)
     ap.add_argument("--write", action="store_true", help=argparse.SUPPRESS)
@@ -187,7 +214,12 @@ def main() -> int:
             "only. A baseline converts a finding into invisible permanent debt "
             "(CX MR-11). Drop the flag and pass --max-cyclomatic/--max-cognitive."
         )
-    if args.cap is not None or args.track is not None or args.cap_ext or args.require_lizard:
+    if (
+        args.cap is not None
+        or args.track is not None
+        or args.cap_ext
+        or args.require_lizard
+    ):
         _fail_env(
             "--cap/--track/--cap-ext/--require-lizard are RETIRED with the lizard "
             "backend. This gate measures BOTH cyclomatic and cognitive complexity "
@@ -207,12 +239,16 @@ def main() -> int:
     over_cyc = [f for f in fns if f["ccn"] > args.max_cyclomatic]
     over_cog = [f for f in fns if f["cog"] > args.max_cognitive]
     if not over_cyc and not over_cog:
-        print(f"\ncomplexity gate: OK: nothing exceeds cyclomatic "
-              f"{args.max_cyclomatic} or cognitive {args.max_cognitive}")
+        print(
+            f"\ncomplexity gate: OK: nothing exceeds cyclomatic "
+            f"{args.max_cyclomatic} or cognitive {args.max_cognitive}"
+        )
         return 0
 
-    print(f"\ncomplexity gate: FAIL: {len(over_cyc)} over cyclomatic "
-          f"{args.max_cyclomatic}, {len(over_cog)} over cognitive {args.max_cognitive}")
+    print(
+        f"\ncomplexity gate: FAIL: {len(over_cyc)} over cyclomatic "
+        f"{args.max_cyclomatic}, {len(over_cog)} over cognitive {args.max_cognitive}"
+    )
     seen: set[tuple] = set()
     for f in sorted(over_cyc + over_cog, key=lambda f: -max(f["ccn"], f["cog"]))[:30]:
         key = (f["fn"], f["file"])
@@ -225,14 +261,16 @@ def main() -> int:
         if f["cog"] > args.max_cognitive:
             flag.append(f"COG {f['cog']}")
         print(f"  OVER  {', '.join(flag):<22} {f['fn']}@{f['file']}")
-    print("\nSplit the function into named parts. Do NOT raise a threshold to make\n"
-          "this pass, and do NOT add a suppression comment -- an in-line suppression\n"
-          "is a one-line baseline and is a program-terminating finding. If the\n"
-          "complexity is genuinely irreducible, record a time-boxed entry with an\n"
-          "owner in scripts/gate_deferrals.tsv.\n"
-          "Note cognitive complexity rewards FLAT structure: extracting a deeply\n"
-          "nested block into a named function removes its nesting bonus entirely,\n"
-          "whereas merely renaming things does not move the number.")
+    print(
+        "\nSplit the function into named parts. Do NOT raise a threshold to make\n"
+        "this pass, and do NOT add a suppression comment -- an in-line suppression\n"
+        "is a one-line baseline and is a program-terminating finding. If the\n"
+        "complexity is genuinely irreducible, record a time-boxed entry with an\n"
+        "owner in scripts/gate_deferrals.tsv.\n"
+        "Note cognitive complexity rewards FLAT structure: extracting a deeply\n"
+        "nested block into a named function removes its nesting bonus entirely,\n"
+        "whereas merely renaming things does not move the number."
+    )
     return 1
 
 

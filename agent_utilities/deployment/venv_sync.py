@@ -24,7 +24,7 @@ are actively dangerous and both were paid for in production time:
    assembles an argv somewhere else still cannot get a destructive one past this
    module.
 2. **Drift is silent.**  The venv sat ten days behind its own lock
-   (``fastmcp`` 3.4.4 / ``mcp`` 1.28.1 against a lock wanting 4.0.0b1 / 2.0.0).
+   (installed SDK versions a full major line behind the lock).
    An entire test module stopped collecting because one import failed, hiding
    thirteen real defects.  Nothing checked, so nobody knew.  :func:`detect_drift`
    is the check, and it is wired into ``agent-utilities doctor`` so it runs
@@ -1766,13 +1766,7 @@ class CleanPlanProbe:
 
 
 #: Modules imported to prove the environment is usable, not merely installed.
-#: ``agent_utilities.mcp.child_resilience`` is here for a specific reason: it is
-#: the module whose silent ``ImportError`` under a stale ``fastmcp`` stopped an
-#: entire test module from collecting and hid thirteen defects for ten days.
-DEFAULT_IMPORT_PROBE_MODULES: tuple[str, ...] = (
-    "agent_utilities",
-    "agent_utilities.mcp.child_resilience",
-)
+DEFAULT_IMPORT_PROBE_MODULES: tuple[str, ...] = ("agent_utilities",)
 
 
 class ImportProbe:
@@ -1781,9 +1775,7 @@ class ImportProbe:
     A canary that is simply *not installed* in this environment is not a
     failure — it is inapplicable, and reported as ``ok=None``.  A canary that is
     installed but raises on import IS a failure, and that distinction is the
-    entire value of the probe: the ten-day outage was ``agent_utilities.mcp
-    .child_resilience`` present-but-unimportable against a stale ``fastmcp``,
-    which reads as "installed and broken", not "absent".
+    entire value of the probe: "installed and broken" is not "absent".
     """
 
     name = "imports"
@@ -1910,57 +1902,10 @@ class ImportProbe:
         return self._import_probe_verdict(failures, absent)
 
 
-class SdkFloorProbe:
-    """Reuse ``check_mcp_sdk_floor`` rather than re-deriving MCP SDK floors.
-
-    A sibling lane already built the "derive the required floor from installed
-    metadata, compare against what is installed" check.  Duplicating that logic
-    here would give us two answers that can disagree, so this probe simply calls
-    it inside the shared venv when it is available and reports ``ok=None`` when
-    the running tree does not have it.
-    """
-
-    name = "mcp_sdk_floor"
-
-    def check(self, workspace: Workspace) -> ProbeResult:
-        python = workspace.venv / "bin" / "python"
-        if not python.exists():
-            return ProbeResult(name=self.name, ok=None, detail="no venv interpreter")
-        script = (
-            "import json, sys\n"
-            "try:\n"
-            "    from agent_utilities.graphos_client.protocol_compat import check_mcp_sdk_floor\n"
-            "except Exception as exc:\n"
-            "    json.dump({'ok': None, 'detail': f'unavailable: {type(exc).__name__}: {exc}'}, sys.stdout)\n"
-            "else:\n"
-            "    json.dump(check_mcp_sdk_floor(), sys.stdout)\n"
-        )
-        try:
-            completed = subprocess.run(  # noqa: S603 — argv is constructed, never shell
-                [str(python), "-c", script],
-                cwd=str(workspace.root),
-                capture_output=True,
-                text=True,
-                timeout=300,
-                check=False,
-            )
-            payload = json.loads(completed.stdout or "{}")
-        except (OSError, subprocess.TimeoutExpired, ValueError) as exc:
-            return ProbeResult(
-                name=self.name, ok=None, detail=f"floor probe could not run: {exc}"
-            )
-        return ProbeResult(
-            name=self.name,
-            ok=payload.get("ok"),
-            detail=str(payload.get("detail", "")),
-        )
-
-
 VERIFY_PROBES: list[VerifyProbe] = [
     LockCheckProbe(),
     CleanPlanProbe(),
     ImportProbe(),
-    SdkFloorProbe(),
 ]
 
 
@@ -2368,7 +2313,7 @@ def _drift_pending_intent_finding(workspace: Workspace) -> DriftFinding | None:
     )
 
 
-def detect_drift(workspace: Workspace, *, include_floor: bool = True) -> DriftReport:
+def detect_drift(workspace: Workspace) -> DriftReport:
     """Answer "is the shared venv still what the lock says it should be?".
 
     Runs read-only.  This is the check whose absence let the environment rot for
@@ -2395,16 +2340,6 @@ def detect_drift(workspace: Workspace, *, include_floor: bool = True) -> DriftRe
         findings.extend(_drift_env_findings(workspace))
 
     findings.append(_drift_member_metadata_finding(workspace))
-
-    if include_floor:
-        floor = SdkFloorProbe().check(workspace)
-        findings.append(
-            DriftFinding(
-                code="mcp_sdk_floor",
-                severity={True: "ok", False: "fail", None: "ok"}[floor.ok],
-                detail=floor.detail or "mcp sdk floor probe returned no detail",
-            )
-        )
 
     pending_finding = _drift_pending_intent_finding(workspace)
     if pending_finding is not None:

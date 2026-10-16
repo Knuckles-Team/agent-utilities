@@ -628,7 +628,7 @@ def test_detect_drift_reports_a_stale_lock_as_fail(
             stderr="the lockfile is not up-to-date",
         ),
     )
-    report = venv_sync.detect_drift(workspace, include_floor=False)
+    report = venv_sync.detect_drift(workspace)
     assert report.status == "fail"
     assert "STALE" in report.summary
 
@@ -642,7 +642,7 @@ def test_detect_drift_reports_packages_behind_the_lock(
         lambda ws: venv_sync.CommandResult(("uv",), 0, "", ""),
     )
     monkeypatch.setattr(venv_sync, "plan_sync", lambda ws: SyncPlan.parse(BEHIND_PLAN))
-    report = venv_sync.detect_drift(workspace, include_floor=False)
+    report = venv_sync.detect_drift(workspace)
     assert report.status == "fail"
     codes = {f.code: f.severity for f in report.findings}
     assert codes["env_current"] == "fail"
@@ -655,7 +655,7 @@ def test_detect_drift_is_ok_when_everything_matches(
         venv_sync, "lock_check", lambda ws: venv_sync.CommandResult(("uv",), 0, "", "")
     )
     monkeypatch.setattr(venv_sync, "plan_sync", lambda ws: SyncPlan.parse(CLEAN_PLAN))
-    report = venv_sync.detect_drift(workspace, include_floor=False)
+    report = venv_sync.detect_drift(workspace)
     assert report.status == "ok"
 
 
@@ -677,7 +677,7 @@ def test_detect_drift_surfaces_a_stuck_flip_queue(
             change_class=METADATA,
         ),
     )
-    report = venv_sync.detect_drift(workspace, include_floor=False)
+    report = venv_sync.detect_drift(workspace)
     assert report.status == "warn"
     assert any(f.code == "pending_flips" for f in report.findings)
 

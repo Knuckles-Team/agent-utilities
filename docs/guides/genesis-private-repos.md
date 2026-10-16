@@ -86,9 +86,9 @@ is the generated, machine-readable mirror via `manifest_summary()`). The flow:
 from agent_utilities.deployment import provision_plan, standard_repos, render_skeleton
 
 plan = provision_plan(
-    profile,                        # tiny | single-node-prod | enterprise
-    git_host="gitlab",              # gitlab | github | local  (tiny forces local)
-    namespace=operator_group,       # operator's GitLab group / GH org → ${GIT_NAMESPACE}
+    profile,  # tiny | single-node-prod | enterprise
+    git_host="gitlab",  # gitlab | github | local  (tiny forces local)
+    namespace=operator_group,  # operator's GitLab group / GH org → ${GIT_NAMESPACE}
     existing_repos=already_present,  # → action="skip" for these (idempotent re-runs)
 )
 ```

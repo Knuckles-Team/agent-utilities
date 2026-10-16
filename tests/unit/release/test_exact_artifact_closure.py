@@ -419,12 +419,6 @@ def _exact_local(manifest: dict[str, Any], manifest_digest: str) -> dict[str, An
                 "cases": list(closure.G09_CASES),
                 "status": "pass",
             },
-            "g26": {
-                "initial_tool_count": 11,
-                "injection_denied": True,
-                "poisoned_feedback_denied": True,
-                "status": "pass",
-            },
             "g30": {
                 "family_count": 13,
                 "modality_count": 14,

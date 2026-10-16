@@ -130,8 +130,10 @@ its own publisher at startup — same seam pattern as `set_fleet_actuator`:
 
 ```python
 from agent_utilities.knowledge_graph.research.change_publisher import (
-    PublishResult, set_change_publisher,
+    PublishResult,
+    set_change_publisher,
 )
+
 
 class RepositoryManagerPublisher:
     name = "repository_manager"
@@ -147,6 +149,7 @@ class RepositoryManagerPublisher:
         # Raw repository coordinates remain ephemeral inside the publisher;
         # PublishResult.to_dict() and graph/audit records expose opaque refs.
         return PublishResult(ok=True, branch=..., commit_sha=..., repo_path=...)
+
 
 set_change_publisher(RepositoryManagerPublisher(mcp_call))
 ```

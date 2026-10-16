@@ -46,7 +46,9 @@ The Structured Prompts system provides a **Pydantic-based schema** for defining 
 The main model for loading and rendering prompt JSON files:
 
 ```python
-from agent_utilities import StructuredPrompt  # re-exported from agent_utilities.prompting.structured
+from agent_utilities import (
+    StructuredPrompt,
+)  # re-exported from agent_utilities.prompting.structured
 
 # Load from JSON
 prompt = StructuredPrompt.model_validate(json_data)

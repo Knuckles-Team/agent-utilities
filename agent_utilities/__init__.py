@@ -67,7 +67,6 @@ _LAZY_MODULE_EXPORTS: tuple[tuple[str, str], ...] = (
     ),
     (".models.imodel", "DisplayComplexityBudget"),
     (".security.secrets_client", "SecretsClient create_secrets_client"),
-    (".security.auth", "verify_credentials"),
     (".security.sandboxed_executor", "SandboxedExecutor SandboxLimits SandboxResult"),
     (".sdd", "SDDManager"),
     (
@@ -210,7 +209,6 @@ __all__ = [
     # Secrets & Auth (CONCEPT:AU-OS.config.secrets-authentication)
     "SecretsClient",
     "create_secrets_client",
-    "verify_credentials",
     # MATE Integration — Evaluation (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort)
     "EvalRunner",
     "EvalStrategy",

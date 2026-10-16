@@ -11,8 +11,7 @@ These tests pin the contract from both sides:
 * ``tests/conftest.py``'s kernel-free ``IntelligenceGraphEngine`` fallback must
   satisfy every member the shared autouse fixtures call.
 * ``tests/unit/conftest.py``'s hermetic-embedding fixture must patch the
-  canonical factory unconditionally, and an already-bound rebind only where that
-  rebind is actually importable.
+  canonical factory unconditionally.
 """
 
 from __future__ import annotations
@@ -106,37 +105,19 @@ def test_kernel_free_engine_reset_sequence_is_a_no_op(lean_root_conftest):
 
 def test_unit_conftest_always_patches_the_canonical_embedding_factory():
     """SB-11: blocking the canonical factory is what makes the suite hermetic."""
+    import importlib
+
     from tests.unit import conftest as unit_conftest
 
-    assert unit_conftest._importable(unit_conftest.CANONICAL_EMBEDDING_FACTORY)
-
-
-def test_unit_conftest_importable_probe_reports_both_branches():
-    """SB-11 acceptance: cover the module-available and module-absent branches."""
-    from tests.unit import conftest as unit_conftest
-
-    # Present branch: this very module is importable.
-    assert unit_conftest._importable(
-        f"{__name__}.test_unit_conftest_importable_probe_reports_both_branches"
-    )
-    # Absent branch: an optional consumer that cannot import is skipped, not fatal.
-    assert not unit_conftest._importable(
-        "agent_utilities._no_such_optional_module.factory"
-    )
-
-
-def test_optional_rebinds_are_filtered_not_assumed():
-    """The fixture must never assume an optional rebind is importable."""
-    from tests.unit import conftest as unit_conftest
-
+    module_name, _, attr = unit_conftest.CANONICAL_EMBEDDING_FACTORY.rpartition(".")
+    assert hasattr(importlib.import_module(module_name), attr)
     source = UNIT_CONFTEST_PATH.read_text(encoding="utf-8")
-    # The rebind list must be consulted through the probe, never iterated raw.
-    assert "if _importable(t)" in source
-    assert unit_conftest.OPTIONAL_EMBEDDING_FACTORY_REBINDS
+    # Patched unconditionally (no optional rebind list to probe or skip).
     assert (
-        unit_conftest.CANONICAL_EMBEDDING_FACTORY
-        not in unit_conftest.OPTIONAL_EMBEDDING_FACTORY_REBINDS
+        "monkeypatch.setattr(CANONICAL_EMBEDDING_FACTORY, _no_network_embeddings)"
+        in source
     )
+    assert "OPTIONAL_EMBEDDING_FACTORY_REBINDS" not in source
 
 
 @pytest.mark.parametrize("fail_import", [False, True])

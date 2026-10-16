@@ -148,7 +148,9 @@ def test_live_measurement_exception_increments_errors() -> None:
     sink = WgerSink()
     ops: dict[str, Any] = {
         "client": client,
-        "creations": [{"type": "bodymeasurement", "kind": "waist", "category": "waist"}],
+        "creations": [
+            {"type": "bodymeasurement", "kind": "waist", "category": "waist"}
+        ],
     }
     result = sink.run(WritebackContext(), ops, dry_run=False)
     assert (result.errors, result.created) == (1, 0)
@@ -186,7 +188,13 @@ def test_multiple_creations_mixed_outcomes() -> None:
             {"type": "weight", "date": "d1", "value": 1},
             {"type": "session", "routine": "R", "date": "d"},
             {"type": "unknown"},
-            {"type": "bodymeasurement", "kind": "waist", "category": "c", "date": "d", "value": 1},
+            {
+                "type": "bodymeasurement",
+                "kind": "waist",
+                "category": "c",
+                "date": "d",
+                "value": 1,
+            },
         ],
     }
     result = sink.run(WritebackContext(), ops, dry_run=False)

@@ -50,6 +50,7 @@ Use the `@reactive_behavior` decorator to subscribe functions to event topics.
 from agent_utilities.graph.reactive import reactive_behavior, EventLedger
 from agent_utilities.models.knowledge_graph import EventNode
 
+
 # Register a reactive behavior for task proposals
 @reactive_behavior(on="task.proposed")
 async def handle_proposed_task(event: EventNode):
@@ -64,6 +65,7 @@ async def handle_proposed_task(event: EventNode):
 import asyncio
 from agent_utilities.graph.reactive import EventLedger, BehaviorDispatcher
 
+
 async def main():
     ledger = EventLedger()
     dispatcher = BehaviorDispatcher.instance()
@@ -74,11 +76,12 @@ async def main():
         node_id="analyst_agent",
         event_type="task.proposed",
         payload={"task_name": "Synthesize Market Signals", "priority": "high"},
-        severity="info"
+        severity="info",
     )
 
     # Dispatch to all async subscribers concurrently
     await dispatcher.dispatch_event(event)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -94,8 +97,7 @@ from agent_utilities.graph.reactive import EventLedger
 ledger = EventLedger()
 # Reconstruct execution state up to a specific failure event
 historical_trajectory = ledger.fork_run(
-    run_id="run_12345",
-    up_to_event_id="evt:9f8b2d1c"
+    run_id="run_12345", up_to_event_id="evt:9f8b2d1c"
 )
 
 for event in historical_trajectory:

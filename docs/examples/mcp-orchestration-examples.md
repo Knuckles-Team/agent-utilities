@@ -39,6 +39,7 @@ import asyncio
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from pathlib import Path
 
+
 async def main():
     engine = IntelligenceGraphEngine.get_active()
 
@@ -46,12 +47,13 @@ async def main():
     sources = [
         "${WORKSPACE_ROOT}/agent-packages/skills/universal-skills",
         "${WORKSPACE_ROOT}/agent-packages/skills/skill-graphs",
-        "${WORKSPACE_ROOT}/agent-packages/agent-utilities/docs/examples/example_mcp_config.json"
+        "${WORKSPACE_ROOT}/agent-packages/agent-utilities/docs/examples/example_mcp_config.json",
     ]
 
     # Ingest the toolkit into the Graph
     result = await engine.ingest_agent_toolkit(sources)
     print(result)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -113,7 +115,7 @@ store = WorkflowStore(engine)
 # Re-saving the same name updates the stored definition.
 workflow_id = store.save_workflow(
     name="container_health_check",
-    plan=plan,                       # a GraphPlan (e.g. from WorkflowCompiler)
+    plan=plan,  # a GraphPlan (e.g. from WorkflowCompiler)
     description="Full Docker infrastructure health assessment",
 )
 
@@ -193,6 +195,7 @@ Once ingested, the operator can dynamically route queries to specialized MCP ser
 ```python
 from agent_utilities.orchestration.agent_runner import run_agent
 
+
 async def dynamic_execution():
     engine = IntelligenceGraphEngine.get_active()
 
@@ -201,7 +204,7 @@ async def dynamic_execution():
         agent_name="repository-manager-mcp",
         task="Can you use the rm_workspace tool to list the available actions for the workspace?",
         max_steps=5,
-        engine=engine
+        engine=engine,
     )
     print(result)
 ```

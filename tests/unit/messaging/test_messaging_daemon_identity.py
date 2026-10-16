@@ -97,7 +97,7 @@ def test_main_never_constructs_the_engine_without_minting_identity_first(
             return MagicMock(name="engine")
 
     monkeypatch.setattr(messaging_daemon, "mint_process_identity", _mint_identity)
-    monkeypatch.setattr(messaging_daemon, "_validate_fleet_auth", lambda: None)
+    monkeypatch.setattr("agent_utilities.core.config.load_config", lambda: None)
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine",
         _FakeEngine,
@@ -229,7 +229,7 @@ def test_standalone_main_enters_the_shared_owned_intake_boundary(monkeypatch):
     seen: list[object] = []
 
     monkeypatch.setattr(messaging_daemon, "mint_process_identity", lambda: fake_session)
-    monkeypatch.setattr(messaging_daemon, "_validate_fleet_auth", lambda: None)
+    monkeypatch.setattr("agent_utilities.core.config.load_config", lambda: None)
     monkeypatch.setattr(
         messaging_daemon, "configured_platforms", lambda engine=None: ["telegram"]
     )

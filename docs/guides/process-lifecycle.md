@@ -33,6 +33,7 @@ import signal
 _main_pid = os.getpid()
 _cleanup_done = False
 
+
 def _cleanup_child_processes(signum=None, frame=None):
     """Kill all child processes spawned by this server on exit."""
     nonlocal _cleanup_done
@@ -41,10 +42,13 @@ def _cleanup_child_processes(signum=None, frame=None):
     _cleanup_done = True
     result = subprocess.run(
         ["pgrep", "-P", str(_main_pid)],
-        capture_output=True, text=True, timeout=5,
+        capture_output=True,
+        text=True,
+        timeout=5,
     )
     for pid_str in result.stdout.strip().split("\n"):
         os.kill(int(pid_str.strip()), signal.SIGTERM)
+
 
 # Register for all exit paths
 atexit.register(_cleanup_child_processes)
@@ -65,10 +69,12 @@ prev = signal.getsignal(signal.SIGTERM)
 if prev in (signal.SIG_DFL, signal.SIG_IGN, None):
     signal.signal(signal.SIGTERM, _cleanup_child_processes)
 else:
+
     def _chained(signum, frame, _prev=prev):
         _cleanup_child_processes(signum, frame)
         if callable(_prev):
             _prev(signum, frame)
+
     signal.signal(signal.SIGTERM, _chained)
 ```
 
@@ -78,6 +84,7 @@ The `_cleanup_done` flag ensures the cleanup function runs exactly once, even if
 
 ```python
 _cleanup_done = False
+
 
 def _cleanup_child_processes(signum=None, frame=None):
     nonlocal _cleanup_done

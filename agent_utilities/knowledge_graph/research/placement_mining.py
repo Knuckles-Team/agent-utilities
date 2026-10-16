@@ -468,8 +468,8 @@ def _run_mining_action(
     every other mining pass's tolerance.
     """
     from agent_utilities.knowledge_graph.core.engine_surface import (
-            invoke_surface as _invoke,
-        )
+        invoke_surface as _invoke,
+    )
 
     try:
         raw = _invoke(
@@ -1800,7 +1800,7 @@ def _record_canary_outcome(
     """
     # -- close the loop: the canary's verdict becomes the flywheel's
     # ACCEPTED/RETRACTED transition AND a durable bandit observation keyed on
-    # this (kind, target) (``OutcomeRouter.reward_of`` / ``CapabilityIndex``). --
+    # this (kind, target) (``OutcomeRouter.reward_of`` / EG capability designation). --
     reward = 1.0 if canary.applied else 0.0
     try:
         ctx.router.record(prop.kind, prop.target, reward)
@@ -2114,7 +2114,7 @@ def placement_mining_subscription(engine: Any) -> Any:
     the ``_control``/``graph_compute`` resolution dance), ``:ToolCall`` is
     ordinary CONTENT-graph data — the same resolution
     :class:`~agent_utilities.graph.routing.enrichers.capability_designation.
-    CapabilityIndexWatcher` already uses (``subscribe(engine, label, handler)``
+    capability designation watcher` already uses (``subscribe(engine, label, handler)``
     directly on the passed engine/compute object; ``resolve_streaming`` follows
     its own ``.graph``/``._client`` chain). The handler bumps
     ``sub.pending_state["pending"]``; the caller reads it to decide whether to

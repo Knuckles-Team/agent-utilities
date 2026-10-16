@@ -18,7 +18,9 @@ from __future__ import annotations
 from typing import Any
 
 from agent_utilities.knowledge_graph.enrichment.writeback.core import WritebackContext
-from agent_utilities.knowledge_graph.enrichment.writeback.sinks.ansible import AnsibleSink
+from agent_utilities.knowledge_graph.enrichment.writeback.sinks.ansible import (
+    AnsibleSink,
+)
 
 
 class _FakeClient:
@@ -77,7 +79,11 @@ def test_live_launch_success_increments_created() -> None:
         "creations": [{"template_id": "T1", "extra_vars": {"x": 1}}],
     }
     result = sink.run(WritebackContext(), ops, dry_run=False)
-    assert (result.created, result.errors, client.launched) == (1, 0, [("T1", {"x": 1})])
+    assert (result.created, result.errors, client.launched) == (
+        1,
+        0,
+        [("T1", {"x": 1})],
+    )
 
 
 def test_live_launch_exception_increments_errors() -> None:

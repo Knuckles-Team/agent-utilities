@@ -578,7 +578,7 @@ class TestActorIdentityMiddleware:
         rejected credential (a correctly issued token could never have been
         accepted, and the error blamed the credential instead of the missing
         dependency)."""
-        from fastapi import HTTPException
+        from agent_utilities.security.auth import TokenValidationError as HTTPException
 
         cfg = _make_config(auth_jwt_jwks_uri="https://issuer.invalid/jwks")
         mw = ActorIdentityMiddleware(_make_inner_app({}))
@@ -1170,7 +1170,7 @@ class TestVerifyLocalBearerToken:
         above for this local-bearer path: a verification-path fault that is
         NOT a credential rejection must surface loudly as a ``RuntimeError``,
         never collapse into the generic ``PermissionError`` denial."""
-        from fastapi import HTTPException
+        from agent_utilities.security.auth import TokenValidationError as HTTPException
 
         _, token, cfg, fake_jwks = _signed_token_cfg()
 

@@ -101,18 +101,24 @@ Both fan-out helpers accept a schema. The sub-RLM's `FINAL` is validated and **c
 ```python
 # Inside an RLM code block — chunk the context, then ask ONE boolean sub-agent
 # per chunk whether it's relevant, in parallel. Filter on the typed result.
-chunks = [context[i:i+5000] for i in range(0, len(context), 5000)]
+chunks = [context[i : i + 5000] for i in range(0, len(context), 5000)]
 
-flags = await run_parallel_sub_calls([
-    {"prompt": "Does this chunk describe where Saltram lives?",
-     "context": c, "schema": {"type": "boolean"}}
-    for c in chunks
-])
-relevant = [c for c, keep in zip(chunks, flags) if keep]   # keep is a real bool
+flags = await run_parallel_sub_calls(
+    [
+        {
+            "prompt": "Does this chunk describe where Saltram lives?",
+            "context": c,
+            "schema": {"type": "boolean"},
+        }
+        for c in chunks
+    ]
+)
+relevant = [c for c, keep in zip(chunks, flags) if keep]  # keep is a real bool
 
 # A single typed sub-call:
-is_relevant = await rlm_query("Relevant to his living situation?",
-                              sub_context=chunk, schema=bool)
+is_relevant = await rlm_query(
+    "Relevant to his living situation?", sub_context=chunk, schema=bool
+)
 ```
 
 ### Supported schema forms

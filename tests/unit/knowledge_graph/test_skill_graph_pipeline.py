@@ -411,7 +411,9 @@ def test_http_get_uses_bounded_dns_pinned_source_boundary(monkeypatch):
         return "safe"
 
     monkeypatch.setattr(http_safety, "safe_get_text", fake_get)
-    monkeypatch.setattr(config, "source_http_allowed_private_hosts", ["example-docs.internal"])
+    monkeypatch.setattr(
+        config, "source_http_allowed_private_hosts", ["example-docs.internal"]
+    )
 
     assert (
         mod._http_get("https://docs.example.invalid/llms.txt", max_bytes=1234) == "safe"

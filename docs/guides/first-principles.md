@@ -68,9 +68,9 @@ A session-scoped `_RegistryCache` singleton that caches the full specialist regi
 
 ```python
 from agent_utilities.core.config import (
-    get_discovery_registry,        # Full cached registry
-    get_relevant_specialists,      # Filtered top-K for a query
-    invalidate_registry_cache,     # Event-driven invalidation
+    get_discovery_registry,  # Full cached registry
+    get_relevant_specialists,  # Filtered top-K for a query
+    invalidate_registry_cache,  # Event-driven invalidation
 )
 
 # Get only the specialists relevant to "deploy to staging"
@@ -157,12 +157,13 @@ graph TD
 ```python
 class TeamConfigNode(RegistryNode):
     """CONCEPT:AU-AHE.evaluation.interpretability-tests — Proven Team Reuse"""
+
     node_type: str = "TEAM_CONFIG"
-    domain_pattern: str           # e.g., "deploy*staging*"
-    specialist_ids: list[str]     # Ordered specialist node IDs
-    success_rate: float = 0.5     # EMA-updated after each use
+    domain_pattern: str  # e.g., "deploy*staging*"
+    specialist_ids: list[str]  # Ordered specialist node IDs
+    success_rate: float = 0.5  # EMA-updated after each use
     uses_count: int = 0
-    capability_overrides: dict    # e.g., {"rlm": True} for large inputs
+    capability_overrides: dict  # e.g., {"rlm": True} for large inputs
 ```
 
 ### RLM + TeamConfig Synergy
@@ -204,12 +205,13 @@ Specialist agents had static, fixed tool bindings defined at registration time. 
 ```python
 class AgentCapabilityNode(RegistryNode):
     """CONCEPT:AU-ORCH.adapter.hot-cache-invalidation — Agent Capability Type System"""
+
     node_type: str = "AGENT_CAPABILITY"
-    capability_type: str          # e.g., "rlm", "critic", "summarizer"
-    auto_activate: bool = False   # If True, system checks triggers automatically
-    trigger_conditions: dict      # e.g., {"input_size_gt": 5000, "domain": "code"}
-    handler_module: str           # e.g., "agent_utilities.rlm.executor"
-    priority: int = 0             # Higher = checked first
+    capability_type: str  # e.g., "rlm", "critic", "summarizer"
+    auto_activate: bool = False  # If True, system checks triggers automatically
+    trigger_conditions: dict  # e.g., {"input_size_gt": 5000, "domain": "code"}
+    handler_module: str  # e.g., "agent_utilities.rlm.executor"
+    priority: int = 0  # Higher = checked first
 ```
 
 ### Auto-Activation in Executor
@@ -227,7 +229,11 @@ for specialist in specialists:
     )
     for cap in capabilities:
         if _check_trigger(cap.trigger_conditions, input_text):
-            logger.info("[CONCEPT:AU-ORCH.adapter.hot-cache-invalidation] Auto-activating %s for %s", cap.capability_type, specialist.name)
+            logger.info(
+                "[CONCEPT:AU-ORCH.adapter.hot-cache-invalidation] Auto-activating %s for %s",
+                cap.capability_type,
+                specialist.name,
+            )
             # Activate the capability handler before execution
 ```
 

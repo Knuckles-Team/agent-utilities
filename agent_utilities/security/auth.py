@@ -18,12 +18,32 @@ import time
 from typing import Any, cast
 from urllib.parse import urlsplit
 
-from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
 logger = logging.getLogger(__name__)
 
-bearer_scheme = HTTPBearer(auto_error=False)
+HTTP_401_UNAUTHORIZED = 401
+HTTP_500_INTERNAL_SERVER_ERROR = 500
+
+
+class TokenValidationError(Exception):
+    """A bearer token failed validation (``status_code`` 401) or the
+    verification path itself failed (``status_code`` 500).
+
+    Framework-free: the serving boundary (graph-os) maps it to its own
+    transport response; the harness never serves requests.
+    """
+
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        detail: str,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+        self.headers = dict(headers or {})
+
 
 # In-memory JWKS cache keyed by endpoint. A single global value can otherwise
 # validate against the wrong issuer after a runtime configuration change.
@@ -141,7 +161,7 @@ def _decode_jwt(
         The validated claims dict.
 
     Raises:
-        HTTPException: If the token is invalid, expired, or claims fail validation.
+        TokenValidationError: If the token is invalid, expired, or claims fail validation.
     """
     try:
         from joserfc import jwt
@@ -153,8 +173,8 @@ def _decode_jwt(
         )
         from joserfc.jwk import KeySet
     except ImportError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        raise TokenValidationError(
+            status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail="The base installation is incomplete: joserfc is required "
             "for JWT authentication.",
         ) from exc
@@ -197,90 +217,30 @@ def _decode_jwt(
         return dict(claims)
 
     except ExpiredTokenError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+        raise TokenValidationError(
+            status_code=HTTP_401_UNAUTHORIZED,
             detail="Token has expired",
             headers={"WWW-Authenticate": "Bearer"},
         ) from None
     except (BadSignatureError, DecodeError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+        raise TokenValidationError(
+            status_code=HTTP_401_UNAUTHORIZED,
             detail="Invalid token signature",
             headers={"WWW-Authenticate": "Bearer"},
         ) from None
     except InvalidClaimError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+        raise TokenValidationError(
+            status_code=HTTP_401_UNAUTHORIZED,
             detail="Invalid token claims",
             headers={"WWW-Authenticate": "Bearer"},
         ) from None
     except Exception as e:
         logger.warning("JWT validation failed")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+        raise TokenValidationError(
+            status_code=HTTP_401_UNAUTHORIZED,
             detail="Token validation failed",
             headers={"WWW-Authenticate": "Bearer"},
         ) from e
-
-
-# ---------------------------------------------------------------------------
-# FastAPI Security Dependencies
-# ---------------------------------------------------------------------------
-
-
-async def verify_jwt_only(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-) -> dict[str, Any] | None:
-    """Verify a JWT Bearer token from the ``Authorization`` header.
-
-    Returns ``None`` if JWT auth is not configured or no token is present.
-    Raises ``HTTPException(401)`` if a token is present but invalid.
-
-    CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
-    """
-    from agent_utilities.core.config import config
-
-    if not config.auth_jwt_jwks_uri:
-        return None  # JWT auth not configured
-
-    if not credentials:
-        return None
-
-    jwks = await _fetch_jwks(config.auth_jwt_jwks_uri)
-    claims = _decode_jwt(
-        credentials.credentials,
-        jwks,
-        issuer=config.auth_jwt_issuer,
-        audience=config.auth_jwt_audience,
-    )
-
-    logger.info("JWT authentication successful")
-    return {**claims, "auth_type": "jwt"}
-
-
-async def verify_credentials(
-    request: Request,
-    bearer: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-) -> dict[str, Any] | None:
-    """Authenticate one request with the configured JWT bearer policy.
-
-    This is the primary authentication dependency for agent server endpoints.
-    Authentication is enforced when ``AUTH_JWT_JWKS_URI`` is configured.
-
-    CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
-    """
-    authorization = [f"Bearer {bearer.credentials}".encode()] if bearer else []
-    try:
-        result = await authenticate_header_values(authorization=authorization)
-    except PermissionError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required",
-            headers={"WWW-Authenticate": "Bearer"},
-        ) from None
-    if result is not None:
-        request.state.user_claims = result
-    return result
 
 
 async def authenticate_header_values(
@@ -289,8 +249,7 @@ async def authenticate_header_values(
 ) -> dict[str, Any] | None:
     """Authenticate raw ASGI credential headers without route dependencies.
 
-    This is shared by the FastAPI dependency and the outer ASGI boundary that
-    also protects mounted A2A/ACP/custom applications and WebSockets. Duplicate,
+    This is shared by the outer ASGI boundary that protects mounted A2A/ACP/custom applications and WebSockets. Duplicate,
     oversized, malformed, or unsupported credential headers fail closed.
     """
     from agent_utilities.core.config import config
@@ -308,14 +267,14 @@ async def authenticate_header_values(
                 issuer=config.auth_jwt_issuer,
                 audience=config.auth_jwt_audience,
             )
-        except HTTPException as exc:
+        except TokenValidationError as exc:
             # Only a genuine credential rejection (401) collapses to
             # PermissionError here. A verification-path fault that is NOT a
             # credential rejection (currently only the 500 `_decode_jwt` raises
             # when the JWT stack's dependency is missing) must propagate
             # as-is — collapsing it into "invalid bearer token" is exactly how
             # a missing dependency gets misreported as a rejected credential.
-            if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+            if exc.status_code == HTTP_401_UNAUTHORIZED:
                 raise PermissionError("invalid bearer token") from exc
             raise
         return {**claims, "auth_type": "jwt"}

@@ -11067,7 +11067,7 @@
         "line": 158
       }
     ],
-    "agent_utilities.graphos_client.concurrency.invoke_client_method": [
+    "agent_utilities.core.concurrency.invoke_client_method": [
       {
         "repo": "microsoft-agent",
         "file": "microsoft_agent/mcp/mcp_admin.py",
@@ -11269,7 +11269,7 @@
         "line": 4
       }
     ],
-    "agent_utilities.graphos_client.concurrency.run_blocking": [
+    "agent_utilities.core.concurrency.run_blocking": [
       {
         "repo": "archivebox-api",
         "file": "archivebox_api/mcp_server.py",

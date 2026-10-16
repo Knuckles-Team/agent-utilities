@@ -75,7 +75,9 @@ def invoke_surface(
     try:
         client = engine_client(graph)
     except Exception as exc:  # noqa: BLE001 — engine down is a normal degrade
-        return _error(exc, surface=surface, action=action, code="dependency_unavailable")
+        return _error(
+            exc, surface=surface, action=action, code="dependency_unavailable"
+        )
     fn = None
     for sub_attr, method_attr in candidates:
         candidate = getattr(getattr(client, sub_attr, None), method_attr, None)
@@ -104,7 +106,11 @@ def invoke_surface(
 
 
 def dispatch(
-    domain: str, methods: set[str] | frozenset[str], action: str, params_json: str, graph: str
+    domain: str,
+    methods: set[str] | frozenset[str],
+    action: str,
+    params_json: str,
+    graph: str,
 ) -> str:
     """Call ``client.<domain>.<action>`` with JSON params; the engine's RBAC decides.
 
@@ -113,7 +119,10 @@ def dispatch(
     """
     if action not in methods:
         return json.dumps(
-            {"error": f"unknown action {action!r} for {domain}", "actions": sorted(methods)}
+            {
+                "error": f"unknown action {action!r} for {domain}",
+                "actions": sorted(methods),
+            }
         )
     try:
         params = json.loads(params_json) if params_json else {}

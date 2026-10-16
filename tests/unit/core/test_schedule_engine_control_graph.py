@@ -139,9 +139,7 @@ def test_fake_control_backend_rejects_a_mismatched_session_unretargeted() -> Non
             backend.execute("MATCH (s:Schedule) RETURN s.id as id")
 
 
-def test_tick_loads_schedules_when_ambient_session_targets_a_different_graph() -> (
-    None
-):
+def test_tick_loads_schedules_when_ambient_session_targets_a_different_graph() -> None:
     """THE production condition: the scheduler's ambient ``GraphSession`` is
     bound to the tenant graph it runs under (``homelab``), never
     ``__control__``. Before the fix, every ``:Schedule`` read/write raised

@@ -124,7 +124,8 @@ def sha256_hex(data: bytes) -> str:
 
 
 def stable_id(prefix: str, *parts: str) -> str:
-    return f"{prefix}:{sha256_hex(b'\x00'.join(p.encode('utf-8') for p in parts))}"
+    digest = sha256_hex(b"\x00".join(p.encode("utf-8") for p in parts))
+    return f"{prefix}:{digest}"
 
 
 def jline(obj: Any) -> str:
@@ -208,7 +209,9 @@ def _rust_crate_dir(root: Path, p: Path) -> Path | None:
     return None
 
 
-def _rust_crate_name(root: Path, crate_dir: Path, cargo_cache: dict[str, str | None]) -> str | None:
+def _rust_crate_name(
+    root: Path, crate_dir: Path, cargo_cache: dict[str, str | None]
+) -> str | None:
     """The crate name for ``crate_dir``, read once and memoized per directory."""
     key = str(crate_dir)
     if key not in cargo_cache:
@@ -257,7 +260,9 @@ def rust_module(root: Path, rel: str, cargo_cache: dict[str, str | None]) -> str
     return "::".join([crate, *mod_parts]) if mod_parts else crate
 
 
-def module_prefix(root: Path, rel: str, language: str, cargo_cache: dict) -> tuple[str, str]:
+def module_prefix(
+    root: Path, rel: str, language: str, cargo_cache: dict
+) -> tuple[str, str]:
     if language == "python":
         return python_module(root, rel), "."
     if language == "rust":
@@ -278,7 +283,11 @@ GENERATED_MARKERS = (
 
 def generated_reason(root: Path, rel: str) -> str | None:
     """Checked-in generated source: a banner in the first 4 KiB, or a known path rule."""
-    if "/generated/" in f"/{rel}" or rel.endswith("_pb2.py") or rel.endswith("_pb2.pyi"):
+    if (
+        "/generated/" in f"/{rel}"
+        or rel.endswith("_pb2.py")
+        or rel.endswith("_pb2.pyi")
+    ):
         return "path-rule"
     try:
         head = (root / rel).read_bytes()[:4096].decode("utf-8", "replace")
@@ -290,7 +299,9 @@ def generated_reason(root: Path, rel: str) -> str | None:
     return None
 
 
-def publicness(qualified: str, name: str, language: str, path: str) -> tuple[str, list[str]]:
+def publicness(
+    qualified: str, name: str, language: str, path: str
+) -> tuple[str, list[str]]:
     """Conservative visibility. Rust visibility is not in the parser contract yet,
     so Rust is ``unknown`` rather than guessed from a name."""
     if language == "python":
@@ -458,8 +469,9 @@ def _range_of(p: dict) -> dict:
     return {field: _int_prop(p, key) for field, key in RANGE_PROPERTIES}
 
 
-def _identity_fields(repository: str, rel: str, lang: str, prefix: str, sep: str,
-                     node: dict) -> dict:
+def _identity_fields(
+    repository: str, rel: str, lang: str, prefix: str, sep: str, node: dict
+) -> dict:
     """Identity + provenance: what the row IS and where it came from.
 
     ``qualified_symbol`` is the driver's composition -- the parser stamps only the
@@ -505,8 +517,9 @@ def _empty_behavioural_fields() -> dict:
     return fields
 
 
-def _symbol_row(repository: str, rel: str, lang: str, prefix: str, sep: str,
-                node: dict) -> dict:
+def _symbol_row(
+    repository: str, rel: str, lang: str, prefix: str, sep: str, node: dict
+) -> dict:
     return {
         **_identity_fields(repository, rel, lang, prefix, sep, node),
         **_empty_behavioural_fields(),
@@ -548,7 +561,9 @@ def _symbol_plane(
 
 def _apply_generated(symbol_rows: list[dict], file_rows: list[dict]) -> None:
     """Push each file's generated verdict down onto its symbols."""
-    gen_by_path = {f["path"]: (f["generated"], f["generated_reason"]) for f in file_rows}
+    gen_by_path = {
+        f["path"]: (f["generated"], f["generated_reason"]) for f in file_rows
+    }
     for row in symbol_rows:
         g, reason = gen_by_path.get(row["path"], (False, None))
         row["generated"] = g
@@ -605,8 +620,9 @@ def _file_depends_row(repository: str, e: dict, src: str, tgt: str) -> dict:
     return {
         "schema": "rf00-edge-v1",
         "edge_kind": "file_depends_on",
-        "edge_id": stable_id("edge:v1", "file_depends_on", src, tgt,
-                             e["properties"].get("module", "")),
+        "edge_id": stable_id(
+            "edge:v1", "file_depends_on", src, tgt, e["properties"].get("module", "")
+        ),
         "repository": repository,
         "source_file": src,
         "target_file": tgt,
@@ -615,14 +631,18 @@ def _file_depends_row(repository: str, e: dict, src: str, tgt: str) -> dict:
     }
 
 
-def _symbol_edge_row(repository: str, etype: str, e: dict, s: dict, t: dict,
-                     ambiguous: bool) -> dict:
+def _symbol_edge_row(
+    repository: str, etype: str, e: dict, s: dict, t: dict, ambiguous: bool
+) -> dict:
     return {
         "schema": "rf00-edge-v1",
         "edge_kind": etype,
         "edge_id": stable_id(
-            "edge:v1", etype, s["symbol_id"], t["symbol_id"],
-            e["properties"].get("name", "")
+            "edge:v1",
+            etype,
+            s["symbol_id"],
+            t["symbol_id"],
+            e["properties"].get("name", ""),
         ),
         "repository": repository,
         "source_symbol_id": s["symbol_id"],
@@ -636,9 +656,15 @@ def _symbol_edge_row(repository: str, etype: str, e: dict, s: dict, t: dict,
     }
 
 
-def _symbol_edge_rows(repository: str, etype: str, e: dict, srcs: list[dict],
-                      tgts: list[dict], ambiguous: bool,
-                      behaviour: BehaviourIndex) -> list[dict]:
+def _symbol_edge_rows(
+    repository: str,
+    etype: str,
+    e: dict,
+    srcs: list[dict],
+    tgts: list[dict],
+    ambiguous: bool,
+    behaviour: BehaviourIndex,
+) -> list[dict]:
     """The cross product of candidate endpoints -- one row per (src, tgt) pair."""
     rows = []
     for s in srcs:
@@ -716,7 +742,11 @@ def _repo_provenance(root: Path, result: dict) -> dict:
         "root": str(root),
         "head": git(root, "rev-parse", "HEAD").strip(),
         "dirty_paths": len(
-            [l for l in git(root, "status", "--porcelain=v1").splitlines() if l]
+            [
+                line
+                for line in git(root, "status", "--porcelain=v1").splitlines()
+                if line
+            ]
         ),
         "files_requested": result["files_requested"],
         "files_read": result["files_read"],
@@ -731,7 +761,9 @@ def _identity_stats(
 ) -> dict:
     """How much node_id ambiguity the run carried -- reported, never hidden."""
     return {
-        "parse_status": dict(Counter(f["parse_status"].split(":")[0] for f in file_rows)),
+        "parse_status": dict(
+            Counter(f["parse_status"].split(":")[0] for f in file_rows)
+        ),
         "distinct_native_node_ids": len(by_node_id),
         "colliding_native_node_ids": sum(1 for v in by_node_id.values() if len(v) > 1),
         "identity_ambiguous_edges": ambiguous_edges,

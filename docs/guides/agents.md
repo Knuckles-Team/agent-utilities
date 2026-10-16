@@ -141,9 +141,9 @@ Every significant state transition emits a structured event via `emit_graph_even
 ### Event Emission Contract
 ```python
 emit_graph_event(
-    eq=event_queue,           # asyncio.Queue (or None to skip)
+    eq=event_queue,  # asyncio.Queue (or None to skip)
     event_type="routing_started",  # Must be a key in _PHASE_MAP
-    query=ctx.state.query,    # Arbitrary metadata kwargs
+    query=ctx.state.query,  # Arbitrary metadata kwargs
 )
 ```
 

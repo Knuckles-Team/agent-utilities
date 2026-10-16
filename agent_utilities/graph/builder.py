@@ -774,12 +774,12 @@ def _build_mcp_toolsets(
     if DEFAULT_VALIDATION_MODE:
         return toolsets
     if mcp_url:
-        from agent_utilities.graphos_client.toolset_factory import build_http_toolset
+        from agent_utilities.host_ports import build_url_toolset
 
         if not is_loopback_url(
             mcp_url, kwargs.get("current_host"), kwargs.get("current_port")
         ):
-            toolsets.append(build_http_toolset(mcp_url, timeout=60))
+            toolsets.append(build_url_toolset(mcp_url, timeout=60))
     if mcp_config:
         config_path = resolve_mcp_config_path(mcp_config)
         if config_path:

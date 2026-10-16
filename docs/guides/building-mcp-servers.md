@@ -65,7 +65,9 @@ Use the `@mcp.tool()` decorator with proper annotations and tags:
 )
 async def list_resources(
     filter_type: str = Field(description="Filter by resource type.", default=""),
-    ctx: Context = Field(description="MCP context for progress reporting.", default=None),
+    ctx: Context = Field(
+        description="MCP context for progress reporting.", default=None
+    ),
 ) -> dict:
     """List all available resources. Expected return object type: dict"""
     # Use context helpers (see below)
@@ -123,8 +125,8 @@ from agent_utilities.mcp.context_helpers import (
 ### `ctx_progress(ctx, progress, total=100)`
 Report progress to the MCP client:
 ```python
-await ctx_progress(ctx, 0, 100)    # Starting
-await ctx_progress(ctx, 50, 100)   # Halfway
+await ctx_progress(ctx, 0, 100)  # Starting
+await ctx_progress(ctx, 50, 100)  # Halfway
 await ctx_progress(ctx, 100, 100)  # Done
 ```
 
@@ -176,6 +178,7 @@ from agent_utilities.core.transport_security import (
     tls_environment_from_config,
 )
 
+
 class MyServiceAPI:
     """Python wrapper for the My Service REST API."""
 
@@ -189,10 +192,12 @@ class MyServiceAPI:
         ).rstrip("/")
         self.api_token = api_token or os.environ.get("SERVICE_TOKEN", "")
         self.session = requests.Session()
-        self.session.headers.update({
-            "Authorization": f"Bearer {self.api_token}",
-            "Content-Type": "application/json",
-        })
+        self.session.headers.update(
+            {
+                "Authorization": f"Bearer {self.api_token}",
+                "Content-Type": "application/json",
+            }
+        )
         resolve_tls_profile(
             "my-service", environ=tls_environment_from_config(config)
         ).configure_requests_session(self.session)

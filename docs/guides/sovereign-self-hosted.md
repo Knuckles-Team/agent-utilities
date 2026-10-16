@@ -55,6 +55,7 @@ Check:
 
 ```python
 from agent_utilities import create_agent
+
 agent, _ = create_agent(name="assistant", skill_types=["universal", "graphs"])
 print(agent.run_sync("Add a node 'hello' of type Greeting, then count nodes.").output)
 ```
@@ -219,6 +220,7 @@ special mode the operator opt into.
 
    ```python
    from agent_utilities.knowledge_graph.facade import KnowledgeGraph
+
    kg = KnowledgeGraph()
    print(kg.query("MATCH (n) RETURN count(n) AS n"))
    ```

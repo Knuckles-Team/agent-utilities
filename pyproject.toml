@@ -203,7 +203,7 @@ metrics = [
 # CONCEPT:AU-OS.observability.telemetry-observability (OBS-P1-2/X2) — standalone OTLP
 # trace export. `TelemetryEngine._setup_otel()` (observability/__init__.py) and the
 # engine-RPC span in `knowledge_graph/core/graph_compute.py` import-guard these two
-# packages, so the base install/`[mcp]`/`[serving]` stay unaffected without this extra.
+# packages, so the base install/`[serving]` stay unaffected without this extra.
 # `[logfire]` already carries `opentelemetry-sdk` + this same OTLP/HTTP exporter
 # transitively (for the Logfire+pydantic-ai-instrumentation pipeline in
 # `custom_observability.py`) — this extra is for a deployment that wants ONLY the
@@ -238,38 +238,15 @@ data-quality-pandera = [
     "pyarrow>=17.0.0",
     "pandera>=0.26.0,<1",
 ]
-mcp = [
-    # fastmcp 4 is the default (CONCEPT:AU-ECO.mcp.protocol-compat-bridge). Empirically
-    # verified (see agent_utilities/graphos_client/protocol_compat.py + docs/architecture/fastmcp4-default.md):
-    # `pydantic_ai.mcp` (pydantic-ai-slim 2.54.0, the supported release) natively
-    # handles both MCP SDK field spellings and modern FastMCP sessions. The exact
-    # Pydantic-AI pin below is intentional: protocol_compat.py verifies this
-    # contract and refuses an unverified runtime version; it no longer monkeypatches
-    # upstream MCPToolset methods or installs process-global aliases.
-    "fastmcp>=4.0.11",
-    "fastapi>=0.139.2",
-    "httpx>=0.28.1",
-    # Security floors: pulled transitively by mcp/fastmcp/fastapi.
-    "pyjwt>=2.13.0",            # CVE-2026-48522..48526 (PyJWKClient SSRF/DoS/bypass)
-    "starlette>=1.3.1",        # CVE-2026-54283 (form() limits ignored)
-    "python-multipart>=0.0.32", # CVE-2026-42561/53537-53540 (DoS / param smuggling)
-    # Default LLM connector for graph-os: the OpenAI-compatible model client. Local
-    # LLMs (vLLM/llama.cpp/Ollama) all speak the OpenAI API, so `openai` is the ONE
-    # provider graph-os ships by default (`graph_orchestrate` drives the local model
-    # through it). Other providers are opt-in add-ons — `[agent-anthropic]`,
-    # `[agent-google]`, `[agent-groq]`, `[agent-mistral]`, `[agent-huggingface]`.
-    # `pydantic-ai-slim[openai]` is the lean provider extra (httpx + openai SDK, no
-    # torch) — dependency-discipline safe on the serving plane.
-    "pydantic-ai-slim[openai]==2.54.0"
-]
 agent-runtime = [
-    "agent-utilities[mcp,terminal,sandbox]>=1.0.0",
+    "agent-utilities[terminal,sandbox]>=1.0.0",
+    "httpx>=0.28.1",
     "universal-skills>=1.3.1",
     "skill-graphs>=1.1.0",
     "pydantic-ai-skills>=2.1.0,<3.0.0",
     # openai is the default bundled provider (local LLMs use the OpenAI API); other
     # providers are opt-in add-ons (`[agent-anthropic]`, `[agent-google]`, …).
-    "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli]==2.54.0",
+    "pydantic-ai-slim[openai,cli]==2.54.0",
     "pydantic-graph==2.54.0",
     # Upper bound: fasta2a 1.0.0 (not just the eventual 2.x) already removed
     # the `kind` discriminator this module's own TaskSendParams/Message/Part
@@ -299,13 +276,14 @@ agent-runtime = [
 # agent actually needs at serve time, minus those two frontend libs. Used by
 # `[serving]`. See AGENTS.md "Dependency discipline".
 agent-headless = [
-    "agent-utilities[mcp,sandbox]>=1.0.0",
+    "agent-utilities[sandbox]>=1.0.0",
+    "httpx>=0.28.1",
     "universal-skills>=1.3.1",
     "skill-graphs>=1.1.0",
     "pydantic-ai-skills>=2.1.0,<3.0.0",
     # openai is the default bundled provider (local LLMs use the OpenAI API); other
     # providers are opt-in add-ons (`[agent-anthropic]`, `[agent-google]`, …).
-    "pydantic-ai-slim[mcp,openai,web,cli]==2.54.0",
+    "pydantic-ai-slim[openai,cli]==2.54.0",
     "pydantic-graph==2.54.0",
     # See agent-runtime above: fasta2a >=1.0.0 removed the `kind` discriminator
     # this module's A2A handling depends on; stays on 0.6.1 until that
@@ -497,7 +475,7 @@ serving = [
     # `hvac` is the only client that satisfies that on the serving plane, and it is a small
     # pure-Python HTTP client (no ML/native weight), so it belongs in `serving`, not a bespoke
     # second OpenBao client.
-    "agent-utilities[mcp,feeds,embeddings-openai,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault]",
+    "agent-utilities[feeds,embeddings-openai,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
@@ -580,12 +558,7 @@ test = [
     "pytest-env>=1.7.0",
     "pytest-timeout>=2.4.0",
     "syrupy>=5.5.3",
-    # Keep the test instrumentation on the semantic-conventions line selected
-    # by Logfire and Mistral, rather than requiring an unreleased newer line.
-    "opentelemetry-instrumentation-starlette>=0.60b0",
-    "opentelemetry-instrumentation-fastapi>=0.60b0",
-    "opentelemetry-instrumentation-asgi>=0.60b0",
-    # `agent-runtime` already implies mcp+sandbox. RF-ADR-009 SUPERSEDES GOC-73:
+    # `agent-runtime` already implies sandbox. RF-ADR-009 SUPERSEDES GOC-73:
     # the engine is a hard base dependency again (see the top-of-file comment), so
     # `test` no longer needs to name `graphos` itself — this repo's own suite
     # (numeric contract, knowledge_graph engine-client tests, etc.) genuinely
@@ -651,7 +624,7 @@ test-backends = [
 # `all` no longer needs to name `graphos` — an existing `pip install
 # agent-utilities[all]` still gets the engine unchanged, now via base.
 all = [
-    "agent-utilities[mcp,feeds,agent-runtime,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,langfuse,acp,documents,ann,sandbox,browser,test,rdf,stardog,vault,auth,finance,messaging,pyarrow]>=1.0.0"]
+    "agent-utilities[feeds,agent-runtime,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,langfuse,acp,documents,ann,sandbox,browser,test,rdf,stardog,vault,auth,finance,messaging,pyarrow]>=1.0.0"]
 
 [project.scripts]
 # graph-os-daemon is graph-os-owned (GRAPHOS-DEPLOY requirement R.007.3): graph_os.gateway.daemon:main.
@@ -930,7 +903,6 @@ exclusions = [
     "docs/project_structure.md",
     "docs/status.md",
     "docs/concepts.yaml",
-    "docs/capabilities-power.md",
     "docs/capabilities-power.json",
     "docs/_vendor_eg_capability_ledger.json",
     "docs/ecosystem-capability-fleet.md",
@@ -1105,33 +1077,13 @@ override-dependencies = [
     # longer resolves into the lock at all; there is nothing left to floor.
     #
     # httpx2/httpcore2 raised to >=2.12.0 (both transitive-only, via
-    # mcp/fastmcp-slim/genai-prices — never declared directly). httpx2==2.12.0
+    # genai-prices — never declared directly). httpx2==2.12.0
     # pins httpcore2==2.12.0 exactly, so both floors match. Fixes every OSV
     # advisory found on 2.9.1: GHSA-7mj9-2mp8-4m2p, GHSA-f2fp-rgf2-35cp,
     # GHSA-h4x7-gw46-3wm6, GHSA-pf96-p4fj-6566, GHSA-8xx6-hgc6-gc2m,
     # PYSEC-2026-3844..3849.
     "httpx2>=2.12.0",
     "httpcore2>=2.12.0",
-    # CONCEPT:AU-ECO.mcp.protocol-compat-bridge — fastmcp 4 is the default (see the
-    # `[mcp]` extra above). `fastmcp==4.0.11` pins an exact `fastmcp-slim[client,server]
-    # ==4.0.11`, while pydantic-ai-slim 2.54.0 now declares
-    # `fastmcp-slim[client]<5,>=3.3.0` and natively supports the FastMCP 4
-    # protocol. This workspace-wide override remains the explicit fastmcp-4
-    # policy for image/fleet consumers that do not carry AU's direct floor; it
-    # is no longer compensating for a Pydantic-AI client cap.
-    #
-    # Both `client` and `server` extras MUST be listed here: uv's override
-    # replaces the ENTIRE requirement (extras included) for every requester of
-    # `fastmcp-slim` project-wide, including `fastmcp`'s own metadata pin
-    # (`fastmcp-slim[client,server]==4.0.0b1`) that server-side code
-    # (`agent_utilities/mcp/server_factory.py`, `from fastmcp import Context`)
-    # needs. Verified empirically: an override listing only `[client]` silently
-    # strips the `server` extra's transitive deps (`uncalled-for`, `cyclopts`,
-    # `griffelib`, …) project-wide, breaking every `from fastmcp import
-    # FastMCP/Context` — a real regression this exact override could have
-    # caused, caught only by installing the full `agent-runtime` extra into a
-    # real venv and importing `fastmcp.Context`.
-    "fastmcp-slim[client,server]>=4.0.11",
     # D-DEPS-REFRESH-1 — this workspace's `prerelease = "allow"` (needed for
     # OTel's permanently-beta instrumentation packages, see that setting's own
     # comment below) also lets uv's resolver treat an UNRELATED package's

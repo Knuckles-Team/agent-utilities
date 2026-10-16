@@ -47,6 +47,8 @@ _MD_INLINE_RE = re.compile(r"`[^`\n]*`")
 def _strip_markdown_code(text: str) -> str:
     """Return *text* with fenced blocks and inline code spans removed."""
     return _MD_INLINE_RE.sub("", _MD_FENCE_RE.sub("", text))
+
+
 SKIP_DIRS = {
     ".git",
     ".venv",

@@ -18,7 +18,7 @@ node — it only reads them (via the same ``engine.query_cypher`` /
 ``backend.execute`` Cypher surface every other read-only index in this codebase
 uses, e.g. ``retrieval/evaluation_corpus.py``) and builds a **queryable,
 rebuildable in-process index** over what it read. Exactly the same
-authority split ``retrieval/capability_index.py`` documents for AU-P1-3: the
+authority split AU-P1-3 documents for engine-owned data: the
 engine owns the data, this class is a bounded cache/view a caller refreshes
 (:meth:`AnalyticsJobRegistry.refresh_from_engine`) — never a second persistence
 layer.

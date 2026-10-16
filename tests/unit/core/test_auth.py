@@ -11,15 +11,13 @@ from unittest import mock
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import Request
-from fastapi.security import HTTPAuthorizationCredentials
 
 from agent_utilities.security.auth import (
+    TokenValidationError,
     _decode_jwt,
     _fetch_jwks,
     authenticate_header_values,
     parse_bearer_authorization,
-    verify_credentials,
 )
 
 # ---------------------------------------------------------------------------
@@ -83,8 +81,7 @@ class TestDecodeJWT:
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_expired_token_raises(self):
-        """Expired tokens raise HTTPException with 401."""
-        from fastapi import HTTPException
+        """Expired tokens raise TokenValidationError with 401."""
         from joserfc import jwt as joserfc_jwt
         from joserfc.jwk import RSAKey
 
@@ -101,7 +98,7 @@ class TestDecodeJWT:
         }
         token = joserfc_jwt.encode(header, payload, key)
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(TokenValidationError) as exc_info:
             _decode_jwt(
                 token, jwks, issuer="https://auth.example.com", audience="my-api"
             )
@@ -109,8 +106,7 @@ class TestDecodeJWT:
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_wrong_issuer_raises(self):
-        """Token with wrong issuer raises HTTPException."""
-        from fastapi import HTTPException
+        """Token with wrong issuer raises TokenValidationError."""
         from joserfc import jwt as joserfc_jwt
         from joserfc.jwk import RSAKey
 
@@ -127,7 +123,7 @@ class TestDecodeJWT:
         }
         token = joserfc_jwt.encode(header, payload, key)
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(TokenValidationError) as exc_info:
             _decode_jwt(
                 token,
                 jwks,
@@ -138,8 +134,7 @@ class TestDecodeJWT:
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_wrong_audience_raises(self):
-        """Token with wrong audience raises HTTPException."""
-        from fastapi import HTTPException
+        """Token with wrong audience raises TokenValidationError."""
         from joserfc import jwt as joserfc_jwt
         from joserfc.jwk import RSAKey
 
@@ -156,7 +151,7 @@ class TestDecodeJWT:
         }
         token = joserfc_jwt.encode(header, payload, key)
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(TokenValidationError) as exc_info:
             _decode_jwt(
                 token,
                 jwks,
@@ -167,8 +162,7 @@ class TestDecodeJWT:
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_bad_signature_raises(self):
-        """Token signed with a different key raises HTTPException."""
-        from fastapi import HTTPException
+        """Token signed with a different key raises TokenValidationError."""
         from joserfc import jwt as joserfc_jwt
         from joserfc.jwk import RSAKey
 
@@ -186,7 +180,7 @@ class TestDecodeJWT:
         }
         token = joserfc_jwt.encode(header, payload, key1)
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(TokenValidationError) as exc_info:
             _decode_jwt(
                 token, jwks, issuer="https://auth.example.com", audience="my-api"
             )
@@ -247,10 +241,8 @@ class TestDecodeJWT:
         """An incomplete base install must fail loudly, never look like a bad JWT."""
         import sys
 
-        from fastapi import HTTPException
-
         monkeypatch.setitem(sys.modules, "joserfc", None)
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(TokenValidationError) as exc_info:
             _decode_jwt(
                 "irrelevant.token.value",
                 {"keys": []},
@@ -277,34 +269,26 @@ class TestVerifyCredentials:
         """When no auth is configured, all requests are allowed."""
         cfg = _make_config()
         with mock.patch("agent_utilities.core.config.config", cfg):
-            request = MagicMock(spec=Request)
-            result = await verify_credentials(request=request, bearer=None)
+            result = await authenticate_header_values(authorization=[])
             assert result is None
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     @pytest.mark.asyncio
     async def test_no_credentials_when_auth_required_raises(self):
         """No credentials at all when auth is configured raises 401."""
-        from fastapi import HTTPException
-
         cfg = _make_config(
             auth_jwt_jwks_uri="https://identity.example.test/jwks",
             server_tls_terminated=True,
             server_trusted_proxy_cidrs="127.0.0.1/32",
         )
         with mock.patch("agent_utilities.core.config.config", cfg):
-            request = MagicMock(spec=Request)
-            with pytest.raises(HTTPException) as exc_info:
-                await verify_credentials(request=request, bearer=None)
-            assert exc_info.value.status_code == 401
+            with pytest.raises(PermissionError, match="authentication required"):
+                await authenticate_header_values(authorization=[])
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     @pytest.mark.asyncio
     async def test_valid_bearer_identity_is_propagated(self):
         cfg = _make_config(auth_jwt_jwks_uri="https://identity.example.test/jwks")
-        request = MagicMock(spec=Request)
-        request.state = MagicMock()
-        bearer = HTTPAuthorizationCredentials(scheme="Bearer", credentials="token")
         with (
             mock.patch("agent_utilities.core.config.config", cfg),
             mock.patch(
@@ -316,9 +300,8 @@ class TestVerifyCredentials:
                 return_value={"sub": "subject"},
             ),
         ):
-            result = await verify_credentials(request=request, bearer=bearer)
+            result = await authenticate_header_values(authorization=[b"Bearer token"])
         assert result == {"auth_type": "jwt", "sub": "subject"}
-        assert request.state.user_claims == result
 
 
 class TestBearerHeaderParser:
@@ -378,12 +361,10 @@ class TestBearerHeaderParser:
     ):
         """A non-401 fault from ``_decode_jwt`` (currently only the 500 raised
         when its JWT dependency is missing) must propagate as-is. Collapsing
-        every ``HTTPException`` here into ``PermissionError("invalid bearer
+        every ``TokenValidationError`` here into ``PermissionError("invalid bearer
         token")`` is exactly how a missing dependency was misreported as a
         rejected credential — only a genuine 401 credential rejection may
         collapse to ``PermissionError``."""
-        from fastapi import HTTPException
-
         cfg = _make_config(auth_jwt_jwks_uri="https://identity.example.test/jwks")
         with (
             mock.patch("agent_utilities.core.config.config", cfg),
@@ -393,10 +374,12 @@ class TestBearerHeaderParser:
             ),
             mock.patch(
                 "agent_utilities.security.auth._decode_jwt",
-                side_effect=HTTPException(status_code=500, detail="joserfc missing"),
+                side_effect=TokenValidationError(
+                    status_code=500, detail="joserfc missing"
+                ),
             ),
         ):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(TokenValidationError) as exc_info:
                 await authenticate_header_values(authorization=[b"Bearer opaque-token"])
         assert exc_info.value.status_code == 500
         assert exc_info.value.detail == "joserfc missing"
@@ -407,8 +390,6 @@ class TestBearerHeaderParser:
         """A genuine credential rejection (401) from ``_decode_jwt`` still
         collapses to ``PermissionError`` — only the non-401 fault class
         changed behavior."""
-        from fastapi import HTTPException
-
         cfg = _make_config(auth_jwt_jwks_uri="https://identity.example.test/jwks")
         with (
             mock.patch("agent_utilities.core.config.config", cfg),
@@ -418,7 +399,7 @@ class TestBearerHeaderParser:
             ),
             mock.patch(
                 "agent_utilities.security.auth._decode_jwt",
-                side_effect=HTTPException(
+                side_effect=TokenValidationError(
                     status_code=401, detail="Invalid token signature"
                 ),
             ),

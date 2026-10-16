@@ -407,10 +407,10 @@ from agent_utilities.orchestration.fleet_observation import set_fleet_observer
 from agent_utilities.orchestration.scaling_signals import set_scaling_signal_provider
 from agent_utilities.knowledge_graph.actions.dispatch import set_default_notifier
 
-set_fleet_observer(MyPortainerObserver())     # richer observed state
-set_fleet_actuator(MyPortainerActuator())     # real actuation
-set_scaling_signal_provider(MyLgtmProvider()) # richer load signals (optional)
-set_default_notifier(MySlackNotifier())       # real escalation channel
+set_fleet_observer(MyPortainerObserver())  # richer observed state
+set_fleet_actuator(MyPortainerActuator())  # real actuation
+set_scaling_signal_provider(MyLgtmProvider())  # richer load signals (optional)
+set_default_notifier(MySlackNotifier())  # real escalation channel
 ```
 
 For autoscaling without a custom provider, point the built-in at the operator's

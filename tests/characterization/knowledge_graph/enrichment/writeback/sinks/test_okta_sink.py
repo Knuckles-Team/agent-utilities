@@ -58,7 +58,7 @@ def _fields(result: Any) -> tuple:
 
 def _ctx_with_resolver(resolve_map: dict[str, str]) -> WritebackContext:
     ctx = WritebackContext()
-    ctx.resolver = lambda domain: (lambda node_id: resolve_map.get(node_id))  # type: ignore[method-assign]
+    ctx.resolver = lambda domain: lambda node_id: resolve_map.get(node_id)  # type: ignore[method-assign]
     return ctx
 
 
@@ -85,7 +85,9 @@ def test_no_client_live_mode_marks_skipped(monkeypatch: pytest.MonkeyPatch) -> N
     assert _fields(result) == (0, 0, 0, 0, 1, [])
 
 
-def test_creation_missing_name_is_silently_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_creation_missing_name_is_silently_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     sink = _no_client(monkeypatch)
     ops: dict[str, Any] = {"creations": [{}]}
     result = sink.run(WritebackContext(), ops, dry_run=True)
@@ -187,11 +189,18 @@ def test_all_three_loops_run_independently_in_one_call() -> None:
     ops: dict[str, Any] = {
         "client": client,
         "creations": [{"name": "alice"}],  # raises
-        "inferences": [{"source": "u1", "target": "missing"}],  # skipped (target unresolved)
+        "inferences": [
+            {"source": "u1", "target": "missing"}
+        ],  # skipped (target unresolved)
         "retirements": [{"node": "u1"}],  # succeeds
     }
     result = sink.run(ctx, ops, dry_run=False)
-    assert (result.created, result.errors, result.skipped, result.retired) == (0, 1, 1, 1)
+    assert (result.created, result.errors, result.skipped, result.retired) == (
+        0,
+        1,
+        1,
+        1,
+    )
     assert client.deactivated == ["carol"]
 
 

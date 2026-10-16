@@ -43,7 +43,9 @@ def test_connector_sync_sweep_dispatches_configured_skips_unconfigured_isolates_
     )
     monkeypatch.setattr(source_sync, "sync_source", _fake_sync_source)
 
-    result = se._dispatch_connector_sync_sweep(_FakeEngine(), {"kind": "connector_sync_sweep"})
+    result = se._dispatch_connector_sync_sweep(
+        _FakeEngine(), {"kind": "connector_sync_sweep"}
+    )
 
     assert result["status"] == "ok"
     # Every registered source is dispatched through sync_source with mode=delta.
@@ -69,8 +71,6 @@ def test_connector_sync_sweep_is_routed_by_kind(monkeypatch):
         return {"status": "ok", "sources": {}}
 
     monkeypatch.setattr(se, "_dispatch_connector_sync_sweep", _fake_dispatch)
-    result = se._dispatch_scheduled_job(
-        _FakeEngine(), {"kind": "connector_sync_sweep"}
-    )
+    result = se._dispatch_scheduled_job(_FakeEngine(), {"kind": "connector_sync_sweep"})
     assert seen.get("called") is True
     assert result["status"] == "ok"

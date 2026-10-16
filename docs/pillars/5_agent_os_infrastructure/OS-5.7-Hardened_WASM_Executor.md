@@ -121,12 +121,14 @@ with open("micro_agent.wasm", "rb") as f:
     runner.load_agent(f.read())
 
 # Execute with JSON I/O
-result = runner.execute({
-    "action": "calculate_fees",
-    "base_fee": 150.0,
-    "state_fee": 50.0,
-    "expedited": True,
-})
+result = runner.execute(
+    {
+        "action": "calculate_fees",
+        "base_fee": 150.0,
+        "state_fee": 50.0,
+        "expedited": True,
+    }
+)
 # → {"status": "success", "total_fee": 300.0, ...}
 ```
 

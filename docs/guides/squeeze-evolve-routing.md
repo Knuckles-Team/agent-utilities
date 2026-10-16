@@ -98,8 +98,8 @@ from agent_utilities.models.model_registry import ModelRegistry
 registry = ModelRegistry(models=[...])
 chosen = registry.pick_for_task_adaptive(
     complexity="medium",
-    confidence_signal=0.85,     # High confidence → downgrade
-    routing_percentile=30.0,    # Aggressive: route 70% to cheap models
+    confidence_signal=0.85,  # High confidence → downgrade
+    routing_percentile=30.0,  # Aggressive: route 70% to cheap models
     required_tags=["code"],
 )
 ```

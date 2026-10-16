@@ -527,9 +527,7 @@ def test_run_cdc_catchup_honors_the_flag_when_enabled(
 ) -> None:
     monkeypatch.setenv("KAFKA_CDC_DEBEZIUM_ENABLED", "true")
     tp = _FakeTopicPartition("cdc.ca51pilot.public.orders")
-    consumer = DebeziumKafkaConsumer(
-        config=None, consumer=_FakeConsumer([{tp: []}])
-    )
+    consumer = DebeziumKafkaConsumer(config=None, consumer=_FakeConsumer([{tp: []}]))
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.streams.kafka_adapter.DebeziumKafkaConsumer",
         lambda config: consumer,
@@ -548,9 +546,7 @@ def test_run_cdc_catchup_explicit_client_bypasses_the_flag(
     only gates the "build a real one" path."""
     monkeypatch.delenv("KAFKA_CDC_DEBEZIUM_ENABLED", raising=False)
     tp = _FakeTopicPartition("cdc.ca51pilot.public.orders")
-    consumer = DebeziumKafkaConsumer(
-        config=None, consumer=_FakeConsumer([{tp: []}])
-    )
+    consumer = DebeziumKafkaConsumer(config=None, consumer=_FakeConsumer([{tp: []}]))
 
     result = module.run_cdc_catchup(engine=None, client=consumer)
 

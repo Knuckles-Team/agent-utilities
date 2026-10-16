@@ -37,6 +37,8 @@ def test_no_manual_stage_anywhere() -> None:
 
 
 def test_ci_runs_the_ci_only_gate_file() -> None:
-    workflow = (_ROOT / ".github" / "workflows" / "advisory.yml").read_text(encoding="utf-8")
+    workflow = (_ROOT / ".github" / "workflows" / "advisory.yml").read_text(
+        encoding="utf-8"
+    )
     assert "pre-commit run --config .config/ci-gates.yaml --all-files" in workflow
     assert not set(_hooks("pre-commit.yaml")) & set(_hooks("ci-gates.yaml"))

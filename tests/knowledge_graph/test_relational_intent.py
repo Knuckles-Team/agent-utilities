@@ -81,11 +81,12 @@ class TestTraverse:
 @patch(_EMBED, side_effect=Exception("no embed in test"))
 def test_live_path_retrieve_hybrid_invokes_relational_arm(_m):
     """LIVE-PATH: retrieve_hybrid actually runs the relational arm and merges hits."""
-    from agent_utilities.knowledge_graph.retrieval import (
-        relational_intent as ri_module,
-    )
     from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
         HybridRetriever,
+    )
+
+    from agent_utilities.knowledge_graph.retrieval import (
+        relational_intent as ri_module,
     )
 
     engine = MagicMock()

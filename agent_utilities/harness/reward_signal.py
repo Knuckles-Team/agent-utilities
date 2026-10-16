@@ -15,8 +15,8 @@ neutral/unknown by at least two of them:
   (``program_optimization.py``).
 - ``eg-program``'s ``TrainingExample.score: f64``, validated ``(0.0..=1.0)`` at
   the Rust layer (``eg-program/src/contracts.rs``).
-- ``CapabilityIndex.record_outcome`` -> EMA in ``[0, 1]``, ``0.5`` = neutral prior
-  (``capability_index.py``).
+- EG capability outcome learning -> reward in ``[0, 1]``, ``0.5`` = neutral
+  prior (``EG-DECISION-ENGINE-R172.5``).
 - ``ClaimFlywheel.record_outcome`` blends an internal reward with
   ``langfuse_signal.fetch_reward`` (also ``[0, 1]``).
 
@@ -46,7 +46,7 @@ class RewardSignal:
     """One provenance-carrying reward observation, ``value`` in ``[0, 1]``.
 
     ``0.5`` is the conventional neutral/unknown prior (matching
-    ``CapabilityIndex``'s EMA seed and ``blend_reward``'s degrade-to-internal
+    EG capability designation's EMA seed and ``blend_reward``'s degrade-to-internal
     default). ``source`` names WHICH producer computed ``value`` — one of
     ``"langfuse_score"`` | ``"internal_corpus"`` | ``"capability_ema"`` |
     ``"claim_flywheel"`` | ``"eval_corpus"`` | ``"failure_trace"`` in the shipped

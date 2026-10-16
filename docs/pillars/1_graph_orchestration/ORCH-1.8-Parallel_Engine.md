@@ -232,9 +232,11 @@ Each wave runs concurrently with `asyncio.Semaphore` backpressure:
 ```python
 semaphore = asyncio.Semaphore(config.max_parallel_agents)  # Default: 60
 
+
 async def _run_one(agent):
     async with semaphore:
         return await _execute_agent(agent)
+
 
 results = await asyncio.gather(*[_run_one(a) for a in wave])
 ```

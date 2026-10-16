@@ -12,12 +12,12 @@ from typing import Any
 
 import yaml
 
+from agent_utilities.skills import BUNDLED_SKILLS
 from agent_utilities.skills.skill_coverage import (
     discover_skills,
     parse_graph_os_sidecar,
     verb_universe,
 )
-from agent_utilities.skills import BUNDLED_SKILLS
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 SKILLS_ROOT = Path(__file__).resolve().parent

@@ -490,12 +490,12 @@ from agent_utilities.core.config import config
 from agent_utilities.core.paths import messaging_sessions_dir, messaging_config_path
 
 # Read messaging config from AgentConfig (populated from config.json)
-print(config.messaging_enabled_backends)    # ['discord', 'slack']
-print(config.messaging_kg_ingest)           # True
+print(config.messaging_enabled_backends)  # ['discord', 'slack']
+print(config.messaging_kg_ingest)  # True
 
 # XDG paths
 print(messaging_sessions_dir())  # ~/.local/share/agent-utilities/messaging/
-print(messaging_config_path())   # ~/.config/agent-utilities/config.json
+print(messaging_config_path())  # ~/.config/agent-utilities/config.json
 
 # Reload the stable proxy; its validated snapshot swaps without a restart.
 config.reload()

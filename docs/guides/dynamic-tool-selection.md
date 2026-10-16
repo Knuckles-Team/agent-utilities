@@ -133,7 +133,9 @@ uv run git-agent-mcp -t stdio --tools clone_repo,git_status
 from mcp import ClientSession, SSEClientTransport
 
 # Scope the session dynamically to file viewer and editor tools only
-async with SSEClientTransport("http://localhost:8001/sse?tools=view_file,edit_file") as transport:
+async with SSEClientTransport(
+    "http://localhost:8001/sse?tools=view_file,edit_file"
+) as transport:
     async with ClientSession(transport) as session:
         # The agent only sees the two requested tools
         tools = await session.list_tools()
@@ -148,12 +150,12 @@ import httpx
 
 headers = {
     "x-mcp-query": "logs analysis",
-    "x-mcp-disabled-tags": "write,delete" # Restrict mutation capabilities
+    "x-mcp-disabled-tags": "write,delete",  # Restrict mutation capabilities
 }
 
 async with httpx.AsyncClient() as client:
     response = await client.get("http://localhost:8001/tools", headers=headers)
-    print(response.json()) # Returns only log-related, non-destructive tools
+    print(response.json())  # Returns only log-related, non-destructive tools
 ```
 
 ---

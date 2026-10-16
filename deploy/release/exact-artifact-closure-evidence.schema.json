@@ -190,7 +190,7 @@
     "gates": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["G-01", "G-02", "G-04", "G-05", "G-08", "G-09", "G-14", "G-15", "G-17", "G-26", "G-30", "G-32", "G-34", "G-35", "G-37"],
+      "required": ["G-01", "G-02", "G-04", "G-05", "G-08", "G-09", "G-14", "G-15", "G-17", "G-30", "G-32", "G-34", "G-35", "G-37"],
       "properties": {
         "G-01": {"const": "passed"},
         "G-02": {"const": "passed"},
@@ -201,7 +201,6 @@
         "G-14": {"const": "passed"},
         "G-15": {"const": "passed"},
         "G-17": {"const": "passed"},
-        "G-26": {"const": "passed"},
         "G-30": {"const": "passed"},
         "G-32": {"const": "passed"},
         "G-34": {"const": "passed"},

@@ -192,9 +192,7 @@ def main() -> int:
     # FORBIDDEN_ANYWHERE: scan the WHOLE tracked tree, not just the root --
     # these ratchets install themselves wherever the tool that writes them is
     # run, and being nested somewhere plausible-looking is not a defense.
-    forbidden_hits = sorted(
-        p for p in paths if Path(p).name in FORBIDDEN_ANYWHERE
-    )
+    forbidden_hits = sorted(p for p in paths if Path(p).name in FORBIDDEN_ANYWHERE)
 
     undeclared_dirs = sorted(d for d in root_dirs if d not in declared_dirs)
     stale_dirs = sorted(d for d in declared_dirs if d not in root_dirs)
@@ -213,9 +211,7 @@ def main() -> int:
     # would hide a class mismatch rather than report it.
     misfiled_dotfiles = sorted(f for f in declared_files if f.startswith("."))
     stale_files = sorted(
-        f
-        for f in declared_files
-        if f not in root_files and f not in misfiled_dotfiles
+        f for f in declared_files if f not in root_files and f not in misfiled_dotfiles
     )
 
     ok = not (

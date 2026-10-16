@@ -615,7 +615,7 @@ class Orchestrator:
         # D-SNV-5 follow-up: renew a renewable session's authority for the whole
         # delegation, not just while an MCP tool dispatch is on the stack — see the
         # CONCEPT note above and authority_keepalive_scope's own docstring.
-        from agent_utilities.graphos_client.host import authority_keepalive_scope
+        from agent_utilities.host_ports import authority_keepalive_scope
 
         # CONCEPT:AU-OS.observability.delegation-run-metrics — the in-process
         # delegation path had no telemetry; this is the one seam every

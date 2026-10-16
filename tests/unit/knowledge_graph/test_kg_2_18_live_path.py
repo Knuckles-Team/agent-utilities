@@ -7,7 +7,6 @@ evidence-weighting telemetry is populated as a side effect — and that the usag
 from __future__ import annotations
 
 import pytest
-
 from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import HybridRetriever
 
 

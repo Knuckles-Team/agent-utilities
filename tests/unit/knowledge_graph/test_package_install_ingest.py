@@ -138,7 +138,7 @@ def test_ids_forces_a_rerun_and_is_reported(tmp_path, _fake_legs):
     assert set(_fake_legs) == {"prompts", "skills"}
 
 
-def test_package_ingest_has_no_upward_graphos_client_import():
+def test_package_ingest_has_no_upward_host_ports_import():
     tree = ast.parse(inspect.getsource(pii))
     imported_modules = {
         node.module
@@ -152,7 +152,7 @@ def test_package_ingest_has_no_upward_graphos_client_import():
         for alias in node.names
     )
     assert not {
-        m for m in imported_modules if m.startswith("agent_utilities.graphos_client")
+        m for m in imported_modules if m.startswith("agent_utilities.host_ports")
     }
 
 

@@ -1,8 +1,8 @@
 """Tests for the universal MCP-tool ingestion source (CONCEPT:AU-KG.ingest.mcp-tool-connector).
 
-Offline + deterministic: the MCP transport is an in-process FastMCP server
-handed to the connector via the injected ``client`` target — the same
-in-memory client pattern the fleet repos use, with canned sql-mcp /
+Offline + deterministic: the tool session is an in-process fake
+(:class:`tests.fake_tool_server.FakeToolServer`, the host ToolClient shape)
+handed to the connector via the injected ``client``, with canned sql-mcp /
 objectstore-mcp envelopes. No package import of any fleet repo, no processes.
 """
 
@@ -10,9 +10,7 @@ from __future__ import annotations
 
 import json
 
-import fastmcp
 import pytest
-from fastmcp import FastMCP
 
 from agent_utilities.protocols.source_connectors import (
     PollConnector,
@@ -31,43 +29,46 @@ from agent_utilities.protocols.source_connectors.tool_schema import (
     canonical_input_schema,
     compatibility_fingerprint,
 )
+from tests.fake_tool_server import FakeToolServer
 from tests.unit.knowledge_graph.test_identifier_validation import MALICIOUS_IDENTIFIERS
 
 # ── canned fleet servers ─────────────────────────────────────────────────────
 
 
-def test_open_client_logs_legacy_fastmcp_auth_fallback(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+def test_open_client_routes_through_the_host_tool_client_port(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Old FastMCP remains compatible without silently discarding auth support."""
-    from agent_utilities.graphos_client import client_credentials
+    """The connector opens no transport itself: the host port builds the session."""
+    from agent_utilities import host_ports
 
-    calls: list[tuple[object, dict[str, object]]] = []
-    compatibility_client = object()
+    opened: list[tuple[object, object]] = []
+    session = object()
 
-    def fake_client(target: object, **kwargs: object) -> object:
-        calls.append((target, kwargs))
-        if "auth" in kwargs:
-            raise TypeError("auth keyword is unavailable")
-        return compatibility_client
+    def fake_factory(target: object, *, timeout: object = None) -> object:
+        opened.append((target, timeout))
+        return session
 
-    monkeypatch.setattr(fastmcp, "Client", fake_client)
-    monkeypatch.setattr(client_credentials, "child_auth", lambda _audience: object())
-    caplog.set_level("WARNING")
-
+    monkeypatch.setattr(host_ports, "_TOOL_CLIENT", fake_factory)
     connector = McpToolSourceConnector(
         url="https://graph.example.test/mcp", tool="graph_query"
     )
 
-    assert connector._open_client() is compatibility_client
-    assert calls[0][0] == "https://graph.example.test/mcp"
-    assert "auth" in calls[0][1]
-    assert calls[1] == (
-        "https://graph.example.test/mcp",
-        {"timeout": connector.timeout},
+    assert connector._open_client() is session
+    assert opened == [("https://graph.example.test/mcp", connector.timeout)]
+
+
+def test_open_client_fails_closed_without_a_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_utilities import host_ports
+
+    monkeypatch.setattr(host_ports, "_TOOL_CLIENT", None)
+    connector = McpToolSourceConnector(
+        url="https://graph.example.test/mcp", tool="graph_query"
     )
-    assert "compatibility transport without client auth" in caplog.text
-    assert "auth keyword is unavailable" in caplog.text
+
+    with pytest.raises(McpToolSourceError, match="graph-os host"):
+        connector._open_client()
 
 
 def test_api_provider_server_resolves_deployed_mcp_alias(
@@ -141,7 +142,9 @@ def test_client_target_allows_resolved_remote_server_when_stdio_prohibited(
     assert connector._client_target() == {"mcpServers": {"servicenow-mcp": deployed}}
 
 
-def make_sql_server(rows: list[dict] | None = None, page_size: int = 2) -> FastMCP:
+def make_sql_server(
+    rows: list[dict] | None = None, page_size: int = 2
+) -> FakeToolServer:
     """A fake sql-mcp: keyset-paginated sql_query + sql_schema columns."""
     table = (
         rows
@@ -162,7 +165,7 @@ def make_sql_server(rows: list[dict] | None = None, page_size: int = 2) -> FastM
             },
         ]
     )
-    server = FastMCP("fake-sql-mcp")
+    server = FakeToolServer("fake-sql-mcp")
 
     @server.tool
     def sql_query(action: str, params_json: str = "{}", connection: str = "") -> dict:
@@ -198,14 +201,14 @@ def make_sql_server(rows: list[dict] | None = None, page_size: int = 2) -> FastM
     return server
 
 
-def make_objectstore_server() -> FastMCP:
+def make_objectstore_server() -> FakeToolServer:
     """A fake objectstore-mcp: paginated objects list + text-mode get."""
     objects = {
         "kb/a.md": "# A\nalpha object content",
         "kb/b.md": "# B\nbeta object content",
         "kb/c.bin": None,  # not valid text → get fails
     }
-    server = FastMCP("fake-objectstore-mcp")
+    server = FakeToolServer("fake-objectstore-mcp")
 
     @server.tool
     def objects_tool(action: str, params_json: str = "{}") -> dict:
@@ -239,8 +242,8 @@ def make_objectstore_server() -> FastMCP:
             }
         raise ValueError(f"unknown action {action!r}")
 
-    # The real fleet tool is named ``objects``; FastMCP forbids shadowing the
-    # local function name, so register under the fleet-visible name explicitly.
+    # The real fleet tool is named ``objects``; register under the fleet-visible
+    # name explicitly (the local function cannot shadow it).
     server.tool(objects_tool, name="objects")
     return server
 
@@ -361,20 +364,15 @@ def test_langfuse_presets_exclude_raw_trace_content():
 def test_governed_connector_lists_and_fingerprints_live_tool_before_pull():
     import asyncio
 
-    from fastmcp import Client
-
     server = make_sql_server(
         rows=[{"id": 1, "title": "A", "body": "body", "updated_at": "2026"}]
     )
 
-    # The connector fingerprints the tool via the MCP *protocol* view
-    # (``client.list_tools()`` -> ``inputSchema``), not the server-side
-    # ``FunctionTool`` object (which exposes the schema as ``.parameters`` —
-    # FastMCP >=3 also dropped the private ``_tool_manager`` dict this test
-    # used to reach into). Fingerprint from the same client-side view so the
-    # expected digest matches what the connector computes internally.
+    # The connector fingerprints the tool via the protocol view
+    # (``client.list_tools()`` -> ``inputSchema``); fingerprint from the same
+    # client-side view so the expected digest matches.
     async def _live_tool():
-        async with Client(server) as client:
+        async with server as client:
             listed = await client.list_tools()
         return next(tool for tool in listed if tool.name == "sql_query")
 
@@ -408,14 +406,12 @@ def test_call_preset_once_uses_provider_contract_and_live_schema(monkeypatch):
 
     import asyncio
 
-    from fastmcp import Client
-
     server = make_sql_server(
         rows=[{"id": 1, "title": "A", "body": "B", "updated_at": "C"}]
     )
 
     async def _live_tool():
-        async with Client(server) as client:
+        async with server as client:
             listed = await client.list_tools()
         return next(tool for tool in listed if tool.name == "sql_query")
 
@@ -711,7 +707,7 @@ def test_poll_resumes_cursor_state_across_batches():
 
 @pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_acl_fields_map_to_external_access():
-    server = FastMCP("acl-server")
+    server = FakeToolServer("acl-server")
 
     @server.tool
     def records(action: str, params_json: str = "{}") -> dict:
@@ -764,7 +760,7 @@ def test_unconfigured_acl_defaults_to_quarantined_not_public():
     (:meth:`ExternalAccess.quarantined`). Only a certified connector's explicit
     source ACL can grant public access.
     """
-    server = FastMCP("no-acl-server")
+    server = FakeToolServer("no-acl-server")
 
     @server.tool
     def records(action: str, params_json: str = "{}") -> dict:
@@ -794,7 +790,7 @@ def test_unconfigured_acl_defaults_to_quarantined_not_public():
 
 @pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_page_pagination_offset_exhaustion_and_max_records():
-    server = FastMCP("paged")
+    server = FakeToolServer("paged")
     all_rows = [{"id": str(i), "text": f"row {i}"} for i in range(7)]
 
     @server.tool
@@ -822,7 +818,7 @@ def test_page_pagination_offset_exhaustion_and_max_records():
 
 @pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_args_params_style_for_non_fleet_servers():
-    server = FastMCP("flat")
+    server = FakeToolServer("flat")
 
     @server.tool
     def search(query: str, limit: int = 10) -> list:
@@ -843,7 +839,7 @@ def test_args_params_style_for_non_fleet_servers():
 
 @pytest.mark.concept("AU-KG.ingest.mcp-tool-connector")
 def test_tool_failure_raises_typed_error():
-    server = FastMCP("broken")
+    server = FakeToolServer("broken")
 
     @server.tool
     def boom(action: str = "", params_json: str = "{}") -> dict:
@@ -870,14 +866,14 @@ def test_missing_server_in_mcp_config_is_typed(monkeypatch, tmp_path):
 # ── mealie recipes doc-preset (CONCEPT:AU-KG.ingest.mcp-tool-connector) ───────────────────────────────
 
 
-def make_mealie_server(page_size: int = 2) -> FastMCP:
+def make_mealie_server(page_size: int = 2) -> FakeToolServer:
     """A fake mealie-mcp: action-routed mealie_recipes with Mealie's page envelope."""
     recipes = [
         {"id": "1", "slug": "soup", "name": "Soup", "description": "warm soup"},
         {"id": "2", "slug": "salad", "name": "Salad", "description": "cold salad"},
         {"id": "3", "slug": "stew", "name": "Stew", "description": "hearty stew"},
     ]
-    server = FastMCP("fake-mealie-mcp")
+    server = FakeToolServer("fake-mealie-mcp")
 
     @server.tool
     def mealie_recipes(action: str, params_json: str = "{}") -> dict:

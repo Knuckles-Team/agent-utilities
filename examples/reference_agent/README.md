@@ -30,10 +30,7 @@ agent = create_agent(name="SimpleAgent")
 from agent_utilities import create_agent
 
 # Create a powerful Graph Agent with Universal Skills
-agent = create_agent(
-    name="ProAgent",
-    skill_types=["universal", "graphs"]
-)
+agent = create_agent(name="ProAgent", skill_types=["universal", "graphs"])
 ```
 
 ### Agent with MCP Tools
@@ -43,9 +40,7 @@ from agent_utilities import create_agent
 
 # Create an agent that uses MCP tools
 agent = create_agent(
-    name="MCPAgent",
-    skill_types=["universal"],
-    mcp_config_path="mcp_config.json"
+    name="MCPAgent", skill_types=["universal"], mcp_config_path="mcp_config.json"
 )
 ```
 

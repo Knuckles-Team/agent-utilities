@@ -59,7 +59,9 @@ CONTENT_MARKERS = {
         r"(?m)^# .*plan|architecture|design|interface|sequence", re.IGNORECASE
     ),
     "test-spec.md": re.compile(r"test|expected|proof", re.IGNORECASE),
-    "tasks.md": re.compile(r"(?m)(^# .*tasks|^- \[[ xX]\]|^\|[^\n]*\bTask\b)", re.IGNORECASE),
+    "tasks.md": re.compile(
+        r"(?m)(^# .*tasks|^- \[[ xX]\]|^\|[^\n]*\bTask\b)", re.IGNORECASE
+    ),
 }
 
 
@@ -223,7 +225,11 @@ def _status_field_errors(path: Path, data: dict) -> list[str]:
     errors = []
     ids = data.get("requirement_ids")
     schema_version = data.get("schema_version")
-    if schema_version not in (1, 2) or not data.get("spec_id") or not data.get("owner_repo"):
+    if (
+        schema_version not in (1, 2)
+        or not data.get("spec_id")
+        or not data.get("owner_repo")
+    ):
         errors.append(f"{path}: schema_version, spec_id, and owner_repo are required")
     if not _valid_ids(ids):
         errors.append(f"{path}: nonempty real requirement_ids are required")

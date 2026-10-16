@@ -153,8 +153,8 @@ class ModuleSurface:
     through ``resolve_exposure``.
     """
 
-    dotted: str  # e.g. "agent_utilities.graphos_client.toolset_factory"
-    relpath: str  # e.g. "agent_utilities/graphos_client/toolset_factory.py"
+    dotted: str  # e.g. "agent_utilities.core.concurrency"
+    relpath: str  # e.g. "agent_utilities/core/concurrency.py"
     is_package: bool = False  # True if sourced from an __init__.py
     own_symbols: frozenset[str] = field(default_factory=frozenset)
     all_names: frozenset[str] = field(default_factory=frozenset)
@@ -173,7 +173,7 @@ class ModuleSurface:
 
 
 def module_dotted_name(package_root: Path, file_path: Path, package_name: str) -> str:
-    """``agent_utilities/graphos_client/toolset_factory.py`` -> ``agent_utilities.graphos_client.toolset_factory``.
+    """``agent_utilities/core/concurrency.py`` -> ``agent_utilities.core.concurrency``.
 
     ``__init__.py`` maps to its containing package (the ``__init__`` component
     is dropped), matching how Python callers actually address it.

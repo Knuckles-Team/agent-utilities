@@ -70,6 +70,7 @@ flowchart TB
 class CheckpointScorer(Protocol):
     name: str
     weight: float
+
     def score(self, observation: CheckpointObservation) -> CheckpointSignal: ...
 ```
 
@@ -156,6 +157,7 @@ the persistence path.
 ```python
 class PersistenceEligibilityGate(Protocol):
     name: str
+
     def evaluate(self, request: PersistenceRequest) -> EligibilityDecision: ...
 ```
 

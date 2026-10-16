@@ -84,7 +84,9 @@ def test_mutable_revision_is_rejected() -> None:
 
 def test_non_piper_asset_is_unsupported_format() -> None:
     with pytest.raises(UnsupportedVoiceAssetFormat, match="unsupported_format"):
-        _model_source(repo_path="pytorch_model.bin", expected_sha256=_MODEL_SHA).validate()
+        _model_source(
+            repo_path="pytorch_model.bin", expected_sha256=_MODEL_SHA
+        ).validate()
 
 
 def test_immutable_url_uses_pinned_revision_not_a_branch() -> None:

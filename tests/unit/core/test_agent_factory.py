@@ -493,10 +493,10 @@ def test_create_agent_mcp_url_connection_error(
     """Exception during MCP toolset construction is caught and logged."""
     monkeypatch.setattr(agent_factory, "DEFAULT_VALIDATION_MODE", False)
     monkeypatch.setattr(agent_factory, "is_loopback_url", lambda *a, **k: False)
-    # Force MCP toolset construction to raise (v2 routes through build_http_toolset)
+    # Force host toolset construction to raise (routes through build_url_toolset)
     monkeypatch.setattr(
         agent_factory,
-        "build_http_toolset",
+        "build_url_toolset",
         MagicMock(side_effect=RuntimeError("connection refused")),
     )
     agent, mcp_toolsets = agent_factory.create_agent(
@@ -514,11 +514,11 @@ def test_create_agent_mcp_url_connection_error(
 def test_create_agent_mcp_url_streamable_http(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Non-/sse URL is built via the MCP toolset factory (streamable HTTP)."""
+    """Non-/sse URL is built via the MCP toolset factory (host port)."""
     monkeypatch.setattr(agent_factory, "DEFAULT_VALIDATION_MODE", False)
     monkeypatch.setattr(agent_factory, "is_loopback_url", lambda *a, **k: False)
     mock_build = MagicMock(return_value=MagicMock())
-    monkeypatch.setattr(agent_factory, "build_http_toolset", mock_build)
+    monkeypatch.setattr(agent_factory, "build_url_toolset", mock_build)
     agent, mcp_toolsets = agent_factory.create_agent(
         name="TestStreamable",
         mcp_url="http://mcp.example.com/api",
@@ -531,11 +531,11 @@ def test_create_agent_mcp_url_streamable_http(
 
 
 def test_create_agent_mcp_url_sse_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    """URL ending in /sse is built via the MCP toolset factory."""
+    """URL ending in /sse is built via the host toolset port."""
     monkeypatch.setattr(agent_factory, "DEFAULT_VALIDATION_MODE", False)
     monkeypatch.setattr(agent_factory, "is_loopback_url", lambda *a, **k: False)
     mock_build = MagicMock(return_value=MagicMock())
-    monkeypatch.setattr(agent_factory, "build_http_toolset", mock_build)
+    monkeypatch.setattr(agent_factory, "build_url_toolset", mock_build)
     agent, mcp_toolsets = agent_factory.create_agent(
         name="TestSSE",
         mcp_url="http://mcp.example.com/sse",
@@ -555,7 +555,7 @@ def test_create_agent_mcp_url_with_tool_tags(
     monkeypatch.setattr(agent_factory, "is_loopback_url", lambda *a, **k: False)
     fake_server = MagicMock()
     monkeypatch.setattr(
-        agent_factory, "build_http_toolset", MagicMock(return_value=fake_server)
+        agent_factory, "build_url_toolset", MagicMock(return_value=fake_server)
     )
     mock_filter = MagicMock(return_value=fake_server)
     monkeypatch.setattr(agent_factory, "filter_tools_by_tag", mock_filter)
@@ -579,7 +579,7 @@ def test_create_agent_mcp_url_isolate_mcp(
     monkeypatch.setattr(agent_factory, "is_loopback_url", lambda *a, **k: False)
     fake_server = MagicMock()
     monkeypatch.setattr(
-        agent_factory, "build_http_toolset", MagicMock(return_value=fake_server)
+        agent_factory, "build_url_toolset", MagicMock(return_value=fake_server)
     )
     agent, initialized = agent_factory.create_agent(
         name="TestIsolate",
@@ -760,29 +760,25 @@ def test_create_agent_external_mcp_toolsets_use_verified_context(
     assert initialized[0] is not fake
 
 
-def test_create_agent_external_mcp_toolsets_fastmcp(
+def test_create_agent_external_toolset_is_passed_through_unwrapped(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """External FastMCP server instance is wrapped in an MCPToolset (v2)."""
+    """A host-provided toolset is registered as-is; the harness wraps nothing."""
     monkeypatch.setattr(agent_factory, "DEFAULT_VALIDATION_MODE", False)
 
-    class FastMCP:
+    class HostToolset:
         http_client = None
 
-    fake = FastMCP()
-
-    wrap_mock = MagicMock(return_value=MagicMock())
-    monkeypatch.setattr(agent_factory, "MCPToolset", wrap_mock)
+    fake = HostToolset()
 
     agent, initialized = agent_factory.create_agent(
-        name="TestFastMCP",
+        name="TestHostToolset",
         mcp_toolsets=[fake],
         skill_types=[],
         enable_skills=False,
         enable_universal_tools=False,
     )
     assert agent is not None
-    wrap_mock.assert_called_once_with(fake)
     assert len(initialized) == 1
 
 

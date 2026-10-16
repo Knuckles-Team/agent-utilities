@@ -90,7 +90,7 @@ from agent_utilities.knowledge_graph.core import tenant_registry
 tenant_registry.set_parent("engineering", "acme")
 tenant_registry.set_parent("acme", "holdings")
 
-tenant_registry.ancestor_chain("engineering")   # ['acme', 'holdings']
+tenant_registry.ancestor_chain("engineering")  # ['acme', 'holdings']
 ```
 
 Or over MCP/REST (`graph_share` / `POST /graph/share`):
@@ -124,20 +124,28 @@ Both humans and AIs join tenants with specific roles:
 
 ```python
 # Human members
-brain.tenancy.add_member("engineer:carol", ActorType.HUMAN,
-                          engineering.tenant_id, role="admin")
-brain.tenancy.add_member("intern:dave", ActorType.HUMAN,
-                          engineering.tenant_id, role="viewer")
+brain.tenancy.add_member(
+    "engineer:carol", ActorType.HUMAN, engineering.tenant_id, role="admin"
+)
+brain.tenancy.add_member(
+    "intern:dave", ActorType.HUMAN, engineering.tenant_id, role="viewer"
+)
 
 # AI agent members
-brain.tenancy.add_member("agent:code-reviewer", ActorType.AI_AGENT,
-                          engineering.tenant_id, role="member")
-brain.tenancy.add_member("agent:security-scanner", ActorType.AI_AGENT,
-                          engineering.tenant_id, role="member")
+brain.tenancy.add_member(
+    "agent:code-reviewer", ActorType.AI_AGENT, engineering.tenant_id, role="member"
+)
+brain.tenancy.add_member(
+    "agent:security-scanner", ActorType.AI_AGENT, engineering.tenant_id, role="member"
+)
 
 # Hybrid team (human+AI pair working as one unit)
-brain.tenancy.add_member("team:carol+code-reviewer", ActorType.HYBRID_TEAM,
-                          engineering.tenant_id, role="member")
+brain.tenancy.add_member(
+    "team:carol+code-reviewer",
+    ActorType.HYBRID_TEAM,
+    engineering.tenant_id,
+    role="member",
+)
 ```
 
 ### Roles
@@ -178,5 +186,5 @@ tenants = brain.tenancy.get_actor_tenants("engineer:carol")
 
 # Is an actor a member of a specific tenant?
 brain.tenancy.is_member("engineer:carol", engineering.tenant_id)  # True
-brain.tenancy.is_member("engineer:carol", "finance_tenant_id")    # False
+brain.tenancy.is_member("engineer:carol", "finance_tenant_id")  # False
 ```

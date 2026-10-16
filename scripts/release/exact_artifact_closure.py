@@ -52,7 +52,6 @@ GATES: Final = (
     "G-14",
     "G-15",
     "G-17",
-    "G-26",
     "G-30",
     "G-32",
     "G-34",
@@ -894,7 +893,7 @@ def _validate_exact_local(
             "test_catalog",
         }
         or not isinstance(gates, dict)
-        or set(gates) != {"g08", "g09", "g26", "g30", "g32", "g35"}
+        or set(gates) != {"g08", "g09", "g30", "g32", "g35"}
         or any(
             not isinstance(item, dict) or item.get("status") != "pass"
             for item in gates.values()
@@ -927,16 +926,12 @@ def _validate_exact_local(
         _fail("exact_local_artifact_binding_invalid")
     g08 = gates["g08"]
     g09 = gates["g09"]
-    g26 = gates["g26"]
     g30 = gates["g30"]
     g32 = gates["g32"]
     g35 = gates["g35"]
     if (
         g08 != {"case_count": 8, "cases": list(G08_CASES), "status": "pass"}
         or g09 != {"case_count": 2, "cases": list(G09_CASES), "status": "pass"}
-        or g26.get("initial_tool_count") != 11
-        or g26.get("injection_denied") is not True
-        or g26.get("poisoned_feedback_denied") is not True
         or g30.get("family_count") != 13
         or g30.get("modality_count") != 14
         or g30.get("runtime_dependency_duplication") is not False

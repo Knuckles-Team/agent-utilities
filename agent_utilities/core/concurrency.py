@@ -1,7 +1,6 @@
-"""Concurrency helpers for MCP tool handlers.
+"""Concurrency helpers for async handlers that call provider clients.
 
-Most fleet MCP tools are ``async def`` (they ``await ctx.*`` helpers) while
-provider clients may be either synchronous or asynchronous. Running a blocking
+Async handlers may be either synchronous or asynchronous. Running a blocking
 client inline on the event loop stalls every other concurrent request on the
 worker. :func:`run_blocking` is the strict synchronous primitive;
 :func:`invoke_client_method` is the provider boundary that awaits asynchronous
@@ -9,11 +8,11 @@ SDK methods and offloads synchronous SDK methods to a worker thread.
 
 Usage in a handler::
 
-    from agent_utilities.graphos_client.concurrency import invoke_client_method
+    from agent_utilities.core.concurrency import invoke_client_method
 
     response = await invoke_client_method(client.get_repositories, **kwargs)
 
-CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
+CONCEPT:AU-ECO.mcp.standardized-interfaces
 """
 
 from __future__ import annotations
@@ -110,7 +109,7 @@ async def run_blocking(func: Callable[..., T], /, *args, **kwargs) -> T:
 async def invoke_client_method(
     func: Callable[..., T | Awaitable[T]], /, *args, **kwargs
 ) -> T:
-    """Invoke one provider SDK method without blocking the MCP event loop.
+    """Invoke one provider SDK method without blocking the event loop.
 
     Native asynchronous methods execute on the event loop. Synchronous methods
     execute in an AnyIO worker thread. Callable objects and decorators that hide

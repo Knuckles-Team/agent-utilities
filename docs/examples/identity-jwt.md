@@ -90,8 +90,8 @@ now = int(time.time())
 token = jwt.encode(
     {
         "sub": "agent:harvest-runner",
-        "iss": "https://idp.example.test/realms/agents",   # must match AUTH_JWT_ISSUER
-        "aud": "graph-os",                                 # must match AUTH_JWT_AUDIENCE
+        "iss": "https://idp.example.test/realms/agents",  # must match AUTH_JWT_ISSUER
+        "aud": "graph-os",  # must match AUTH_JWT_AUDIENCE
         "iat": now,
         "exp": now + 3600,
         "roles": ["kg.writer", "workflow.executor"],
@@ -118,11 +118,13 @@ actors — and the operator never hold the private key the operator.)
 run):
 
 ```python
-{"actor_id": "agent:harvest-runner",
- "roles": ["kg.writer", "workflow.executor"],
- "tenant_id": "acme",
- "authenticated": True,
- "actor_type": "automated_service"}
+{
+    "actor_id": "agent:harvest-runner",
+    "roles": ["kg.writer", "workflow.executor"],
+    "tenant_id": "acme",
+    "authenticated": True,
+    "actor_type": "automated_service",
+}
 ```
 
 Every KG read/write in the request is scoped to that actor: ontology

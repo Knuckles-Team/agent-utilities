@@ -132,10 +132,12 @@ Each of the six primitives is a standalone class that can be used independently:
 ```python
 # Use only concurrency control
 from agent_utilities.knowledge_graph.core.company_brain import GraphConcurrencyManager
+
 gcm = GraphConcurrencyManager()
 
 # Use only permissions
 from agent_utilities.knowledge_graph.core.company_brain import DataLevelPermissions
+
 dlp = DataLevelPermissions()
 ```
 
@@ -143,6 +145,7 @@ Or composed together via the `CompanyBrain` facade:
 
 ```python
 from agent_utilities.knowledge_graph.core.company_brain import CompanyBrain
+
 brain = CompanyBrain()
 brain.concurrency.track_node("customer:001")
 brain.permissions.classify_node("customer:001", DataClassification.CONFIDENTIAL)

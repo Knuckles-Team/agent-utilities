@@ -77,6 +77,7 @@ from agent_utilities.knowledge_graph.core.queue_backend import QueueBackend
 from agent_utilities.knowledge_graph.core.nats_queue_backend import NatsQueueBackend
 from agent_utilities.knowledge_graph.core.kafka_queue_backend import KafkaQueueBackend
 
+
 async def run_system(scale: str):
     # Swap backend depending on scale demands
     if scale == "local":
@@ -85,16 +86,12 @@ async def run_system(scale: str):
     elif scale == "scale_out":
         # Ultra-fast, lightweight clustering
         backend = QueueBackend.create(
-            "nats",
-            servers=["nats://localhost:4222"],
-            stream_name="agent_events"
+            "nats", servers=["nats://localhost:4222"], stream_name="agent_events"
         )
     else:
         # Enterprise-grade partitioning
         backend = QueueBackend.create(
-            "kafka",
-            bootstrap_servers=["kafka:9092"],
-            topic_name="agent_events"
+            "kafka", bootstrap_servers=["kafka:9092"], topic_name="agent_events"
         )
 
     await backend.connect()
@@ -110,6 +107,7 @@ async def run_system(scale: str):
 
     await asyncio.sleep(1.0)
     await backend.disconnect()
+
 
 # Run locally or scale out
 asyncio.run(run_system("local"))
@@ -169,7 +167,7 @@ runner = WasmAgentRunner()
 input_payload = {
     "agent_id": "micro_agent_99",
     "prompt": "Synthesize the recent financial forecast.",
-    "context": {"market": "bullish", "leverage": 1.5}
+    "context": {"market": "bullish", "leverage": 1.5},
 }
 
 # Sub-millisecond execution in isolated sandbox

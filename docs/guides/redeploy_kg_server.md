@@ -83,9 +83,9 @@ uv --directory "$REPO_ROOT" run agent-utilities-doctor
 ```
 
 Then check the action through the same authenticated MCP or REST entrypoint used by
-clients. Compare the result with the generated
-[Capability & Action Catalog](../capabilities-power.md); the tool/action pair must
-exist there before deployment.
+clients. Compare the result with the capability data in
+`docs/capabilities-power.json`; the tool/action pair must exist there before
+deployment.
 
 ## 5. Observe or roll back
 

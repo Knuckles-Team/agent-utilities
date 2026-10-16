@@ -5,7 +5,7 @@ from __future__ import annotations
 
 Seam 8 Phase 1 (``plans/program-design-2026-07-11-epistemic-tool-routing.md``
 section 2b) — "the power behind each tool", assembled so the future resolver
-(2c) — and any human or LLM browsing ``docs/capabilities-power.md`` today —
+(2c) — and any human or LLM reading ``docs/capabilities-power.json`` today —
 can answer *what can this capability do, when should I use it, how reliable is
 it* WITHOUT loading a schema per tool.
 
@@ -54,8 +54,8 @@ time (:mod:`scripts.gen_capability_power` is the generator;
   ``CompareAndSetNodeFields``). Everything else is left ``None`` — explicitly
   labeled ``modeled`` only where the AU capacity model
   (``docs/scaling/capacity_model.py``) provides a derivation, else
-  unmeasured/unmodeled, never fabricated. ``reliability`` mirrors the durable
-  contextual-bandit reward EMA (:mod:`.durable_outcome_store`) when a live
+  unmeasured/unmodeled, never fabricated. ``reliability`` mirrors the engine-learned
+  outcome reward (``capability_reward``) when a live
   engine is reachable; otherwise it is left ``None``.
 * **Eligibility predicates** — the X-4 routing logic itself
   (:func:`agent_utilities.graph.routing.enrichers.capability_routing.explain_routing_eligibility`)

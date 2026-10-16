@@ -36,7 +36,6 @@ _EXCLUDES = [
     "agent_utilities.knowledge_graph.core.file_lock",
     "agent_utilities.__main__",
     "agent_utilities.agent.factory",
-    "agent_utilities.graphos_client.toolset_factory",
     "agent_utilities.patterns",
     "agent_utilities.knowledge_graph.adaptation.trace_distiller",
     "agent_utilities.cli",

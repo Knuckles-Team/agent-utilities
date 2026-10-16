@@ -39,14 +39,11 @@ class DevelopmentSkillTopicInventory(BaseModel):
 
     @field_validator("topics")
     @classmethod
-    def _refuse_missing_required_topics(
-        cls, value: tuple[str, ...]
-    ) -> tuple[str, ...]:
+    def _refuse_missing_required_topics(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         covered = {topic.lower() for topic in value}
         missing = [topic for topic in REQUIRED_TOPICS if topic not in covered]
         if missing:
             raise ValueError(
-                "development skill is missing required topics "
-                f"{missing} (AU-DEV-R001)"
+                f"development skill is missing required topics {missing} (AU-DEV-R001)"
             )
         return value

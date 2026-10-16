@@ -18,11 +18,6 @@ The campaign covers seven program gates:
   window must resolve to the same opaque identifiers without a second
   transaction or duplicate WorkItem.
 
-- **G-26 — intent surface:** the initial stdio surface is exactly six intent
-  verbs and five control tools. The campaign also exercises dynamic expert-tool
-  loading and unloading, bound previews, impact and cost metadata, idempotency,
-  destructive-operation approval, structured routing rationale, ambiguity,
-  prompt-injection denial, and poisoned-feedback denial.
 - **G-30 — native optimization:** exactly 13 semantic optimizer families with
   one current spelling each are exercised across all 14 modalities. Avatar
   `tool_policy` artifacts and `compare_tool_use` plans prove comparator-driven
@@ -156,6 +151,6 @@ python scripts/check_exact_local_gates_harness.py
 
 That guard verifies the fixed gate cardinalities, artifact-binding controls,
 privacy controls, documentation, and navigation. It does not execute GraphOS or
-the native engine and cannot close a runtime gate. G-08, G-09, G-26, G-30,
+the native engine and cannot close a runtime gate. G-08, G-09, G-30,
 G-32, G-34, and G-35 remain open until the exact installed campaign above
 produces passing evidence.

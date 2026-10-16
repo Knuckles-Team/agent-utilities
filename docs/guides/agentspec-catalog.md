@@ -20,7 +20,7 @@ from agent_utilities import AgentSpecGenerator
 spec = AgentSpecGenerator.generate_spec(
     name="QuantBotAlpha",
     description="Mean-reversion trading bot for equities.",
-    tools=["fetch_prices", "execute_trade"]
+    tools=["fetch_prices", "execute_trade"],
 )
 
 AgentSpecGenerator.export_catalog([spec], "catalog.json")

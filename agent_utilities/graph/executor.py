@@ -1395,20 +1395,14 @@ async def _lazy_bind_server(
 
 
 async def _discover_configured_mcp_servers() -> list[Any]:
-    """Resolve + load every MCP server toolset declared in the active mcp config."""
-    from pydantic_ai.mcp import load_mcp_toolsets
-
+    """Resolve + load every toolset declared in the active client config (host port)."""
     from agent_utilities.core.workspace import resolve_mcp_config_path
-    from agent_utilities.graphos_client.protocol_compat import (
-        force_legacy_protocol_mode,
-        install_mcp_v2_bridge,
-    )
+    from agent_utilities.host_ports import load_config_toolsets
 
-    install_mcp_v2_bridge()
     mcp_path = resolve_mcp_config_path(None)
     if not (mcp_path and mcp_path.exists()):
         return []
-    return force_legacy_protocol_mode(load_mcp_toolsets(mcp_path))
+    return load_config_toolsets(mcp_path)
 
 
 async def _lazy_load_specialist_toolset(

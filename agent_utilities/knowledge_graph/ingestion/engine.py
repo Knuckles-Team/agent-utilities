@@ -984,7 +984,7 @@ def _deepcopy_safe_metadata(value: Any) -> Any:
     """Recursively reduce ``value`` to something ``copy.deepcopy`` can handle.
 
     Manifest metadata may legitimately carry LIVE object references some
-    connectors need only for their own run (e.g. mcp_tool's injected fastmcp
+    connectors need only for their own run (e.g. mcp_tool's injected tool
     ``client`` — a whole server/session object, sometimes holding a class
     attribute or similar non-deep-copyable internal). ``_privacy_safe_result``
     below deep-copies the WHOLE ``IngestionResult`` for a persisted/historical

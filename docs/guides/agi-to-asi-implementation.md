@@ -37,16 +37,29 @@ from agent_utilities.knowledge_graph.core.reasoner import ReasoningTask
 kg = KnowledgeGraph()
 
 # Inductive: learn the shortest program fitting examples (routes to AU-KG.coordination.inductive-program-synthesis-search)
-kg.reason(ReasoningTask(
-    goal="learn the mapping", tags=("induction",),
-    payload={"primitives": {"double": lambda x: x*2}, "examples": [(1, 2), (3, 6)]},
-))
+kg.reason(
+    ReasoningTask(
+        goal="learn the mapping",
+        tags=("induction",),
+        payload={
+            "primitives": {"double": lambda x: x * 2},
+            "examples": [(1, 2), (3, 6)],
+        },
+    )
+)
 
 # Symbolic: forward-chain to a goal fact (routes to the deductive paradigm)
-kg.reason(ReasoningTask(
-    goal="derive C", tags=("deduction",),
-    payload={"facts": ["A"], "rules": [(("A",), "B"), (("B",), "C")], "goal_fact": "C"},
-))
+kg.reason(
+    ReasoningTask(
+        goal="derive C",
+        tags=("deduction",),
+        payload={
+            "facts": ["A"],
+            "rules": [(("A",), "B"), (("B",), "C")],
+            "goal_fact": "C",
+        },
+    )
+)
 ```
 
 Each call routes to the paradigm whose learned reward EMA + capability tags best fit, runs

@@ -32,7 +32,7 @@ This module is deliberately a thin OVERLAY, not a second governance stack:
 * **The bandit is reused, not reinvented.** Outcome feedback durably persists
   through :func:`~agent_utilities.graph.routing.enrichers.capability_designation.
   record_capability_outcome` (CONCEPT:AU-P1-3 — the SAME durable
-  contextual-bandit spine ``OutcomeRouter``/``CapabilityIndex`` already use),
+  contextual-bandit spine ``OutcomeRouter``/EG capability designation already use),
   never a parallel reward store.
 
 State machine (five states, matching the task's own vocabulary)::
@@ -58,7 +58,7 @@ this module adds a parallel, richer lifecycle view rather than touching
 fields other code/tests already depend on).
 
 Within one :class:`ClaimFlywheel` instance (one mining pass) transitions are
-also cached in-process — mirroring ``OutcomeRouter``/``CapabilityIndex``'s own
+also cached in-process — mirroring ``OutcomeRouter``/EG capability designation's own
 "in-process EMA + durable readback" split — so a sequence of
 propose→validate→accept calls against even a minimal engine double (one that
 does not round-trip ``query_cypher`` reads of nodes it just wrote) still
@@ -351,7 +351,7 @@ class ClaimFlywheel:
         the signal for both).
 
         ``durable_key`` lets a routing/ranking claim feed the SAME bandit key
-        ``OutcomeRouter``/``CapabilityIndex`` already learn over (e.g.
+        ``OutcomeRouter``/EG capability designation already learn over (e.g.
         ``f"{namespace}:{task_class}:{choice}"``) instead of the claim id
         itself, so the durable observation lands on the thing that was
         actually acted on (a routing choice), not just the claim that

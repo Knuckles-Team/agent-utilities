@@ -44,9 +44,9 @@ tags: [alpha, beta]
 
 
 def test_extract_tool_tags():
-    # Mock tool with fastmcp tags
+    # Mock tool with host-normalized meta tags
     tool = MagicMock()
-    tool.meta = {"fastmcp": {"tags": ["mcp_tag"]}}
+    tool.meta = {"tags": ["mcp_tag"]}
     assert extract_tool_tags(tool) == ["mcp_tag"]
 
     # Mock tool with direct tags

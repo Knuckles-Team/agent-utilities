@@ -206,11 +206,20 @@ In `_evaluate_service`, in order:
 A surviving proposal becomes:
 
 ```python
-ActionRequest(kind="scale_service", target="kg-ingest-worker",
-              params={"replicas": 4, "from_replicas": 2, "direction": "up",
-                      "signal": "queue_depth", "value": 900.0, "target": 200},
-              source="autoscaler",
-              reason="target tracking: queue_depth=900 vs target 200/replica → 2→4 (bounds 1-6)")
+ActionRequest(
+    kind="scale_service",
+    target="kg-ingest-worker",
+    params={
+        "replicas": 4,
+        "from_replicas": 2,
+        "direction": "up",
+        "signal": "queue_depth",
+        "value": 900.0,
+        "target": 200,
+    },
+    source="autoscaler",
+    reason="target tracking: queue_depth=900 vs target 200/replica → 2→4 (bounds 1-6)",
+)
 ```
 
 and goes through the ActionPolicy gate (CONCEPT:AU-OS.deployment.fleet-lifecycle-control). Under the shipped

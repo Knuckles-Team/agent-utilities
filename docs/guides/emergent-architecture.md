@@ -209,8 +209,8 @@ A versioned metacognitive self-model that aggregates session outcomes into a per
 
 ```python
 class MemoryRetrieverNode(RegistryNode):
-    version: int                           # Monotonically increasing
-    domain_success_rates: dict[str, float] # e.g., {"gitlab": 0.85}
+    version: int  # Monotonically increasing
+    domain_success_rates: dict[str, float]  # e.g., {"gitlab": 0.85}
     capability_confidence: dict[str, float]
     tool_proficiency: dict[str, float]
     total_sessions: int

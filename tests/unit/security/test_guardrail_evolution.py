@@ -137,7 +137,9 @@ class TestGuardrailEvolution:
         assert result.outcome is EvolutionOutcome.TIGHTENED
         assert (result.from_level, result.to_level) == (1, 2)
         assert len(store.applied) == 1
-        assert approvals.requested == [], "a tightening never touches the approval queue"
+        assert approvals.requested == [], (
+            "a tightening never touches the approval queue"
+        )
 
     async def test_a_proposed_loosening_is_filed_not_applied(self) -> None:
         cell = _cell(

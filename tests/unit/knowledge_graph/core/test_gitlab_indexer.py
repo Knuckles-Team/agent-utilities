@@ -192,9 +192,7 @@ def test_index_instance_records_ingest_profile_stages():
     assert all(v >= 0.0 for v in prof.stages.values())
 
     # No active profile → stays the pre-existing zero-cost no-op.
-    index_instance(
-        instance="test", source=_source(), index_fn=index_fn, ingest=ingest
-    )
+    index_instance(instance="test", source=_source(), index_fn=index_fn, ingest=ingest)
 
 
 def test_no_dangling_edge_endpoints_and_namespacing():

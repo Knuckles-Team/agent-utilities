@@ -138,39 +138,6 @@ def _check_python_env() -> dict[str, Any]:
     )
 
 
-def _check_mcp_sdk_floor() -> dict[str, Any]:
-    """The installed `mcp`/`fastmcp` SDK must satisfy the `[mcp]` extra's declared floor.
-
-    A runtime that resolved an older SDK line (`mcp` v1 while the extra declares
-    `fastmcp>=4.0.0b1` / SDK v2) previously only failed as a swallowed `ImportError`
-    deep inside `child_resilience.py` at serve time (D-ISR-2). This surfaces that
-    mismatch here instead — see `agent_utilities.graphos_client.protocol_compat.check_mcp_sdk_floor`.
-    """
-    try:
-        from agent_utilities.graphos_client.protocol_compat import check_mcp_sdk_floor
-    except ImportError as exc:
-        return _result(
-            "mcp_sdk_floor",
-            "skip",
-            f"protocol_compat unavailable ({type(exc).__name__})",
-        )
-    outcome = check_mcp_sdk_floor()
-    if outcome["ok"] is None:
-        return _result("mcp_sdk_floor", "skip", outcome["detail"])
-    if outcome["ok"]:
-        return _result("mcp_sdk_floor", "ok", outcome["detail"])
-    return _result(
-        "mcp_sdk_floor",
-        "fail",
-        outcome["detail"],
-        remediation=(
-            "reinstall/rebuild the runtime image so `mcp`/`fastmcp` resolve the "
-            "versions declared by the `[mcp]` extra in pyproject.toml (e.g. "
-            "`pip install -U 'agent-utilities[mcp]'` or re-lock and redeploy)"
-        ),
-    )
-
-
 def _check_config() -> dict[str, Any]:
     try:
         from agent_utilities.deployment.config_generator import config_doctor
@@ -2245,64 +2212,6 @@ def _check_auth() -> dict[str, Any]:
         ),
         skill="keycloak-client-onboarder",
         data={"missing_count": len(missing), "fail_closed": True},
-    )
-
-
-def _check_outbound_auth() -> dict[str, Any]:
-    """Validate outbound MCP auth metadata without resolving credential material."""
-    try:
-        from agent_utilities.graphos_client.client_credentials import (
-            outbound_auth_configuration_status,
-        )
-
-        status = outbound_auth_configuration_status()
-    except Exception as exc:  # noqa: BLE001 - never report configured values
-        return _result(
-            "outbound_auth",
-            "fail",
-            f"outbound MCP authentication configuration is invalid ({type(exc).__name__})",
-            remediation=(
-                "Set MCP_CLIENT_AUTH and its canonical AgentConfig fields; keep "
-                "credential material behind a runtime secret reference."
-            ),
-            data={"ready": False, "redacted": True},
-        )
-    mode = str(status["mode"])
-    if mode == "none":
-        return _result(
-            "outbound_auth",
-            "skip",
-            "outbound MCP child authentication is disabled",
-            data={"mode": mode, "ready": True, "redacted": True},
-        )
-    if bool(status["ready"]):
-        return _result(
-            "outbound_auth",
-            "ok",
-            f"outbound MCP child authentication is configured ({mode})",
-            data={"mode": mode, "ready": True, "redacted": True},
-        )
-    missing = status.get("missing") or []
-    invalid = status.get("invalid") or []
-    if not isinstance(missing, list):
-        missing = []
-    if not isinstance(invalid, list):
-        invalid = []
-    return _result(
-        "outbound_auth",
-        "fail",
-        "outbound MCP child authentication is incomplete",
-        remediation=(
-            "Configure OIDC_CLIENT_ID, OIDC_CLIENT_SECRET_REF, OIDC_AUDIENCE, "
-            "and either OIDC_TOKEN_URL or OIDC_ISSUER in XDG AgentConfig."
-        ),
-        data={
-            "mode": mode,
-            "ready": False,
-            "missing_count": len(missing),
-            "invalid_count": len(invalid),
-            "redacted": True,
-        },
     )
 
 
@@ -5406,7 +5315,6 @@ def _check_spark_runner(live: bool = False) -> dict[str, Any]:
 # Registry: name -> callable. Order is the report order.
 CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "python_env": _check_python_env,
-    "mcp_sdk_floor": _check_mcp_sdk_floor,
     "config": _check_config,
     "evolution_staging": _check_evolution_staging,
     "execution_security": _check_execution_security,
@@ -5428,7 +5336,6 @@ CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "secrets": _check_secrets,
     "secrets_backend": _check_secrets_backend,
     "auth": _check_auth,
-    "outbound_auth": _check_outbound_auth,
     "skill_certification": _check_skill_certification,
     "production_certification": _check_production_certification,
     "graph_identity": _check_graph_identity,

@@ -21,7 +21,7 @@ provenance survives). The store is authoritative in-memory for the process and
 mirrors to the durable GraphBackend best-effort (the repo's prefer-graph-native
 policy), exactly like :class:`~agent_utilities.harness.eval_corpus.EvalCorpus`.
 ``resolve`` ranks records by lexical relevance by default; an embedding backend
-(e.g. the HNSW ``CapabilityIndex``) can be supplied for semantic resolution.
+(e.g. EG's capability designation) can be supplied for semantic resolution.
 
 Concept: evolving-memory
 """

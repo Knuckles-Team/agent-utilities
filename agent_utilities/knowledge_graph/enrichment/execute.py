@@ -2,7 +2,7 @@
 
 Wires the KG-driven synthesis layer to the production orchestration:
 * :func:`make_capability_search` backs ``synthesize_*`` with the real
-  ``CapabilityIndex.designate`` (Plan-08 retrieval) instead of a demo embed-store.
+  EG capability designation (Plan-08 retrieval) instead of a demo embed-store.
 * :func:`execute_agent_spec` / :func:`execute_team_spec` run synthesized agents/
   teams through ``orchestration.agent_runner.run_agent`` (the
   ``graph_orchestrate`` entry point) against the live LLM.

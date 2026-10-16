@@ -17,21 +17,14 @@ import os
 from typing import Any, Literal, cast
 
 from pydantic_ai import DeferredToolRequests, ModelSettings
-from pydantic_ai.mcp import MCPToolset
 
 from agent_utilities.core.config import setting
 from agent_utilities.core.contextual_model import create_context_agent
-from agent_utilities.graphos_client.protocol_compat import (
-    force_legacy_protocol_mode,
-    install_mcp_v2_bridge,
-)
-from agent_utilities.graphos_client.toolset_factory import build_http_toolset
-
-install_mcp_v2_bridge()
+from agent_utilities.host_ports import build_url_toolset
 
 
 def load_mcp_servers(config_path: str) -> Any:
-    """Load MCP servers from configuration using the centralized coordinator."""
+    """Load the configured client toolsets through the graph-os host port."""
     from agent_utilities.core.config import load_mcp_servers_from_config
 
     return load_mcp_servers_from_config(config_path)
@@ -273,13 +266,6 @@ def _prepare_explicit_mcp_http_clients(mcp_toolsets: list[Any], mcp_tls: Any) ->
             )
 
 
-def _wrap_explicit_mcp_toolset(server: Any) -> Any:
-    if type(server).__name__ == "FastMCP":
-        # v2: a FastMCP server instance is wrapped directly by MCPToolset
-        return force_legacy_protocol_mode(MCPToolset(server))
-    return server
-
-
 def _setup_explicit_mcp_toolsets(
     mcp_toolsets: list[Any] | None, mcp_tls: Any
 ) -> list[Any]:
@@ -295,11 +281,7 @@ def _setup_explicit_mcp_toolsets(
         return []
 
     _prepare_explicit_mcp_http_clients(mcp_toolsets, mcp_tls)
-    return [
-        _wrap_explicit_mcp_toolset(server)
-        for server in mcp_toolsets
-        if server is not None
-    ]
+    return [server for server in mcp_toolsets if server is not None]
 
 
 def _setup_mcp_config_toolset(
@@ -754,7 +736,7 @@ def create_agent(
                 )
             else:
                 try:
-                    server = build_http_toolset(mcp_url, timeout=DEFAULT_TIMEOUT)
+                    server = build_url_toolset(mcp_url, timeout=DEFAULT_TIMEOUT)
                     initialized_mcp_toolsets.append(
                         filter_tools_by_tag(server, tool_tags) if tool_tags else server
                     )

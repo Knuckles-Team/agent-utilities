@@ -7,7 +7,7 @@ CONCEPT:AU-ORCH.session.durable-session-autonomous-goal — Durable session and 
 CONCEPT:AU-ORCH.session.durable-goal-registry-goals — Durable goal registry — goals persist across restarts and expired leases remain visible instead of silently vanishing
 
 This module houses the schema initialization, memory maps, background runner thread,
-and Starlette REST handlers for durable agent sessions and iterative goals.
+and transport-free session/goal operations (graph-os serves them over HTTP).
 
 State backends (CONCEPT:AU-OS.state.unified-durable-state-externalization): by default sessions/turns/goals live in the
 per-host SQLite file; with ``state_db_uri`` set they live on the shared
@@ -21,6 +21,7 @@ observability only. On restart, non-terminal work retains its exact WorkItem
 state without a second lifecycle projection.
 """
 
+import json
 import logging
 import sqlite3
 import threading
@@ -28,16 +29,37 @@ import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from pydantic import BaseModel
-from starlette.requests import Request
-from starlette.responses import JSONResponse
 
 from agent_utilities.core.config import config, setting
 from agent_utilities.models.goal import GoalIteration, GoalSpec
 
 logger = logging.getLogger(__name__)
+
+
+class SessionRequest(Protocol):
+    """The transport-free request shape the session/goal operations read.
+
+    graph-os owns HTTP serving; it adapts its own request object to this shape
+    (``path_params`` plus an awaitable ``json()`` body) when it mounts these
+    operations. The harness never imports a web framework.
+    """
+
+    path_params: dict[str, Any]
+
+    async def json(self) -> Any: ...
+
+
+class SessionResponse:
+    """A transport-free JSON result: ``status_code`` plus encoded ``body``."""
+
+    def __init__(self, content: Any, status_code: int = 200) -> None:
+        self.content = content
+        self.status_code = int(status_code)
+        self.body = json.dumps(content, default=str).encode("utf-8")
+
 
 # Resolved paths
 DEFAULT_AGENT_DIR = Path(setting("WORKSPACE_PATH", "workspace"))
@@ -576,11 +598,11 @@ def _desired_session_action(session_id: str) -> str | None:
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# Starlette HTTP Route Handlers
+# Transport-free session/goal operations (graph-os mounts them)
 # ─────────────────────────────────────────────────────────────────────────
 
 
-async def get_all_sessions(request: Request) -> JSONResponse:
+async def get_all_sessions(request: SessionRequest) -> SessionResponse:
     """Retrieve durable agent sessions (newest first, paginated).
 
     Tenant-scoped at the query level (AU-P0-5, :func:`_sessions_tenant_predicate`)
@@ -613,20 +635,20 @@ async def get_all_sessions(request: Request) -> JSONResponse:
             d["needs_input"] = bool(d.get("needs_input", 0))
             res.append(d)
         conn.close()
-        return JSONResponse(res)
+        return SessionResponse(res)
     except Exception as e:
         logger.error(f"Error querying sessions: {e}")
-        return JSONResponse([], status_code=500)
+        return SessionResponse([], status_code=500)
 
 
-async def get_session_details(request: Request) -> JSONResponse:
+async def get_session_details(request: SessionRequest) -> SessionResponse:
     """Retrieve details and turn records for a specific session."""
     from agent_utilities.knowledge_graph.core.session import resolve_session
 
     resolve_session(required_scope="kg:read")
     session_id = request.path_params.get("session_id")
     if not session_id:
-        return JSONResponse(
+        return SessionResponse(
             {"error": "session_id path parameter is required"}, status_code=400
         )
     try:
@@ -636,7 +658,7 @@ async def get_session_details(request: Request) -> JSONResponse:
         sess_row = _find_session(cursor, session_id)
         if not sess_row:
             conn.close()
-            return JSONResponse({"error": "Session not found"}, status_code=404)
+            return SessionResponse({"error": "Session not found"}, status_code=404)
 
         sess_dict = dict(sess_row)
         sess_dict["background"] = bool(sess_dict.get("background", 0))
@@ -650,20 +672,20 @@ async def get_session_details(request: Request) -> JSONResponse:
         sess_dict["turns"] = turns
 
         conn.close()
-        return JSONResponse(sess_dict)
+        return SessionResponse(sess_dict)
     except Exception as e:
         logger.error(f"Error retrieving session details: {e}")
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return SessionResponse({"error": str(e)}, status_code=500)
 
 
-async def delete_session(request: Request) -> JSONResponse:
+async def delete_session(request: SessionRequest) -> SessionResponse:
     """Permanently remove a session and its turns from durable persistence."""
     from agent_utilities.knowledge_graph.core.session import resolve_session
 
     resolve_session(required_scope="kg:write")
     session_id = request.path_params.get("session_id")
     if not session_id:
-        return JSONResponse(
+        return SessionResponse(
             {"error": "session_id path parameter is required"}, status_code=400
         )
     try:
@@ -671,27 +693,27 @@ async def delete_session(request: Request) -> JSONResponse:
         cursor = conn.cursor()
         if not _find_session(cursor, session_id, columns="id"):
             conn.close()
-            return JSONResponse({"error": "Session not found"}, status_code=404)
+            return SessionResponse({"error": "Session not found"}, status_code=404)
         cursor.execute("DELETE FROM turns WHERE session_id = ?", (session_id,))
         cursor.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         conn.commit()
         conn.close()
-        return JSONResponse(
+        return SessionResponse(
             {"status": "success", "message": f"Session {session_id} deleted."}
         )
     except Exception as e:
         logger.error(f"Error deleting session: {e}")
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return SessionResponse({"error": str(e)}, status_code=500)
 
 
-async def submit_session_reply(request: Request) -> JSONResponse:
+async def submit_session_reply(request: SessionRequest) -> SessionResponse:
     """Submit an interactive user reply turn to a waiting agent session."""
     from agent_utilities.knowledge_graph.core.session import resolve_session
 
     resolve_session(required_scope="kg:write")
     session_id = request.path_params.get("session_id")
     if not session_id:
-        return JSONResponse(
+        return SessionResponse(
             {"error": "session_id path parameter is required"}, status_code=400
         )
     try:
@@ -700,7 +722,9 @@ async def submit_session_reply(request: Request) -> JSONResponse:
         payload = {}
     content = payload.get("content", "").strip()
     if not content:
-        return JSONResponse({"error": "Reply content cannot be empty"}, status_code=400)
+        return SessionResponse(
+            {"error": "Reply content cannot be empty"}, status_code=400
+        )
 
     try:
         conn = _connect_db()
@@ -714,7 +738,7 @@ async def submit_session_reply(request: Request) -> JSONResponse:
         row = cursor.fetchone()
         if not row:
             conn.close()
-            return JSONResponse({"error": "Session not found"}, status_code=404)
+            return SessionResponse({"error": "Session not found"}, status_code=404)
 
         turn_num = row[0]
         turn_id = str(uuid.uuid4())
@@ -749,12 +773,12 @@ async def submit_session_reply(request: Request) -> JSONResponse:
             if run["event"]:
                 run["event"].set()
 
-        return JSONResponse(
+        return SessionResponse(
             {"status": "success", "message": "Reply submitted successfully."}
         )
     except Exception as e:
         logger.error(f"Error submitting session reply: {e}")
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return SessionResponse({"error": str(e)}, status_code=500)
 
 
 def _session_visible_for_cancel(session_id: str) -> bool | None:
@@ -816,24 +840,24 @@ def _mark_session_cancelled(session_id: str) -> None:
         logger.error(f"Error updating session to cancelled: {e}")
 
 
-async def cancel_session_run(request: Request) -> JSONResponse:
+async def cancel_session_run(request: SessionRequest) -> SessionResponse:
     """Cancel any active background or goal execution on this session."""
     from agent_utilities.knowledge_graph.core.session import resolve_session
 
     resolve_session(required_scope="kg:write")
     session_id = request.path_params.get("session_id")
     if not session_id:
-        return JSONResponse(
+        return SessionResponse(
             {"error": "session_id path parameter is required"}, status_code=400
         )
     visible = _session_visible_for_cancel(session_id)
     if visible is None:
-        return JSONResponse({"error": "Session lookup failed"}, status_code=500)
+        return SessionResponse({"error": "Session lookup failed"}, status_code=500)
     if not visible:
-        return JSONResponse({"error": "Session not found"}, status_code=404)
+        return SessionResponse({"error": "Session not found"}, status_code=404)
     cancelled = _cancel_background_goal_runs(session_id)
     _mark_session_cancelled(session_id)
-    return JSONResponse({"status": "success", "cancelled": cancelled})
+    return SessionResponse({"status": "success", "cancelled": cancelled})
 
 
 def _append_session_turn(
@@ -1242,7 +1266,7 @@ def _enqueue_goal_dispatch(goal_id: str, session_id: str) -> dict[str, Any] | No
         return None
 
 
-async def create_goal(request: Request) -> JSONResponse:
+async def create_goal(request: SessionRequest) -> SessionResponse:
     """Launch a new backgrounded autonomous goal execution loop."""
     from agent_utilities.knowledge_graph.core.session import resolve_session
 
@@ -1254,7 +1278,7 @@ async def create_goal(request: Request) -> JSONResponse:
 
     objective = body.get("objective", "")
     if not objective:
-        return JSONResponse({"error": "objective is required"}, status_code=400)
+        return SessionResponse({"error": "objective is required"}, status_code=400)
 
     from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
 
@@ -1291,7 +1315,7 @@ async def create_goal(request: Request) -> JSONResponse:
     session_metadata = _json.dumps(meta)
 
     if not _insert_goal_session_rows(session_id, goal_id, spec, session_metadata):
-        return JSONResponse(
+        return SessionResponse(
             {"error": "Database initialization failed"}, status_code=500
         )
 
@@ -1315,9 +1339,9 @@ async def create_goal(request: Request) -> JSONResponse:
 
     handle = _enqueue_goal_dispatch(goal_id, session_id)
     if handle is None:
-        return JSONResponse({"error": "dispatch enqueue failed"}, status_code=503)
+        return SessionResponse({"error": "dispatch enqueue failed"}, status_code=503)
 
-    return JSONResponse(
+    return SessionResponse(
         {
             "status": "success",
             "goal_id": goal_id,
@@ -1342,7 +1366,7 @@ def make_serializable(o: Any) -> Any:
     return o
 
 
-async def list_goals(request: Request) -> JSONResponse:
+async def list_goals(request: SessionRequest) -> SessionResponse:
     """Retrieve active + durable goals (in-memory cache overlays the store)."""
     from agent_utilities.knowledge_graph.core.session import resolve_session
 
@@ -1355,30 +1379,30 @@ async def list_goals(request: Request) -> JSONResponse:
             merged[entry["goal_id"]] = entry
     for gid, entry in active_goals.items():
         merged[gid] = make_serializable(entry)
-    return JSONResponse(list(merged.values()))
+    return SessionResponse(list(merged.values()))
 
 
-async def get_goal_iterations(request: Request) -> JSONResponse:
+async def get_goal_iterations(request: SessionRequest) -> SessionResponse:
     """Retrieve live-updating iteration steps for a specific goal run."""
     from agent_utilities.knowledge_graph.core.session import resolve_session
 
     resolve_session(required_scope="kg:read")
     goal_id = request.path_params.get("goal_id")
     if not goal_id:
-        return JSONResponse({"error": "Goal run not found"}, status_code=404)
+        return SessionResponse({"error": "Goal run not found"}, status_code=404)
     rehydrate_goals()
     if goal_id in active_goals:
-        return JSONResponse(make_serializable(active_goals[goal_id]))
+        return SessionResponse(make_serializable(active_goals[goal_id]))
     # Fall back to the KG Loop node (goal from a previous run / other host).
     engine = _goal_engine()
     if engine is not None:
         entry = _load_goal_entry(engine, goal_id)
         if entry is not None:
-            return JSONResponse(entry)
-    return JSONResponse({"error": "Goal run not found"}, status_code=404)
+            return SessionResponse(entry)
+    return SessionResponse({"error": "Goal run not found"}, status_code=404)
 
 
-async def cancel_goal(request: Request) -> JSONResponse:
+async def cancel_goal(request: SessionRequest) -> SessionResponse:
     """Cancel an active autonomous goal loop.
 
     CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch — the gateway never runs a goal loop
@@ -1396,7 +1420,7 @@ async def cancel_goal(request: Request) -> JSONResponse:
     resolve_session(required_scope="kg:write")
     goal_id = request.path_params.get("goal_id")
     if not goal_id:
-        return JSONResponse({"error": "Active goal run not found"}, status_code=404)
+        return SessionResponse({"error": "Active goal run not found"}, status_code=404)
 
     session_id = ""
     run = background_goal_runs.get(goal_id)
@@ -1409,7 +1433,7 @@ async def cancel_goal(request: Request) -> JSONResponse:
 
     rehydrate_goals()
     if goal_id not in active_goals:
-        return JSONResponse({"error": "Active goal run not found"}, status_code=404)
+        return SessionResponse({"error": "Active goal run not found"}, status_code=404)
     if not session_id:
         session_id = active_goals[goal_id].get("session_id", "")
 
@@ -1435,6 +1459,6 @@ async def cancel_goal(request: Request) -> JSONResponse:
     except Exception as e:
         logger.error(f"Error cancelling goal session: {e}")
 
-    return JSONResponse(
+    return SessionResponse(
         {"status": "success", "message": "Goal cancelled successfully."}
     )

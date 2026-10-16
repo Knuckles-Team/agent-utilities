@@ -241,7 +241,9 @@ def test_a_tenant_admission_error_is_never_swallowed(
             raise tra.TenantAdmissionError("engine unreachable")
 
     with _verified_principal(monkeypatch):
-        with pytest.raises(cli.TenantAdmissionCliError, match="tenant admission failed"):
+        with pytest.raises(
+            cli.TenantAdmissionCliError, match="tenant admission failed"
+        ):
             cli.run_tenant_admission(
                 "homelab",
                 _principal_manifest(),

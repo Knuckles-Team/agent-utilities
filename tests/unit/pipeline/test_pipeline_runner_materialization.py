@@ -276,7 +276,10 @@ async def test_get_status_reports_complete_on_a_fully_successful_run() -> None:
 
     await runner.run(ctx)
 
-    assert runner.get_status() == {"status": "complete", "phases": {"memory": "complete"}}
+    assert runner.get_status() == {
+        "status": "complete",
+        "phases": {"memory": "complete"},
+    }
 
 
 def test_asyncio_import_present() -> None:

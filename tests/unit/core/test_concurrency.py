@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 import anyio
 import pytest
 
-from agent_utilities.graphos_client.concurrency import (
+from agent_utilities.core.concurrency import (
     _wrap_data_kwargs,
     invoke_client_method,
     run_blocking,

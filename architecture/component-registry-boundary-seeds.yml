@@ -53,7 +53,6 @@ seeds:
     owned_module_paths:
       - agent_utilities/mcp/multiplexer.py
       - agent_utilities/mcp/child_resilience.py
-      - agent_utilities/graphos_client/protocol_compat.py
       - agent_utilities/mcp/shared_multiplexer.py
       - agent_utilities/mcp/co_service_supervisor.py
       - agent_utilities/mcp/catalog_reconciliation.py
@@ -126,12 +125,9 @@ seeds:
     owned_module_paths:
       - agent_utilities/mcp/server_factory.py
       - agent_utilities/mcp/action_dispatch.py
-      - agent_utilities/graphos_client/concurrency.py
+      - agent_utilities/core/concurrency.py
       - agent_utilities/mcp/verbose_tools.py
       - agent_utilities/mcp/context_helpers.py
-      - agent_utilities/graphos_client/client_credentials.py
-      - agent_utilities/graphos_client/delegated_auth.py
-      - agent_utilities/graphos_client/httpx_boundary.py
       - agent_utilities/mcp/oauth_log_hygiene.py
       - agent_utilities/core/transport_security.py
       - agent_utilities/core/http_client.py

@@ -55,7 +55,9 @@ def test_clone_gates_run_at_their_declared_stages() -> None:
 
     # Pre-commit standard: the clone scanners are CI-only. The release
     # workflow runs this repo's scripts; no local hook duplicates them.
-    assert not {"dupehound-changed", "clone-jscpd-diff", "clone-jscpd-census"} & set(hooks)
+    assert not {"dupehound-changed", "clone-jscpd-diff", "clone-jscpd-census"} & set(
+        hooks
+    )
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(
         encoding="utf-8"
     )

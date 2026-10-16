@@ -52,7 +52,12 @@ write and never loses data.
 # GraphOS validates the session and commits to the engine authority.
 result = await graph_os.call_tool(
     "graph_write",
-    {"action": "add_node", "node_id": node.id, "node_type": "Memory", "properties": data},
+    {
+        "action": "add_node",
+        "node_id": node.id,
+        "node_type": "Memory",
+        "properties": data,
+    },
 )
 # Mirror delivery proceeds through the durable replayable outbox after commit.
 ```

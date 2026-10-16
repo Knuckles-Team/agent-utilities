@@ -579,12 +579,12 @@ def _exchange_on_behalf_of_token(label: str) -> str | None:
     when supported. A missing IdP or disabled grant leaves that leg empty.
     """
     try:
-        from agent_utilities.graphos_client.delegated_auth import (
+        from agent_utilities.host_ports import (
+            current_user_token,
             exchange_token_for_agent,
-            get_user_token,
         )
 
-        if get_user_token():
+        if current_user_token():
             return exchange_token_for_agent(label)
     except Exception as exc:  # noqa: BLE001 — exchange is best-effort (no IdP / grant not enabled)
         logger.info(
@@ -2265,7 +2265,7 @@ def _observed_tool_aliases(server_name: str, observed: list[str]) -> dict[str, s
     public_prefix = _configured_fleet_server_prefix(server_name) if server_name else ""
     if not (public_prefix and server_name):
         return {}
-    from agent_utilities.graphos_client.host import clean_tool_name
+    from agent_utilities.host_ports import clean_tool_name
 
     return {
         clean_tool_name(public_prefix, server_name, name): name
@@ -3562,14 +3562,14 @@ def _bind_explicit_tool_server(
 
 def _configured_fleet_server_names() -> frozenset[str]:
     """Return exact server identities from the graph-os host's fleet catalog."""
-    from agent_utilities.graphos_client.host import fleet_catalog
+    from agent_utilities.host_ports import fleet_catalog
 
     return frozenset(fleet_catalog())
 
 
 def _configured_fleet_server_prefix(server_name: str) -> str:
     """Return the public prefix graph-os serves one fleet server under."""
-    from agent_utilities.graphos_client.host import fleet_catalog
+    from agent_utilities.host_ports import fleet_catalog
 
     server = fleet_catalog().get(server_name)
     return server.prefix if server is not None else ""
@@ -3629,25 +3629,6 @@ def _configured_model_for_class(model_class: str) -> Any:
     return matches[0]
 
 
-def _spawn_auth() -> Any:
-    """Refresh-capable service-account auth for spawned REMOTE MCP toolsets.
-
-    CONCEPT:AU-ORCH.routing.mcp-child-error-unwrap / OS-5.32 — a spawned agent that binds a jwt-protected
-    fleet server over SSE/streamable-HTTP must carry the same
-    service-account identity the multiplexer attaches to its children, or the
-    call is rejected ``401``. Reuse ``client_credentials.child_auth`` so a
-    long-lived streamable-HTTP session pulls a current token per request and
-    force-refreshes once on ``401``. A static Authorization header is invalid
-    here: it freezes the token minted when the toolset was built and makes
-    delegated calls fail after that token expires. Authentication disabled
-    explicitly returns ``None``; configuration and mint failures remain
-    fail-closed.
-    """
-    from agent_utilities.graphos_client.client_credentials import child_auth
-
-    return child_auth(None)
-
-
 def _template_native_graphos_toolset(tid: str, allowed_tools: list[str] | None) -> Any:
     """Bind the ``graph-os`` toolset id to this process's own native tools.
 
@@ -3666,7 +3647,7 @@ def _template_native_graphos_toolset(tid: str, allowed_tools: list[str] | None) 
     if len(requested) != len(set(requested)):
         raise ValueError("GraphOS tool allow-list contains duplicates")
 
-    from agent_utilities.graphos_client.host import (
+    from agent_utilities.host_ports import (
         build_native_toolset,
         native_tool_names,
     )
@@ -3700,10 +3681,9 @@ def _toolset_for_id(
     configuration. KG ``Server.url`` values are opaque provenance references,
     never transport endpoints.
 
-    The toolset carries refresh-capable OIDC service-account auth
-    (:func:`_spawn_auth`) so JWT-protected servers do not reject calls after the
-    initial token expires. Returns the
-    bound ``MCPToolset`` (id-tagged for filtering), or ``None`` for an empty id.
+    The graph-os host builds the client toolset and attaches its refresh-capable
+    service-account auth (:func:`agent_utilities.host_ports.build_url_toolset`).
+    Returns the bound toolset (id-tagged for filtering), or ``None`` for an empty id.
     """
     tid = (toolset_id or "").strip()
     if not tid:
@@ -3712,7 +3692,7 @@ def _toolset_for_id(
     if tid == "graph-os":
         return _template_native_graphos_toolset(tid, allowed_tools)
 
-    from agent_utilities.graphos_client.toolset_factory import build_http_toolset
+    from agent_utilities.host_ports import build_url_toolset
 
     url = _fleet_server_url(tid)
     if not url:
@@ -3721,12 +3701,7 @@ def _toolset_for_id(
             "or a remote URL in the active MCP fleet configuration"
         )
 
-    return build_http_toolset(
-        url,
-        auth=_spawn_auth(),
-        timeout=60,
-        toolset_id=tid,
-    )
+    return build_url_toolset(url, toolset_id=tid, timeout=60)
 
 
 def _resolve_toolset_ids(
@@ -3846,7 +3821,7 @@ def _skill_native_graphos_toolset(requested: list[str], agent_name: str) -> Any:
     BEFORE the availability check, so a request naming ``graph_orchestrate``
     always reports the recursion refusal rather than an availability error.
     """
-    from agent_utilities.graphos_client.host import (
+    from agent_utilities.host_ports import (
         build_native_toolset,
         native_tool_names,
     )
@@ -4388,7 +4363,7 @@ def _filter_toolsets_to_allowed(
                 f"'{agent_name}'"
             )
         if public_prefix:
-            from agent_utilities.graphos_client.host import clean_tool_name
+            from agent_utilities.host_ports import clean_tool_name
 
             filtered.append(
                 _filter(
@@ -4633,7 +4608,7 @@ def _fleet_url_candidate(server: str) -> str:
             raise RuntimeError("FLEET_MCP_URL_TEMPLATE must contain '{server}'")
         return template.replace("{server}", server).rstrip("/")
 
-    from agent_utilities.graphos_client.host import fleet_catalog
+    from agent_utilities.host_ports import fleet_catalog
 
     entry = fleet_catalog().get(server)
     return entry.url if entry is not None else ""
@@ -4729,7 +4704,7 @@ async def _execute_focused_tools(
     agent is biased to call independent tools in parallel; ActionPolicy still governs each call.
     Reuses :func:`_execute_single_server` (which binds a LIST of toolsets) for the loop itself.
     """
-    from agent_utilities.graphos_client.toolset_factory import build_http_toolset
+    from agent_utilities.host_ports import build_url_toolset
 
     servers = [s for s in (getattr(shape, "tool_servers", ()) or ()) if s]
     if not servers:
@@ -4742,13 +4717,7 @@ async def _execute_focused_tools(
             raise RuntimeError(
                 "focused-tools delegation requires FLEET_MCP_URL_TEMPLATE"
             )
-        toolsets.append(
-            build_http_toolset(
-                url,
-                auth=_spawn_auth(),
-                timeout=60,
-            )
-        )
+        toolsets.append(build_url_toolset(url, timeout=60))
 
     focused_config = dict(config)
     focused_config["mcp_toolsets"] = toolsets

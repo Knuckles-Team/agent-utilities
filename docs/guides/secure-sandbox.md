@@ -28,9 +28,9 @@ sandbox = SandboxExecutor()
 
 # Safe execution
 result = sandbox.run_safe("import pandas as pd; df = pd.DataFrame()")
-print(result["status"]) # ok
+print(result["status"])  # ok
 
 # Unsafe execution (Blocked by Invariants)
 unsafe_result = sandbox.run_safe("import os; os.system('rm -rf /')")
-print(unsafe_result["error"]) # InvariantViolation...
+print(unsafe_result["error"])  # InvariantViolation...
 ```

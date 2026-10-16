@@ -125,13 +125,15 @@ and the fixed `capacity`/`reserve`):
 
 ```python
 def _can_admit(self, is_high: bool) -> bool:
-    if self._active >= self.capacity:      # 1. hard cap — nobody exceeds capacity
+    if self._active >= self.capacity:  # 1. hard cap — nobody exceeds capacity
         return False
-    if is_high:                            # 2. high-priority lands as long as a permit exists
+    if is_high:  # 2. high-priority lands as long as a permit exists
         return True
-    if self._high_waiters > 0:             # 3a. background yields while ANY high call waits
+    if self._high_waiters > 0:  # 3a. background yields while ANY high call waits
         return False
-    return self._active < (self.capacity - self.reserve)  # 3b. else background uses spare headroom
+    return self._active < (
+        self.capacity - self.reserve
+    )  # 3b. else background uses spare headroom
 ```
 
 `is_high` is `priority.is_interactive_floor` — `True` for INTERACTIVE,

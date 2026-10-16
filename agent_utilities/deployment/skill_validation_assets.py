@@ -1013,17 +1013,10 @@ def _validate_active_runtime_configuration(
 
 
 async def _probe_graph_os_tools(endpoint: str, *, request_timeout: float) -> None:
-    from agent_utilities.graphos_client.client_credentials import child_auth
-    from agent_utilities.graphos_client.toolset_factory import build_http_toolset
+    from agent_utilities.host_ports import open_tool_client
     from agent_utilities.skills.runtime_validation import _call_tool, _ensure_tool
 
-    toolset = build_http_toolset(
-        endpoint,
-        auth=child_auth({}),
-        timeout=request_timeout,
-        toolset_id="skill-certification-readiness",
-    )
-    async with toolset.client as client:
+    async with open_tool_client(endpoint, timeout=request_timeout) as client:
         for tool in ("graph_orchestrate", "graph_query", "graph_jobs"):
             await _ensure_tool(client, tool, request_timeout)
         await _call_tool(
@@ -1054,14 +1047,12 @@ async def probe_readiness(
 
     from agent_utilities.core.config import config
     from agent_utilities.core.transport_security import resolve_configured_tls_profile
+    from agent_utilities.host_ports import outbound_auth_status
     from agent_utilities.knowledge_graph.core.engine_resolver import resolve_engine
     from agent_utilities.knowledge_graph.core.shard_topology import is_local_endpoint
-    from agent_utilities.graphos_client.client_credentials import (
-        outbound_auth_configuration_status,
-    )
 
     _validate_active_runtime_configuration(deployment, endpoint, config)
-    auth_status = outbound_auth_configuration_status()
+    auth_status = outbound_auth_status()
     if auth_status.get("ready") is not True:
         raise CertificationAssetError("graph_os_identity_not_ready")
     trust = resolve_configured_tls_profile("mcp", config=config)

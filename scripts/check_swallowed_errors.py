@@ -316,7 +316,9 @@ def _is_type_name_only_swallow(
     if not log_calls:
         return False
     dropping = sum(
-        1 for call in log_calls if _drops_cause_to_type_name(call, bound_name, source_lines)
+        1
+        for call in log_calls
+        if _drops_cause_to_type_name(call, bound_name, source_lines)
     )
     return dropping == len(log_calls)
 
@@ -384,6 +386,7 @@ def _exception_type_text(handler: ast.ExceptHandler) -> str:
 # order among identically-shaped siblings actually changes. See the module
 # docstring's "NOTE on the baseline key" for the full rationale.
 HandlerKey = tuple[str, str, str, str, int]
+
 
 def _handler_shape(
     node: ast.ExceptHandler, except_line: str, lines: list[str]
@@ -551,7 +554,8 @@ def _content_counts(rel: str, source: str) -> collections.Counter:
     except SyntaxError:
         return collections.Counter()
     return collections.Counter(
-        (key[2], shape, text) for key, _line, shape, text in _find_violations(rel, source, tree)
+        (key[2], shape, text)
+        for key, _line, shape, text in _find_violations(rel, source, tree)
     )
 
 

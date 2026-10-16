@@ -397,28 +397,43 @@ to confirm dedup + `/kv/stats` before committing to a windowed vLLM restart:
 
 ```python
 import os, select
-from agent_utilities.kvcache import EpistemicGraphL2Connector, EpistemicGraphKVBackend, KvCacheConfig
+from agent_utilities.kvcache import (
+    EpistemicGraphL2Connector,
+    EpistemicGraphKVBackend,
+    KvCacheConfig,
+)
 
-BASE = "http://10.0.0.18:9130"   # or loopback on GB10
+BASE = "http://10.0.0.18:9130"  # or loopback on GB10
+
+
 def stats():
-    b = EpistemicGraphKVBackend(KvCacheConfig(base_url=BASE));  s = b.stats().model_dump();  b.close();  return s
+    b = EpistemicGraphKVBackend(KvCacheConfig(base_url=BASE))
+    s = b.stats().model_dump()
+    b.close()
+    return s
+
 
 conn = EpistemicGraphL2Connector(base_url=BASE)
 blob, key = b"kv-page-" + os.urandom(2048), "tok-hash-demo"
 print("before", stats())
 
-fid = conn.submit_batch_set([key], [memoryview(bytearray(blob))])         # offload (PUT)
-select.select([conn.event_fd()], [], [], 5); conn.drain_completions()
-print("after put", stats())                                              # unique_blocks/logical_bytes ↑
+fid = conn.submit_batch_set([key], [memoryview(bytearray(blob))])  # offload (PUT)
+select.select([conn.event_fd()], [], [], 5)
+conn.drain_completions()
+print("after put", stats())  # unique_blocks/logical_bytes ↑
 
 buf = bytearray(len(blob))
-gid = conn.submit_batch_get([key], [memoryview(buf)])                     # fetch back (GET)
-select.select([conn.event_fd()], [], [], 5); conn.drain_completions()
+gid = conn.submit_batch_get([key], [memoryview(buf)])  # fetch back (GET)
+select.select([conn.event_fd()], [], [], 5)
+conn.drain_completions()
 assert bytes(buf) == blob, "round-trip mismatch"
 
-fid2 = conn.submit_batch_set([key], [memoryview(bytearray(blob))])        # repeat key ⇒ dedup (EG-186)
-select.select([conn.event_fd()], [], [], 5); conn.drain_completions()
-print("after dup", stats())                                              # dedup_hits ↑, resident_bytes flat
+fid2 = conn.submit_batch_set(
+    [key], [memoryview(bytearray(blob))]
+)  # repeat key ⇒ dedup (EG-186)
+select.select([conn.event_fd()], [], [], 5)
+conn.drain_completions()
+print("after dup", stats())  # dedup_hits ↑, resident_bytes flat
 conn.close()
 ```
 

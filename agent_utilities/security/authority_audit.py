@@ -46,7 +46,10 @@ AUDITED_DECISION_PATHS: tuple[tuple[str, str], ...] = (
     ("agent_utilities/security/guardrail_profile.py", "plan_move"),
     ("agent_utilities/knowledge_graph/schema_drift/activation.py", "activate_approved"),
     ("agent_utilities/knowledge_graph/schema_drift/gate.py", "run_gate"),
-    ("agent_utilities/knowledge_graph/schema_drift/policy.py", "ContractEvolutionPolicy"),
+    (
+        "agent_utilities/knowledge_graph/schema_drift/policy.py",
+        "ContractEvolutionPolicy",
+    ),
 )
 
 

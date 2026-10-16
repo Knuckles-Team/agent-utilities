@@ -102,11 +102,15 @@ of action*, not just a read model. The caller supplies the exact
 server/tool/action/params (no per-vendor write path is hand-coded):
 
 ```python
-execute_action("fleet.write_record", {
-    "server": "servicenow-mcp", "tool": "servicenow_table_api",
-    "action": "patch_table_record",
-    "params": {"table": "incident", "sys_id": "...", "state": "6"},
-})
+execute_action(
+    "fleet.write_record",
+    {
+        "server": "servicenow-mcp",
+        "tool": "servicenow_table_api",
+        "action": "patch_table_record",
+        "params": {"table": "incident", "sys_id": "...", "state": "6"},
+    },
+)
 ```
 
 ## Connector dual-role — every fleet connector is also an ingestion source

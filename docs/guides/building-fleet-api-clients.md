@@ -20,10 +20,10 @@ client = BaseApiClient(
     "https://portainer.example.test/api",
     auth=TokenAuth(api_key, header="X-API-Key", prefix=None),
 )
-envelope = client.get("stacks")          # relative endpoints join base_url
-envelope["status_code"]                  # 200
-envelope["data"]                         # parsed JSON (text for non-JSON)
-envelope["rate_limit"]                   # latest typed rate-limit snapshot
+envelope = client.get("stacks")  # relative endpoints join base_url
+envelope["status_code"]  # 200
+envelope["data"]  # parsed JSON (text for non-JSON)
+envelope["rate_limit"]  # latest typed rate-limit snapshot
 ```
 
 The envelope shape — `{"status_code", "data", "rate_limit"}` (plus
@@ -72,7 +72,7 @@ the error envelope instead. Error messages are redacted before raising.
 ```python
 for user in client.paginate(
     "/api/v1/users",
-    mode="link",            # cursor | page | offset | link | since_id
+    mode="link",  # cursor | page | offset | link | since_id
     max_items=500,
 ):
     ...

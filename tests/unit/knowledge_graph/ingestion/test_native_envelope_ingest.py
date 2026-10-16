@@ -633,7 +633,9 @@ def test_native_mutation_carries_only_engine_allowed_fields() -> None:
     """
     from epistemic_graph.client import _closed_mapping
 
-    required = frozenset({"batch_id", "graph", "idempotency_key", "operations", "outbox"})
+    required = frozenset(
+        {"batch_id", "graph", "idempotency_key", "operations", "outbox"}
+    )
     optional = frozenset({"placement_epoch", "expected_graph_version", "fencing_token"})
 
     compute = _Compute("graph-native-contract")

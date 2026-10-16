@@ -46,11 +46,17 @@ composes with the resilience telemetry of **[ORCH-1.29](ORCH-1.29-RLM_Resilience
 
 ```python
 # Inside an RLM code block: one boolean sub-agent per chunk, in parallel.
-flags = await run_parallel_sub_calls([
-    {"prompt": "Relevant to where Saltram lives?", "context": c, "schema": {"type": "boolean"}}
-    for c in chunks
-])
-relevant = [c for c, keep in zip(chunks, flags) if keep]   # keep is a real bool
+flags = await run_parallel_sub_calls(
+    [
+        {
+            "prompt": "Relevant to where Saltram lives?",
+            "context": c,
+            "schema": {"type": "boolean"},
+        }
+        for c in chunks
+    ]
+)
+relevant = [c for c, keep in zip(chunks, flags) if keep]  # keep is a real bool
 ```
 
 ## Wiring (≤3 hops)

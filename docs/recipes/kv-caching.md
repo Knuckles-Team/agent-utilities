@@ -63,13 +63,15 @@ The exact connector `graph_kvcache` uses, round-tripped end-to-end:
 
 ```python
 import os
+
 os.environ["EPISTEMIC_GRAPH_KVCACHE_URL"] = "http://127.0.0.1:9130"
 from agent_utilities.kvcache import EpistemicGraphKVBackend
+
 b = EpistemicGraphKVBackend.from_env()
-assert b.put("probe", b"hello") is True          # stored (not the degraded False)
-assert b.get("probe") == b"hello"                 # round-trip
-assert b.get("miss") is None                      # clean miss
-print(b.stats())                                  # unique_blocks > 0, resident_bytes > 0
+assert b.put("probe", b"hello") is True  # stored (not the degraded False)
+assert b.get("probe") == b"hello"  # round-trip
+assert b.get("miss") is None  # clean miss
+print(b.stats())  # unique_blocks > 0, resident_bytes > 0
 ```
 
 Or over MCP once graph-os is wired:

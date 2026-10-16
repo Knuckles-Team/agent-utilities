@@ -568,7 +568,7 @@ class OntologySystem:
         )
         engine = IngestionEngine(backend=backend)
         # NOTE: connector_config deliberately keeps LIVE object references
-        # some connectors require (e.g. mcp_tool's injected fastmcp
+        # some connectors require (e.g. mcp_tool's injected tool
         # ``client``) — engine.ingest's CONTENT_TYPE.CONNECTOR adaptor reads
         # this exact dict (manifest.metadata["connector_config"]) to
         # actually construct the connector, so it cannot be stripped down to

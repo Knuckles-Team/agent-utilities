@@ -123,8 +123,6 @@ __all__ = [
     "TOOL_CALLS",
     "GatewayMetricsMiddleware",
     "delegation_span",
-    "metrics_asgi_endpoint",
-    "metrics_endpoint",
     "publish_multiplexer_child_gauges",
     "register_scrape_sampler",
     "render_metrics",
@@ -1237,11 +1235,8 @@ def _engine_metrics_status_line(ok: bool) -> bytes:
 async def render_metrics_with_engine() -> tuple[bytes, str]:
     """Like :func:`render_metrics`, plus the embedded engine's own exposition.
 
-    Shared by every ``/metrics`` handler in this deployment (the gateway's
-    own :func:`metrics_endpoint` AND ``server_factory``'s bearer-gated
-    ``custom_route`` — the one actually live on the collapsed single-container
-    graph-os pod, since that process never mounts the REST gateway). The
-    gateway's own metrics are ALWAYS served in full; if the engine fetch
+    graph-os's ``/metrics`` handler serves this body (the harness serves no
+    route). The gateway's own metrics are ALWAYS served in full; if the engine fetch
     fails, ``graph_os_engine_metrics_up`` reports 0 and a comment explains
     why, rather than the scrape silently coming back
     partial-but-presented-as-complete.
@@ -1250,22 +1245,6 @@ async def render_metrics_with_engine() -> tuple[bytes, str]:
     engine_body, engine_ok = await _fetch_engine_metrics()
     merged = body + b"\n" + _engine_metrics_status_line(engine_ok) + b"\n" + engine_body
     return merged, content_type
-
-
-async def metrics_endpoint() -> Any:
-    """``GET /metrics`` handler for FastAPI ``add_api_route`` (no params).
-
-    See :func:`render_metrics_with_engine` for what gets merged in.
-    """
-    from starlette.responses import Response
-
-    body, content_type = await render_metrics_with_engine()
-    return Response(content=body, media_type=content_type)
-
-
-async def metrics_asgi_endpoint(request: Any) -> Any:  # noqa: ARG001
-    """``GET /metrics`` handler for plain Starlette ``add_route``."""
-    return await metrics_endpoint()
 
 
 def _route_template(scope: dict[str, Any], status: int) -> str:

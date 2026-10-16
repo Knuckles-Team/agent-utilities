@@ -24,9 +24,9 @@ A `VersionVector` tracks the write history of a single node:
 from agent_utilities.models.company_brain import VersionVector
 
 vv = VersionVector(node_id="customer:001")
-vv.increment("agent:risk-v1")    # → version 1
-vv.increment("analyst:jane")     # → version 2
-vv.increment("agent:risk-v2")    # → version 3
+vv.increment("agent:risk-v1")  # → version 1
+vv.increment("analyst:jane")  # → version 2
+vv.increment("agent:risk-v2")  # → version 3
 
 # Check if a mutation based on version 1 is stale
 vv.is_stale(1)  # True — version is now 3

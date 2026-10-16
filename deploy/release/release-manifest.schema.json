@@ -146,7 +146,7 @@
     "exactGateEvidence": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["G-01", "G-02", "G-03", "G-04", "G-05", "G-06", "G-07", "G-08", "G-09", "G-11", "G-12", "G-13", "G-14", "G-15", "G-17", "G-18", "G-22", "G-25", "G-26", "G-27", "G-29", "G-30", "G-31", "G-32", "G-33", "G-34", "G-35", "G-36", "G-37", "G-38"],
+      "required": ["G-01", "G-02", "G-03", "G-04", "G-05", "G-06", "G-07", "G-08", "G-09", "G-11", "G-12", "G-13", "G-14", "G-15", "G-17", "G-18", "G-22", "G-25", "G-27", "G-29", "G-30", "G-31", "G-32", "G-33", "G-34", "G-35", "G-36", "G-37", "G-38"],
       "properties": {
         "G-01": {"$ref": "#/$defs/gateEvidence"},
         "G-02": {"$ref": "#/$defs/gateEvidence"},
@@ -166,7 +166,6 @@
         "G-18": {"$ref": "#/$defs/gateEvidence"},
         "G-22": {"$ref": "#/$defs/gateEvidence"},
         "G-25": {"$ref": "#/$defs/gateEvidence"},
-        "G-26": {"$ref": "#/$defs/gateEvidence"},
         "G-27": {"$ref": "#/$defs/gateEvidence"},
         "G-29": {"$ref": "#/$defs/gateEvidence"},
         "G-30": {"$ref": "#/$defs/gateEvidence"},

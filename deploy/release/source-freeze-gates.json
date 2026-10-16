@@ -239,14 +239,14 @@
       "repository": "agent-utilities",
       "argv": ["{python}", "scripts/check_exact_local_gates_harness.py"],
       "timeout_seconds": 180,
-      "covers": ["G-26", "G-30", "G-32", "G-34", "G-35", "G-37"]
+      "covers": ["G-30", "G-32", "G-34", "G-35", "G-37"]
     },
     {
       "id": "au-exact-closure-layer",
       "repository": "agent-utilities",
       "argv": ["{python}", "scripts/check_exact_artifact_closure.py"],
       "timeout_seconds": 120,
-      "covers": ["G-02", "G-05", "G-14", "G-22", "G-26", "G-30", "G-32", "G-34", "G-37"]
+      "covers": ["G-02", "G-05", "G-14", "G-22", "G-30", "G-32", "G-34", "G-37"]
     },
     {
       "id": "au-prebundled-skills",
@@ -625,13 +625,6 @@
       "scope": ["epistemic-graph"],
       "command_ids": ["eg-operations-protocol"],
       "rationale": "AU-BOUNDARY-R012 deleted agent-utilities' Python-side protocol projection and its generator; only the engine's own standalone manifest check remains."
-    },
-    {
-      "id": "G-26",
-      "evidence_classes": ["local-source", "exact-artifact"],
-      "scope": ["agent-utilities"],
-      "command_ids": ["au-exact-harness-contract", "au-exact-closure-layer"],
-      "rationale": "Intent surface shape and exact adversarial campaign completeness are local source gates."
     },
     {
       "id": "G-27",

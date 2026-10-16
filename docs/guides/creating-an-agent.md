@@ -233,7 +233,9 @@ from agent_utilities import (
 )
 
 __version__ = "1.0.0"
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 
 initialize_workspace()
 # Note: load_identity() now transparently retrieves the agent's identity from the Knowledge Graph
@@ -244,16 +246,24 @@ DEFAULT_AGENT_SYSTEM_PROMPT = os.getenv(
     "AGENT_SYSTEM_PROMPT", meta.get("content") or build_system_prompt_from_workspace()
 )
 
+
 def agent_server():
     print(f"{DEFAULT_AGENT_NAME} v{__version__}", file=sys.stderr)
     parser = create_agent_parser()
     args = parser.parse_args()
     create_agent_server(
-        mcp_url=args.mcp_url, mcp_config=args.mcp_config or "mcp_config.json",
-        host=args.host, port=args.port, provider=args.provider,
-        model_id=args.model_id, base_url=args.base_url, api_key=args.api_key,
-        enable_web_ui=args.web, debug=args.debug,
+        mcp_url=args.mcp_url,
+        mcp_config=args.mcp_config or "mcp_config.json",
+        host=args.host,
+        port=args.port,
+        provider=args.provider,
+        model_id=args.model_id,
+        base_url=args.base_url,
+        api_key=args.api_key,
+        enable_web_ui=args.web,
+        debug=args.debug,
     )
+
 
 if __name__ == "__main__":
     agent_server()

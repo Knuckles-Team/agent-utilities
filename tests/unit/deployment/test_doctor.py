@@ -44,7 +44,7 @@ def test_module_entrypoint_is_warning_free_and_emits_exact_json() -> None:
             "-m",
             "agent_utilities.deployment.doctor",
             "--only",
-            "mcp_sdk_floor",
+            "python_env",
             "--json",
         ],
         capture_output=True,
@@ -55,7 +55,7 @@ def test_module_entrypoint_is_warning_free_and_emits_exact_json() -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stderr == ""
-    expected = D.run_doctor(["mcp_sdk_floor"])
+    expected = D.run_doctor(["python_env"])
     assert completed.stdout == json.dumps(expected, indent=2, default=str) + "\n"
     assert json.loads(completed.stdout) == expected
 
@@ -626,60 +626,6 @@ def test_ontology_release_signing_doctor_trusts_a_lock_pinned_key(monkeypatch):
 
     assert result["status"] == "ok"
     assert result["data"]["signer_public_key_trusted"] is True
-
-
-def test_outbound_auth_doctor_reports_redacted_readiness(monkeypatch):
-    monkeypatch.setattr(
-        "agent_utilities.graphos_client.client_credentials.outbound_auth_configuration_status",
-        lambda: {
-            "mode": "oidc-client-credentials",
-            "ready": True,
-            "missing": (),
-            "invalid": (),
-            "redacted": True,
-        },
-    )
-
-    result = D._check_outbound_auth()
-
-    assert result["status"] == "ok"
-    assert result["data"] == {
-        "mode": "oidc-client-credentials",
-        "ready": True,
-        "redacted": True,
-    }
-
-
-def test_outbound_auth_doctor_fails_closed_on_missing_audience(monkeypatch):
-    # The real ``outbound_auth_configuration_status`` always returns
-    # ``missing``/``invalid`` as genuine ``list`` objects (it builds them via
-    # ``.extend()``/``.append()``) — ``_check_outbound_auth`` type-checks for
-    # exactly that shape and silently treats anything else (e.g. a tuple) as
-    # empty, so the mock must match the real contract's type, not just value.
-    monkeypatch.setattr(
-        "agent_utilities.graphos_client.client_credentials.outbound_auth_configuration_status",
-        lambda: {
-            "mode": "oidc-client-credentials",
-            "ready": False,
-            "missing": ["OIDC_AUDIENCE"],
-            "invalid": [],
-            "redacted": True,
-        },
-    )
-
-    result = D._check_outbound_auth()
-    rendered = json.dumps(result, sort_keys=True)
-
-    assert result["status"] == "fail"
-    assert result["data"] == {
-        "mode": "oidc-client-credentials",
-        "ready": False,
-        "missing_count": 1,
-        "invalid_count": 0,
-        "redacted": True,
-    }
-    assert "env://" not in rendered
-    assert "secret://" not in rendered
 
 
 def test_graph_identity_doctor_validates_token_ref_without_exposing_it(monkeypatch):

@@ -17,7 +17,7 @@ from agent_utilities.graph.hsm import run_orthogonal_regions
 
 queries = [
     "Scan frontend/src for React components",
-    "Scan backend/app for FastAPI routes"
+    "Scan backend/app for FastAPI routes",
 ]
 
 # Runs both queries concurrently against the same agent
@@ -27,7 +27,7 @@ results = await run_orthogonal_regions(
     deps=ctx.deps,
     timeout=120.0,
     event_queue=ctx.deps.event_queue,
-    agent_name="CodeScanner"
+    agent_name="CodeScanner",
 )
 
 # Results is a dict mapping query -> output
@@ -40,11 +40,14 @@ The HSM module allows registering global plugin hooks that fire whenever the gra
 ```python
 from agent_utilities.graph.hsm import register_on_enter_hook, register_on_exit_hook
 
+
 async def my_entry_plugin(deps, state, agent_name, server_name):
     print(f"Entering specialist: {agent_name}")
 
+
 async def my_exit_plugin(deps, state, agent_name, success, server_name, duration):
     print(f"Exited specialist: {agent_name} in {duration}s. Success: {success}")
+
 
 register_on_enter_hook(my_entry_plugin)
 register_on_exit_hook(my_exit_plugin)
@@ -75,7 +78,7 @@ from agent_utilities.graph.hsm import static_route_query
 
 available_specialists = {
     "gitlab_api": "GitLab API interactions",
-    "python_coder": "Writes python code"
+    "python_coder": "Writes python code",
 }
 
 # Returns "gitlab_api" based on exact keyword match

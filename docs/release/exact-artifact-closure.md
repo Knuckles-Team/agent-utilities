@@ -1,7 +1,7 @@
 # Exact-artifact closure evidence
 
 The local release has one current certification chain for gates G-01, G-02,
-G-04, G-05, G-08, G-09, G-14, G-15, G-17, G-26, G-30, G-32, G-34, G-35,
+G-04, G-05, G-08, G-09, G-14, G-15, G-17, G-30, G-32, G-34, G-35,
 and G-37.
 The chain accepts no editable install, artifact discovery, legacy manifest,
 fallback binary, skipped case, or mock live evidence.
@@ -129,7 +129,7 @@ scenario families and all 54 ledger rows; four G-14
 modalities, 12 behavior dimensions, 16 fault cases, and the exact G-37 digest;
 all seven G-15 KnowledgeBatch families, requirements, and snapshot cases; all
 nine G-17 restart, retraction, causal, and fenced-repair cases; and passing
-G-08 WorkItem lifecycle, local G-09 inbox-to-WorkItem crash replay, G-26/G-30/
+G-08 WorkItem lifecycle, local G-09 inbox-to-WorkItem crash replay, G-30/
 G-32/G-34, and G-35 permission-governance details from cryptographically
 checked exact-local evidence. The closure exposes those shared exact-local
 bytes as the separately digest-bound `workItemAgentBus`, `exactLocal`, and

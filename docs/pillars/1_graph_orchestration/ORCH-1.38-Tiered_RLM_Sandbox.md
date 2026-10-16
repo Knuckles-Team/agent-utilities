@@ -75,7 +75,9 @@ from agent_utilities.rlm.config import RLMConfig
 from agent_utilities.rlm.repl import RLMEnvironment
 
 env = RLMEnvironment(context=long_text, config=RLMConfig())  # sandbox="auto"
-vars_, stdout = await env.execute("parts = [await rlm_query('s', context[:500])]\nFINAL_VAR('a', parts)")
+vars_, stdout = await env.execute(
+    "parts = [await rlm_query('s', context[:500])]\nFINAL_VAR('a', parts)"
+)
 # helper-driven glue → monty;  numpy/classes → escalate to docker;  pure compute → wasm
 ```
 

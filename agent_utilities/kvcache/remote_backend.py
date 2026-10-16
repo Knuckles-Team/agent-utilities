@@ -216,20 +216,15 @@ class EpistemicGraphKVBackend:
         # bearer (the documented OpenBao-sourced option) when OIDC isn't configured
         # (e.g. a standalone vLLM/LMCache worker). Explicit loopback/test
         # configs can still opt out of tenant scope for compatibility.
-        # Lazy + guarded: a standalone vLLM/LMCache worker must not need the mcp
-        # layer to import this connector — if it's unavailable, degrade to the
+        # The service-account auth is the graph-os host's (host_ports); a
+        # standalone vLLM/LMCache worker has no host and degrades to the
         # static-token path.  When tenant scoping is required, the missing
         # token/binding is rejected by ``_scope_ready`` below rather than
         # silently becoming an anonymous distributed worker.
-        try:
-            from agent_utilities.graphos_client.client_credentials import child_auth
-        except Exception:  # pragma: no cover - mcp layer optional on inference hosts
-
-            def child_auth(existing: dict | None) -> httpx.Auth | None:
-                return None
+        from agent_utilities.host_ports import outbound_auth
 
         headers: dict[str, str] = {}
-        auth = child_auth(headers)  # httpx.Auth | None (None ⇒ MCP_CLIENT_AUTH off)
+        auth = outbound_auth()  # httpx.Auth | None (None ⇒ no host credential)
         if auth is None and self.config.token:
             headers["Authorization"] = f"Bearer {self.config.token}"
         # These are routing/audit bindings only.  The engine must still derive

@@ -57,7 +57,7 @@ def _ensure_messaging_log_visibility() -> None:
     no-op or double-log once the root already has handlers): attach ONE dedicated
     ``StreamHandler`` to the ``agent_utilities.messaging`` PACKAGE logger at INFO and stop
     its propagation. That decouples messaging visibility from whatever level/handlers the
-    root logger ends up with (server_factory, then FastMCP/uvicorn at serve time), so the
+    root logger ends up with (the hosting graph-os process at serve time), so the
     messaging lifecycle + errors are ALWAYS emitted, exactly once, with no dependence on
     root configuration and no double-logging.
 
@@ -131,23 +131,6 @@ async def _serve(engine: Any, platforms: list[str], router_box: dict[str, Any]) 
         platforms,
     )
     await router.start()  # blocks on the per-backend listener tasks
-
-
-def _validate_fleet_auth() -> None:
-    """Load XDG AgentConfig and fail closed on incomplete outbound fleet auth."""
-    from agent_utilities.core.config import load_config
-    from agent_utilities.graphos_client.client_credentials import (
-        outbound_auth_configuration_status,
-        validate_outbound_auth_configuration,
-    )
-
-    load_config()
-    status = outbound_auth_configuration_status()
-    validate_outbound_auth_configuration()
-    logger.info(
-        "[ECO-4.75] fleet auth configuration ready (mode=%s).",
-        status["mode"],
-    )
 
 
 def configured_platforms(engine: Any = None) -> list[str]:
@@ -345,10 +328,11 @@ def main() -> None:
     # (sweeps/ingestion) stays in the gateway host daemon; this process only handles chat.
     os.environ.setdefault("KG_DAEMON_ROLE", "client")
 
-    # CONCEPT:AU-ECO.messaging.make-fleet-credentials-present — every process
-    # consumes the same XDG AgentConfig declaration. Credential material remains
-    # behind its runtime reference and is resolved only at the outbound request.
-    _validate_fleet_auth()
+    # Every process consumes the same XDG AgentConfig declaration; outbound
+    # fleet credentials are graph-os's (host_ports), never validated here.
+    from agent_utilities.core.config import load_config
+
+    load_config()
 
     session = mint_process_identity()
     from agent_utilities.knowledge_graph.core.session import use_session

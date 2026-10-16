@@ -78,6 +78,7 @@ Every registered capability must implement the following protocol:
 from typing import Any
 from agent_utilities.protocols.capability import CapabilityContext
 
+
 class CapabilityHandlerProtocol:
     @property
     def capability_name(self) -> str:

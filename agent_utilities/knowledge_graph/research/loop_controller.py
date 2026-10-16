@@ -863,7 +863,7 @@ class LoopController:
         CONCEPT:EG-KG.ingest.resets-socket-so-assimilation) — reproduced live at
         139,657 nodes > the 50,000 cap. Try the same bounded single-row Cypher
         id-match already used elsewhere for this exact shape (e.g.
-        ``change_publisher.py``, ``durable_outcome_store.py``:
+        ``change_publisher.py``:
         ``MATCH (n) WHERE n.id = $id RETURN ... LIMIT 1``). A successful call is
         trusted even when it returns no row — "no watermark persisted yet" (the
         first cycle) is a real, valid answer here, unlike a whole-graph scan there

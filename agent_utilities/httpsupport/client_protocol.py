@@ -5,8 +5,8 @@ CONCEPT:AU-ECO.mcp.protocol-compat-bridge
 This module is the neutral seam of the staged ``httpx`` -> ``httpx2``
 strangler migration. **Both packages remain concrete runtime contracts** —
 17 locked packages require ``httpx`` (anthropic, openai, huggingface-hub,
-llama-index-core, ...) and 3 require ``httpx2`` (``fastmcp-slim``, ``mcp``,
-``genai-prices``) as of the 2026-08-16 lock — so a wholesale substitution
+llama-index-core, ...) and ``httpx2`` is required transitively
+(``genai-prices``) — so a wholesale substitution
 would break third-party model, tracing, transport, and test types that name
 one package's concrete class directly. This module defines what application
 code is allowed to depend on instead: a package-neutral request/response

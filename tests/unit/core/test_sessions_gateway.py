@@ -1,6 +1,8 @@
+import asyncio
+import json
+from typing import Any
+
 import pytest
-from starlette.applications import Starlette
-from starlette.testclient import TestClient
 
 from agent_utilities.core.sessions import (
     cancel_goal,
@@ -30,19 +32,68 @@ def client(tiny_engine):
     # reaches pytest's engine-unreachable-to-skip conversion) instead of a
     # graceful skip or the real 200 the full suite's engine-requesting
     # grouping happens to give it.
-    app = Starlette()
-    app.add_route("/sessions", get_all_sessions, methods=["GET"])
-    app.add_route("/sessions/{session_id}", get_session_details, methods=["GET"])
-    app.add_route("/sessions/{session_id}", delete_session, methods=["DELETE"])
-    app.add_route(
-        "/sessions/{session_id}/reply", submit_session_reply, methods=["POST"]
-    )
-    app.add_route("/sessions/{session_id}/cancel", cancel_session_run, methods=["POST"])
-    app.add_route("/goals", create_goal, methods=["POST"])
-    app.add_route("/goals", list_goals, methods=["GET"])
-    app.add_route("/goals/{goal_id}/iterations", get_goal_iterations, methods=["GET"])
-    app.add_route("/goals/{goal_id}/cancel", cancel_goal, methods=["POST"])
-    return TestClient(app)
+    return _Client()
+
+
+class _Request:
+    def __init__(self, path_params: dict[str, Any], body: Any = None) -> None:
+        self.path_params = path_params
+        self._body = body
+
+    async def json(self) -> Any:
+        if self._body is None:
+            raise ValueError("no body")
+        return self._body
+
+
+class _Result:
+    def __init__(self, response: Any) -> None:
+        self.status_code = response.status_code
+        self._body = response.body
+
+    def json(self) -> Any:
+        return json.loads(self._body)
+
+
+class _Client:
+    """Drive the transport-free operations the way graph-os mounts them."""
+
+    _ROUTES = {
+        ("GET", "/sessions"): get_all_sessions,
+        ("GET", "/sessions/{session_id}"): get_session_details,
+        ("DELETE", "/sessions/{session_id}"): delete_session,
+        ("POST", "/sessions/{session_id}/reply"): submit_session_reply,
+        ("POST", "/sessions/{session_id}/cancel"): cancel_session_run,
+        ("POST", "/goals"): create_goal,
+        ("GET", "/goals"): list_goals,
+        ("GET", "/goals/{goal_id}/iterations"): get_goal_iterations,
+        ("POST", "/goals/{goal_id}/cancel"): cancel_goal,
+    }
+
+    def _call(self, method: str, path: str, body: Any = None) -> _Result:
+        parts = path.strip("/").split("/")
+        for (route_method, pattern), handler in self._ROUTES.items():
+            pattern_parts = pattern.strip("/").split("/")
+            if route_method != method or len(pattern_parts) != len(parts):
+                continue
+            params: dict[str, Any] = {}
+            for want, got in zip(pattern_parts, parts, strict=True):
+                if want.startswith("{"):
+                    params[want.strip("{}")] = got
+                elif want != got:
+                    break
+            else:
+                return _Result(asyncio.run(handler(_Request(params, body))))
+        raise AssertionError(f"no operation for {method} {path}")
+
+    def get(self, path: str) -> _Result:
+        return self._call("GET", path)
+
+    def post(self, path: str, json: Any = None) -> _Result:
+        return self._call("POST", path, json)
+
+    def delete(self, path: str) -> _Result:
+        return self._call("DELETE", path)
 
 
 def test_sessions_and_goals_flow(client):

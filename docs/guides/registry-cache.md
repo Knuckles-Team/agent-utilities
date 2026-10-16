@@ -24,6 +24,7 @@ This created two compounding problems:
 ```python
 class _RegistryCache:
     """Session-scoped cache holding the computed specialist registry."""
+
     _registry: MCPAgentRegistryModel | None = None
     _prompts: dict[str, str] = {}
     _tool_agent_map: dict[str, list[str]] = {}

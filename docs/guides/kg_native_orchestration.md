@@ -109,9 +109,12 @@ Falls back to `RuleBasedPolicy` when no KG is available (cold start).
 
 ```python
 mgr = PersistentAgentManager(engine)
-mgr.register_agent("bg:monitor", "System Monitor",
-                     subscriptions=["system.alert"],
-                     schedule_cron="*/5 * * * *")
+mgr.register_agent(
+    "bg:monitor",
+    "System Monitor",
+    subscriptions=["system.alert"],
+    schedule_cron="*/5 * * * *",
+)
 ```
 
 **Lifecycle:** `registered → idle → running → idle → ... → terminated`

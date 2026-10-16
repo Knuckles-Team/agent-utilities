@@ -210,6 +210,7 @@ from agent_utilities.graphos_client.delegated_auth import (
     is_delegation_enabled,
 )
 
+
 def get_client():
     if is_delegation_enabled():
         token = get_delegated_token(
@@ -242,9 +243,7 @@ from agent_utilities.graphos_client.delegated_auth import (
 from agent_utilities.security.secrets_client import create_secrets_client
 
 secrets = create_secrets_client()
-client_secret = secrets.resolve_ref(
-    "vault://platform/atlassian#client_secret"
-)
+client_secret = secrets.resolve_ref("vault://platform/atlassian#client_secret")
 if not client_secret:
     raise RuntimeError("Atlassian client-secret reference is unavailable")
 
@@ -283,6 +282,7 @@ authentication only).  SSO still secures the MCP server.
 ```python
 from agent_utilities.security.credential_provider import get_credential_provider
 
+
 def get_client():
     # The provider resolves the descriptor's secret reference in memory. Do not
     # log its value or attach user identity to the credential event.
@@ -303,6 +303,7 @@ from agent_utilities.graphos_client.delegated_auth import (
     get_user_token,
     is_delegation_enabled,
 )
+
 
 async def get_client():
     # Priority 1: OIDC delegation

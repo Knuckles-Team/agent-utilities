@@ -172,7 +172,6 @@ _EXACT_ARTIFACT_GATES = (
     "G-14",
     "G-15",
     "G-17",
-    "G-26",
     "G-30",
     "G-32",
     "G-34",
@@ -220,7 +219,6 @@ _EXACT_GATE_AUTHORITIES = {
         "certification:ociVulnerabilityScanEvidence",
     ),
     "G-25": ("component:epistemic-operations-protocol",),
-    "G-26": ("certification:exactArtifactClosureEvidence",),
     "G-27": (
         "certification:prebundledSkillValidationMatrix",
         "certification:skillValidationLifecycleEvidence",

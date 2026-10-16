@@ -59,7 +59,12 @@ def test_no_client_dry_run_still_proposes(monkeypatch: pytest.MonkeyPatch) -> No
     sink = _sink_with_no_client(monkeypatch)
     ops: dict[str, Any] = {"creations": [{"domain": "light", "service": "turn_on"}]}
     result = sink.run(WritebackContext(), ops, dry_run=True)
-    assert _fields(result) == (0, 0, 0, [{"op": "call_service", "service": "light.turn_on"}])
+    assert _fields(result) == (
+        0,
+        0,
+        0,
+        [{"op": "call_service", "service": "light.turn_on"}],
+    )
 
 
 def test_creation_missing_domain_or_service_increments_skipped(
@@ -79,7 +84,9 @@ def test_live_call_success_increments_created() -> None:
     sink = HomeAssistantSink()
     ops: dict[str, Any] = {
         "client": client,
-        "creations": [{"domain": "light", "service": "turn_on", "data": {"brightness": 5}}],
+        "creations": [
+            {"domain": "light", "service": "turn_on", "data": {"brightness": 5}}
+        ],
     }
     result = sink.run(WritebackContext(), ops, dry_run=False)
     assert (result.created, result.errors, client.calls) == (

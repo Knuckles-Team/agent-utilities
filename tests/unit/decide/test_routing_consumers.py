@@ -84,7 +84,11 @@ def test_route_by_observed_cost_reads_real_recorded_usage_accounting(
     inputs -- proving ``route_by_cost`` actually sees recorded spend.
     """
     from agent_utilities.usage.backends.sqlite_fts import SqliteUsageBackend
-    from agent_utilities.usage.models import ParsedSessionBundle, UsageEvent, UsageSession
+    from agent_utilities.usage.models import (
+        ParsedSessionBundle,
+        UsageEvent,
+        UsageSession,
+    )
     from agent_utilities.usage.service import UsageService
 
     backend = SqliteUsageBackend(tmp_path / "usage.db")

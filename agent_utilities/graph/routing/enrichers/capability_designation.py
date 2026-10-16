@@ -84,66 +84,43 @@ def record_capability_outcome(
     *,
     success: bool | None = None,
     reward: float | None = None,
-    alpha: float = 0.3,
     source_ids: list[str] | None = None,
 ) -> float:
-    """Record a routing outcome DURABLY (CONCEPT:AU-P1-3 — durable contextual-bandit outcomes).
+    """Forward a routing outcome to EG, which learns it (``EG-DECISION-ENGINE-R172.5``).
 
-    Forwards the outcome to the EG designation port when one is bound (EG
-    learns the reward, ``EG-DECISION-ENGINE-R172.5``) AND persists
-    the EMA onto the engine node (:func:`~...durable_outcome_store.
-    persist_capability_reward`), so the learned preference survives a process
-    restart instead of resetting to the neutral 0.5 prior. Never raises — a
-    failure on either side falls back to the other's result.
+    Reward learning is an EG decision: agent-utilities computes no average and
+    persists no reward. The outcome goes through the designation port bound on
+    the engine; EG returns its updated reward. With no port bound (or a port
+    failure) nothing is learned and the neutral ``0.5`` prior is returned. Never
+    raises.
 
-    ``source_ids`` (X-6 / Seam 3, CONCEPT:EG-KG.epistemic.truth-maintenance) is
-    the SHARED writeback seam for THIS module's derived-data writeback: when a
-    caller passes the real id(s) of the observation the reward was just computed
-    from (e.g. :class:`~agent_utilities.knowledge_graph.research.claim_flywheel.
+    ``source_ids`` (X-6 / Seam 3, CONCEPT:EG-KG.epistemic.truth-maintenance):
+    when a caller passes the real id(s) of the observation the outcome came from
+    (e.g. :class:`~agent_utilities.knowledge_graph.research.claim_flywheel.
     ClaimFlywheel.record_outcome`'s freshly-written ``ClaimOutcome`` node id —
-    never fabricated), and the durable persist above actually landed, this stamps
-    a ``:DerivedFrom`` edge from ``entity_id`` to each id and registers
+    never fabricated) and EG accepted the outcome, this stamps a
+    ``:DerivedFrom`` edge from ``entity_id`` to each id and registers
     ``entity_id`` as a live engine-side TruthMaintenance materialization off that
-    provenance — so a later change to the observation marks the durable reward
-    stale. Omitted (default) by callers with no discrete observation node to
-    point at — the durable write still lands, just unregistered, same as before
-    this parameter existed. Best-effort, never gates the write above.
+    provenance, so a later change to the observation marks the reward stale.
+    Best-effort, never gates the forward above.
     """
-    updated: float | None = None
-
     port = designation_port_of(engine)
-    if port is not None:
-        try:
-            updated = port.record_outcome(entity_id, success=success, reward=reward)
-        except Exception as e:  # noqa: BLE001 — durable persistence below still applies
-            logger.debug(
-                "record_capability_outcome: EG outcome failed for %r: %s",
-                entity_id,
-                e,
-            )
-
+    if port is None:
+        return 0.5
     try:
-        from agent_utilities.knowledge_graph.retrieval.durable_outcome_store import (
-            persist_capability_reward,
-        )
-
-        durable = persist_capability_reward(
-            engine, entity_id, success=success, reward=reward, alpha=alpha
-        )
-        if durable is not None:
-            updated = durable
-            if source_ids:
-                _register_capability_reward_materialization(
-                    engine, entity_id, source_ids
-                )
-    except Exception as e:  # noqa: BLE001 — durability is an augmentation, never load-bearing
+        updated = port.record_outcome(entity_id, success=success, reward=reward)
+    except Exception as e:  # noqa: BLE001 — outcome forwarding never breaks the caller
         logger.debug(
-            "record_capability_outcome: durable persistence failed for %r: %s",
+            "record_capability_outcome: EG outcome failed for %r: %s",
             entity_id,
             e,
         )
-
-    return updated if updated is not None else 0.5
+        return 0.5
+    if updated is None:
+        return 0.5
+    if source_ids:
+        _register_capability_reward_materialization(engine, entity_id, source_ids)
+    return float(updated)
 
 
 def _register_capability_reward_materialization(

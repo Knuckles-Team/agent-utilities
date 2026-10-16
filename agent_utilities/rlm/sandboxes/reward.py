@@ -5,10 +5,10 @@ The deterministic router (``router.py``) picks the cheapest *capable* backend by
 daemon or an unavailable microVM controller) — pure rank order keeps sending work to it, and because a
 ``SandboxFatalError`` fast-fails the whole run (no escalation), a broken preferred rung is
 catastrophic. This tracker records each rung's success/failure as an exponential-moving-average
-reward (the same shape as ``CapabilityIndex.record_outcome`` — the sanctioned reward-EMA
+reward (the same shape as EG capability outcome learning — the sanctioned reward-EMA
 mechanism, applied to the sandbox-routing domain), so the router can prefer the *healthiest*
 capable rung first. It is a tiny, dependency-free process singleton — deliberately NOT the heavy
-KG ``CapabilityIndex`` (which would couple the RLM hot path to the retrieval/HNSW layer); the EMA
+EG capability designation (which would couple the RLM hot path to the retrieval/HNSW layer); the EMA
 math is identical so the two can be unified later if a single reward store is wanted.
 
 The influence on routing is bounded (see ``router._REWARD_WEIGHT``): a fully-broken rung can drop
@@ -21,7 +21,7 @@ from __future__ import annotations
 import threading
 
 _NEUTRAL = 0.5
-_ALPHA = 0.3  # EMA weight; matches CapabilityIndex.record_outcome's default
+_ALPHA = 0.3  # EMA weight; matches EG outcome learning's default
 
 
 class SandboxRewardTracker:

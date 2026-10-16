@@ -289,9 +289,7 @@ def test_failed_sql_lookup_falls_back_to_cypher_and_never_grants_by_itself(
     assert rows == {}
 
 
-def test_absent_or_failed_lookup_never_grants_permission_end_to_end(
-    monkeypatch, brain
-):
+def test_absent_or_failed_lookup_never_grants_permission_end_to_end(monkeypatch, brain):
     """End-to-end through ``permit()``: when neither SQL nor Cypher can
     produce ACL material for an id, the node stays unregistered and
     ``permit()`` denies -- the fail-closed contract this whole read path

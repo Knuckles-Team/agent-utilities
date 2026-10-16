@@ -93,7 +93,7 @@ _POLL_BUDGET_SECONDS = 30 * 60
 
 _TERMINAL_STATUSES = frozenset({"succeeded", "failed"})
 
-#: Best-effort markers a fastmcp/MCP transport uses for "no such tool" across
+#: Best-effort markers a tool transport uses for "no such tool" across
 #: server/protocol versions -- distinguishes a genuinely-missing tool surface
 #: (fail loudly, name it) from a live-but-erroring call (fail loudly with the
 #: real error). Not exhaustive by construction; see :meth:`SparkJobsClient._call`.
@@ -186,15 +186,11 @@ class SparkJobsClient:
     # -- transport --------------------------------------------------------
 
     async def _call(self, tool: str, params: dict[str, Any]) -> dict[str, Any]:
-        try:
-            from ...protocols.source_connectors.connectors.mcp_tool import (
-                McpToolSourceError,
-                call_tool_once,
-            )
-        except ImportError as exc:
-            raise SparkJobError(
-                "spark_jobs needs fastmcp (install agent-utilities[mcp])"
-            ) from exc
+        from ...protocols.source_connectors.connectors.mcp_tool import (
+            McpToolSourceError,
+            call_tool_once,
+        )
+
         try:
             result = await call_tool_once(
                 server=self._server,

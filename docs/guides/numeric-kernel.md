@@ -5,6 +5,7 @@ certified `epistemic_graph.numeric` extension:
 
 ```python
 from agent_utilities.numeric import xp
+
 value = xp.sum([1.0, 2.0])
 ```
 

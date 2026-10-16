@@ -38,7 +38,9 @@ def test_embeddings_extras_are_no_op_aliases_not_llama_index():
     extras = _pyproject()["project"]["optional-dependencies"]
     for name in ("embeddings", "embeddings-openai", "embeddings-ollama"):
         joined = " ".join(extras[name]).lower()
-        assert "llama" not in joined, f"{name} must not depend on llama-index: {extras[name]}"
+        assert "llama" not in joined, (
+            f"{name} must not depend on llama-index: {extras[name]}"
+        )
 
 
 def test_openai_embedding_provider_builds_with_base_dependencies_only(monkeypatch):

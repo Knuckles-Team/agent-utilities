@@ -98,12 +98,18 @@ portainer_stack(action="create_standalone_stack",
 
 ```python
 # Via adguard-home-mcp
-adguard_home_rewrites(action="add_rewrite",
-    params_json='{"domain": "erp.example.test", "answer": "192.0.2.10"}')
-adguard_home_rewrites(action="add_rewrite",
-    params_json='{"domain": "crm.example.test", "answer": "192.0.2.11"}')
-adguard_home_rewrites(action="add_rewrite",
-    params_json='{"domain": "legal.example.test", "answer": "192.0.2.12"}')
+adguard_home_rewrites(
+    action="add_rewrite",
+    params_json='{"domain": "erp.example.test", "answer": "192.0.2.10"}',
+)
+adguard_home_rewrites(
+    action="add_rewrite",
+    params_json='{"domain": "crm.example.test", "answer": "192.0.2.11"}',
+)
+adguard_home_rewrites(
+    action="add_rewrite",
+    params_json='{"domain": "legal.example.test", "answer": "192.0.2.12"}',
+)
 ```
 
 ### 2.3 Register in KG Topology
@@ -151,7 +157,7 @@ from agent_utilities.workflows.skill_compiler import SkillCompiler
 
 # Compile and register each company operations skill directory
 for skill_dir in Path("skills/ops").iterdir():
-    plan = SkillCompiler.compile(skill_dir)        # SKILL.md -> GraphPlan
+    plan = SkillCompiler.compile(skill_dir)  # SKILL.md -> GraphPlan
     if plan is not None:
         SkillCompiler.register_in_kg(kg_engine, skill_dir)
 ```

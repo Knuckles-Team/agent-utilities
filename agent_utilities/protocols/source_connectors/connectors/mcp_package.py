@@ -32,8 +32,8 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.core import paths as _paths
 from agent_utilities.core.config import setting
-from agent_utilities.core.paths import mcp_config_path
 
 from ..base import (
     CheckpointedBatch,
@@ -104,7 +104,7 @@ def _load_mcp_config() -> dict[str, Any]:
         if workspace:
             path = str(Path(workspace) / "mcp_config.json")
         else:
-            path = str(mcp_config_path())
+            path = str(_paths.mcp_config_path())
     try:
         with open(path, encoding="utf-8") as fh:
             return json.load(fh).get("mcpServers", {})
@@ -197,18 +197,22 @@ def _default_call_tool(server_name: str) -> CallToolFn:
 
     def _call(tool_name: str, arguments: dict[str, Any]) -> Any:
         async def _run() -> Any:
-            from mcp import ClientSession, StdioServerParameters, stdio_client
+            from agent_utilities.host_ports import open_tool_client
 
-            env = os.environ.copy()
-            for k, v in (cfg.get("env") or {}).items():
-                env[k] = os.path.expandvars(str(v))
-            params = StdioServerParameters(
-                command=cfg["command"], args=cfg.get("args", []), env=env
-            )
-            async with stdio_client(params) as (read, write):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    return await session.call_tool(tool_name, arguments)
+            env = {
+                k: os.path.expandvars(str(v)) for k, v in (cfg.get("env") or {}).items()
+            }
+            target = {
+                "mcpServers": {
+                    _configured_name: {
+                        "command": cfg["command"],
+                        "args": cfg.get("args", []),
+                        "env": env,
+                    }
+                }
+            }
+            async with open_tool_client(target) as session:
+                return await session.call_tool(tool_name, arguments)
 
         return _decode_tool_result(_run_async(_run()))
 

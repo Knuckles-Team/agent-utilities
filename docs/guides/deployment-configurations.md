@@ -699,7 +699,7 @@ can still register a Portainer, Swarm, or other actuator through the seam:
 ```python
 from agent_utilities.orchestration.fleet_actuation import set_fleet_actuator
 
-set_fleet_actuator(MyPortainerActuator())   # real actuation behind the policy gate
+set_fleet_actuator(MyPortainerActuator())  # real actuation behind the policy gate
 ```
 
 ### Verify

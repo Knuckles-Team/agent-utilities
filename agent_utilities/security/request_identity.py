@@ -949,7 +949,7 @@ def system_write_session(config: Any = None) -> GraphSession:
 async def actor_from_bearer_token(token: str) -> ActorContext:
     """Validate ``token`` against the configured JWKS and mint the actor.
 
-    Raises ``fastapi.HTTPException`` (401) on any validation failure, and
+    Raises :class:`~agent_utilities.security.auth.TokenValidationError` (401) on any validation failure, and
     ``RuntimeError`` when no ``AUTH_JWT_JWKS_URI`` is configured (the caller
     decides whether that is fatal).
     """
@@ -996,12 +996,14 @@ async def verify_local_bearer_token(token: str) -> VerifiedLocalBearer:
         RuntimeError: the verification path itself failed for a reason other
             than a rejected credential (for example a missing dependency).
     """
-    from fastapi import HTTPException
-    from fastapi import status as http_status
-
     from agent_utilities.core.config import config
 
-    from .auth import _decode_jwt, _fetch_jwks
+    from .auth import (
+        HTTP_401_UNAUTHORIZED,
+        TokenValidationError,
+        _decode_jwt,
+        _fetch_jwks,
+    )
 
     if not isinstance(token, str) or not token or len(token.encode("utf-8")) > 16_384:
         raise PermissionError("Verified local bearer token is invalid")
@@ -1012,8 +1014,8 @@ async def verify_local_bearer_token(token: str) -> VerifiedLocalBearer:
     try:
         jwks = await _fetch_jwks(config.auth_jwt_jwks_uri)
         claims = _decode_jwt(token, jwks, issuer=issuer, audience=audience)
-    except HTTPException as exc:
-        if exc.status_code == http_status.HTTP_401_UNAUTHORIZED:
+    except TokenValidationError as exc:
+        if exc.status_code == HTTP_401_UNAUTHORIZED:
             raise PermissionError("Verified local bearer token was rejected") from None
         # A verification-path fault that is NOT a credential rejection (for
         # example the joserfc dependency being missing) must surface loudly,
@@ -1174,13 +1176,12 @@ async def _resolve_bearer_actor(
 ) -> tuple[ActorContext | None, bool]:
     """``(actor, handled)`` from a live JWKS bearer-token verification —
     same ``handled`` contract as :func:`_resolve_prevalidated_actor`."""
-    from fastapi import HTTPException
-    from fastapi import status as http_status
+    from .auth import HTTP_401_UNAUTHORIZED, TokenValidationError
 
     try:
         return await actor_from_bearer_token(token), False
-    except HTTPException as exc:
-        if exc.status_code == http_status.HTTP_401_UNAUTHORIZED:
+    except TokenValidationError as exc:
+        if exc.status_code == HTTP_401_UNAUTHORIZED:
             await _send_json(send, 401, {"error": "Token validation failed"})
             return None, True
         # A verification-path fault that is NOT a credential rejection

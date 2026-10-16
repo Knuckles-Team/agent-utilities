@@ -121,7 +121,15 @@ def _diff_still_applies(root: Path, backup: Path) -> bool:
 def _run_precommit(root: Path, argv: list[str]) -> int:
     """Isolated so tests can stub the actual ``pre-commit`` invocation."""
     return subprocess.run(
-        ["pre-commit", "run", "--config", ".config/pre-commit.yaml", "--all-files", *argv], cwd=root
+        [
+            "pre-commit",
+            "run",
+            "--config",
+            ".config/pre-commit.yaml",
+            "--all-files",
+            *argv,
+        ],
+        cwd=root,
     ).returncode
 
 

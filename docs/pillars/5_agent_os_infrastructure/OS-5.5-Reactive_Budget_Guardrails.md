@@ -43,16 +43,20 @@ graph TD
 Wrap reasoning loops or workflows with the `BudgetGuard`:
 
 ```python
-from agent_utilities.graph.reactive import BudgetGuard, BudgetTrippedException, EventLedger
+from agent_utilities.graph.reactive import (
+    BudgetGuard,
+    BudgetTrippedException,
+    EventLedger,
+)
 from agent_utilities.observability.token_tracker import TokenUsageTracker
 
 # Setup tracker and guardrail
 tracker = TokenUsageTracker()
 guard = BudgetGuard(
-    max_time_seconds=60.0,       # 1 minute wall-clock limit
-    max_tokens=100000,           # 100k token ceiling
-    max_cost_usd=0.50,           # 50 cents maximum cost limit
-    token_tracker=tracker
+    max_time_seconds=60.0,  # 1 minute wall-clock limit
+    max_tokens=100000,  # 100k token ceiling
+    max_cost_usd=0.50,  # 50 cents maximum cost limit
+    token_tracker=tracker,
 )
 
 ledger = EventLedger()
@@ -66,7 +70,9 @@ try:
         guard.check_limits(run_id=run_id, ledger=ledger)
 
 except BudgetTrippedException as e:
-    print(f"CRITICAL: Agent budget tripped! Axis: {e.limit_type}. Current: {e.current_value}")
+    print(
+        f"CRITICAL: Agent budget tripped! Axis: {e.limit_type}. Current: {e.current_value}"
+    )
     # Trigger self-healing or graceful degradation...
 ```
 
@@ -77,6 +83,7 @@ React to budget breaches automatically using reactive behaviors:
 ```python
 from agent_utilities.graph.reactive import reactive_behavior
 from agent_utilities.models.knowledge_graph import EventNode
+
 
 @reactive_behavior(on="budget.tripped")
 async def handle_budget_breach(event: EventNode):

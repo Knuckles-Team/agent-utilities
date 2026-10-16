@@ -74,9 +74,7 @@ resolved_value = brain.conflicts.resolve(
 
 ```python
 # All customer nodes use source authority
-brain.conflicts.set_strategy_for_type(
-    "customer", MergeStrategy.SOURCE_AUTHORITY_WINS
-)
+brain.conflicts.set_strategy_for_type("customer", MergeStrategy.SOURCE_AUTHORITY_WINS)
 
 # All trading signals use highest confidence
 brain.conflicts.set_strategy_for_type(
@@ -94,28 +92,34 @@ For `SOURCE_AUTHORITY_WINS`, the resolver consults a trust hierarchy:
 from agent_utilities.models.company_brain import TrustHierarchyEntry
 
 # CRM is authoritative for customer data
-brain.conflicts.add_trust_entry(TrustHierarchyEntry(
-    source_system="crm",
-    data_domain="customer",
-    authority_level=0.95,
-    rationale="CRM is the system of record for customer data",
-))
+brain.conflicts.add_trust_entry(
+    TrustHierarchyEntry(
+        source_system="crm",
+        data_domain="customer",
+        authority_level=0.95,
+        rationale="CRM is the system of record for customer data",
+    )
+)
 
 # Slack messages are supplementary
-brain.conflicts.add_trust_entry(TrustHierarchyEntry(
-    source_system="slack",
-    data_domain="*",
-    authority_level=0.3,
-    rationale="Slack is informal communication, not authoritative",
-))
+brain.conflicts.add_trust_entry(
+    TrustHierarchyEntry(
+        source_system="slack",
+        data_domain="*",
+        authority_level=0.3,
+        rationale="Slack is informal communication, not authoritative",
+    )
+)
 
 # Human judgment overrides AI inference for compliance
-brain.conflicts.add_trust_entry(TrustHierarchyEntry(
-    source_system="human_review",
-    data_domain="compliance",
-    authority_level=0.99,
-    rationale="Regulatory decisions require human sign-off",
-))
+brain.conflicts.add_trust_entry(
+    TrustHierarchyEntry(
+        source_system="human_review",
+        data_domain="compliance",
+        authority_level=0.99,
+        rationale="Regulatory decisions require human sign-off",
+    )
+)
 ```
 
 ---

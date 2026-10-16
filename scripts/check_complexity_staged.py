@@ -42,6 +42,7 @@ cccc is absent under CI). An absent cccc outside CI prints SKIPPED and exits 0
 (the `_gate_skip` contract): a fresh clone without the native tool is not a
 finding, but CI must provision it, so there it is never a silent pass.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -62,12 +63,31 @@ DEFAULT_MAX_COGNITIVE = 15
 #: Extensions cccc 1.6.0 scores. A file outside this set is skipped rather than
 #: handed to cccc, so an unsupported type cannot look like "0 functions, clean".
 SUPPORTED_SUFFIXES = frozenset(
-    {".py", ".rs", ".ts", ".tsx", ".js", ".jsx", ".go", ".java", ".kt", ".c",
-     ".cc", ".cpp", ".h", ".hpp", ".cs", ".rb", ".php", ".swift", ".scala"}
+    {
+        ".py",
+        ".rs",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".go",
+        ".java",
+        ".kt",
+        ".c",
+        ".cc",
+        ".cpp",
+        ".h",
+        ".hpp",
+        ".cs",
+        ".rb",
+        ".php",
+        ".swift",
+        ".scala",
+    }
 )
 
 
-def _fail_env(msg: str) -> "None":
+def _fail_env(msg: str) -> None:
     print(f"complexity(staged): CANNOT RUN: {msg}", file=sys.stderr)
     raise SystemExit(2)
 
@@ -251,7 +271,9 @@ def _report_file(rel: str, after: dict[str, tuple[int, int]]) -> None:
         return
     flat = _flatten(after)
     worst_cyc, worst_cog = _worst(flat)
-    over = sum(1 for c, g in flat if c > DEFAULT_MAX_CYCLOMATIC or g > DEFAULT_MAX_COGNITIVE)
+    over = sum(
+        1 for c, g in flat if c > DEFAULT_MAX_CYCLOMATIC or g > DEFAULT_MAX_COGNITIVE
+    )
     print(
         f"  {rel}: {len(flat)} fn, worst cyc {worst_cyc}, worst cog {worst_cog}, "
         f"{over} already over 10/15"

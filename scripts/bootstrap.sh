@@ -190,9 +190,9 @@ PY
   log "running harness import smoke test"
   uv run --no-sync python - <<'PY'
 # agent-utilities is the agent harness only (3.0.0); graph-os serves the KG
-# tools, so the smoke test proves the harness and its graph-os client import.
+# tools, so the smoke test proves the harness and its host ports import.
 import agent_utilities
-import agent_utilities.graphos_client  # noqa: F401
+import agent_utilities.host_ports  # noqa: F401
 
 print(f"  agent-utilities {agent_utilities.__version__} harness imports cleanly.")
 PY

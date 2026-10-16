@@ -59,7 +59,9 @@ Triggers compaction for the specified thread. Returns status and summary count.
 ### Grep Memories
 
 ```python
-AgentContextManager.grep_memories(query="architecture decision", partition="antigravity", engine=engine)
+AgentContextManager.grep_memories(
+    query="architecture decision", partition="antigravity", engine=engine
+)
 ```
 
 Searches across all messages and summaries. The `partition` argument provides

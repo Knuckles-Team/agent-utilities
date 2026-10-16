@@ -117,8 +117,6 @@
     "python-docs",
     "pydantic-ai-docs",
     "pydantic-docs",
-    "fastmcp-docs",
-    "fastapi-docs",
     "agent-package-builder",
     "django-docs"
   ],

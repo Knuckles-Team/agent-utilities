@@ -133,14 +133,14 @@ to X posts, ScholarX papers, GitHub repos, and documents.
 
 ```python
 class KnowledgeClassification(BaseModel):
-    importance_score: float          # 0.0–1.0
-    is_permanent: bool               # Hub-protected, no decay
+    importance_score: float  # 0.0–1.0
+    is_permanent: bool  # Hub-protected, no decay
     content_tier: Literal["ephemeral", "standard", "high_value", "critical"]
-    evolution_potential: float        # 0.0–1.0 — self-evolution signal
-    evolution_reasoning: str          # Why it could help agent-utilities evolve
-    suggested_node_type: str          # SocialPost, Article, Document, etc.
-    concepts: list[str]              # Extracted key concepts
-    matching_kg_topics: list[str]    # Matches against existing KG
+    evolution_potential: float  # 0.0–1.0 — self-evolution signal
+    evolution_reasoning: str  # Why it could help agent-utilities evolve
+    suggested_node_type: str  # SocialPost, Article, Document, etc.
+    concepts: list[str]  # Extracted key concepts
+    matching_kg_topics: list[str]  # Matches against existing KG
     action: Literal["ingest", "ingest_and_evolve", "decay", "skip"]
 ```
 
@@ -159,12 +159,12 @@ class KnowledgeClassification(BaseModel):
 
 ```python
 class SocialPostNode(RegistryNode):
-    post_id: str           # Platform ID (e.g., "2057129225593741768")
-    author_handle: str     # "@phosphenq"
-    platform: str          # "x"
-    content_text: str      # Full post text
-    post_url: str          # Canonical URL
-    post_type: str         # "tweet" | "article" | "thread"
+    post_id: str  # Platform ID (e.g., "2057129225593741768")
+    author_handle: str  # "@phosphenq"
+    platform: str  # "x"
+    content_text: str  # Full post text
+    post_url: str  # Canonical URL
+    post_type: str  # "tweet" | "article" | "thread"
     engagement_metrics: dict  # {likes, reposts, views, bookmarks, ...}
     citations: list[dict]  # URL citations from the post
     evolution_potential: float  # Self-evolution signal
@@ -184,13 +184,19 @@ aligned to `schema:SocialMediaPosting`.
 Connects X tool output → Classifier → KG, accessible directly or via ``IngestionEngine`` (CONCEPT:AU-KG.query.vendor-agnostic-traversal):
 
 ```python
-from agent_utilities.knowledge_graph.ingestion import IngestionEngine, IngestionManifest, ContentType
+from agent_utilities.knowledge_graph.ingestion import (
+    IngestionEngine,
+    IngestionManifest,
+    ContentType,
+)
 
 engine = IngestionEngine(kg_engine=my_kg)
-result = await engine.ingest(IngestionManifest(
-    content_type=ContentType.SOCIAL,
-    source_uri=browse_json,
-))
+result = await engine.ingest(
+    IngestionManifest(
+        content_type=ContentType.SOCIAL,
+        source_uri=browse_json,
+    )
+)
 # result.details: {action: "ingest_and_evolve", node_id: "social:x:2057129225593741768", ...}
 ```
 

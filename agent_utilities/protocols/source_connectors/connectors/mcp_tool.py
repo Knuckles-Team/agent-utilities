@@ -1506,7 +1506,7 @@ def _render(value: Any, record: dict[str, Any], params: dict[str, Any]) -> Any:
 
 
 def _decode(result: Any) -> Any:
-    """Decode a fastmcp ``CallToolResult`` (structured data preferred)."""
+    """Decode a host tool-call result (structured data preferred)."""
     data = getattr(result, "data", None)
     if data is not None:
         return data
@@ -1582,8 +1582,8 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
     (every preset key is overridable by an explicit one):
 
     Transport (first match wins):
-        client: Injected fastmcp ``Client`` target (e.g. an in-process
-            ``FastMCP`` instance) — offline/test transport.
+        client: Injected tool client session (e.g. an in-process
+            fake session) — offline/test transport.
         url: Explicit HTTP/streamable endpoint.
         command / args / env: Explicit stdio server spec.
         server: Server name resolved via the workspace ``mcp_config.json``
@@ -1823,7 +1823,7 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
     # ── transport ────────────────────────────────────────────────────────────
 
     def _client_target(self) -> Any:
-        """Resolve the fastmcp ``Client`` target from the configured transport."""
+        """Resolve the host tool-client target from the configured transport."""
         if self._injected_client is not None:
             return self._injected_client
         if self.url:
@@ -1865,69 +1865,23 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
             enforce_mcp_stdio_permitted(server_name=configured_name)
         return {"mcpServers": {configured_name: cfg}}
 
-    def _resolve_child_auth(self) -> Any:
-        """Best-effort service-account bearer mint (opt-in; None on failure)."""
-        try:
-            from agent_utilities.graphos_client.client_credentials import child_auth
-
-            return child_auth(None)
-        except Exception:  # noqa: BLE001 — auth is best-effort/opt-in
-            return None
-
-    def _single_server_url(self, target: Any) -> str | None:
-        """Resolve a single url-based server config to its URL (bearer needs it)."""
-        if isinstance(target, str):
-            return target
-        if not isinstance(target, dict):
-            return None
-        servers = target.get("mcpServers") or {}
-        if len(servers) != 1:
-            return None
-        cfg = next(iter(servers.values()))
-        if isinstance(cfg, dict) and cfg.get("url"):
-            return str(cfg["url"])
-        return None
-
-    def _open_authenticated_client(
-        self, client_cls: Any, target: Any, auth: Any
-    ) -> Any:
-        """Open the client with the bearer applied when a bare URL is resolvable."""
-        url = self._single_server_url(target)
-        if url and url.startswith(("http://", "https://")):
-            try:
-                return client_cls(url, auth=auth, timeout=self.timeout)
-            except TypeError as exc:  # pragma: no cover - older fastmcp without auth=
-                logger.warning(
-                    "FastMCP Client rejected refresh-capable auth; using the "
-                    "compatibility transport without client auth: %s",
-                    exc,
-                )
-        return client_cls(target, timeout=self.timeout)
-
     def _open_client(self) -> Any:
-        """Build the fastmcp client for one run (lazy import, clear error).
+        """Open the tool client session for one run.
 
-        Authenticate to JWT-protected fleet servers with the service-account bearer
-        (CONCEPT:AU-OS.identity.so-jwt-protected-children) — opt-in via ``MCP_CLIENT_AUTH=oidc-client-credentials``,
-        mirroring the multiplexer. A url-based target uses the URL directly so the
-        per-request ``httpx.Auth`` applies; a mint failure / disabled auth degrades
-        to no auth (an unauthenticated server is unaffected). An injected client is
-        used as-is.
+        graph-os owns the client transport and the service-account credentials
+        (CONCEPT:AU-OS.identity.so-jwt-protected-children): the connector asks
+        the host port for a session onto the resolved target. An injected client
+        (an async context manager exposing ``list_tools``/``call_tool``) is used
+        as-is.
         """
-        try:
-            from fastmcp import Client
-        except ImportError as exc:  # pragma: no cover - env without fastmcp
-            raise McpToolSourceError(
-                "McpToolSourceConnector needs 'fastmcp' (install agent-utilities[mcp])."
-            ) from exc
-        target = self._client_target()
         if self._injected_client is not None:
-            return Client(target, timeout=self.timeout)
+            return self._injected_client
+        from agent_utilities.host_ports import open_tool_client
 
-        auth = self._resolve_child_auth()
-        if auth is None:
-            return Client(target, timeout=self.timeout)
-        return self._open_authenticated_client(Client, target, auth)
+        try:
+            return open_tool_client(self._client_target(), timeout=self.timeout)
+        except RuntimeError as exc:
+            raise McpToolSourceError(str(exc)) from exc
 
     # ── tool-call plumbing ───────────────────────────────────────────────────
 

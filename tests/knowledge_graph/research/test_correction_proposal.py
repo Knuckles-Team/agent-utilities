@@ -81,7 +81,9 @@ def test_materialization_receipt_requires_all_fields() -> None:
 
 def test_materialized_proposal_with_receipt_is_eligible_to_resolve() -> None:
     receipt = MaterializationReceipt(
-        receipt_id="receipt:1", commit_ref="commit:deadbeef", materialized_at="2026-10-09T00:00:00Z"
+        receipt_id="receipt:1",
+        commit_ref="commit:deadbeef",
+        materialized_at="2026-10-09T00:00:00Z",
     )
     proposal = _proposal(status=STATUS_MATERIALIZED, receipt=receipt)
     assert proposal.eligible_to_resolve is True

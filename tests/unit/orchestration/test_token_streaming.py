@@ -42,7 +42,9 @@ class _FakeStream:
     ``get_output``/``all_messages``/``usage`` surface a completed stream carries.
     """
 
-    def __init__(self, deltas: list[str], output: str, messages: list[Any] | None = None) -> None:
+    def __init__(
+        self, deltas: list[str], output: str, messages: list[Any] | None = None
+    ) -> None:
         self._deltas = deltas
         self._output = output
         self._messages = messages if messages is not None else []
@@ -236,7 +238,9 @@ async def test_progress_events_and_text_deltas_interleave_in_run_order() -> None
     shape = SimpleNamespace(
         tool_servers=("github-mcp",), resolve_agent=False, direct_complete=False
     )
-    fake_agent = _FakeStreamingAgent(["agent-", "utilities is ", "a platform."], "agent-utilities is a platform.")
+    fake_agent = _FakeStreamingAgent(
+        ["agent-", "utilities is ", "a platform."], "agent-utilities is a platform."
+    )
     fake_engine = MagicMock()
     fake_engine.backend = None
 
@@ -250,11 +254,12 @@ async def test_progress_events_and_text_deltas_interleave_in_run_order() -> None
             agent_runner, "_build_execution_config", return_value={"mcp_toolsets": []}
         ),
         patch.object(
-            agent_runner, "_fleet_server_url", return_value="https://github-mcp.test/mcp"
+            agent_runner,
+            "_fleet_server_url",
+            return_value="https://github-mcp.test/mcp",
         ),
-        patch.object(agent_runner, "_spawn_auth", return_value=None),
         patch(
-            "agent_utilities.graphos_client.toolset_factory.build_http_toolset",
+            "agent_utilities.host_ports.build_url_toolset",
             return_value=MagicMock(),
         ),
         patch(
