@@ -2,7 +2,7 @@
 
 Covers the import census (no ``rdflib`` import anywhere in the module) and
 the behavior through the engine path: ``build_data_graph`` renders a plain
-Turtle document (reusing R006.2's ``workflow_gate`` serializer helpers) that
+Turtle document (reusing AU-BOUNDARY-R006.2's ``workflow_gate`` serializer helpers) that
 is handed, unparsed, straight to the engine's
 ``shacl_validate_committed``/``shacl_validate_committed_async`` methods.
 """

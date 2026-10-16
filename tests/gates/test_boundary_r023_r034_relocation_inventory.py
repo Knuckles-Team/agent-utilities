@@ -1,5 +1,5 @@
 """Typed inventory: AU-side modules named for relocation by AU-BOUNDARY-R023,
-R024, R025, R027, R029, R031, R033, and R034.
+AU-BOUNDARY-R024, AU-BOUNDARY-R025, AU-BOUNDARY-R027, AU-BOUNDARY-R029, AU-BOUNDARY-R031, AU-BOUNDARY-R033, and AU-BOUNDARY-R034.
 
 Each of these requirements moves a tree of ``agent_utilities`` modules to
 either the epistemic graph or the agent connector SDK (see

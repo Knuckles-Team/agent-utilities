@@ -1,7 +1,7 @@
 """AU-BOUNDARY-R030.5: ``pack_loader`` compiles through the SDK's ontology-pack
 compiler, not AU's local ``manifest_compiler`` copy.
 
-Mirrors ``connector_manifest_gate``'s own R030 migration
+Mirrors ``connector_manifest_gate``'s own AU-BOUNDARY-R030 migration
 (``_compiled_manifest_graph``): re-validate AU's ``ConnectorManifest`` against
 ``agent_connector_sdk.manifest.model.ConnectorManifest`` and compile through
 ``agent_connector_sdk.manifest.ontology_pack.compile_manifest_ontology_spec``

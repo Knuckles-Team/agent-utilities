@@ -367,7 +367,7 @@ def test_eg_served_class_lookup_failure_is_refused_not_silently_local(tmp_path):
     """A pack whose mapping references ONLY an offline-known class (Document)
     still refuses when the engine is given but unreachable — EG's authority is
     not silently skipped in favor of the local list once an engine is passed
-    (AU-SEMANTIC-R001's "no silent local fallback" rule, applied to R002)."""
+    (AU-SEMANTIC-R001's "no silent local fallback" rule, applied to AU-BOUNDARY-R002)."""
     manifest = _fixtures.build_manifest()
     pack_dir = _fixtures.write_pack(tmp_path, manifest)
     engine = _FakeEngine(_FakeGraphCompute(fail=True))

@@ -35,7 +35,7 @@ spec:
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: certification-load-mock
-          image: "${LOADGEN_IMAGE:?rendered immutable image required}"
+          image: "${LOADGEN_RUNTIME_IMAGE_DIGEST:?rendered immutable image required}"
           imagePullPolicy: IfNotPresent
           command: [graphos-certification-load]
           args:

@@ -1,6 +1,6 @@
 """Records of what the boundary gate commits actually shipped.
 
-``AU-BOUNDARY-R001``, ``R003`` and ``R004`` were marked LANDED after commits
+``AU-BOUNDARY-R001``, ``AU-BOUNDARY-R003`` and ``AU-BOUNDARY-R004`` were marked LANDED after commits
 that only added the ownership/coverage gate scripts. These tests pin that
 history: neither commit deleted any retirement target.
 """

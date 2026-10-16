@@ -83,7 +83,7 @@ class TestOrchestratorInjectionGateLivePath:
         """
         source = inspect.getsource(Orchestrator)
         assert source.count("self._scan_task(task)") >= 4
-        assert "self.scanner.scan_text(task)" in source
+        assert "scan_agent_task(task, scanner=self.scanner)" in source
 
 
 class TestGuardrailsInjectionMigration:
