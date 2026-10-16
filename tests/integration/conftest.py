@@ -189,3 +189,19 @@ def ephemeral_ladybug(tmp_path: Path) -> Iterator[dict[str, Any]]:
     transient-connection mode so it never wedges the file lock between tests.
     """
     yield {"db_path": str(tmp_path / "parity_knowledge_graph.db")}
+
+
+@pytest.fixture()
+def real_ingestion_engine(engine_graph: Any) -> Any:
+    """An ``IngestionEngine`` bound to the real engine tenant of ``engine_graph``."""
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.ingestion.engine import IngestionEngine
+
+    real_engine = IntelligenceGraphEngine(
+        backend=EpistemicGraphBackend(graph_name=engine_graph.graph_name),
+        defer_background_start=True,
+    )
+    return IngestionEngine(kg_engine=real_engine, backend=real_engine.backend)

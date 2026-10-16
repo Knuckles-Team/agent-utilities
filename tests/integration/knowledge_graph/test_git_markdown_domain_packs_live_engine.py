@@ -144,19 +144,6 @@ def two_corpora_repo(tmp_path: Path) -> Path:
     return repo
 
 
-def _real_ingestion_engine(engine_graph: Any) -> IngestionEngine:
-    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
-        EpistemicGraphBackend,
-    )
-    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-
-    real_engine = IntelligenceGraphEngine(
-        backend=EpistemicGraphBackend(graph_name=engine_graph.graph_name),
-        defer_background_start=True,
-    )
-    return IngestionEngine(kg_engine=real_engine, backend=real_engine.backend)
-
-
 def _read(
     engine: IngestionEngine, cypher: str, params: dict | None = None
 ) -> list[dict]:
@@ -186,9 +173,9 @@ async def _run_preset(
 
 @pytest.mark.asyncio
 async def test_two_domain_packs_ingested_and_queryable_with_lineage(
-    engine_graph: Any, two_corpora_repo: Path
+    real_ingestion_engine: Any, two_corpora_repo: Path
 ) -> None:
-    engine = _real_ingestion_engine(engine_graph)
+    engine = real_ingestion_engine
     sha1 = _git(two_corpora_repo, "rev-parse", "HEAD")
 
     pillars_result = await _run_preset(
@@ -273,13 +260,13 @@ async def test_two_domain_packs_ingested_and_queryable_with_lineage(
 
 @pytest.mark.asyncio
 async def test_incremental_change_updates_only_the_touched_file(
-    engine_graph: Any, two_corpora_repo: Path
+    real_ingestion_engine: Any, two_corpora_repo: Path
 ) -> None:
     """Change one pillar doc, re-run the SAME connector config: only that file's
     facts update; every other document keeps its id and its original git_commit —
     stable fragment/document ids for the untouched ones (the proof this is a real
     incremental change feed, not a batch re-embed)."""
-    engine = _real_ingestion_engine(engine_graph)
+    engine = real_ingestion_engine
     sha1 = _git(two_corpora_repo, "rev-parse", "HEAD")
 
     first = await _run_preset(

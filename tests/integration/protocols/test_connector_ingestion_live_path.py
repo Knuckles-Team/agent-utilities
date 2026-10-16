@@ -9,7 +9,7 @@ second run is incremental. Fully offline (temp dir + recording backend, no LLM).
 
 from __future__ import annotations
 
-import importlib.util
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -28,26 +28,16 @@ from agent_utilities.protocols.source_connectors import (
     SourceDocument,
 )
 
-# The 4 tests below all reach real native-engine capability -- confirmed by
-# direct repro: ``_shacl_validate_rows`` requires EG's committed-GraphSchema
-# validator (``shacl_validate_committed`` over the governed ``ChangeEnvelope``),
-# which raises ``NativeChangeEnvelopeUnavailable`` when no real engine client
-# is reachable ("[session-engine] real engine unavailable: no
-# feature-complete epistemic-graph[full] wheel binary is installed"), caught
-# inside ``IngestionEngine.ingest`` and surfaced as ``result.status ==
-# "failed"`` rather than a raised exception -- so the conftest
-# exception-chain auto-skip can't see it. This is the real, documented
-# ``engine`` marker contract (needs the ephemeral test-engine binary,
-# genuinely absent in the lean CI `gates` lane) -- the fifth test in this
-# file (dry-run) never reaches persistence/validation and still runs.
-_NEEDS_ENGINE = pytest.mark.skipif(
-    importlib.util.find_spec("epistemic_graph") is None,
-    reason=(
-        "epistemic_graph package/engine not available in this environment -- "
-        "native SHACL-validated ChangeEnvelope ingestion needs a real engine "
-        "client."
-    ),
-)
+# Tests that reach the native engine request the ``real_ingestion_engine`` fixture
+# (a real tenant on the session engine) instead of relying on suite order.
+
+
+def _read(engine: IngestionEngine, cypher: str) -> list[dict]:
+    return engine.backend.execute_read(cypher, {"_clearance_level": 999})
+
+
+def _as_dict(value: object) -> dict:
+    return json.loads(value) if isinstance(value, str) else dict(value)  # type: ignore[arg-type]
 
 
 class _RecordingBackend:
@@ -136,15 +126,15 @@ class _SyntheticDocumentProcessor:
 @pytest.mark.integration
 @pytest.mark.concept("AU-ECO.connector.document-source-framework")
 @pytest.mark.asyncio
-@_NEEDS_ENGINE
-async def test_filesystem_connector_ingestion_live_path(tmp_path):
+async def test_filesystem_connector_ingestion_live_path(
+    tmp_path, real_ingestion_engine
+):
     (tmp_path / "a.md").write_text(
         "# Title A\nalpha content about graphs and ontologies. " * 6
     )
     (tmp_path / "b.txt").write_text("beta content discussing retrieval. " * 6)
 
-    backend = _RecordingBackend()
-    engine = IngestionEngine(kg_engine=None, backend=backend)
+    engine = real_ingestion_engine
     manifest = IngestionManifest(
         content_type=ContentType.CONNECTOR,
         source_uri="filesystem",
@@ -156,18 +146,28 @@ async def test_filesystem_connector_ingestion_live_path(tmp_path):
     )
 
     result = await engine.ingest(manifest)
-    assert result.status == "success"
+    assert result.status == "success", result.error
     assert result.details["documents"] == 2
 
-    docs = [n for n in backend.nodes.values() if n.get("type") == "Document"]
-    chunks = [n for n in backend.nodes.values() if n.get("type") == "Chunk"]
+    docs = _read(engine, "MATCH (d:Document) RETURN d.id AS id")
+    chunks = _read(engine, "MATCH (c:Chunk) RETURN c.id AS id, c.context AS context")
     assert len(docs) == 2
     assert len(chunks) >= 2
     # KG-2.50 contextual enrichment ran on the connector path.
     assert all(c.get("context") for c in chunks)
     # HAS_CHUNK / CHUNK_OF edges materialized.
-    rels = {e[2] for e in backend.edges}
-    assert "HAS_CHUNK" in rels and "CHUNK_OF" in rels
+    assert (
+        _read(engine, "MATCH (:Document)-[r:HAS_CHUNK]->(:Chunk) RETURN count(r) AS n")[
+            0
+        ]["n"]
+        >= 2
+    )
+    assert (
+        _read(engine, "MATCH (:Chunk)-[r:CHUNK_OF]->(:Document) RETURN count(r) AS n")[
+            0
+        ]["n"]
+        >= 2
+    )
 
     # Second run is incremental (checkpoint advanced → nothing new).
     result2 = await engine.ingest(manifest)
@@ -178,12 +178,10 @@ async def test_filesystem_connector_ingestion_live_path(tmp_path):
 @pytest.mark.integration
 @pytest.mark.concept("AU-ECO.connector.external-permission-sync")
 @pytest.mark.asyncio
-@_NEEDS_ENGINE
-async def test_connector_ingestion_syncs_external_acl(tmp_path):
+async def test_connector_ingestion_syncs_external_acl(tmp_path, real_ingestion_engine):
     (tmp_path / "secret.md").write_text("restricted content " * 8)
 
-    backend = _RecordingBackend()
-    engine = IngestionEngine(kg_engine=None, backend=backend)
+    engine = real_ingestion_engine
     manifest = IngestionManifest(
         content_type=ContentType.CONNECTOR,
         source_uri="filesystem",
@@ -193,44 +191,38 @@ async def test_connector_ingestion_syncs_external_acl(tmp_path):
         },
     )
     result = await engine.ingest(manifest)
-    assert result.status == "success"
+    assert result.status == "success", result.error
     assert result.details["acl_synced"] == 1
 
-    docs = {
-        node_id: node
-        for node_id, node in backend.nodes.items()
-        if node.get("type") == "Document"
-    }
-    chunks = {
-        node_id: node
-        for node_id, node in backend.nodes.items()
-        if node.get("type") == "Chunk"
-    }
+    docs = _read(
+        engine, "MATCH (d:Document) RETURN d.id AS id, d.external_access AS ea"
+    )
+    chunks = _read(engine, "MATCH (c:Chunk) RETURN c.id AS id, c.external_access AS ea")
     assert len(docs) == 1
     assert chunks
-    doc_id, doc = next(iter(docs.items()))
-    access = doc["external_access"]
+    doc_id = docs[0]["id"]
+    access = _as_dict(docs[0]["ea"])
     assert access["is_public"] is False
-    assert all(chunk["external_access"] == access for chunk in chunks.values())
+    assert all(_as_dict(chunk["ea"]) == access for chunk in chunks)
 
     from agent_utilities.knowledge_graph.ontology.permissioning import get_company_brain
 
     acl = get_company_brain().permissions.get_acl(doc_id)
     assert acl is not None
     assert all(
-        get_company_brain().permissions.get_acl(chunk_id) is not None
-        for chunk_id in chunks
+        get_company_brain().permissions.get_acl(chunk["id"]) is not None
+        for chunk in chunks
     )
     # Persisted nodes contain only an abstract connector URI, never the local root.
-    assert str(tmp_path) not in repr(backend.nodes)
+    assert str(tmp_path) not in repr((docs, chunks))
 
 
 @pytest.mark.integration
 @pytest.mark.concept("AU-KG.ingest.change-envelope")
 @pytest.mark.asyncio
-@_NEEDS_ENGINE
 async def test_governed_connector_applies_envelope_before_embedding(
     monkeypatch,
+    real_ingestion_engine,
 ):
     connector = _GovernedPollConnector()
     monkeypatch.setattr(
@@ -246,14 +238,14 @@ async def test_governed_connector_applies_envelope_before_embedding(
     def _ingest(_engine, envelope, *, backend=None):
         del backend
         applied.append(envelope)
-        return {"status": "success"}
+        return {"status": "success", "watermark_advanced": True}
 
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_envelope",
         _ingest,
     )
     backend = _RecordingBackend()
-    engine = IngestionEngine(kg_engine=None, backend=backend)
+    engine = IngestionEngine(kg_engine=real_ingestion_engine.kg, backend=backend)
     manifest = IngestionManifest(
         content_type=ContentType.CONNECTOR,
         source_uri="synthetic_governed",
@@ -270,16 +262,17 @@ async def test_governed_connector_applies_envelope_before_embedding(
     assert result.details["envelopes_failed"] == 0
     assert result.details["documents"] == 1
     assert result.details["checkpoint_advanced"] is True
-    assert len(applied) == 1
+    # The governed envelope commits first; the typed source cursor follows.
     assert applied[0].provenance["privacy_gate"] is True
+    assert sum(1 for e in applied if e.provenance.get("privacy_gate")) == 1
 
 
 @pytest.mark.integration
 @pytest.mark.concept("AU-KG.ingest.change-envelope")
 @pytest.mark.asyncio
-@_NEEDS_ENGINE
 async def test_governed_connector_failure_blocks_document_and_checkpoint(
     monkeypatch,
+    real_ingestion_engine,
 ):
     connector = _GovernedPollConnector()
     monkeypatch.setattr(
@@ -295,7 +288,7 @@ async def test_governed_connector_failure_blocks_document_and_checkpoint(
         lambda _engine, _envelope, *, backend=None: {"status": "failed"},
     )
     backend = _RecordingBackend()
-    engine = IngestionEngine(kg_engine=None, backend=backend)
+    engine = IngestionEngine(kg_engine=real_ingestion_engine.kg, backend=backend)
     manifest = IngestionManifest(
         content_type=ContentType.CONNECTOR,
         source_uri="synthetic_governed",
