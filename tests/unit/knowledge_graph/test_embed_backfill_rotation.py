@@ -187,7 +187,6 @@ def test_backfill_embed_fn_fans_out_to_capacity(monkeypatch):
     """The backfill's ``make_embed_fn`` runs up to ``capacity`` embed BATCHES
     concurrently (scaling with vLLM instances), order-preserving."""
     import threading
-    import time
 
     from agent_utilities.core import model_concurrency
     from agent_utilities.knowledge_graph.enrichment import semantic
@@ -196,13 +195,16 @@ def test_backfill_embed_fn_fans_out_to_capacity(monkeypatch):
 
     state = {"current": 0, "max": 0}
     lock = threading.Lock()
+    barrier = threading.Barrier(4, timeout=10)
 
     class _FakeEmbModel:
         def get_text_embedding_batch(self, texts):
             with lock:
                 state["current"] += 1
                 state["max"] = max(state["max"], state["current"])
-            time.sleep(0.02)
+            # Rendezvous: only returns once `capacity` batches are in flight
+            # together (BrokenBarrierError fails the test if fan-out is lower).
+            barrier.wait()
             with lock:
                 state["current"] -= 1
             return [[float(len(t))] for t in texts]
@@ -215,6 +217,9 @@ def test_backfill_embed_fn_fans_out_to_capacity(monkeypatch):
         "agent_utilities.core.model_concurrency.resolve_capacity",
         lambda model=None, default=1: 4,
     )
+    # The local fan-out is cpu-derived; pin it so the proof does not depend on
+    # the host's core count.
+    monkeypatch.setattr(semantic, "_embed_concurrency", lambda: 4)
 
     # batch_size=1 → one batch per text, so 12 texts = 12 batches fanned to cap 4.
     embed_fn = semantic.make_embed_fn(batch_size=1)

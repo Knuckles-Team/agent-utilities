@@ -25,7 +25,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -229,6 +229,14 @@ class ClusterDiscoverySnapshot:
     groups: tuple[tuple[int, tuple[ClusterMember, ...], int | None], ...]
     max_age_s: float
     clock_skew_s: float
+    # The clocks the issuing authority observed with; ``assert_current`` and
+    # ``endpoint_for_group`` judge freshness on the same time source.
+    monotonic: Callable[[], float] = field(
+        default=time.monotonic, repr=False, compare=False
+    )
+    wall_clock_ms: Callable[[], int] = field(
+        default=lambda: int(time.time() * 1_000), repr=False, compare=False
+    )
 
     @property
     def expires_at_monotonic(self) -> float:
@@ -253,7 +261,7 @@ class ClusterDiscoverySnapshot:
         min_membership_epoch: int | None = None,
         min_placement_epoch: int | None = None,
     ) -> None:
-        current_monotonic = time.monotonic() if now_monotonic is None else now_monotonic
+        current_monotonic = self.monotonic() if now_monotonic is None else now_monotonic
         if current_monotonic >= self.expires_at_monotonic:
             raise ClusterDiscoveryStale(
                 "ClusterMembers snapshot exceeded its freshness bound"
@@ -268,7 +276,7 @@ class ClusterDiscoverySnapshot:
             and self.placement_epoch < min_placement_epoch
         ):
             raise ClusterDiscoveryStale("ClusterMembers placement epoch is stale")
-        wall_ms = int(time.time() * 1_000) if now_wall_ms is None else int(now_wall_ms)
+        wall_ms = self.wall_clock_ms() if now_wall_ms is None else int(now_wall_ms)
         for _, members, _ in self.groups:
             for member in members:
                 member.assert_certificate_current(
@@ -801,6 +809,8 @@ class ClusterTopologyAuthority:
             groups=tuple(parsed_groups),
             max_age_s=self.max_age_s,
             clock_skew_s=self.clock_skew_s,
+            monotonic=self._monotonic,
+            wall_clock_ms=self._wall_clock_ms,
         )
 
     def read(

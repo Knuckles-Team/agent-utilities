@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+pytestmark = pytest.mark.engine
 
 
 @dataclass
@@ -25,8 +25,8 @@ class FakeRunContext:
 
 
 class FakeGraphEngine:
-    def __init__(self) -> None:
-        self.graph = GraphComputeEngine(backend_type="rust")
+    def __init__(self, graph: Any) -> None:
+        self.graph = graph
 
     def add_node(
         self,
@@ -51,8 +51,9 @@ class FakeGraphEngine:
 
 
 @pytest.fixture()
-def engine() -> FakeGraphEngine:
-    return FakeGraphEngine()
+def engine(engine_graph: Any) -> FakeGraphEngine:
+    """Teams state lives in a real, isolated tenant graph on the ephemeral engine."""
+    return FakeGraphEngine(engine_graph)
 
 
 @pytest.fixture()

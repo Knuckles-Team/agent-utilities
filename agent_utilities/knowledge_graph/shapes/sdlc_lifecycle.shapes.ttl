@@ -30,11 +30,16 @@
     sh:name "Spec Proposal Ready Shape" ;
     sh:description "A :Spec/:SpecProposal may not advance to developing unless a :Ticket specifies it." ;
     sh:targetClass :Spec ;
-    sh:property [
-        sh:path [ sh:inversePath :specifies ] ;
-        sh:class :Ticket ;
-        sh:minCount 1 ;
+    sh:sparql [
         sh:message "A :Spec advancing to development REQUIRES an owning :Ticket (missing → backfill ticket)." ;
+        sh:prefixes [ sh:declare [ sh:prefix "kg" ; sh:namespace "http://knuckles.team/kg#"^^xsd:anyURI ] ] ;
+        sh:select """
+            PREFIX kg: <http://knuckles.team/kg#>
+            SELECT $this WHERE {
+                OPTIONAL { ?ticket kg:specifies $this . ?ticket a kg:Ticket . }
+                FILTER (!BOUND(?ticket))
+            }
+        """
     ] .
 
 :TicketRoutedShape a sh:NodeShape ;

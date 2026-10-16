@@ -163,7 +163,7 @@ def test_remote_plaintext_member_and_expired_certificate_fail_closed() -> None:
     with pytest.raises(ClusterDiscoveryRejected):
         authority.read(plaintext, verified_context=context)
 
-    expired = _Client(_answer(context, not_after_ms=1_699_999_999_000), context)
+    expired = _Client(_answer(context, not_after_ms=1_699_999_980_000), context)
     with pytest.raises(ClusterDiscoveryStale):
         ClusterTopologyAuthority(
             monotonic=lambda: 10.0,
@@ -205,7 +205,13 @@ def test_transport_drain_stops_admission_and_reports_timeout_explicitly() -> Non
     assert gate.status().active_requests == 0
 
 
-def _parse_direct(authority: ClusterTopologyAuthority, answer: Any, *, context: dict[str, str], prior: Any = None) -> Any:
+def _parse_direct(
+    authority: ClusterTopologyAuthority,
+    answer: Any,
+    *,
+    context: dict[str, str],
+    prior: Any = None,
+) -> Any:
     return authority._parse(
         answer,
         verified_context=context,

@@ -222,7 +222,12 @@ class TeamCapability(AbstractCapability[Any]):
     async def add_task(
         self, ctx: RunContext[Any], content: str, assigned_to: str | None = None
     ) -> str:
-        """Add a shared task to the team and graph."""
+        """Add a shared task to the team and graph.
+
+        The WorkItem's tenant is the verified session tenant (the engine fences
+        every claim on it); the team is a graph relationship (BELONGS_TO_TEAM),
+        never the tenant.
+        """
         task_id = f"task_{uuid.uuid4().hex}"
 
         engine = getattr(ctx.deps, "graph_engine", None)
@@ -233,7 +238,7 @@ class TeamCapability(AbstractCapability[Any]):
             work_item_id = _wi.submit_team_work_item(
                 view,
                 task_id,
-                tenant=self.team_id or "",
+                tenant=_wi._work_tenant(),
                 description=content,
                 assigned_to=assigned_to or "",
                 created_by=str(getattr(ctx.deps, "agent_id", "orchestrator")),
@@ -264,7 +269,7 @@ class TeamCapability(AbstractCapability[Any]):
                 _wi.ensure_team_task_work_item(
                     _GraphComputeWorkItemView(engine),
                     task_id,
-                    tenant=self.team_id or "",
+                    tenant=_wi._work_tenant(),
                 )
         return task_id
 
@@ -364,7 +369,7 @@ class TeamCapability(AbstractCapability[Any]):
         from ..knowledge_graph.core import work_durability as _wi
 
         view = _GraphComputeWorkItemView(engine)
-        tenant = self.team_id or ""
+        tenant = _wi._work_tenant()
         item_id = _wi.team_work_item_id(task_id)
         item = _wi.get_work_item(view, item_id)
         if item is None or item.get("kind") != "team_assignment":

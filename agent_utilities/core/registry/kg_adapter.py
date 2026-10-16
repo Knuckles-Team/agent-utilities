@@ -273,14 +273,14 @@ class RegistryMixin(_Base):
             if results:
                 row = results[0]
                 return {
-                    "id": row.get("s.id", ""),
-                    "name": row.get("s.name", "Agent"),
-                    "description": row.get("s.description", ""),
-                    "content": row.get("s.content", ""),
-                    "version": row.get("s.version", "1.0"),
-                    "tags": row.get("s.tags", []),
-                    "parameters": row.get("s.parameters", {}),
-                    "source": row.get("s.source", "KG"),
+                    "id": row.get("id", ""),
+                    "name": row.get("name", "Agent"),
+                    "description": row.get("description", ""),
+                    "content": row.get("content", ""),
+                    "version": row.get("version", "1.0"),
+                    "tags": row.get("tags", []),
+                    "parameters": row.get("parameters", {}),
+                    "source": row.get("source", "KG"),
                 }
 
         # In-memory fallback within graph
@@ -367,7 +367,7 @@ class RegistryMixin(_Base):
         results: list[dict[str, Any]] = []
         if self.backend:
             rows = self.backend.execute(
-                "MATCH (p:Prompt) RETURN p.id, p.name, p.description, "
+                "MATCH (p:prompt) RETURN p.id, p.name, p.description, "
                 "p.system_prompt, p.capabilities, p.timestamp "
                 "ORDER BY p.name",
                 {},
@@ -375,12 +375,12 @@ class RegistryMixin(_Base):
             for row in rows:
                 results.append(
                     {
-                        "id": row.get("p.id", ""),
-                        "name": row.get("p.name", ""),
-                        "description": row.get("p.description", ""),
-                        "content": row.get("p.system_prompt", ""),
-                        "capabilities": row.get("p.capabilities", []),
-                        "timestamp": row.get("p.timestamp", ""),
+                        "id": row.get("id", ""),
+                        "name": row.get("name", ""),
+                        "description": row.get("description", ""),
+                        "content": row.get("system_prompt", ""),
+                        "capabilities": row.get("capabilities", []),
+                        "timestamp": row.get("timestamp", ""),
                         "type": "prompt",
                     }
                 )
@@ -407,13 +407,13 @@ class RegistryMixin(_Base):
             if rows:
                 row = rows[0]
                 return {
-                    "id": row.get("p.id", ""),
-                    "name": row.get("p.name", ""),
-                    "description": row.get("p.description", ""),
-                    "content": row.get("p.system_prompt", ""),
-                    "capabilities": row.get("p.capabilities", []),
-                    "timestamp": row.get("p.timestamp", ""),
-                    "json_blueprint": row.get("p.json_blueprint", {}),
+                    "id": row.get("id", ""),
+                    "name": row.get("name", ""),
+                    "description": row.get("description", ""),
+                    "content": row.get("system_prompt", ""),
+                    "capabilities": row.get("capabilities", []),
+                    "timestamp": row.get("timestamp", ""),
+                    "json_blueprint": row.get("json_blueprint", {}),
                 }
         if self.graph.has_node(prompt_id):
             return {"id": prompt_id, **self.graph._get_node_properties(prompt_id)}
@@ -473,10 +473,10 @@ class RegistryMixin(_Base):
             for row in rows:
                 results.append(
                     {
-                        "id": row.get("s.id", ""),
-                        "name": row.get("s.name", ""),
-                        "synonyms": row.get("s.synonyms", []),
-                        "disabled": bool(row.get("s.disabled", False)),
+                        "id": row.get("id", ""),
+                        "name": row.get("name", ""),
+                        "synonyms": row.get("synonyms", []),
+                        "disabled": bool(row.get("disabled", False)),
                         "tool_count": row.get("tool_count", 0),
                         "type": "mcp_server",
                     }
@@ -603,19 +603,19 @@ class RegistryMixin(_Base):
         versions: list[dict[str, Any]] = []
         seen = set()
         for row in rows:
-            vid = row.get("latest.id", "")
+            vid = row.get("id", "")
             if not vid or vid in seen:
                 continue
             seen.add(vid)
             versions.append(
                 {
                     "id": vid,
-                    "name": row.get("latest.name", ""),
-                    "content": row.get("latest.system_prompt", ""),
-                    "author": row.get("latest.author", ""),
-                    "version_number": row.get("latest.version_number", 1),
-                    "timestamp": row.get("latest.timestamp", ""),
-                    "parent_id": row.get("latest.parent_id", ""),
+                    "name": row.get("name", ""),
+                    "content": row.get("system_prompt", ""),
+                    "author": row.get("author", ""),
+                    "version_number": row.get("version_number", 1),
+                    "timestamp": row.get("timestamp", ""),
+                    "parent_id": row.get("parent_id", ""),
                 }
             )
         return versions
@@ -692,13 +692,13 @@ class RegistryMixin(_Base):
             for row in rows:
                 results.append(
                     {
-                        "id": row.get("s.id", ""),
-                        "name": row.get("s.name", ""),
-                        "description": row.get("s.description", ""),
+                        "id": row.get("id", ""),
+                        "name": row.get("name", ""),
+                        "description": row.get("description", ""),
                         "enabled": True,
                         "type": "skill",
                         "source": "universal-skills",
-                        "source_ref": row.get("s.source_ref", ""),
+                        "source_ref": row.get("source_ref", ""),
                     }
                 )
 
@@ -737,12 +737,12 @@ class RegistryMixin(_Base):
             for row in rows:
                 results.append(
                     {
-                        "id": row.get("r.id", ""),
-                        "name": row.get("r.name", ""),
-                        "description": row.get("r.description", ""),
+                        "id": row.get("id", ""),
+                        "name": row.get("name", ""),
+                        "description": row.get("description", ""),
                         "enabled": True,
                         "type": "mcp_tool",
-                        "source": row.get("r.endpoint", "mcp"),
+                        "source": row.get("endpoint", "mcp"),
                     }
                 )
 
@@ -787,7 +787,7 @@ class RegistryMixin(_Base):
             )
             if rows:
                 # A missing/None enabled flag means "enabled" by default.
-                current = rows[0].get("n.enabled")
+                current = rows[0].get("enabled")
                 if current is None:
                     current = True
                 new_state = not current
@@ -797,7 +797,7 @@ class RegistryMixin(_Base):
                 )
                 return {
                     "id": resource_id,
-                    "name": rows[0].get("n.name", ""),
+                    "name": rows[0].get("name", ""),
                     "enabled": new_state,
                 }
 
@@ -1113,8 +1113,8 @@ class RegistryMixin(_Base):
                 {"id": team_config_id},
             )
             if rows:
-                old_rate = rows[0].get("tc.success_rate") or 0.5
-                usage_count = rows[0].get("tc.usage_count") or 0
+                old_rate = rows[0].get("success_rate") or 0.5
+                usage_count = rows[0].get("usage_count") or 0
 
         new_rate = alpha * reward + (1 - alpha) * old_rate
         new_usage_count = usage_count + 1

@@ -224,10 +224,16 @@ def test_shacl_required_shape_flags_missing_pipeline_run(engine_graph):
 """
     report = engine_graph.shacl_validate_ad_hoc(missing, shapes_text)
     assert report.conforms is False
-    assert any(
-        "MergeRequestMergeableShape" in (result.source_shape or "")
-        for result in report.results
-    ), report.results
+    # The engine reports the violated property shape as an anonymous node, so
+    # the proof is the focus node and the min-count component it flags.
+    assert [
+        (result.focus_node, result.constraint_component) for result in report.results
+    ] == [
+        (
+            "<http://knuckles.team/kg#mr1>",
+            "http://www.w3.org/ns/shacl#MinCountConstraintComponent",
+        )
+    ], report.results
 
     present = """@prefix : <http://knuckles.team/kg#> .
 :mr1 a :CodeChangeProposal ; :triggersPipeline :pr1 .
