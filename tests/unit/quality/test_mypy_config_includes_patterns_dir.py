@@ -16,7 +16,7 @@ import pytest
 import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_PRE_COMMIT_CONFIG = _REPO_ROOT / ".config" / "pre-commit.yaml"
+_PRE_COMMIT_CONFIG = _REPO_ROOT / ".config" / "ci-gates.yaml"
 
 
 def _mypy_exclude_pattern() -> str:
@@ -27,7 +27,7 @@ def _mypy_exclude_pattern() -> str:
         for hook in repo["hooks"]:
             if hook["id"] == "mypy":
                 return str(hook["exclude"])
-    raise AssertionError("no mypy hook found in .config/pre-commit.yaml")
+    raise AssertionError("no mypy hook found in .config/ci-gates.yaml")
 
 
 @pytest.mark.spec("AU-QUAL-R005.2.1")

@@ -367,12 +367,12 @@ def test_release_routes_exact_snapshot_to_strict_gate(comparison, monkeypatch):
 def test_normal_hook_configuration_and_release_expiry_stay_enforced():
     import yaml
 
-    config = yaml.safe_load((gate.REPO / ".config/pre-commit.yaml").read_text())
+    config = yaml.safe_load((gate.REPO / ".config/ci-gates.yaml").read_text())
     hooks = {h["id"]: h for repo in config["repos"] for h in repo["hooks"]}
     assert hooks["guardrail-liveness"]["entry"].endswith(
         "check_liveness_source.py --hook commit"
     )
-    assert hooks["guardrail-liveness"]["stages"] == ["pre-commit"]
+    assert "stages" not in hooks["guardrail-liveness"]  # CI-only gate file
     assert hooks["guardrail-liveness-strict"]["entry"].endswith(
         "scripts/check_liveness.py"
     )
