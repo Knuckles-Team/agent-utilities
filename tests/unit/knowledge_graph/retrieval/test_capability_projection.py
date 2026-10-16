@@ -109,20 +109,3 @@ def test_projection_fails_closed_without_accepted_engine_lineage(
 ) -> None:
     with pytest.raises(CapabilityProjectionUnavailable, match=message):
         load_capability_projection(_Engine(result))
-
-
-def test_designation_does_not_demote_missing_schema_authority_to_keyword_fallback() -> (
-    None
-):
-    from agent_utilities.graph.routing.enrichers.capability_designation import (
-        designate_specialists,
-    )
-
-    engine = type("Engine", (), {"graph": object()})()
-    with pytest.raises(CapabilityProjectionUnavailable, match="OwlReason"):
-        designate_specialists(
-            engine,
-            "route me",
-            required_caps=["ServiceCapability"],
-            embed_fn=lambda _query: [1.0],
-        )

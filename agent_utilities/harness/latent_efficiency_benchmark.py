@@ -10,28 +10,22 @@ Provenance: arXiv:2606.09828 ("Latent Spatial Memory for Video World Models",
 Mirage) shows that keeping a *persistent cache in the model's own latent space* —
 instead of round-tripping through a reconstructed surface representation — both
 removes information loss and keeps a generated trajectory coherent. We adopted that
-principle in two places (the world-model rollout latent memory KG-2.73b and the
-ontology-prior retrieval ranking KG-2.44b); this module measures, under a fixed
-seed, that each one beats the round-tripped / flat baseline it replaces:
+principle in the world-model rollout latent memory (KG-2.73b); this module measures,
+under a fixed seed, that it beats the round-tripped baseline it replaces (the
+ontology-prior designation benchmark moved to EG with EG-DECISION-ENGINE-R172.10):
 
 * :func:`bench_latent_rollout_memory` — a learned-backend rollout that **carries the
   predicted latent forward** (KG-2.73b) vs the memoryless rollout that discards it
   and re-derives from the bare next-state string each step. Metric: total
   step-to-step latent drift (lower is better) — the trajectory-coherence analogue of
   Mirage's frame consistency.
-* :func:`bench_ontology_prior_retrieval` — capability designation that re-projects
-  the flat cosine neighbourhood through the ontology type structure (KG-2.44b) vs
-  pure cosine. Metric: fraction of the top-k that is ontology-type-coherent with the
-  query neighbourhood (higher is better) — the structured-prior analogue of Mirage's
-  depth-guided back-projection.
 
-Both tasks are deterministic, CPU-only, dependency-light (native numeric kernel + the deterministic
-code paths of the two modules), so :func:`run_all` is bit-for-bit reproducible. The
+
+The task is deterministic, CPU-only, dependency-light (native numeric kernel + the deterministic
+code path of the world model), so :func:`run_all` is bit-for-bit reproducible. The
 ``BenchmarkResult``/``_make_result``/``to_markdown`` shapes are reused from the
 sibling assimilation-parity suite so the gateway/MCP reporting block is identical.
 """
-
-from typing import TYPE_CHECKING
 
 from agent_utilities.harness.assimilation_benchmark import (
     BenchmarkResult,
@@ -39,24 +33,10 @@ from agent_utilities.harness.assimilation_benchmark import (
     to_markdown,
 )
 from agent_utilities.knowledge_graph.core.world_model import WorldModel
-from agent_utilities.knowledge_graph.retrieval.capability_index import CapabilityIndex
-
-if TYPE_CHECKING:
-    # Type-only: with `from __future__ import annotations` above, annotations
-    # are never evaluated at runtime, so this name needs no runtime import.
-    from agent_utilities.numeric import NDArray
-
-# agent_utilities.numeric always imports successfully -- it defers the
-# certified epistemic_graph.numeric kernel's absence to first actual use
-# (agent_utilities/numeric/__init__.py's _require_kernel()), which raises
-# a clear ImportError naming the missing kernel instead of failing this
-# module's own import. No try/except/None-fallback needed here anymore.
-from agent_utilities.numeric import xp
 
 __all__ = [
     "BenchmarkResult",
     "bench_latent_rollout_memory",
-    "bench_ontology_prior_retrieval",
     "run_all",
     "to_markdown",
 ]
@@ -114,79 +94,6 @@ def bench_latent_rollout_memory(*, seed: int = 0) -> BenchmarkResult:
 # ----------------------------------------------------------------------------
 # KG-2.44b — ontology-prior-guided retrieval ranking
 # ----------------------------------------------------------------------------
-def bench_ontology_prior_retrieval(*, seed: int = 0) -> BenchmarkResult:
-    """Ontology-type-prior reranking (KG-2.44b) vs flat cosine ranking.
-
-    A small candidate set sits very close to the query: three of the modal ontology
-    type ("Document") and two of a different type ("Widget"), with one Widget tucked
-    *between* the Documents on cosine. Flat cosine therefore pulls that Widget into
-    the top-k, fragmenting the type-coherent neighbourhood; the ontology prior boosts
-    the modal type and recovers a coherent top-k — the structured-prior re-projection
-    of the flat neighbourhood.
-
-    Metric: fraction of the top-k whose ontology type is the modal type (higher is
-    better). Claim: the ontology prior >= flat cosine on neighbourhood coherence.
-    """
-    del seed  # vectors are fixed for reproducibility
-    dim = 8
-    e = [[1.0 if row == column else 0.0 for column in range(dim)] for row in range(dim)]
-
-    def vec(tilt_dim: int, tilt: float) -> NDArray:
-        v = [base + tilt * axis for base, axis in zip(e[0], e[tilt_dim], strict=True)]
-        norm = float(xp.linalg.norm(v))
-        return [value / norm for value in v]
-
-    # (id, type, off-axis dim, tilt magnitude). Smaller tilt => higher cosine to q.
-    candidates = [
-        ("doc-1", "Document", 1, 0.10),
-        ("wid-1", "Widget", 2, 0.12),  # interleaved between the Documents
-        ("doc-2", "Document", 3, 0.14),
-        ("doc-3", "Document", 4, 0.16),
-        ("wid-2", "Widget", 5, 0.40),
-    ]
-    index = CapabilityIndex(dim=dim, prefer_backend="native")
-    for cid, ctype, td, tilt in candidates:
-        index.add(cid, vec(td, tilt), capabilities=["answer"], node_type=ctype)
-
-    query = e[0]
-    modal_type = "Document"
-    k = 3
-
-    def _coherence(designations: list) -> float:
-        if not designations:
-            return 0.0
-        hits = sum(
-            1
-            for d in designations
-            if index._id_to_type.get(d.id) == modal_type  # noqa: SLF001
-        )
-        return hits / len(designations)
-
-    # BASELINE: pure cosine (both structured boosts disabled).
-    baseline_des = index.designate(query, k=k, reward_weight=0.0, prior_weight=0.0)
-    baseline_coherence = _coherence(baseline_des)
-
-    # OURS: default call — the ontology-type prior is on by default (KG-2.44b).
-    ours_des = index.designate(query, k=k)
-    ours_coherence = _coherence(ours_des)
-
-    return _make_result(
-        name="Ontology-prior retrieval KG-2.44b",
-        metric=f"top-{k}-type-coherence",
-        baseline=baseline_coherence,
-        ours=ours_coherence,
-        higher_is_better=True,
-        detail={
-            "k": k,
-            "modal_type": modal_type,
-            "candidates": len(candidates),
-            "baseline_ids": [d.id for d in baseline_des],
-            "ours_ids": [d.id for d in ours_des],
-            "mechanism": "ontology-type coherence prior (vs flat cosine)",
-        },
-    )
-
-
 # ----------------------------------------------------------------------------
 # Aggregation
 # ----------------------------------------------------------------------------
@@ -194,5 +101,4 @@ def run_all(*, seed: int = 0) -> list[BenchmarkResult]:
     """Run every latent-native benchmark under one seed, in order."""
     return [
         bench_latent_rollout_memory(seed=seed),
-        bench_ontology_prior_retrieval(seed=seed),
     ]

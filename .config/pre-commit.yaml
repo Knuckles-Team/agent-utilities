@@ -780,12 +780,6 @@ repos:
     pass_filenames: false
     always_run: true
     verbose: true
-  - id: guardrail-retrieval-quality
-    name: Guardrail — retrieval quality (Recall@k / MRR floor)
-    entry: scripts/hook_python.sh scripts/check_retrieval_quality.py
-    language: system
-    pass_filenames: false
-    always_run: true
   - id: guardrail-prod-profile
     name: Guardrail — production profile guard
     # Runs in the repo being committed (pre-commit cwd = repo root) so worktrees

@@ -15,7 +15,7 @@ from agent_utilities.graph.agent_step_po import (
 )
 from agent_utilities.graph.reward_decomposition import RewardDecomposer
 from agent_utilities.graph.routing.strategies.policy import SubagentLifecyclePolicy
-from agent_utilities.knowledge_graph.retrieval.capability_index import CapabilityIndex
+from tests.capability_port_fake import FakeCapabilityDesignationPort
 
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
 pytest.importorskip("epistemic_graph.numeric")
@@ -40,7 +40,7 @@ def test_branch_gate_respects_threshold_and_bound():
 
 
 def test_step_credit_writes_back_into_capability_ema():
-    idx = CapabilityIndex(dim=3)
+    idx = FakeCapabilityDesignationPort()
     idx.add("tool_a", [1.0, 0.0, 0.0], ["x"])
     idx.add("tool_b", [0.0, 1.0, 0.0], ["x"])
     before_a = idx.reward_of("tool_a")

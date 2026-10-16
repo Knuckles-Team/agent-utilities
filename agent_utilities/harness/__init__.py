@@ -113,10 +113,6 @@ _LAZY_SUBMODULE_ATTRS: dict[str, tuple[str, str]] = {
         ".latent_efficiency_benchmark",
         "bench_latent_rollout_memory",
     ),
-    "bench_ontology_prior_retrieval": (
-        ".latent_efficiency_benchmark",
-        "bench_ontology_prior_retrieval",
-    ),
     "run_latent_efficiency_benchmarks": (".latent_efficiency_benchmark", "run_all"),
     "CertificationResult": (".superhuman_gate", "CertificationResult"),
     "SuperhumanCertifier": (".superhuman_gate", "SuperhumanCertifier"),
@@ -142,7 +138,6 @@ __all__ = [
     "to_markdown",
     # Latent-native efficiency benchmark (CONCEPT:AU-AHE.harness.empirical-evidence-that-latent)
     "bench_latent_rollout_memory",
-    "bench_ontology_prior_retrieval",
     "run_latent_efficiency_benchmarks",
     "OptimisticStateLocker",
     "BranchMergeStateLocker",

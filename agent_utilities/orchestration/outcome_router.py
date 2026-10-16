@@ -5,7 +5,7 @@ the patterns the KG-2.68 ``ReasonerRouter`` (``knowledge_graph/core/reasoner.py`
 AHE-3.38 sampling-profile EMA-tournament (``harness/variant_pool.evolve_profile``) already use —
 so shape selection (and, later, profile / paradigm selection) **share one learner instead of each
 rolling its own bandit**. This is the anti-sprawl spine: it is a thin, **embedding-free** wrapper
-over the shared ``CapabilityIndex`` reward-EMA store (the established learner), keyed exactly like
+over the EG-held outcome reward (EG-DECISION-ENGINE-R172.5), keyed exactly like
 ``_profile_id(task_class, choice)``.
 
 Design goals:
@@ -20,7 +20,7 @@ Design goals:
 * **Self-correcting** — ``record(task_class, choice, reward)`` feeds ``success × speed`` back into
   the same EMA the reasoner/profile learners use; failures pull the EMA down.
 
-The EMA store is in-process per router (mirroring ``ReasonerRouter``'s own ``CapabilityIndex``);
+The reward lives in EG and is reached through the router's designation port;
 durable cross-process persistence (save/load the reward map, fleet-wide) is the next layer.
 """
 
@@ -38,16 +38,13 @@ _PRIOR_BIAS = 0.15
 
 
 class OutcomeRouter:
-    """Per-task-class choice selection that learns from outcomes, over the CapabilityIndex spine."""
+    """Per-task-class choice selection; EG learns the outcome rewards (EG-DECISION-ENGINE-R172)."""
 
-    def __init__(self, namespace: str) -> None:
-        from agent_utilities.knowledge_graph.retrieval.capability_index import (
-            CapabilityIndex,
-        )
-
-        # dim=1: we use only the reward-EMA map (no vectors) — choices are gated by task-class,
-        # not embedding similarity, so this never embeds per call.
-        self._index: Any = CapabilityIndex(dim=1)
+    def __init__(self, namespace: str, *, designator: Any = None) -> None:
+        # EG owns the per-choice outcome reward (EG-DECISION-ENGINE-R172.5). The
+        # router is GIVEN the EG port; AU keeps no reward state. Without a port
+        # every reward reads neutral, so the heuristic is the prior.
+        self._designator = designator
         self._ns = namespace
 
     def _id(self, task_class: str, choice: str) -> str:
@@ -83,22 +80,29 @@ class OutcomeRouter:
             score = (_PRIOR_BIAS if c == prior else 0.0) + rewards[c]
             if score > best_score:
                 best, best_score = c, score
-        return route_choice(self._ns, task_class, prior, rewards=rewards, heuristic=best)
+        return route_choice(
+            self._ns, task_class, prior, rewards=rewards, heuristic=best
+        )
 
     def record(self, task_class: str, choice: str, reward: float) -> None:
         """Feed a run outcome back into the shared reward-EMA (best-effort, never raises)."""
+        if self._designator is None:
+            return
         try:
-            self._index.record_outcome(
+            self._designator.record_outcome(
                 self._id(task_class, choice), reward=max(0.0, min(1.0, reward))
             )
         except Exception as e:  # noqa: BLE001 — learning must never break the caller
             logger.debug("[ORCH-1.71] outcome record skipped: %s", e)
 
     def reward_of(self, task_class: str, choice: str) -> float:
+        reward_of = getattr(self._designator, "reward_of", None)
+        if not callable(reward_of):
+            return 0.5  # neutral: EG holds the reward and no port is bound
         try:
-            return float(self._index.reward_of(self._id(task_class, choice)))
+            return float(reward_of(self._id(task_class, choice)))
         except Exception:  # noqa: BLE001
-            return 0.5  # neutral when the store is unavailable
+            return 0.5  # neutral when the port is unavailable
 
 
 def outcome_reward(*, success: bool, latency_s: float, budget_s: float = 30.0) -> float:

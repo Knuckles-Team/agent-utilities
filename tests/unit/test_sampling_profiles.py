@@ -204,12 +204,10 @@ def test_evolve_profile_promotes_best_and_registry_serves_it():
     import random
 
     from agent_utilities.harness.variant_pool import VariantPool
-    from agent_utilities.knowledge_graph.retrieval.capability_index import (
-        CapabilityIndex,
-    )
+    from tests.capability_port_fake import FakeCapabilityDesignationPort
 
     reg = ModelRegistry()
-    ci = CapabilityIndex(dim=8)
+    ci = FakeCapabilityDesignationPort()
     vp = VariantPool.__new__(VariantPool)
 
     # Reward lower temperature for 'code'.

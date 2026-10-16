@@ -107,19 +107,6 @@ _LAZY_EXPORTS: dict[str, str] = {
         )
     },
     **{
-        name: "indexing"
-        for name in (
-            "DataRestriction",
-            "FunnelDelta",
-            "ObjectIndexFunnel",
-            "ObjectVersion",
-            "StalenessLedger",
-            "StalenessReport",
-            "SyncResult",
-            "content_hash",
-        )
-    },
-    **{
         name: "interfaces"
         for name in (
             "DEFAULT_INTERFACE_REGISTRY",
@@ -290,7 +277,6 @@ class OntologySystem:
             DEFAULT_FUNCTION_RUNTIME,
             FunctionRuntime,
         )
-        from .indexing import ObjectIndexFunnel
         from .interfaces import DEFAULT_INTERFACE_REGISTRY
         from .links import DEFAULT_LINK_REGISTRY
         from .property_types import PROPERTY_TYPES
@@ -326,11 +312,6 @@ class OntologySystem:
         # recorded edits persist as durable object_edit nodes + EDITED_BY/EDITS
         # edges and revert is itself durable + audited.
         self.edits: EditLedger = EditLedger(graph=graph)
-        # Object Index Funnel (CONCEPT:AU-KG.ontology.batch-incremental-sync-live) — drives the SAME live search
-        # index the router ranks against (graph.retrieval), never a second one.
-        self.index_funnel: ObjectIndexFunnel = ObjectIndexFunnel(
-            index=getattr(graph, "retrieval", None) if graph is not None else None
-        )
 
     # ── Property / value type validation (write-path coercion) ───────────────
     def column_type_for(self, type_ref: str) -> str:
@@ -712,15 +693,6 @@ __all__ = [
     "revert_edits",
     "revert_object",
     "object_type_of",
-    # Object Index Lifecycle (KG-2.44)
-    "ObjectIndexFunnel",
-    "DataRestriction",
-    "FunnelDelta",
-    "SyncResult",
-    "StalenessLedger",
-    "StalenessReport",
-    "ObjectVersion",
-    "content_hash",
     # Object permissioning (KG-2.46)
     "Marking",
     "MARKING_REGISTRY",

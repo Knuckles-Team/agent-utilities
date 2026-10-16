@@ -4,7 +4,7 @@ from __future__ import annotations
 """Tests for derived (function-backed / computed) properties (CONCEPT:AU-KG.ontology.derived-property-registry).
 
 Exercises all four backings: FUNCTION + EMBEDDING end-to-end (offline, via the
-real FunctionRuntime and a real CapabilityIndex), CYPHER dispatch against a
+real FunctionRuntime and an EG designation port double), CYPHER dispatch against a
 small in-test facade, and the graceful degradation + caching/invalidation
 contract. No backend services required.
 """
@@ -21,7 +21,10 @@ from agent_utilities.knowledge_graph.ontology.derived_properties import (
     EmbeddingDerivation,
     compute_derived,
 )
-from agent_utilities.knowledge_graph.retrieval.capability_index import CapabilityIndex
+from agent_utilities.knowledge_graph.retrieval.capability_designation_port import (
+    CapabilityDesignationRequest,
+)
+from tests.capability_port_fake import FakeCapabilityDesignationPort
 
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
 pytest.importorskip("epistemic_graph.numeric")
@@ -35,10 +38,17 @@ class _FakeFacade:
 
     def __init__(self, rows=None, index=None):
         self._rows = rows or []
-        self.retrieval = (
-            index if index is not None else CapabilityIndex(prefer_backend="native")
-        )
+        self._port = index if index is not None else FakeCapabilityDesignationPort()
         self.queries = []
+
+    def designate(self, prompt_embedding, required_caps=None, k=5):
+        return self._port.designate(
+            CapabilityDesignationRequest(
+                query_vector=list(prompt_embedding),
+                required_capabilities=tuple(required_caps or ()),
+                k=k,
+            )
+        )
 
     def query(self, cypher, params=None):
         self.queries.append((cypher, params))
@@ -46,7 +56,7 @@ class _FakeFacade:
 
 
 def _unit_index(dim=8):
-    idx = CapabilityIndex(dim=dim, prefer_backend="native")
+    idx = FakeCapabilityDesignationPort()
     a = [0.0] * dim
     a[0] = 1.0
     b = [0.0] * dim
@@ -106,7 +116,7 @@ def test_function_backing_with_input_map():
 
 
 # ---------------------------------------------------------------------------
-# EMBEDDING backing — end-to-end via a real CapabilityIndex (offline)
+# EMBEDDING backing — end-to-end via the EG designation port double (offline)
 # ---------------------------------------------------------------------------
 def test_embedding_backing_nearest_label_offline():
     idx, vec_a, _vec_b = _unit_index()
@@ -148,7 +158,7 @@ def test_embedding_backing_similarity_and_precomputed_vector():
 
 
 def test_embedding_backing_degrades_with_empty_index():
-    facade = _FakeFacade(index=CapabilityIndex(prefer_backend="native"))
+    facade = _FakeFacade(index=FakeCapabilityDesignationPort())
     engine = DerivedPropertyEngine(
         registry=DerivedPropertyRegistry(),
         embedding_fn=lambda _t: [1.0] * 8,

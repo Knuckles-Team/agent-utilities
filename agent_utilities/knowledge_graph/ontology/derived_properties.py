@@ -24,7 +24,7 @@ against the existing knowledge-graph fabric:
   4. ``EMBEDDING`` — derive a value from vector similarity (nearest-concept
      label, similarity score, or designated-entity id) using
      :func:`~agent_utilities.core.embedding_utilities.create_embedding_model`
-     and the L2 :class:`~agent_utilities.knowledge_graph.retrieval.capability_index.CapabilityIndex`.
+     and EG capability designation (``facade.designate``, EG-DECISION-ENGINE-R172).
      The FUNCTION and EMBEDDING backings are fully offline-capable (the
      embedding model is only needed when the spec hands text rather than a
      pre-computed vector, and the dispatcher accepts a pre-computed vector).
@@ -620,9 +620,11 @@ class DerivedPropertyEngine:
         return _first_scalar(rows)
 
     def _compute_embedding(self, obj: Any, prop: DerivedProperty, graph: Any) -> Any:
-        index = getattr(graph, "retrieval", None) if graph is not None else None
-        if index is None or len(index) == 0:
-            logger.debug("EMBEDDING derived %s: empty index, degrading", prop.name)
+        designate = getattr(graph, "designate", None) if graph is not None else None
+        if not callable(designate):
+            logger.debug(
+                "EMBEDDING derived %s: no EG designation, degrading", prop.name
+            )
             return None
         props = _object_props(obj)
 
@@ -643,7 +645,7 @@ class DerivedPropertyEngine:
             vector = self._embed(text)
 
         caps = prop.required_caps or None
-        designations = index.designate(
+        designations = designate(
             vector, required_caps=caps, k=max(1, prop.embedding_top_k)
         )
         if not designations:
