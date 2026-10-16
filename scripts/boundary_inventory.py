@@ -19,7 +19,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-COVERAGE_PATH = Path("specs/au-boundary-deconstruction/coverage.md")
+COVERAGE_PATH = Path("specs/au-boundary-deconstruction/plan.md")
 
 _TABLE_HEADER = (
     "| Directory | Approx. lines | Disposition | Covering requirement ID(s) | Notes |"

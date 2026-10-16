@@ -1,5 +1,7 @@
 """Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Kronos Foundation Model Forecaster."""
 
+import math
+
 import pytest
 
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
@@ -17,13 +19,24 @@ from agent_utilities.numeric import xp as np
 
 @pytest.fixture
 def sample_ohlcv():
+    # The native kernel returns builtin lists, so the series is built with
+    # list comprehensions rather than array arithmetic.
     rng = np.random.default_rng(42)
     n = 200
-    close = 100 * np.exp(np.cumsum(rng.normal(0.0005, 0.02, n)))
-    opens = close * (1 + rng.normal(0, 0.005, n))
-    highs = np.maximum(opens, close) * (1 + rng.uniform(0, 0.01, n))
-    lows = np.minimum(opens, close) * (1 - rng.uniform(0, 0.01, n))
-    volumes = rng.integers(100_000, 10_000_000, n).astype(float)
+    steps = rng.normal(0.0005, 0.02, n)
+    cumulative = np.cumsum(steps)
+    close = [100.0 * math.exp(c) for c in cumulative]
+    open_noise = rng.normal(0, 0.005, n)
+    opens = [c * (1 + e) for c, e in zip(close, open_noise, strict=True)]
+    high_noise = rng.uniform(0, 0.01, n)
+    low_noise = rng.uniform(0, 0.01, n)
+    highs = [
+        max(o, c) * (1 + e) for o, c, e in zip(opens, close, high_noise, strict=True)
+    ]
+    lows = [
+        min(o, c) * (1 - e) for o, c, e in zip(opens, close, low_noise, strict=True)
+    ]
+    volumes = [float(v) for v in rng.integers(100_000, 10_000_000, n)]
     return opens, highs, lows, close, volumes
 
 

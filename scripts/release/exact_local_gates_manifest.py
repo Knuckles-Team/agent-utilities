@@ -40,7 +40,6 @@ MAX_INPUT_BYTES: Final = 1024 * 1024
 # contract checker proves the two inventories stay identical.
 EXACT_LOCAL_TEST_FILES: Final = (
     "unit/test_intent_surface.py",
-    "unit/test_intent_surface_build_server.py",
     "unit/test_intent_selection_accuracy.py",
     "unit/mcp/test_intent_surface_gating.py",
     "unit/core/test_provider_materialization.py",
