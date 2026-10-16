@@ -55,7 +55,8 @@ class _SqlNamespace:
         return self._rows
 
     def uql(self, query):
-        return self._rows
+        # The real client's ``query.uql`` result shape (``kind`` + ``rows``).
+        return {"kind": "rows", "columns": [], "rows": self._rows, "warnings": []}
 
 
 class _Client:

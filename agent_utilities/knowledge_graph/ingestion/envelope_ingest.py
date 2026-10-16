@@ -1662,10 +1662,31 @@ def _native_evidence_rows(
                 "object_id": object_id,
                 "modality": str(item.get("modality") or "structured"),
                 "locus_msgpack": _pack(locus),
-                "content_digest": str(item.get("content_digest") or content_digest),
+                "content_digest": _native_evidence_digest(
+                    item.get("content_digest"), content_digest
+                ),
             }
         )
     return rows, governed
+
+
+def _native_evidence_digest(declared: Any, fallback: str) -> str:
+    """The bare 64-hex sha256 the native evidence row carries.
+
+    The engine's ``EvidenceRecord.content_digest`` is the raw lowercase hex
+    digest (``validate_digest("sha256", ...)``); producers such as governed
+    documentation declare it in the ``sha256:<hex>`` form. A prefixed digest
+    is normalized; anything else that is not exactly 64 lowercase hex fails
+    closed here instead of reaching the engine's atomic commit.
+    """
+    if not declared:
+        return fallback
+    digest = str(declared)
+    if _is_sha256_digest(digest):
+        return digest.removeprefix("sha256:")
+    if len(digest) == 64 and all(char in "0123456789abcdef" for char in digest):
+        return digest
+    raise ValueError("evidence content_digest must be sha256:<64 lowercase hex>")
 
 
 def _native_content_state(

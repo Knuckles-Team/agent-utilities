@@ -184,6 +184,19 @@ def _stable_id(prefix: str, *parts: str, length: int = 40) -> str:
     return f"{prefix}:{hashlib.sha256(material).hexdigest()[:length]}"
 
 
+def _documentation_source_ref(
+    repository_id: str, source_path: str, revision: str
+) -> str:
+    """Portable reference to one page at one revision.
+
+    The revision rides in a ``?rev=`` query, not ``path@revision``: the engine's
+    persistence privacy screen rejects any ``@`` in caller-attested material
+    (it reads as an e-mail address), so an ``@`` here refused every governed
+    documentation commit.
+    """
+    return f"repo://{repository_id}/{source_path}?rev={revision}"
+
+
 def _parse_frontmatter(markdown: str) -> dict[str, str]:
     """Read only scalar frontmatter keys; never evaluate YAML."""
     lines = markdown.splitlines()
@@ -643,8 +656,8 @@ def _projection_from_source(
     evidence_id = _stable_id(
         "doc-evidence", revision_id, source.repository_id, source.source_path
     )
-    source_ref = (
-        f"repo://{source.repository_id}/{source.source_path}@{source.source_revision}"
+    source_ref = _documentation_source_ref(
+        source.repository_id, source.source_path, source.source_revision
     )
     return GovernedDocumentationProjection(
         document_id=page_id,
@@ -1037,7 +1050,7 @@ class GovernedDocumentationProjector:
             archived=True,
             valid_from=timestamp,
             recorded_at=timestamp,
-            source_ref=f"repo://{repository}/{path}@{revision}",
+            source_ref=_documentation_source_ref(repository, path, revision),
             source_acl=ExternalAccess.quarantined(),
             classification=DataClassification.INTERNAL,
             connector=self.connector,
