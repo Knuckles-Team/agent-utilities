@@ -72,7 +72,11 @@ def connector(
         "agent_utilities.kvcache.l2_native_connector.EpistemicGraphKVBackend",
         _make,
     )
-    conn = EpistemicGraphL2Connector(base_url=BASE, num_workers=4)
+    # The mock transport is an explicit loopback config: opt out of the
+    # tenant-scope requirement (scoping is covered by test_remote_scope.py).
+    conn = EpistemicGraphL2Connector(
+        base_url=BASE, num_workers=4, require_tenant_scope=False
+    )
     conn._server = server  # type: ignore[attr-defined]  # test-only handle
     yield conn
     conn.close()
