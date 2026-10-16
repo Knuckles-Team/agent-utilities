@@ -152,15 +152,16 @@ def test_dim_mismatch_raises():
 
 
 def test_engine_query_fails_closed_without_numeric_kernel():
-    """A cold query import fails clearly when the native kernel is absent.
+    """Without the native kernel the import succeeds but every numeric use fails.
 
     Runs in a clean subprocess (a shared pytest session already has
     ``agent_utilities.numeric`` cached in ``sys.modules``) so this is a true
     cold-import check. The kernel modules are poisoned to ``None`` in
     ``sys.modules`` before the import, which forces Python's import system to
-    raise ``ImportError`` for them. The AU contract deliberately has no lazy
-    NumPy/module-table fallback: supported deployments install
-    ``epistemic-graph[full]``.
+    raise ``ImportError`` for them. ``agent_utilities.numeric`` defers that
+    error to first use so a no-engine profile can still import modules that
+    merely reference it; the AU contract still has no NumPy or module-table
+    fallback, so any actual numeric call raises the explicit kernel error.
     """
     probe = (
         "import sys, json\n"
@@ -169,12 +170,15 @@ def test_engine_query_fails_closed_without_numeric_kernel():
         # in this dev environment.
         "sys.modules['epistemic_graph.numeric'] = None\n"
         "sys.modules['numeric'] = None\n"
+        "import agent_utilities.knowledge_graph.orchestration.engine_query\n"
+        "from agent_utilities.numeric import kernel_available, xp\n"
+        "assert kernel_available() is False\n"
         "try:\n"
-        "    import agent_utilities.knowledge_graph.orchestration.engine_query\n"
-        "except ImportError:\n"
-        "    print(json.dumps({'ok': True}))\n"
+        "    xp.sum([1.0, 2.0])\n"
+        "except ImportError as exc:\n"
+        "    print(json.dumps({'ok': True, 'error': str(exc)}))\n"
         "else:\n"
-        "    raise AssertionError('query import unexpectedly bypassed the native kernel')\n"
+        "    raise AssertionError('numeric call unexpectedly bypassed the native kernel')\n"
     )
     result = subprocess.run(
         [sys.executable, "-c", probe],
@@ -183,6 +187,6 @@ def test_engine_query_fails_closed_without_numeric_kernel():
         timeout=120,
     )
     assert result.returncode == 0, (
-        f"engine_query import failed without the numeric kernel:\n{result.stderr}"
+        f"numeric use did not fail closed without the numeric kernel:\n{result.stderr}"
     )
-    assert '{"ok": true}' in result.stdout.strip().splitlines()[-1].lower()
+    assert '"ok": true' in result.stdout.strip().splitlines()[-1].lower()

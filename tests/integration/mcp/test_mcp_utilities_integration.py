@@ -12,7 +12,8 @@ def test_mcp_parser_defaults():
     parser = create_mcp_parser()
     args = parser.parse_args([])
     assert args.transport == "stdio"
-    assert args.host == "0.0.0.0"
+    # Loopback by default: exposing the server on every interface is an explicit opt-in.
+    assert args.host == "127.0.0.1"
     assert args.port == 9000
     assert args.auth_type == "none"
 
