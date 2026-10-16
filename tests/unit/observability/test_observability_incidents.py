@@ -13,6 +13,7 @@ from typing import Any
 import agent_utilities.knowledge_graph.memory.native_ingest as native_ingest
 import agent_utilities.observability.health_ingest as hi
 from agent_utilities.observability import incidents as inc
+from tests.unit.durable_engine_support import DurableEngine
 
 #: a reference "now" for building anomaly timestamps relative to the real
 #: clock (never a hardcoded date — the correlation window/day-cutoff filters
@@ -708,7 +709,7 @@ def test_actuate_remediation_defaults_to_held_pending_human_approval():
         "entity": "cm:node:analysis-node-a",
         "incident": "health:incident:analysis-node-a:abc",
     }
-    out = inc.actuate_remediation(proposal)
+    out = inc.actuate_remediation(proposal, engine=DurableEngine())
     assert out["status"] == "held"
     assert out["decision"] == "queue_approval"
     assert out["tier"] == "approval_required"
@@ -727,6 +728,12 @@ def test_actuate_remediation_only_executes_when_policy_explicitly_allows(monkeyp
                 tier=ap.TIER_AUTO,
                 request=request,
                 reason="test-allow",
+                receipt=ap.PolicyReceipt(
+                    receipt_id="receipt:test-allow",
+                    request_digest=request.digest(),
+                    disposition=ap.PolicyDisposition.APPROVE,
+                    policy_origin="test",
+                ),
             )
 
     monkeypatch.setattr(ap, "get_action_policy", lambda engine=None: _AllowPolicy())
@@ -744,7 +751,7 @@ def test_actuate_remediation_only_executes_when_policy_explicitly_allows(monkeyp
         "proposedAction": "restart_or_cordon_pod",
         "entity": "cm:node:analysis-node-a",
     }
-    out = inc.actuate_remediation(proposal)
+    out = inc.actuate_remediation(proposal, engine=DurableEngine())
     assert out["status"] == "executed"
     assert len(executed) == 1
     assert executed[0].kind == "restart_service"
