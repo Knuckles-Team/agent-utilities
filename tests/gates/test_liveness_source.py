@@ -380,7 +380,7 @@ def test_normal_hook_configuration_and_release_expiry_stay_enforced():
     test_step = next(
         step
         for step in release["jobs"]["gates"]["steps"]
-        if step.get("name") == "Test suite"
+        if step.get("name") == "Full test suite (push to main / release tag)"
     )
     assert test_step["run"] == "python3 -m pytest -q -n auto --dist loadfile"
     assert (
