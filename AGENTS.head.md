@@ -1,8 +1,7 @@
 # Agent Utilities engineering contract
 
-This file is the current source of truth for contributors and automation working
-in this repository. Keep implementation, tests, public documentation, and this
-contract aligned.
+This file is the current source of truth for contributors and automation in this
+repository. Keep implementation, tests, documentation, and this contract aligned.
 
 ## What this repository owns
 
@@ -24,13 +23,11 @@ Adjacent repositories remain authoritative for their own layers:
 | `agent-webui` | Browser client for GraphOS contracts |
 
 Do not implement a second graph engine, ontology authority, public gateway, or
-connector transport here. Agent Utilities coordinates those capabilities through
-typed contracts.
+connector transport here; coordinate those capabilities through typed contracts.
 
 ### Delegate through the graph
 
-Use the running knowledge system before reconstructing repository context by
-hand:
+Use the running knowledge system before reconstructing context by hand:
 
 1. Query `graph_code action=code_context` with `target=how`, `usage`, or
    `impact`; read only the cited source needed for the change.
@@ -40,9 +37,8 @@ hand:
    ecosystem.
 4. Review the resulting `RunTrace` and `ToolCall` records. When delegation
    fails, repair the missing data, binding, skill, or prompt and retry.
-5. Fall back to repository search when GraphOS is unavailable or the indexed
-   evidence is insufficient. Report corrections through graph feedback when the
-   graph supplied an incomplete answer.
+5. Fall back to repository search when GraphOS is unavailable or the evidence
+   is insufficient; report incomplete graph answers through graph feedback.
 
 The model proposes and executes work; epistemic-graph records authoritative
 state; GraphOS admits and exposes operations; Agent Utilities applies control
@@ -187,6 +183,10 @@ interactive local upload.
   the configured state directory, not the repository.
 - Update the owning documentation and Mermaid diagram with behavior or
   architecture changes. Public files describe only current supported behavior.
+- Find the owning spec row first (`git grep -n "<term>" -- specs`), cite it in
+  the `Spec:` trailer, and extend it (child row, rollup, or `plan.md`
+  amendment). New specs only for unowned capabilities; audits never get one.
+  Follow the ecosystem [spec standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/spec-standard.md).
 
 ## Documentation
 
@@ -202,8 +202,8 @@ then run `python3 scripts/gen_agents_md.py`; do not edit the generated
 publish planning notes, checkout details, task chronology, or machine-specific
 instructions in README, AGENTS, or Pages content.
 
-New Pages documents must be linked from `mkdocs.yml`. Validate navigation,
-local links, generated catalogs, and strict rendering before delivery.
+Link new Pages documents from `mkdocs.yml`; validate navigation, links,
+generated catalogs, and strict rendering before delivery.
 
 ## Branching & isolation
 
@@ -230,11 +230,10 @@ and patch before committing.
 
 Use lane-private build, test, cache, and scratch paths reported by `lane env`.
 Take the declared lease before changing shared locks, generated global views,
-or running all-files hooks. A contender defers rather than forcing access.
+or running all-files hooks; a contender defers rather than forcing access.
 
 Commit each coherent unit with the repository-configured author identity.
 Submit completed work through the serialized merge queue; do not merge into
-shared `main` by hand. The queue validates the
-candidate as merged and retains a recovery reference before pruning. Pushes,
-tags, releases, deployments, and destructive cleanup require explicit scope
-from the user.
+shared `main` by hand. The queue validates the candidate as merged and retains
+a recovery reference before pruning. Pushes, tags, releases, deployments, and
+destructive cleanup require explicit scope from the user.
