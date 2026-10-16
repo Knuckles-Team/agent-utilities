@@ -35,10 +35,8 @@
     "AU-CONTROL-R028",
     "AU-CONTROL-R029",
     "AU-CONTROL-R030",
-    "AU-CONTROL-R031",
     "AU-CONTROL-R032",
     "AU-CONTROL-R033",
-    "AU-CONTROL-R034",
     "AU-CONTROL-R035",
     "AU-CONTROL-R035.1",
     "AU-CONTROL-R035.2",
@@ -219,17 +217,13 @@
     {
       "id": "AU-CONTROL-R008",
       "title": "Free-text task mapping accepted only as a labelled claim",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "a1dd4111f04f",
         "c049e325e91d",
         "fdd333b5545a"
       ],
-      "verified_by": [
-        "tests/unit/test_task_classification.py:30",
-        "tests/unit/test_task_classification.py:37",
-        "tests/unit/test_task_classification.py:65"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-CONTROL-R009",
@@ -476,19 +470,6 @@
       "verified_by": []
     },
     {
-      "id": "AU-CONTROL-R031",
-      "title": "`find` ranks fleet tools with native capabilities",
-      "delivery_state": "LANDED",
-      "landed_in": [
-        "1ff1099e5d57",
-        "4c334b7fc9ad",
-        "b4c99c73265c",
-        "df00e9a0b560",
-        "e822fa6bb112"
-      ],
-      "verified_by": []
-    },
-    {
       "id": "AU-CONTROL-R032",
       "title": "`act` calls a fleet tool by its server and tool id",
       "delivery_state": "LANDED",
@@ -502,16 +483,6 @@
     {
       "id": "AU-CONTROL-R033",
       "title": "A read-only action tie runs the declared default action",
-      "delivery_state": "LANDED",
-      "landed_in": [
-        "1ff1099e5d57",
-        "78a53983ae0b"
-      ],
-      "verified_by": []
-    },
-    {
-      "id": "AU-CONTROL-R034",
-      "title": "An unmatched read intent falls back to the NL planner",
       "delivery_state": "LANDED",
       "landed_in": [
         "1ff1099e5d57",

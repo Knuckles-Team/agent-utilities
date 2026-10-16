@@ -44,7 +44,6 @@
     "AU-SEMANTIC-R011.5.1",
     "AU-SEMANTIC-R011.5.2",
     "AU-SEMANTIC-R011.5.3",
-    "AU-SEMANTIC-R011.5.4",
     "AU-SEMANTIC-R011.5.5",
     "AU-SEMANTIC-R011.6",
     "AU-SEMANTIC-R011.7",
@@ -77,7 +76,6 @@
     "AU-SEMANTIC-R019.2",
     "AU-SEMANTIC-R019.3",
     "AU-SEMANTIC-R019.3.1",
-    "AU-SEMANTIC-R019.3.2",
     "AU-SEMANTIC-R019.3.3",
     "AU-SEMANTIC-R019.3.4",
     "AU-SEMANTIC-R019.3.5",
@@ -88,9 +86,6 @@
     "AU-SEMANTIC-R019.6.2",
     "AU-SEMANTIC-R019.6.2.1",
     "AU-SEMANTIC-R019.6.2.2",
-    "AU-SEMANTIC-R019.6.3",
-    "AU-SEMANTIC-R019.6.3.1",
-    "AU-SEMANTIC-R019.6.3.2",
     "AU-SEMANTIC-R019.6.4",
     "AU-SEMANTIC-R020",
     "AU-SEMANTIC-R020.1",
@@ -326,17 +321,11 @@
     {
       "id": "AU-SEMANTIC-R008.1",
       "title": "A typed topology decision-policy client contract fails closed while no served policy exists",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "b8ef12acba3c"
       ],
-      "verified_by": [
-        "tests/unit/api/test_topology_decision_policy_client.py:16",
-        "tests/unit/api/test_topology_decision_policy_client.py:31",
-        "tests/unit/api/test_topology_decision_policy_client.py:40",
-        "tests/unit/api/test_topology_decision_policy_client.py:55",
-        "tests/unit/api/test_topology_decision_policy_client.py:66"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R008.2",
@@ -412,13 +401,11 @@
     {
       "id": "AU-SEMANTIC-R009.2.1",
       "title": "`resolve_runnable_skill_derivation_client()` wires the real call when EG's op is present",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "b8ef12acba3c"
       ],
-      "verified_by": [
-        "tests/unit/api/test_skill_derivation_client.py:63"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R009.2.2",
@@ -513,7 +500,6 @@
         "AU-SEMANTIC-R011.5.1",
         "AU-SEMANTIC-R011.5.2",
         "AU-SEMANTIC-R011.5.3",
-        "AU-SEMANTIC-R011.5.4",
         "AU-SEMANTIC-R011.5.5"
       ]
     },
@@ -534,13 +520,6 @@
     {
       "id": "AU-SEMANTIC-R011.5.3",
       "title": "Repoint scheduler tests, part 1",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-SEMANTIC-R011.5.4",
-      "title": "Repoint scheduler tests, part 2",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -843,7 +822,6 @@
       "verified_by": [],
       "rollup_of": [
         "AU-SEMANTIC-R019.3.1",
-        "AU-SEMANTIC-R019.3.2",
         "AU-SEMANTIC-R019.3.3",
         "AU-SEMANTIC-R019.3.4",
         "AU-SEMANTIC-R019.3.5"
@@ -852,13 +830,6 @@
     {
       "id": "AU-SEMANTIC-R019.3.1",
       "title": "`__main__.py` installs self-ingest logging through the EG-served client",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-SEMANTIC-R019.3.2",
-      "title": "`gateway/daemon.py` installs self-ingest logging through the EG-served client",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -907,7 +878,6 @@
       "rollup_of": [
         "AU-SEMANTIC-R019.6.1",
         "AU-SEMANTIC-R019.6.2",
-        "AU-SEMANTIC-R019.6.3",
         "AU-SEMANTIC-R019.6.4"
       ]
     },
@@ -955,35 +925,6 @@
       "verified_by": [
         "tests/unit/core/test_config.py:20"
       ]
-    },
-    {
-      "id": "AU-SEMANTIC-R019.6.3",
-      "title": "The `graph_loops` `placement_control` action is removed",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
-      "rollup_of": [
-        "AU-SEMANTIC-R019.6.3.1",
-        "AU-SEMANTIC-R019.6.3.2"
-      ]
-    },
-    {
-      "id": "AU-SEMANTIC-R019.6.3.1",
-      "title": "The `placement_control` action and its parameters are removed from `graph_loops`",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "e21a74412b1b"
-      ],
-      "verified_by": [
-        "tests/unit/mcp/test_graph_loops_placement_removed.py:12"
-      ]
-    },
-    {
-      "id": "AU-SEMANTIC-R019.6.3.2",
-      "title": "The generated manifests are regenerated without `placement_control`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
     },
     {
       "id": "AU-SEMANTIC-R019.6.4",

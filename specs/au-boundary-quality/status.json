@@ -18,7 +18,6 @@
     "AU-QUAL-R009",
     "AU-QUAL-R009.1",
     "AU-QUAL-R009.2",
-    "AU-QUAL-R009.3",
     "AU-QUAL-R009.4",
     "AU-QUAL-R009.5",
     "AU-QUAL-R009.6"
@@ -156,7 +155,6 @@
       "rollup_of": [
         "AU-QUAL-R009.1",
         "AU-QUAL-R009.2",
-        "AU-QUAL-R009.3",
         "AU-QUAL-R009.4",
         "AU-QUAL-R009.5",
         "AU-QUAL-R009.6"
@@ -172,13 +170,6 @@
     {
       "id": "AU-QUAL-R009.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-QUAL-R009.3",
-      "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

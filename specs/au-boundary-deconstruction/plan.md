@@ -6,7 +6,7 @@
 4. Remove old AU imports, modules, scripts, dependencies and stale tests in the same change that activates replacement wiring.
 5. Add a generated owner-manifest rule plus import/script census to prevent reversal. Run full gates and record exact merged-head evidence.
 
-The published specification is independently implementable. Cross-repository owners may keep their own specs, but all AU requirements, decisions and acceptance criteria needed for this cut are stated here.
+The published specification is independently implementable. Cross-repository owners may keep their own specs. This file states all AU requirements, decisions and acceptance criteria for this cut.
 
 ## AU-BOUNDARY-R049: governed write-back execution
 
