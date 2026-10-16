@@ -82,7 +82,7 @@ dependencies = [
     # construction surface it had been forwarding (no `zeros`/`eye`/`array`/
     # `concatenate`); eg 2.27.0 (NE-249) is the first release that ships those
     # natively, still with no numpy. See docs/guides/numeric-kernel.md.
-    "epistemic-graph[full]>=2.27.0,<3.0.0",
+    "epistemic-graph[full,server]>=2.27.0,<3.0.0",
     # Native engine envelopes, analytics jobs, and ingestion batches use msgpack
     # directly on the base GraphOS path.
     "msgpack>=1.2.1",
@@ -161,7 +161,7 @@ email = "maintainers@example.invalid"
 
 [project.optional-dependencies]
 # CONCEPT:KG-2.324 / CONCEPT:AU-OS.deployment.engine-resolver-auto-provision.
-# RF-ADR-009 SUPERSEDES GOC-73: `epistemic-graph[full]>=2.27.0,<3.0.0` moved back
+# RF-ADR-009 SUPERSEDES GOC-73: `epistemic-graph[full,server]>=2.27.0,<3.0.0` moved back
 # into the base `dependencies` above (see that block's comment for the full
 # rationale — the engine is AU's context/inference engine, not an optional
 # accelerator, and the package's own code already required it unconditionally).
