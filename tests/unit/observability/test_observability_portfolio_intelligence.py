@@ -11,9 +11,16 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 import agent_utilities.knowledge_graph.memory.native_ingest as native_ingest
 import agent_utilities.observability.health_ingest as hi
 from agent_utilities.observability import portfolio_intelligence as pi
+from tests.committed_shacl_fakes import (
+    CommittedShaclValidator,
+    shacl_report,
+    shacl_result,
+)
 
 
 class _NodesView:
@@ -324,41 +331,96 @@ def test_rationalize_portfolio_writes_recommendations_when_write_true(monkeypatc
 # ── 4. adopt/reject/consolidate/migrate verdict via the SHACL shapes ──────────
 
 
+def _violation(**fields):
+    """A typed-shaped violation exposing ``model_dump`` like the EG model."""
+    result = shacl_result(**fields)
+    result.model_dump = lambda mode="python": {
+        k: v for k, v in vars(result).items() if k != "model_dump"
+    }
+    return result
+
+
+class _ShaclEngine:
+    """Engine double whose committed-GraphSchema validator is EG's alone.
+
+    The shapes live in epistemic-graph, which is the sole SHACL interpreter;
+    AU only renders the data graph and forwards the engine's typed report.
+    """
+
+    def __init__(self, *reports):
+        self.shacl_validate_committed = CommittedShaclValidator(*reports)
+
+
 def test_shacl_shape_conforms_for_every_valid_verdict():
     for verdict in ("adopt", "reject", "consolidate", "migrate"):
+        engine = _ShaclEngine()
         report = pi.validate_verdict_shape(
             {
                 "candidateId": "prod-a",
                 "verdict": verdict,
                 "rationale": "some rationale text",
                 "assessmentScore": 0.75,
-            }
+            },
+            engine=engine,
         )
         assert report["conforms"] is True, (verdict, report["violations"])
+        (sent,) = engine.shacl_validate_committed.validations
+        assert f'ns1:verdict "{verdict}"' in sent
+        assert 'ns1:rationale "some rationale text"' in sent
 
 
 def test_shacl_shape_rejects_an_invalid_verdict_value():
+    engine = _ShaclEngine(
+        shacl_report(
+            conforms=False,
+            results=(_violation(path="kg:verdict", message="not in enum"),),
+        )
+    )
     report = pi.validate_verdict_shape(
         {
             "candidateId": "prod-a",
             "verdict": "maybe",
             "rationale": "some rationale text",
             "assessmentScore": 0.75,
-        }
+        },
+        engine=engine,
     )
     assert report["conforms"] is False
+    assert report["violations"][0]["message"] == "not in enum"
+    assert 'ns1:verdict "maybe"' in engine.shacl_validate_committed.validations[0]
 
 
 def test_shacl_shape_rejects_a_missing_rationale():
+    engine = _ShaclEngine(
+        shacl_report(
+            conforms=False,
+            results=(_violation(path="kg:rationale", message="minCount 1"),),
+        )
+    )
     report = pi.validate_verdict_shape(
         {
             "candidateId": "prod-a",
             "verdict": "adopt",
             "rationale": "",
             "assessmentScore": 0.5,
-        }
+        },
+        engine=engine,
     )
     assert report["conforms"] is False
+    # An empty rationale is rendered as an absent triple, never an empty literal.
+    assert "ns1:rationale" not in engine.shacl_validate_committed.validations[0]
+
+
+def test_shacl_shape_fails_closed_without_a_committed_validator():
+    from agent_utilities.knowledge_graph.core.committed_shacl import (
+        CommittedShaclUnavailable,
+    )
+
+    with pytest.raises(CommittedShaclUnavailable):
+        pi.validate_verdict_shape(
+            {"candidateId": "prod-a", "verdict": "adopt", "rationale": "r"},
+            engine=object(),
+        )
 
 
 # ── 5. writeback is dry-run-first ──────────────────────────────────────────────
