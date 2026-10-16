@@ -158,7 +158,7 @@ async def test_handler_error_does_not_stall_pool() -> None:
     assert stage.metrics.processed == 6
 
 
-async def test_compute_stage_workers_sizing() -> None:
+async def test_compute_stage_workers_sizing(roomy_host_envelope) -> None:
     """Pool sizing is per-bottleneck and always a positive int."""
     for kind in ("fetch", "parse", "enrich", "write", "reason"):
         n = compute_stage_workers(kind)

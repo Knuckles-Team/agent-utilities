@@ -241,3 +241,15 @@ def fake_nl_query(monkeypatch) -> dict:
 
     monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "nl_query", _fake_nl_query)
     return seen
+
+
+@pytest.fixture
+def roomy_host_envelope(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin a large CPU/memory envelope so worker-sizing tests do not depend on
+    the cgroup limits of whichever container the suite runs in."""
+    import agent_utilities.core.cgroup_resources as cgroup_resources
+
+    monkeypatch.setattr(cgroup_resources, "effective_cpu_cores", lambda: 64.0)
+    monkeypatch.setattr(
+        cgroup_resources, "effective_memory_limit_bytes", lambda: 256 * (1024**3)
+    )

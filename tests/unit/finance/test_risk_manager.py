@@ -182,7 +182,7 @@ class TestVaRCalculatorEngineLivePath:
             pytest.skip("epistemic-graph engine not reachable")
 
         returns = np.random.default_rng(0).normal(0, 0.01, 500)
-        direct = client.finance.risk_metrics(returns.tolist(), 0.0)
+        direct = client.finance.risk_metrics(list(returns), 0.0)
         result = VaRCalculator().historical(returns)
 
         # The VaRCalculator result must equal the engine's own computation,

@@ -735,9 +735,8 @@ def test_kafka_notification_falls_back_to_put_without_put_hydration():
 # ── autosizing ───────────────────────────────────────────────────────────
 
 
-def test_worker_count_configured_wins_within_envelope():
-    # On this (uncontained) test host the cgroup/host ceiling is large, so an
-    # explicit in-envelope override still wins outright.
+def test_worker_count_configured_wins_within_envelope(roomy_host_envelope):
+    # With a large pinned envelope an explicit in-envelope override wins outright.
     assert compute_ingest_worker_count(7) == 7
 
 
