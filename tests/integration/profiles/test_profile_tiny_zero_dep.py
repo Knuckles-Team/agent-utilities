@@ -92,7 +92,9 @@ def test_cold_import_pulls_no_external_service_drivers():
     assert leaked == [], f"tiny profile leaked external-service drivers: {leaked}"
 
 
-def test_tiny_profile_serves_kg_over_gateway_with_zero_containers(monkeypatch):
+def test_tiny_profile_serves_kg_over_gateway_with_zero_containers(
+    monkeypatch, request, engine_graph
+):
     """Write + read the KG through the local gateway REST surface, no containers."""
     if not os.environ.get("GRAPH_SERVICE_ENDPOINTS"):
         pytest.skip(
@@ -119,10 +121,12 @@ def test_tiny_profile_serves_kg_over_gateway_with_zero_containers(monkeypatch):
     # verified Bearer identity. Mint one the same way
     # tests/integration/core/test_security_server.py's secure_client does,
     # without a real JWKS round-trip.
-    from _test_engine import TEST_TENANT
+    from _test_engine import TEST_AGENT_ID, TEST_TENANT
 
     actor = ActorContext(
-        actor_id="tiny-profile-test",
+        # The engine grants graph access to its registered test principal;
+        # the verified actor must BE that principal.
+        actor_id=TEST_AGENT_ID,
         actor_type=ActorType.AUTOMATED_SERVICE,
         roles=("kg:read", "kg:write"),
         # The shared epistemic-graph engine's placement catalog only knows
@@ -188,10 +192,24 @@ def test_tiny_profile_serves_kg_over_gateway_with_zero_containers(monkeypatch):
     # binds to actor.tenant_id's OWN graph -- a mismatch the native engine's
     # placement layer rejects ("request context tenant does not match graph
     # tenant").
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+    from agent_utilities.knowledge_graph.core.shard_topology import tenant_graph_name
     from agent_utilities.security.brain_context import use_actor
 
+    # Authenticated requests mint their session on the tenant's real commons
+    # graph, which the isolation fixture's name redirect does not cover. Provision
+    # that graph explicitly, bind the active engine to it, and delete it after.
+    tenant_graph = tenant_graph_name(TEST_TENANT, base="__commons__")
+    engine_graph._client.tenants.create(tenant_graph)
+    request.addfinalizer(lambda: engine_graph._client.tenants.delete(tenant_graph))
     with use_actor(actor):
-        kg_server._get_engine()
+        backend = EpistemicGraphBackend(graph_name=tenant_graph)
+        backend._graph = engine_graph.for_graph(tenant_graph)
+        IntelligenceGraphEngine._set_active_for_tests(
+            IntelligenceGraphEngine(backend=backend, graph=backend._graph)
+        )
 
     node_id = f"tiny:{uuid.uuid4().hex[:8]}"
     with TestClient(app) as client:

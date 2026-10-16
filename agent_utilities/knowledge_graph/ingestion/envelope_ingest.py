@@ -82,7 +82,10 @@ _OPAQUE_INTERNAL_ID_RE = re.compile(f"^{_OPAQUE_DIGEST}{_OPAQUE_VERSION_PIN}$")
 _OPAQUE_NAMESPACED_ID_RE = re.compile(
     r"^(?P<namespace>[a-z][a-z0-9._-]{0,63}"
     r"(?::[a-z][a-z0-9._-]{0,63}){0,7}):"
-    f"{_OPAQUE_DIGEST}{_OPAQUE_VERSION_PIN}$"
+    f"{_OPAQUE_DIGEST}{_OPAQUE_VERSION_PIN}"
+    # Chunk ids are ``{doc_id}::chunk::{index}:{sha(text)[:12]}`` -- the document
+    # digest plus an ordinal and a short content digest, all opaque material.
+    r"(?:::chunk::[0-9]{1,9}:[0-9a-f]{12})?$"
 )
 
 __all__ = [
