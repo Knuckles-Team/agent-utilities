@@ -127,7 +127,7 @@ def test_catalog_projects_registries_with_truthful_provider_states(monkeypatch):
             "id": "natural_language",
             "available": True,
             "tool": "graph_ask",
-            "reason": "Graph-OS natural-language planning is exposed by graph_ask",
+            "reason": "Graph-OS natural-language planning is exposed by graph_ask/nl_query",
         },
         {
             "id": "uql",

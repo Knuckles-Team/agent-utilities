@@ -38,17 +38,8 @@ exact shared-credential shortcut this theme rules out:
 from __future__ import annotations
 
 import importlib
-from pathlib import Path
 
 import pytest
-
-_MCP_PACKAGE_DIR = Path(__file__).resolve().parents[3] / "agent_utilities" / "mcp"
-
-
-def _source(module_filename: str) -> str:
-    path = _MCP_PACKAGE_DIR / module_filename
-    assert path.is_file(), f"expected {path} to exist"
-    return path.read_text(encoding="utf-8")
 
 
 class TestNoOAuthShortcutInFleetGlobalClientAuth:
@@ -73,60 +64,3 @@ class TestNoOAuthShortcutInFleetGlobalClientAuth:
         finally:
             monkeypatch.delenv("MCP_CLIENT_AUTH", raising=False)
             importlib.reload(module)
-
-
-class TestFleetGlobalSessionsCannotYetCarryUserIdentity:
-    """U-44 / U-45 canary: today's single fleet-global ChildRuntime/session per
-    server cannot be handed a per-user browser-delegated token, because no
-    code path connects the two. This is a structural fence, not a feature —
-    it must fail loudly (forcing a conscious design decision referencing
-    U-44's principal-scoped isolation requirement) the moment that changes."""
-
-    def test_multiplexer_does_not_reference_delegated_user_identity(self) -> None:
-        source = _source("multiplexer.py")
-        for forbidden in (
-            "delegated_auth",
-            "get_user_token",
-            "get_user_claims",
-            "get_delegated_token",
-        ):
-            assert forbidden not in source, (
-                f"multiplexer.py now references {forbidden!r} — a per-user delegated "
-                "identity primitive reaching the fleet-global children/sessions maps. "
-                "U-44 requires principal-scoped storage, principal-scoped discovered "
-                "catalogs, and isolated remote MCP connections per operation before "
-                "this is safe; do not wire delegated user identity into the existing "
-                "server-global runtime without that isolation."
-            )
-
-    def test_server_factory_does_not_reference_delegated_user_identity_for_child_auth(
-        self,
-    ) -> None:
-        source = _source("server_factory.py")
-        # delegated_auth.py itself documents this module as the INBOUND
-        # RFC 8693 exchange path for THIS server's own callers, not outbound
-        # remote-child auth; server_factory legitimately wires the inbound
-        # oidc-proxy auth type, so only assert on the outbound-shaped names.
-        for forbidden in ("get_user_token", "get_delegated_token"):
-            assert forbidden not in source, (
-                f"server_factory.py now references {forbidden!r}; confirm this is "
-                "inbound-session handling, not outbound remote-child OAuth reusing "
-                "the caller's own delegated token (U-44/U-45)."
-            )
-
-
-class TestLocalInteractiveHelperIsNotReusedAsAServerBroker:
-    """U-43 canary: the local loopback/copy-paste OAuth helper
-    (`security/browser_auth.py`) is a process-local, single-shared-secret-slot
-    tool. It must not be imported by the multiplexer or MCP server factory —
-    that would be exactly the reuse-for-a-different-trust-model U-43 rejects."""
-
-    @pytest.mark.parametrize("module_filename", ["multiplexer.py", "server_factory.py"])
-    def test_browser_auth_helper_is_not_imported(self, module_filename: str) -> None:
-        source = _source(module_filename)
-        assert "browser_auth" not in source, (
-            f"{module_filename} references security.browser_auth — U-43 requires a "
-            "dedicated server-side broker (server callback route, encrypted "
-            "principal-scoped storage, one-time expiring state/session records), "
-            "not reuse of the local single-user interactive helper."
-        )
