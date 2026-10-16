@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
 """Citation-lineage gate (universal-ingestion program, tracks 8/9).
 
-Proves two of this program's non-negotiable contracts with a tiny, fully
+Proves one of this program's non-negotiable contracts with a tiny, fully
 synthetic, checked-in fixture (no network, no live KG — mirrors
-``check_retrieval_quality.py``'s hermetic-fixture style):
+a hermetic-fixture style):
 
 1. **Mandatory evidence citation** (CONCEPT:AU-KG.retrieval.mandatory-evidence-citation):
    every retrieval chunk built from the golden document resolves to a REAL,
    addressable evidence-spine Fragment — not just a non-empty id, but one that
    is actually present in the document's own fragment set and whose address
    matches the golden expectation below.
-2. **Embedding-version mismatch is refused loudly**
-   (CONCEPT:AU-KG.retrieval.embedding-version-identity): a ``CapabilityIndex``
-   pinned to one embedding version raises ``EmbeddingVersionMismatchError`` —
-   never silently ranks — when a caller adds a vector tagged with a different
-   version.
+   (The embedding-version refusal moved to EG with the capability index:
+   EG-DECISION-ENGINE-R172.6.)
 
 The golden document + its expected fragment addresses are the "golden set":
 small, real markdown, checked directly into this file so it never rots
@@ -25,9 +22,8 @@ Usage::
     python3 scripts/check_citation_lineage.py [--degrade]
 
 ``--degrade`` breaks each check on purpose (used by the meta-test proving the
-gate has teeth): for citation resolution it corrupts a chunk's char span so it
-can no longer overlap any real fragment; for embedding versioning it disables
-the version check so a cross-model vector would be silently compared.
+gate has teeth): it corrupts a chunk's char span so it can no longer overlap
+any real fragment.
 
 Exit 0 = both checks pass. 1 = a regression. 2 = build error.
 """
@@ -117,58 +113,6 @@ def _check_citation_resolution(*, degrade: bool) -> tuple[bool, str]:
     return True, f"{len(spans)} chunk(s), all cite >=1 resolvable fragment"
 
 
-def _check_embedding_version_mismatch_refused(*, degrade: bool) -> tuple[bool, str]:
-    from agent_utilities.knowledge_graph.retrieval.capability_index import (
-        CapabilityIndex,
-    )
-    from agent_utilities.knowledge_graph.retrieval.embedding_versioning import (
-        EmbeddingVersionMismatchError,
-    )
-
-    # `CapabilityIndex` itself imports without the kernel (it degrades `xp` to
-    # `None` so merely importing/constructing the module never requires
-    # epistemic-graph[full] -- see that module's own guard); the kernel is
-    # only required once ranking actually runs, inside `add()`'s
-    # `to_builtin()` call. Catch the ImportError there instead of at the
-    # `from ... import CapabilityIndex` line above, so this still degrades to
-    # the same clean, reported SKIP without the kernel instead of an
-    # uncaught crash -- the kernel-absent signal moved to first USE, not
-    # import, by design (CONCEPT:AU-KG.compute.numpy-scipy-drop).
-    try:
-        idx = CapabilityIndex(dim=4, prefer_backend="native")
-        idx.add(
-            "doc-a",
-            [1.0, 0.0, 0.0, 0.0],
-            capabilities=[],
-            embedding_version="openai:text-embed-v1" if not degrade else None,
-        )
-    except ImportError as exc:
-        return True, (
-            "SKIPPED (no epistemic-graph[full] kernel — CapabilityIndex ranking "
-            f"unavailable): {exc}"
-        )
-    try:
-        idx.add(
-            "doc-b",
-            [0.0, 1.0, 0.0, 0.0],
-            capabilities=[],
-            embedding_version="openai:text-embed-v2" if not degrade else None,
-        )
-    except EmbeddingVersionMismatchError:
-        if degrade:
-            return False, "mismatch was refused even with version tagging disabled"
-        return (
-            True,
-            "cross-version add() was refused with EmbeddingVersionMismatchError",
-        )
-    if degrade:
-        return (
-            True,
-            "version tagging disabled -> no check performed (expected under --degrade)",
-        )
-    return False, "cross-version add() was NOT refused — silent comparison risk"
-
-
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--degrade", action="store_true")
@@ -176,17 +120,13 @@ def main() -> int:
 
     try:
         citation_ok, citation_msg = _check_citation_resolution(degrade=args.degrade)
-        version_ok, version_msg = _check_embedding_version_mismatch_refused(
-            degrade=args.degrade
-        )
     except Exception as exc:  # noqa: BLE001 — reported as a build error, not a silent pass
         print(f"ERROR: citation-lineage gate build failed: {exc}", file=sys.stderr)
         return 2
 
     print(f"[citation-resolution] {'OK' if citation_ok else 'FAIL'}: {citation_msg}")
-    print(f"[embedding-version]   {'OK' if version_ok else 'FAIL'}: {version_msg}")
 
-    if not citation_ok or not version_ok:
+    if not citation_ok:
         print("FAIL: citation-lineage gate regression.", file=sys.stderr)
         return 1
     print("OK: citation-lineage gate passed.")

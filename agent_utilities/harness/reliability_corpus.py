@@ -13,7 +13,7 @@ runs the suite over the corpus and reports the fraction of cases whose outcome
 matches expectation, so a broken scorer is caught before it ships.
 
 This mirrors the other synthetic-fixture gates (``check_eval_corpus.py``,
-``check_retrieval_quality.py``): deterministic, no live KG, with a ``degrade``
+``check_citation_lineage.py``): deterministic, no live KG, with a ``degrade``
 mode that corrupts outputs to prove the corpus has teeth.
 
 Concept: eval-tracing

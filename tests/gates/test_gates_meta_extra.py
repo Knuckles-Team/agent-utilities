@@ -89,20 +89,3 @@ def test_coupling_gate_passes_with_no_imports(tmp_path):
     (pkg / "qt" / "widget.py").write_text("X = 1\n")
     res = _run([str(SCRIPTS / "check_coupling.py"), str(pkg)])
     assert res.returncode == 0, res.stderr
-
-
-# ---- retrieval-quality gate --------------------------------------------------
-
-
-@_needs_numeric_kernel
-def test_retrieval_gate_passes_on_clean_corpus():
-    res = _run([str(SCRIPTS / "check_retrieval_quality.py")])
-    assert res.returncode == 0, res.stdout + res.stderr
-    assert "Recall@5=1.000" in res.stdout
-
-
-@_needs_numeric_kernel
-def test_retrieval_gate_trips_on_degraded_corpus():
-    res = _run([str(SCRIPTS / "check_retrieval_quality.py"), "--degrade"])
-    assert res.returncode == 1, res.stdout + res.stderr
-    assert "regression detected" in res.stderr

@@ -7,7 +7,7 @@ Proves the reliability scorer suite has teeth: runs the seed corpus
 expectation drops below a floor — catching a broken scorer before it ships.
 
 Mirrors the other synthetic-fixture gates (``check_eval_corpus.py``,
-``check_retrieval_quality.py``): no network, no live KG, deterministic.
+``check_citation_lineage.py``): no network, no live KG, deterministic.
 
 Usage::
 
@@ -41,7 +41,7 @@ def main() -> int:
     # (`epistemic-graph[full]`). Skip cleanly (exit 0, loud SKIP) when it is
     # absent — the gate genuinely cannot build the corpus without it. It runs for
     # real in any env with the kernel (the local pre-commit); lean/headless CI
-    # without the extra gets an honest SKIP. Mirrors check_retrieval_quality.py.
+    # without the extra gets an honest SKIP. Mirrors the other synthetic gates.
     try:
         import agent_utilities.numeric  # noqa: F401
     except ImportError as exc:

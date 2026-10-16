@@ -34,10 +34,6 @@ engine's maintenance scheduler, default ON, background priority) periodically:
    * mined claim → propose a NEW ``:BeliefRevisionProposal`` node (propose-only,
      the SAME advisory-node convention ``loop_controller._run_belief_revision``
      already uses) — the ``Claim`` node itself is NEVER mutated here;
-   * capability-index entry → evict it from the process-local
-     ``CapabilityIndexWatcher`` cache (a pure performance-cache invalidation,
-     safe to do unconditionally — the next ``designate_specialists`` call
-     re-scores it fresh from the engine's live properties);
    * cached context bundle → drop it from the shared KV cache and retire its
      tracking marker node (``delete_node``, which the engine's projection
      records as ``Retracted`` — a terminal, no-longer-stale state, so it never
@@ -72,10 +68,6 @@ DEFAULT_CANDIDATE_LIMIT = 50
 #: context-bundle probe also needs ``cache_key`` back to drop the right KV entry.
 _CANDIDATE_QUERIES: dict[str, str] = {
     "claim": "MATCH (n:Claim) RETURN n.id AS id ORDER BY n.id LIMIT $limit",
-    "capability_index": (
-        "MATCH (n) WHERE n.capability_reward IS NOT NULL "
-        "RETURN n.id AS id ORDER BY n.id LIMIT $limit"
-    ),
     "context_bundle": (
         "MATCH (n:ContextBundleMaterialization) "
         "RETURN n.id AS id, n.cache_key AS cache_key ORDER BY n.id LIMIT $limit"
@@ -138,29 +130,6 @@ def _revalidate_claim(engine: Any, claim_id: str, errors: list[str]) -> bool:
     return True
 
 
-def _revalidate_capability_index_entry(
-    engine: Any, entity_id: str, errors: list[str]
-) -> bool:
-    """Evict a stale entry from the process-local capability-index cache.
-
-    A pure performance-cache invalidation (never a graph write): the durable
-    ``capability_reward`` property on the engine node is untouched; the next
-    ``designate_specialists``/``record_capability_outcome`` call re-admits and
-    re-scores ``entity_id`` fresh.
-    """
-    watcher = getattr(engine, "_capability_index_watcher", None)
-    if watcher is None:
-        return False
-    index = getattr(watcher, "index", None)
-    if index is None:
-        return False
-    try:
-        return bool(index.remove(entity_id))
-    except Exception as e:  # noqa: BLE001 — cache eviction is best-effort
-        errors.append(f"capability_index:{entity_id} evict failed: {e}")
-        return False
-
-
 def _revalidate_context_bundle(
     engine: Any, marker_id: str, cache_key: str, errors: list[str]
 ) -> bool:
@@ -210,7 +179,6 @@ def _revalidate_context_bundle(
 
 _OWNER_ACTIONS = {
     "claim": _revalidate_claim,
-    "capability_index": _revalidate_capability_index_entry,
 }
 
 
@@ -288,10 +256,9 @@ def revalidate_stale_materializations(
     stale = 0
     revalidated: dict[str, int] = {
         "claim": 0,
-        "capability_index": 0,
         "context_bundle": 0,
     }
-    for kind in ("claim", "capability_index", "context_bundle"):
+    for kind in ("claim", "context_bundle"):
         for row in _candidates(engine, kind, limit, errors):
             scanned += 1
             result = _revalidate_candidate(engine, kind, row, status_probe, errors)

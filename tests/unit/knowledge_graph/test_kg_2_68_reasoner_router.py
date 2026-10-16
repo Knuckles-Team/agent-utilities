@@ -1,7 +1,7 @@
 """Pluggable reasoning paradigms + outcome-learning router (CONCEPT:AU-KG.compute.first-class-reasoner-paradigm).
 
 The router selects a paradigm per task (capability tags blended with a learned
-reward EMA over the existing CapabilityIndex) and feeds the scored result back, so
+reward learned by EG through the designation port) and feeds the scored result back, so
 routing self-improves. Built-in paradigms wire KG-2.69 (induction) and KG-2.67
 (planning) plus deductive + generative behind one seam.
 """
@@ -100,8 +100,19 @@ class _Stub:
 
 
 class TestLearningRouter:
+    @staticmethod
+    def _port(*names):
+        from tests.capability_port_fake import FakeCapabilityDesignationPort
+
+        port = FakeCapabilityDesignationPort()
+        for name in names:
+            port.add(name, [1.0, 1.0], ["shared"])
+        return port
+
     def test_router_converges_to_higher_reward_paradigm(self):
-        router = ReasonerRouter(reward_weight=0.5)
+        # EG owns the reward (EG-DECISION-ENGINE-R172.5); the router forwards
+        # outcomes to the port it is given and follows EG's designation.
+        router = ReasonerRouter(reward_weight=0.5, designator=self._port("good", "bad"))
         router.register(_Stub("good", 1.0))
         router.register(_Stub("bad", 0.0))
         task = ReasoningTask(goal="x", tags=("shared",))
@@ -112,7 +123,7 @@ class TestLearningRouter:
         assert router.reward("good") > router.reward("bad")
 
     def test_outcome_feedback_updates_reward(self):
-        router = ReasonerRouter()
+        router = ReasonerRouter(designator=self._port("good"))
         router.register(_Stub("good", 1.0))
         before = router.reward("good")
         router.reason(ReasoningTask(goal="x", tags=("shared",)))

@@ -14,12 +14,11 @@ Design (why this is robust, not an if/else switch):
 
 * A :class:`Reasoner` advertises ``capability_tags`` and implements
   ``reason(task) -> ReasoningResult`` that self-reports a ``score`` in ``[0, 1]``.
-* The :class:`ReasonerRouter` registers each paradigm as a capability entity in the
-  *existing* reward-aware :class:`CapabilityIndex` (KG-2) and routes a task with the
-  same ``designate()`` call the execution plane already trusts — candidates are
-  gated by required capability tags, then ranked by similarity **blended with a
-  learned reward EMA**. After running, the router feeds the result's score back via
-  ``record_outcome``, so the router *learns which paradigm works for which task
+* The :class:`ReasonerRouter` receives paradigm designation from EG through the
+  capability-designation port (``EG-DECISION-ENGINE-R172``) — EG gates by required
+  capability tags and ranks with its **learned reward**; without a port the
+  router uses the declared tag-overlap rule. After running, the router forwards
+  the result's score to EG via ``record_outcome``, so the router *learns which paradigm works for which task
   class* (the recursive-improvement pathway applied to thinking itself).
 
 The built-in paradigms wire the rest of the seam together: inductive program
@@ -184,12 +183,17 @@ class GenerativeReasoner:
 class ReasonerRouter:
     """Route a task to a reasoning paradigm and learn from the outcome (KG-2.68)."""
 
-    def __init__(self, *, reward_weight: float = 0.3, harvester: Any = None) -> None:
-        from agent_utilities.knowledge_graph.retrieval.capability_index import (
-            CapabilityIndex,
-        )
-
-        self._index = CapabilityIndex(dim=_ROUTING_DIM)
+    def __init__(
+        self,
+        *,
+        reward_weight: float = 0.3,
+        harvester: Any = None,
+        designator: Any = None,
+    ) -> None:
+        # EG owns paradigm designation and its reward learning
+        # (EG-DECISION-ENGINE-R172). The router is GIVEN that port; AU keeps no
+        # index and no reward EMA. Without a port it uses the declared tag rule.
+        self._designator = designator
         self._reasoners: dict[str, Reasoner] = {}
         self._reward_weight = float(reward_weight)
         # CONCEPT:AU-AHE.harness.search-distillation-harvester — optional search-distillation harvester. When attached,
@@ -205,21 +209,45 @@ class ReasonerRouter:
 
     def register(self, reasoner: Reasoner) -> None:
         self._reasoners[reasoner.name] = reasoner
-        self._index.add(
-            reasoner.name, self._uniform_embedding(), reasoner.capability_tags
+
+    def _designate(
+        self, task: ReasoningTask, k: int, *, tags: bool = True
+    ) -> list[Any]:
+        """EG-designated paradigms (empty without a port or on port failure)."""
+        if self._designator is None:
+            return []
+        from agent_utilities.knowledge_graph.retrieval.capability_designation_port import (
+            CapabilityDesignationRequest,
         )
+
+        try:
+            return list(
+                self._designator.designate(
+                    CapabilityDesignationRequest(
+                        query_vector=list(task.embedding or self._uniform_embedding()),
+                        required_capabilities=tuple(task.tags) if tags else (),
+                        k=k,
+                    )
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — the declared tag rule below is the documented fallback
+            logger.debug("[KG-2.68] EG designation unavailable: %s", exc)
+            return []
+
+    def _record(self, name: str, reward: float) -> None:
+        """Forward a paradigm outcome to EG (no-op without a port)."""
+        if self._designator is None:
+            return
+        try:
+            self._designator.record_outcome(name, reward=max(0.0, min(1.0, reward)))
+        except Exception as exc:  # noqa: BLE001 — learning must never break reasoning
+            logger.debug("[KG-2.68] outcome forward skipped: %s", exc)
 
     def route(self, task: ReasoningTask) -> Reasoner | None:
         """The best paradigm for this task (tag-gated, reward-EMA-ranked)."""
         if not self._reasoners:
             return None
-        emb = task.embedding or self._uniform_embedding()
-        des = self._index.designate(
-            emb,
-            required_caps=list(task.tags) or None,
-            k=1,
-            reward_weight=self._reward_weight,
-        )
+        des = [d for d in self._designate(task, 1) if d.id in self._reasoners]
         if des:
             return self._reasoners.get(des[0].id)
         # No tag match ⇒ fall back to a tag-overlap reasoner, else the first.
@@ -237,12 +265,10 @@ class ReasonerRouter:
             result = reasoner.reason(task)
         except Exception as exc:  # noqa: BLE001 — a failing paradigm scores 0, never crashes routing
             logger.warning("[KG-2.68] reasoner %s failed: %s", reasoner.name, exc)
-            self._index.record_outcome(reasoner.name, reward=0.0)
+            self._record(reasoner.name, 0.0)
             return ReasoningResult(None, reasoner.name, 0.0, {"error": str(exc)})
         # Close the loop: the self-reported score trains the paradigm's routing reward.
-        self._index.record_outcome(
-            reasoner.name, reward=max(0.0, min(1.0, result.score))
-        )
+        self._record(reasoner.name, result.score)
         result.trace.setdefault("routed_to", reasoner.name)
         # CONCEPT:AU-AHE.harness.search-distillation-harvester — distil a verified win into training data (test-time
         # compute → better data), collapse-guarded by SAFE-1.4. Best-effort.
@@ -266,13 +292,7 @@ class ReasonerRouter:
             from agent_utilities.harness.compute_governor import ComputeGovernor
 
             governor = ComputeGovernor()
-        emb = task.embedding or self._uniform_embedding()
-        des = self._index.designate(
-            emb,
-            required_caps=list(task.tags) or None,
-            k=len(self._reasoners),
-            reward_weight=self._reward_weight,
-        )
+        des = self._designate(task, len(self._reasoners))
         ranked = [self._reasoners[d.id] for d in des if d.id in self._reasoners]
         if not ranked:
             r = self.route(task)
@@ -287,11 +307,9 @@ class ReasonerRouter:
                 result = reasoner.reason(task)
             except Exception as exc:  # noqa: BLE001 — a failing paradigm scores 0
                 logger.warning("[KG-2.68] reasoner %s failed: %s", reasoner.name, exc)
-                self._index.record_outcome(reasoner.name, reward=0.0)
+                self._record(reasoner.name, 0.0)
                 continue
-            self._index.record_outcome(
-                reasoner.name, reward=max(0.0, min(1.0, result.score))
-            )
+            self._record(reasoner.name, result.score)
             if self._harvester is not None:
                 try:
                     self._harvester.harvest_result(task, result)
@@ -308,11 +326,9 @@ class ReasonerRouter:
         return best
 
     def reward(self, reasoner_name: str) -> float:
-        """The current learned routing reward EMA for a paradigm (0.5 = neutral)."""
-        des = self._index.designate(
-            self._uniform_embedding(), k=len(self._reasoners), reward_weight=0.0
-        )
-        for d in des:
+        """EG's learned routing reward for a paradigm (0.5 = neutral / no port)."""
+        probe = ReasoningTask(goal="", tags=())
+        for d in self._designate(probe, len(self._reasoners), tags=False):
             if d.id == reasoner_name:
                 return float(d.provenance.get("reward", 0.5))
         return 0.5

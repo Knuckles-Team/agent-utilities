@@ -135,62 +135,6 @@ def test_edit_ledger_record_history_revert_via_ontology(kg: KnowledgeGraph) -> N
     assert len(ont.history(oid)) == 3
 
 
-# (b) ── KG-2.44 object index funnel via facade accessors ──────────────────────
-def test_object_index_batch_incremental_staleness_reindex(kg: KnowledgeGraph) -> None:
-    funnel = kg.object_index_funnel
-    # The funnel is constructed over the live retrieval index (same object the
-    # router ranks against) — not a second index.
-    assert funnel.index is kg.retrieval
-
-    pre = _p()
-    nodes = [
-        {
-            "id": f"{pre}:n1",
-            "type": "tool",
-            "embedding": [0.1] * 8,
-            "capabilities": ["x"],
-        },
-        {
-            "id": f"{pre}:n2",
-            "type": "tool",
-            "embedding": [0.2] * 8,
-            "capabilities": ["y"],
-        },
-    ]
-    batch = kg.sync_object_index(nodes)
-    assert batch.rebuilt and batch.upserted == 2
-
-    # Incremental upsert of a brand-new object (live delta, no full rebuild).
-    from agent_utilities.knowledge_graph.ontology.indexing import FunnelDelta
-
-    n3 = {
-        "id": f"{pre}:n3",
-        "type": "tool",
-        "embedding": [0.3] * 8,
-        "capabilities": ["z"],
-    }
-    inc = funnel.incremental_sync(FunnelDelta(upserts=[n3]))
-    assert inc.upserted == 1
-    assert f"{pre}:n3" in funnel.live_ids()
-
-    # Drift detection: mutate n1's embedding => staleness ledger flags reindex.
-    changed = [
-        {
-            "id": f"{pre}:n1",
-            "type": "tool",
-            "embedding": [0.9] * 8,
-            "capabilities": ["x"],
-        },
-        nodes[1],
-        n3,
-    ]
-    assert funnel.needs_reindex(changed) is True
-    recon = kg.reindex_stale_objects(changed)
-    # Exactly the changed object is re-upserted; nothing dropped.
-    assert recon.upserted == 1 and recon.deleted == 0
-    assert funnel.needs_reindex(changed) is False
-
-
 # (c) ── KG-2.46 default-on enforce on the kg.query() read seam ────────────────
 def test_query_enforce_filters_marked_passes_public(
     monkeypatch: pytest.MonkeyPatch, kg: KnowledgeGraph

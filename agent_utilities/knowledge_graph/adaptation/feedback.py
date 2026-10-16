@@ -6,7 +6,7 @@ a human says "this was wrong, here's the fix" and the correction becomes
 persistent future behaviour. Three correction types:
 
 * ``outcome`` — adjust the reward EMA of a designated entity so routing/retrieval
-  prefers/avoids it next time (reuses :meth:`CapabilityIndex.record_outcome`).
+  prefers/avoids it next time (forwards to the EG designation port's ``record_outcome``).
 * ``rule`` — persist a ``Correction`` node (+ ``CORRECTS`` edge) and a durable,
   active governance/voice/source rule. Because a *human* asserted it, the rule is
   authoritative immediately — no synthesis threshold needed. It is consumed at
@@ -108,7 +108,8 @@ class FeedbackService:
 
     Args:
         backend: anything exposing ``add_node``/``add_edge`` (graph writer).
-        capability_index: optional :class:`CapabilityIndex` for outcome rewards.
+        capability_index: optional EG capability-designation port (``EG-DECISION-ENGINE-R172``)
+                that learns outcome rewards; AU keeps no reward state.
         eval_corpus: optional :class:`EvalCorpus` for eval corrections.
     """
 
@@ -125,8 +126,9 @@ class FeedbackService:
     @classmethod
     def from_engine(cls, engine: Any) -> FeedbackService:
         backend = getattr(engine, "backend", None) or getattr(engine, "store", None)
-        kg = getattr(engine, "knowledge_graph", None) or getattr(engine, "kg", None)
-        cap = getattr(kg, "retrieval", None) if kg is not None else None
+        from ..retrieval.capability_designation_port import designation_port_of
+
+        cap = designation_port_of(engine)
         corpus = None
         try:
             from ...harness.eval_corpus import EvalCorpus
@@ -224,6 +226,10 @@ class FeedbackService:
                 "outcome correction needs reward/corrected_value",
             )
         new = self.capability_index.record_outcome(target_id, reward=r)
+        if new is None:
+            return CorrectionResult(
+                "outcome", target_id, True, f"outcome forwarded to EG ({reason})"
+            )
         return CorrectionResult(
             "outcome", target_id, True, f"reward updated to {new:.3f} ({reason})"
         )

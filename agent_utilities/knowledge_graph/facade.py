@@ -5,7 +5,7 @@ from __future__ import annotations
 
 The **epistemic-graph engine is the ONE authority** (compute + in-memory cache +
 semantic + durable persistence); the facade composes its storage, native RDF/OWL
-compute methods, and retrieval index behind one object. There is no numeric
+compute methods, and EG designation port behind one object. There is no numeric
 graph-storage hierarchy — these concerns are served by the one authority:
 
 * **store** — the epistemic engine, automatically wrapped with any configured
@@ -14,11 +14,11 @@ graph-storage hierarchy — these concerns are served by the one authority:
   property graph.
 * **compute** — the Rust-native ``epistemic-graph`` client for graph algorithms,
   SPARQL, and read-only OWL reasoning.
-* **retrieval** — the capability-aware designation index (:class:`CapabilityIndex`).
+* **designation** — forwarded to the EG capability-designation port (EG-DECISION-ENGINE-R172).
 
 Dependency contract (strictly one-directional)::
 
-    graph/*  ->  facade (KnowledgeGraph)  ->  { store, compute, retrieval }
+    graph/*  ->  facade (KnowledgeGraph)  ->  { store, compute }
 
 The execution plane (``graph/*`` — routing, planning, orchestration) depends on
 this facade. The facade depends downward on those concerns. **Nothing below the
@@ -36,7 +36,10 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from .core.session import GraphSession
-    from .retrieval.capability_index import CapabilityIndex, Designation
+    from .retrieval.capability_designation_port import (
+        CapabilityDesignation,
+        CapabilityDesignationPort,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +49,7 @@ __all__ = ["KnowledgeGraph"]
 class KnowledgeGraph:
     """Composition root over the multi-layer knowledge graph.
 
-    Exposes lazily-initialised :attr:`compute`, :attr:`store`, and
-    :attr:`retrieval` layers, native :meth:`sparql` and :meth:`owl_reason`
+    Exposes lazily-initialised :attr:`compute` and :attr:`store` layers, native :meth:`sparql` and :meth:`owl_reason`
     operations, the :attr:`ontology` registry, and the :meth:`designate`
     convenience used by capability-aware routing.
 
@@ -56,27 +58,22 @@ class KnowledgeGraph:
     engine rather than constructing an overlapping backend or transport.
 
     Args:
-        retrieval: Optional pre-built :class:`CapabilityIndex`. When omitted, a
-            fresh empty index is created on first access.
-        embedding_dim: Optional embedding dimensionality for a freshly created
-            retrieval index.
+        designator: Optional EG capability-designation port
+            (``EG-DECISION-ENGINE-R172``). :meth:`designate` forwards to it;
+            without one, designation returns no candidates. AU keeps no index.
     """
 
     def __init__(
         self,
         *,
-        retrieval: CapabilityIndex | None = None,
-        embedding_dim: int | None = None,
+        designator: CapabilityDesignationPort | None = None,
     ) -> None:
-        self._embedding_dim = embedding_dim
+        self._designator: CapabilityDesignationPort | None = designator
 
         # Lazy slots — sentinel ``...`` means "not yet initialised".
         self._store: Any = ...
         self._compute: Any = ...
-        self._retrieval: CapabilityIndex | None = retrieval
         self._ontology: Any = ...
-        # Object Index Funnel (CONCEPT:AU-KG.ontology.batch-incremental-sync-live) — lazily built over self.retrieval.
-        self._object_funnel: Any = None
 
     @classmethod
     def from_engine(cls, engine: Any) -> KnowledgeGraph:
@@ -212,23 +209,6 @@ class KnowledgeGraph:
         )
 
     # ------------------------------------------------------------------
-    # retrieval — the capability designation index
-    # ------------------------------------------------------------------
-    @property
-    def retrieval(self) -> CapabilityIndex:
-        """The capability-aware designation index (retrieval layer).
-
-        Unlike the other layers this always resolves to a usable object: a
-        fresh empty :class:`CapabilityIndex` is created on first access if one
-        was not supplied to the constructor.
-        """
-        if self._retrieval is None:
-            from .retrieval.capability_index import CapabilityIndex
-
-            self._retrieval = CapabilityIndex(dim=self._embedding_dim)
-        return self._retrieval
-
-    # ------------------------------------------------------------------
     # Ontology layer — Palantir Foundry parity (KG-2.26/2.38/2.39/2.40/2.41/2.47)
     # ------------------------------------------------------------------
     @property
@@ -255,40 +235,6 @@ class KnowledgeGraph:
 
     # ------------------------------------------------------------------
     # Object Index Lifecycle — the Object Data Funnel (CONCEPT:AU-KG.ontology.batch-incremental-sync-live)
-    # ------------------------------------------------------------------
-    @property
-    def object_index_funnel(self) -> Any:
-        """The Object Data Funnel driving *this* facade's live search index.
-
-        Cached :class:`ObjectIndexFunnel` constructed once over
-        :pyattr:`retrieval` — it drives the SAME :class:`CapabilityIndex`
-        ``designate`` ranks against (never a second index), so batch/incremental
-        sync and staleness tracking apply to the live retrieval plane.
-        """
-        if self._object_funnel is None:
-            from .ontology.indexing import ObjectIndexFunnel
-
-            self._object_funnel = ObjectIndexFunnel(index=self.retrieval)
-        return self._object_funnel
-
-    def sync_object_index(self, nodes: Any) -> Any:
-        """Batch-rebuild the live object index from source-of-truth nodes.
-
-        Routes through :meth:`ObjectIndexFunnel.batch_sync` so staleness is
-        tracked. Returns the funnel's :class:`SyncResult`.
-        """
-        return self.object_index_funnel.batch_sync(nodes)
-
-    def reindex_stale_objects(self, source_nodes: Any) -> Any:
-        """Reconcile the live index against ``source_nodes`` (CONCEPT:AU-KG.ontology.batch-incremental-sync-live).
-
-        Computes content-hash drift via the staleness ledger and applies exactly
-        the needed upsert/delete delta. Returns the funnel's :class:`SyncResult`.
-        """
-        return self.object_index_funnel.reconcile(source_nodes)
-
-    # ------------------------------------------------------------------
-    # Object permissioning — fine-grained read enforcement (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted)
     # ------------------------------------------------------------------
     def restricted_view(
         self,
@@ -332,10 +278,11 @@ class KnowledgeGraph:
         k: int = 5,
         *,
         session: GraphSession | None = None,
-    ) -> list[Designation]:
+    ) -> list[CapabilityDesignation]:
         """Designate the top-``k`` entities for a task.
 
-        Delegates to :meth:`CapabilityIndex.designate`, then (when
+        Forwards to the EG capability-designation port (EG owns ranking,
+        ``EG-DECISION-ENGINE-R172``; no port means no candidates), then (when
         mandatory Company Brain enforcement drops designations the current actor is not
         permitted to read and records a read audit. No-op filtering otherwise.
 
@@ -348,14 +295,24 @@ class KnowledgeGraph:
                 inherited from the verified ambient context in production.
 
         Returns:
-            A list of :class:`Designation` objects, ranked by similarity.
+            A list of :class:`CapabilityDesignation` objects in EG's order.
         """
         from .core.session import resolve_session
 
         session = resolve_session(session, required_scope="kg:read")
 
-        results = self.retrieval.designate(
-            prompt_embedding, required_caps=required_caps, k=k
+        from .retrieval.capability_designation_port import (
+            CapabilityDesignationRequest,
+        )
+
+        if self._designator is None:
+            return []
+        results = self._designator.designate(
+            CapabilityDesignationRequest(
+                query_vector=[float(v) for v in prompt_embedding],
+                required_capabilities=tuple(str(c) for c in (required_caps or ())),
+                k=int(k),
+            )
         )
         from .core.secured_reads import audit_read, permit
 
@@ -629,77 +586,3 @@ class KnowledgeGraph:
 
         effective_tenant = tenant if tenant is not None else current_actor().tenant_id
         return tenant_graph_name(effective_tenant, base or default_graph_name())
-
-    def populate_capability_index(self, nodes: Any) -> int:
-        """Populate the retrieval (capability designation) index from graph nodes (Plan 08 Synergy 1).
-
-        This is the bridge that lets the live router call :meth:`designate`
-        once the knowledge graph feeds real nodes into the capability index. It
-        is intentionally lazy and defensive: it touches only the
-        :attr:`retrieval` layer (which always resolves to a usable
-        :class:`CapabilityIndex`), so it never requires a running store,
-        compute engine.
-
-        Each node is a mapping shaped::
-
-            {
-                "id": "tool-or-agent-id",
-                "embedding": [float, ...],      # required; node skipped if absent
-                "capabilities": ["cap", ...],   # optional
-                "swappable_with": ["other", ...],  # optional
-            }
-
-        Missing keys are tolerated. Nodes without an ``id`` or without an
-        ``embedding`` (or with an empty embedding) are skipped — an embedding is
-        mandatory for similarity ranking.
-
-        Args:
-            nodes: An iterable of node mappings (or objects exposing the same
-                attributes — ``capabilities``/``provides``/``providesCapability``
-                and ``swappable_with``/``swappableWith`` aliases are accepted,
-                matching :meth:`CapabilityIndex.build_from_edges`).
-
-        Returns:
-            The number of nodes actually added to the index.
-        """
-        index = self.retrieval
-        added = 0
-        for node in nodes:
-            if isinstance(node, dict):
-                getter = node.get
-            else:
-
-                def getter(key: str, default: Any = None, _n: Any = node) -> Any:
-                    return getattr(_n, key, default)
-
-            nid = getter("id")
-            if nid is None:
-                continue
-            emb = getter("embedding")
-            if emb is None:
-                continue
-            # Skip empty embeddings without letting CapabilityIndex.add raise.
-            try:
-                if len(emb) == 0:
-                    continue
-            except TypeError:
-                # Not sized (e.g. a scalar) — let add() validate it.
-                pass
-            caps = (
-                getter("capabilities")
-                or getter("provides")
-                or getter("providesCapability")
-                or []
-            )
-            swap = getter("swappable_with") or getter("swappableWith") or None
-            try:
-                index.add(str(nid), emb, caps, swappable_with=swap)
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.warning(
-                    "KnowledgeGraph.populate_capability_index: skipping node %r: %s",
-                    nid,
-                    exc,
-                )
-                continue
-            added += 1
-        return added

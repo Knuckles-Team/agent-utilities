@@ -269,7 +269,6 @@ class FaithfulTmsEngine:
         self._deps: dict[str, set[str]] = {}
         self._snapshot: dict[str, dict[str, int]] = {}
         self._retracted: set[str] = set()
-        self._capability_index_watcher: Any = None
 
     # -- write surface -----------------------------------------------------
     def add_node(
@@ -366,20 +365,6 @@ class FaithfulTmsEngine:
         return sorted(rows, key=lambda r: r["id"])[:limit]
 
 
-class _FakeCapabilityIndex:
-    def __init__(self) -> None:
-        self.removed: list[str] = []
-
-    def remove(self, entity_id: str) -> bool:
-        self.removed.append(entity_id)
-        return True
-
-
-class _FakeWatcher:
-    def __init__(self, index: _FakeCapabilityIndex) -> None:
-        self.index = index
-
-
 def test_degrades_soft_when_engine_has_no_stale_materializations():
     class _NoTms:
         pass
@@ -467,28 +452,6 @@ def test_end_to_end_claim_register_invalidate_tick_revalidates():
     # byte-for-byte unchanged — no compare_and_set, no re-``add_node`` on the
     # same id, no deletion.
     assert eng.nodes[claim.id] == claim_version_before
-
-
-def test_end_to_end_capability_index_register_invalidate_tick_evicts_cache():
-    eng = FaithfulTmsEngine()
-    watcher = _FakeWatcher(_FakeCapabilityIndex())
-    eng._capability_index_watcher = watcher
-
-    eng.add_node("base:signal", "Fact", properties={})
-    eng.add_node("tool:search", "Tool", properties={"capability_reward": 0.8})
-    _register_capability_reward_materialization(eng, "tool:search", ["base:signal"])
-    assert eng.materialization_status("tool:search") == "Fresh"
-
-    eng.bump("base:signal")
-    assert eng.materialization_status("tool:search") == "Stale"
-
-    report = revalidate_stale_materializations(eng)
-
-    assert report["revalidated"]["capability_index"] == 1
-    assert watcher.index.removed == ["tool:search"]
-    # A pure cache invalidation: the durable capability_reward property is
-    # untouched (never mutated by revalidation).
-    assert eng.nodes["tool:search"]["capability_reward"] == 0.8
 
 
 def test_end_to_end_context_bundle_register_invalidate_tick_drops_from_cache(

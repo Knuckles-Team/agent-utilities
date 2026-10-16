@@ -6,8 +6,7 @@ synthetic corpus (the shape produced by human ``eval`` corrections), runs it
 through the real :class:`EvalRunner`, and FAILS if the pass-rate on cases whose
 answer is correct drops below a floor — catching a broken scorer before it ships.
 
-This mirrors the other synthetic-fixture gates (``check_retrieval_quality.py``,
-``check_designation_eval.py``): no network, no live KG, deterministic.
+This mirrors the other synthetic-fixture gates (``check_citation_lineage.py``): no network, no live KG, deterministic.
 
 **Hermetic scoring.** The synthetic cases have exact expected outputs, so the
 gate scores them with the deterministic normalized/lexical EXACT_MATCH strategy
@@ -113,7 +112,7 @@ def main() -> int:
     # Skip cleanly (exit 0, loud SKIP) when it's absent — the gate genuinely
     # cannot build the corpus without it. It runs for real in any env with the
     # kernel (the local pre-commit); lean/headless CI without the extra gets an
-    # honest SKIP, never a false red. Mirrors scripts/check_retrieval_quality.py.
+    # honest SKIP, never a false red. Mirrors the other synthetic gates.
     try:
         import agent_utilities.numeric  # noqa: F401
     except ImportError as exc:

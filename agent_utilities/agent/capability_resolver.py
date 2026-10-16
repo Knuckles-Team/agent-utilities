@@ -92,7 +92,7 @@ def resolve_capabilities(
     """Resolve intent tags to concrete tool functions (deduped, order-stable).
 
     Static :data:`CAPABILITY_TOOLS` is the primary path. Unknown tags fall back to the KG
-    capability index (``kg.retrieval.designate`` over an embedding of the tag) when ``kg`` and
+    EG capability designation (``kg.designate`` over an embedding of the tag) when ``kg`` and
     ``embed`` are supplied — the dynamic, rename-proof long tail. Truly unresolved tags are
     logged, never raised (a missing capability must not crash agent construction).
     """
@@ -125,13 +125,17 @@ def _kg_resolve(tag: str, *, kg: Any, embed: Callable[[str], Any] | None) -> lis
     if kg is None or embed is None:
         return []
     try:
-        retrieval = getattr(kg, "retrieval", None)
-        if retrieval is None:
+        designate = getattr(kg, "designate", None)
+        if not callable(designate):
             return []
-        designations = retrieval.designate(embed(tag), k=5)
+        designations = designate(embed(tag), k=5)
         out: list[str] = []
         for d in designations or []:
-            name = getattr(d, "entity_id", None) or getattr(d, "name", None)
+            name = (
+                getattr(d, "entity_id", None)
+                or getattr(d, "name", None)
+                or getattr(d, "id", None)
+            )
             if name:
                 out.append(str(name))
         return out
