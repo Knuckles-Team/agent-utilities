@@ -19,7 +19,6 @@ from agent_utilities.models.company_brain import DataClassification, NodeACL
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
 pytest.importorskip("epistemic_graph.numeric")
 
-from agent_utilities.numeric import xp as np
 
 DIM = 16
 
@@ -47,9 +46,9 @@ def _grant_public(*node_ids: str) -> None:
 
 def _basis(i: int, dim: int = DIM, scale: float = 1.0) -> list[float]:
     """One-hot basis vector along axis ``i`` (controllable similarities)."""
-    v = np.zeros(dim, dtype=np.float32)
+    v = [0.0] * dim
     v[i % dim] = scale
-    return v.tolist()
+    return v
 
 
 def _nodes() -> list[dict]:

@@ -45,12 +45,16 @@ def _make_node(name: str, embedding: list[float] | None = None) -> RegistryNode:
     )
 
 
+def _unit(vec: list[float]) -> list[float]:
+    """Scale a vector to unit norm using the native numeric kernel."""
+    norm = float(np.linalg.norm(vec))
+    return [float(x) / norm for x in vec]
+
+
 def _random_embedding(dim: int = 64, seed: int | None = None) -> list[float]:
     """Generate a random unit-norm embedding."""
-    rng = np.random.default_rng(seed)
-    vec = rng.standard_normal(dim)
-    vec /= np.linalg.norm(vec)
-    return vec.tolist()
+    rng = np.random.default_rng(0 if seed is None else seed)
+    return _unit([float(x) for x in rng.standard_normal(dim)])
 
 
 def _similar_embedding(
@@ -58,9 +62,8 @@ def _similar_embedding(
 ) -> list[float]:
     """Create a vector similar to base with controlled noise."""
     rng = np.random.default_rng(seed)
-    arr = np.array(base) + rng.standard_normal(len(base)) * noise
-    arr /= np.linalg.norm(arr)
-    return arr.tolist()
+    jitter = rng.standard_normal(len(base))
+    return _unit([b + float(j) * noise for b, j in zip(base, jitter, strict=True)])
 
 
 # =====================================================================
@@ -202,7 +205,10 @@ class TestKGNativeRetrievalRetriever:
         base_emb = _random_embedding(dim=32, seed=42)
         nodes = [
             _make_node("target node", embedding=base_emb),
-            _make_node("distant node", embedding=_random_embedding(dim=32, seed=99)),
+            _make_node(
+                "distant node",
+                embedding=_similar_embedding(base_emb, noise=0.15, seed=99),
+            ),
         ]
 
         query_emb = _similar_embedding(base_emb, noise=0.05, seed=1)
