@@ -2,7 +2,7 @@
 
 ``check_boundary_coverage.py`` (AU-BOUNDARY-R042) and ``check_boundary_owners.py``
 (AU-BOUNDARY-R038) both read the one disposition table in
-``specs/au-boundary-deconstruction/coverage.md`` -- the "Deletion and relocation
+``specs/au-boundary-deconstruction/plan.md`` -- the "Deletion and relocation
 inventory" under that heading -- and must agree on exactly what each row says.
 This module is the single place that table is parsed, so the two gates can
 never silently drift against each other.
@@ -19,7 +19,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-COVERAGE_PATH = Path("specs/au-boundary-deconstruction/coverage.md")
+COVERAGE_PATH = Path("specs/au-boundary-deconstruction/plan.md")
 
 _TABLE_HEADER = (
     "| Directory | Approx. lines | Disposition | Covering requirement ID(s) | Notes |"
