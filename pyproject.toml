@@ -28,7 +28,6 @@ openai = ["pydantic-ai-slim[openai]==2.57.0"]
 
 [[project.authors]]
 name = "Repository Maintainers"
-email = "maintainers@example.invalid"
 
 [project.scripts]
 agent-utilities = "agent_utilities.__main__:main"
