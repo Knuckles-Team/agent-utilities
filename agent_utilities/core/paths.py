@@ -9,7 +9,7 @@ scattered hardcoded ``knowledge_graph.db`` references with a single source
 of truth for path resolution.
 
 Architecture:
-    - ``config_dir()``: ``~/.config/agent-utilities/`` — config files,
+    - ``config_dir()``: ``~/.config/graph-os/`` — config files,
       mcp_config.json, a2a_config.json
     - ``data_dir()``: ``~/.local/share/agent-utilities/`` — KG database,
       ontologies, vector indexes, runtime artifacts
@@ -17,7 +17,7 @@ Architecture:
       similarity indexes, skill graph cache
 
 Directory roots can be overridden via environment variables:
-    - ``AGENT_UTILITIES_CONFIG_DIR``
+    - ``GRAPH_OS_CONFIG_DIR`` (legacy ``AGENT_UTILITIES_CONFIG_DIR`` for one release)
     - ``AGENT_UTILITIES_DATA_DIR``
     - ``AGENT_UTILITIES_CACHE_DIR``
 """
@@ -36,24 +36,115 @@ APP_NAME = "agent-utilities"
 APP_AUTHOR = "knuckles-team"
 
 
+# --- Platform (Graph OS) configuration directory ---------------------------
+# Mirrors agent_connector_sdk.paths.platform_config_dir (kept local so the
+# harness bootstrap does not depend on an SDK release for path resolution).
+#
+# Graph OS owns the platform configuration location: ``GRAPH_OS_CONFIG_DIR``
+# or ``$XDG_CONFIG_HOME/graph-os``. For one release, a file that is absent
+# there is read from the legacy agent-utilities location
+# (``AGENT_UTILITIES_CONFIG_DIR`` or ``$XDG_CONFIG_HOME/agent-utilities``),
+# and a single deprecation warning names both paths. An explicit
+# ``AGENT_UTILITIES_CONFIG_DIR`` with no ``GRAPH_OS_CONFIG_DIR`` is still
+# honoured as the directory (with the same warning) for that release.
+
+PLATFORM_CONFIG_DIR_SETTING = "GRAPH_OS_CONFIG_DIR"
+LEGACY_PLATFORM_CONFIG_DIR_SETTING = "AGENT_UTILITIES_CONFIG_DIR"
+PLATFORM_APP_DIR = "graph-os"
+LEGACY_PLATFORM_APP_DIR = "agent-utilities"
+
+_platform_logger = logging.getLogger(__name__)
+_legacy_warned = False
+
+
+def _config_home() -> Path:
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+
+
+def _env_dir(name: str) -> Path | None:
+    raw = os.environ.get(name)
+    return Path(raw).expanduser() if raw else None
+
+
+def preferred_platform_config_dir() -> Path:
+    """``GRAPH_OS_CONFIG_DIR`` or ``$XDG_CONFIG_HOME/graph-os`` (no fallback)."""
+    return _env_dir(PLATFORM_CONFIG_DIR_SETTING) or _config_home() / PLATFORM_APP_DIR
+
+
+def legacy_platform_config_dir() -> Path:
+    """``AGENT_UTILITIES_CONFIG_DIR`` or ``$XDG_CONFIG_HOME/agent-utilities``."""
+    return (
+        _env_dir(LEGACY_PLATFORM_CONFIG_DIR_SETTING)
+        or _config_home() / LEGACY_PLATFORM_APP_DIR
+    )
+
+
+def _warn_legacy(legacy: Path) -> None:
+    global _legacy_warned
+    if _legacy_warned:
+        return
+    _legacy_warned = True
+    _platform_logger.warning(
+        "Deprecated config location %s is in use; move the platform "
+        "configuration to %s (or set %s). The agent-utilities fallback is "
+        "removed in the next release.",
+        legacy,
+        preferred_platform_config_dir(),
+        PLATFORM_CONFIG_DIR_SETTING,
+    )
+
+
+def platform_config_file(name: str) -> Path:
+    """Resolve one platform config file, e.g. ``workspace.yml``.
+
+    Returns the file under :func:`preferred_platform_config_dir` when it exists
+    there; otherwise the legacy file when that exists (logging the one-time
+    deprecation warning); otherwise the preferred path, for a writer to create.
+    An explicit legacy ``AGENT_UTILITIES_CONFIG_DIR`` without
+    ``GRAPH_OS_CONFIG_DIR`` resolves inside that directory.
+    """
+    explicit_legacy = _env_dir(LEGACY_PLATFORM_CONFIG_DIR_SETTING)
+    if explicit_legacy and not _env_dir(PLATFORM_CONFIG_DIR_SETTING):
+        _warn_legacy(explicit_legacy)
+        return explicit_legacy / name
+    preferred = preferred_platform_config_dir() / name
+    if preferred.exists():
+        return preferred
+    legacy = legacy_platform_config_dir() / name
+    if legacy.exists():
+        _warn_legacy(legacy)
+        return legacy
+    return preferred
+
+
+def platform_config_dir(probe: str = "config.json") -> Path:
+    """The platform config directory, chosen by where ``probe`` lives.
+
+    The preferred directory wins unless ``probe`` is absent from it and present
+    in the legacy directory, in which case the legacy directory is returned and
+    the one-time deprecation warning is logged. The directory is not created.
+    """
+    return platform_config_file(probe).parent
+
+
 def config_dir() -> Path:
-    """Return the XDG config directory for agent-utilities.
+    """Return the Graph OS platform config directory.
 
-    Default: ``~/.config/agent-utilities/``
+    Default: ``~/.config/graph-os/`` (``$XDG_CONFIG_HOME/graph-os``)
 
-    Override via ``AGENT_UTILITIES_CONFIG_DIR`` environment variable.
+    Override via ``GRAPH_OS_CONFIG_DIR``. For one release the legacy
+    ``AGENT_UTILITIES_CONFIG_DIR`` / ``~/.config/agent-utilities/`` is used
+    when ``config.json`` lives only there (see :func:`platform_config_dir`).
 
     Contains:
         - ``mcp_config.json`` — MCP server discovery (cross-IDE)
         - ``a2a_config.json`` — A2A agent discovery
         - ``config.json`` — typed, reference-only runtime configuration
         - ``runtime-secrets.json`` — optional private ``env://`` value source
+        - ``workspace.yml`` — runtime workspace manifest
         - ``policies/`` — Global policy overrides
     """
-    override = os.environ.get("AGENT_UTILITIES_CONFIG_DIR")
-    if override:
-        return Path(override).expanduser()
-    return Path(platformdirs.user_config_path(APP_NAME, APP_AUTHOR))
+    return platform_config_dir()
 
 
 def runtime_secrets_path() -> Path:
@@ -126,13 +217,13 @@ def skills_dir() -> Path:
 def prompts_dir() -> Path:
     """Return the XDG overlay directory for user-supplied system-prompt blueprints.
 
-    Default: ``~/.config/agent-utilities/prompts/``
+    Default: ``~/.config/graph-os/prompts/``
 
     Override via ``AGENT_UTILITIES_PROMPTS_DIR`` environment variable.
 
     CONCEPT:AU-KG.compute.user-override-prompt-library — the user-override layer of the prompt library, mirroring
     :func:`skills_dir`. ``*.json`` blueprints placed here take precedence over
-    the packaged base prompts and fleet-contributed (``agent_utilities.prompt_providers``)
+    the packaged base prompts and fleet-contributed (``agent_connector_sdk.prompt_providers``)
     prompts of the same id when the KG prompt registry is ingested
     (``ingest_prompts_to_graph``). It lives under the *config* dir (not data),
     because these are operator-authored overrides, not runtime artifacts.
@@ -178,7 +269,7 @@ def kg_db_path() -> Path:
 def mcp_config_path() -> Path:
     """Return the path to the global MCP config for cross-IDE discovery.
 
-    Default: ``~/.config/agent-utilities/mcp_config.json``
+    Default: ``~/.config/graph-os/mcp_config.json``
     """
     return config_dir() / "mcp_config.json"
 
@@ -186,7 +277,7 @@ def mcp_config_path() -> Path:
 def a2a_config_path() -> Path:
     """Return the path to the global A2A config for agent discovery.
 
-    Default: ``~/.config/agent-utilities/a2a_config.json``
+    Default: ``~/.config/graph-os/a2a_config.json``
     """
     return config_dir() / "a2a_config.json"
 
@@ -264,7 +355,7 @@ def messaging_config_path() -> Path:
 
     CONCEPT:AU-ECO.messaging.native-backend-abstraction — Native Messaging Backend Abstraction
 
-    Default: ``~/.config/agent-utilities/config.json``
+    Default: ``~/.config/graph-os/config.json``
     (messaging keys are inside the same config.json, not a separate file)
 
     See Also:
@@ -280,7 +371,7 @@ def services_config_path() -> Path:
 
     CONCEPT:AU-OS.config.gateway-service-dashboard — Gateway Service Dashboard
 
-    Default: ``~/.config/agent-utilities/services.yaml``
+    Default: ``~/.config/graph-os/services.yaml``
 
     Contains the user-editable service layout for the gateway dashboard.
     Auto-generated from ``mcp_config.json`` on first run if not present.
@@ -363,7 +454,7 @@ def ensure_dirs() -> None:
     failure to a later, unrelated write call site.
     """
     named_dirs: list[tuple[str, Path]] = [
-        ("AGENT_UTILITIES_CONFIG_DIR (config_dir())", config_dir()),
+        ("GRAPH_OS_CONFIG_DIR (config_dir())", config_dir()),
         ("AGENT_UTILITIES_DATA_DIR (data_dir())/kg", data_dir() / "kg"),
         ("AGENT_UTILITIES_CACHE_DIR (cache_dir())", cache_dir()),
         ("AGENT_UTILITIES_DATA_DIR (data_dir())/ontologies", ontology_dir()),

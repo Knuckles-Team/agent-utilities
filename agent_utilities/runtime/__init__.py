@@ -1,7 +1,7 @@
 """Developer-Workspace Runtime — the persistent, sandboxed substrate for the SWE agent.
 
 Pillars: OS-5.33 (runtime/backends), ORCH-1.46 (action/observation protocol + dispatcher),
-KG-2.64 (provenance mirroring). See ``.specify/design/os-5.33-developer-workspace-runtime``.
+the provenance sink port. See ``.specify/design/os-5.33-developer-workspace-runtime``.
 
 Typical use::
 
@@ -26,8 +26,7 @@ if TYPE_CHECKING:
 
 from .docker_workspace import DockerWorkspace
 from .local_workspace import LocalWorkspace
-from .policy import action_policy_gate
-from .provenance import ProvenanceMirror
+from .provenance import ProvenanceMirror, ProvenanceSink
 from .workspace import DevWorkspace, PolicyGate, WorkspaceBackend
 
 __all__ = [
@@ -35,9 +34,9 @@ __all__ = [
     "DockerWorkspace",
     "LocalWorkspace",
     "ProvenanceMirror",
+    "ProvenanceSink",
     "PolicyGate",
     "WorkspaceBackend",
-    "action_policy_gate",
     "create_workspace",
 ]
 

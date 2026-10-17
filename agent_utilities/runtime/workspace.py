@@ -7,7 +7,7 @@ agent (ORCH-1.47) drives via typed actions.
   for the zero-infra floor, :class:`~.docker_workspace.DockerWorkspace` for isolation),
 * the shell :class:`~.bridge.WorkspaceState` (cwd/env carried across actions),
 * the fail-closed policy gate (OS-5.24) for mutating actions, and
-* the provenance mirror (KG-2.64) that records every action/observation into the KG.
+* the provenance sink (supplied by the host) that receives every action/observation.
 
 Contract: ``await ws.start()`` once, then ``await ws.act(action)`` per step (each returns the
 typed observation and is stamped with ``run_id``/``step``/``ts``/``actor``), then
@@ -17,6 +17,8 @@ typed observation and is stamped with ``run_id``/``step``/``ts``/``actor``), the
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -33,7 +35,7 @@ from .events import (  # noqa: F401  (re-exported for callers)
     Observation,
     mutating_action_name,
 )
-from .provenance import ProvenanceMirror
+from .provenance import ProvenanceMirror, ProvenanceSink
 
 # A policy gate: given the ActionPolicy action name (e.g. "workspace.cmd"), return
 # (allowed, reason). Pluggable so the runtime stays decoupled from a concrete ActionPolicy.
@@ -66,6 +68,38 @@ class WorkspaceBackend(Protocol):
     def exposed_url(self, port: int) -> str: ...
 
 
+async def run_shell_process(
+    argv: list[str],
+    timeout: float,
+    *,
+    cwd: str | None = None,
+    env: dict[str, str] | None = None,
+) -> tuple[int, str, str]:
+    """Run ``argv`` and return ``(exit_code, stdout, stderr)`` for ``exec_shell``.
+
+    A run that exceeds ``timeout`` seconds is killed and returns exit code 124.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        *argv,
+        cwd=cwd,
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+        return 124, "", f"command timed out after {timeout}s"
+    return (
+        proc.returncode or 0,
+        out.decode(errors="replace"),
+        err.decode(errors="replace"),
+    )
+
+
 class DevWorkspace:
     """Stateful developer workspace — drive it with typed actions (OS-5.33)."""
 
@@ -76,7 +110,7 @@ class DevWorkspace:
         run_id: str,
         actor: str | None = None,
         policy_gate: PolicyGate | None = None,
-        mirror: ProvenanceMirror | None = None,
+        mirror: ProvenanceSink | None = None,
         browser: BrowserDriver | None = None,
         computer_use: ComputerUseDriver | None = None,
     ) -> None:
@@ -84,7 +118,9 @@ class DevWorkspace:
         self.run_id = run_id
         self.actor = actor
         self._policy_gate = policy_gate
-        self._mirror = mirror if mirror is not None else ProvenanceMirror()
+        self._mirror: ProvenanceSink = (
+            mirror if mirror is not None else ProvenanceMirror()
+        )
         self._browser = browser  # optional ECO-4.44 browser driver
         self._computer_use = computer_use  # optional ECO-4.93 computer-use driver
         self._dispatcher = ActionDispatcher()

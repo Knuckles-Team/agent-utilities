@@ -27,7 +27,7 @@ reflects their intended post-merge state for those four repos.
 | aris-mcp | n/a | none found |
 | arr-mcp | n/a | `scripts/generate_api.py` template string only (dev codegen tool; generated `*_api.py` output is clean) |
 | atlassian-agent | n/a | none found |
-| audiobookshelf-mcp | n/a | `audiobookshelf_mcp/auth.py` docstring prose mentioning `agent_utilities.mcp.delegated_auth` / `.core.transport_security` (not an import statement) |
+| audiobookshelf-mcp | n/a | `audiobookshelf_mcp/auth.py` docstring prose mentioning `agent_utilities.graphos_client.delegated_auth` / `.core.transport_security` (not an import statement) |
 | audio-transcriber | n/a | none found |
 | caddy-mcp | n/a | none found |
 | camunda-mcp | n/a | none found |
@@ -62,7 +62,7 @@ reflects their intended post-merge state for those four repos.
 | Connector | Migration PR | Remaining sanctioned SDK-gap imports |
 |---|---|---|
 | kafka-mcp | n/a | none found |
-| keycloak-agent | n/a | `keycloak_agent/auth.py:16` `agent_utilities.mcp.client_credentials.ClientCredentialsTokenProvider` — annotated SDK gap (SDK's counterpart needs a credential ref + mandatory httpx.Client; out of scope mechanical rename) |
+| keycloak-agent | n/a | `keycloak_agent/auth.py:16` `agent_utilities.graphos_client.client_credentials.ClientCredentialsTokenProvider` — annotated SDK gap (SDK's counterpart needs a credential ref + mandatory httpx.Client; out of scope mechanical rename) |
 | lakekeeper-mcp | n/a | none found |
 | langfuse-agent | n/a | `langfuse_agent/auth.py:18` `agent_utilities.core.config.resolve_langfuse_host` — annotated SDK gap (no SDK equivalent for Langfuse-specific host/transport helpers) |
 | leanix-agent | n/a | none found |
@@ -79,7 +79,7 @@ reflects their intended post-merge state for those four repos.
 | okta-agent | n/a | none found |
 | onetrust-api | n/a | none found |
 | openbao-mcp | n/a | none found |
-| opensearch-mcp | n/a | `opensearch_mcp/auth.py:79` `agent_utilities.mcp.delegated_auth` — annotated SDK gap (same rationale as `agent_server.py`'s sanctioned exception: SDK's `create_mcp_server` deliberately omits delegation middleware; no fleet connector has proven that wiring yet) |
+| opensearch-mcp | n/a | `opensearch_mcp/auth.py:79` `agent_utilities.graphos_client.delegated_auth` — annotated SDK gap (same rationale as `agent_server.py`'s sanctioned exception: SDK's `create_mcp_server` deliberately omits delegation middleware; no fleet connector has proven that wiring yet) |
 | owncast-agent | n/a | none found |
 
 ## R008 (connector packages P–S) — 0 unsanctioned violators → LANDED
@@ -93,7 +93,7 @@ reflects their intended post-merge state for those four repos.
 | pulselink-mcp | n/a | none found |
 | qbittorrent-agent | n/a | none found |
 | repository-manager | n/a | `repository_manager/repository_manager.py:51` `agent_utilities.base_utilities.get_library_file_path` — annotated SDK gap ("no agent-connector-sdk equivalent") |
-| rom-manager | n/a | `rom_manager/romm/auth.py:60` `agent_utilities.mcp.delegated_auth` — annotated SDK gap (same delegation-middleware rationale as opensearch-mcp/agent_server.py) |
+| rom-manager | n/a | `rom_manager/romm/auth.py:60` `agent_utilities.graphos_client.delegated_auth` — annotated SDK gap (same delegation-middleware rationale as opensearch-mcp/agent_server.py) |
 | salesforce-agent | n/a | none found |
 | scholarx | n/a | none found |
 | searxng-mcp | n/a | `searxng_mcp/apps.py` docstring prose mentioning `agent_utilities.mcp.tools.mcp_apps` (not an import statement) |

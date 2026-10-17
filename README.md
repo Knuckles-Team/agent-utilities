@@ -1,95 +1,61 @@
 # Agent Utilities
 
-<p align="center">
-  <img src="docs/assets/brands/agent-utilities-logo-v1.png" alt="Agent Utilities logo" width="240">
-</p>
+**The in-run agent harness.** agent-utilities holds only the mechanism inside one
+agent run. It applies the decisions it is given; it does not store, decide,
+serve or connect on its own.
 
-<p align="center">
-  <b>The Python control plane for observable, governed agent work.</b><br>
-  <sub>Build agents, coordinate workflows, carry execution policy, and evaluate outcomes through explicit ecosystem contracts.</sub>
-</p>
-
-[![GitHub Repo stars](https://img.shields.io/github/stars/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/forks)
-[![GitHub contributors](https://img.shields.io/github/contributors/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/graphs/contributors)
-[![GitHub license](https://img.shields.io/github/license/Knuckles-Team/agent-utilities)](LICENSE)
-[![GitHub last commit (by committer)](https://img.shields.io/github/last-commit/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/commits/main)
-[![GitHub pull requests](https://img.shields.io/github/issues-pr/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/pulls)
-[![GitHub closed pull requests](https://img.shields.io/github/issues-pr-closed/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/pulls?q=is%3Apr+is%3Aclosed)
-[![GitHub issues](https://img.shields.io/github/issues/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities/issues)
-[![GitHub top language](https://img.shields.io/github/languages/top/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities)
-[![GitHub language count](https://img.shields.io/github/languages/count/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities)
-[![GitHub repo size](https://img.shields.io/github/repo-size/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities)
-[![GitHub repo file count (file type)](https://img.shields.io/github/directory-file-count/Knuckles-Team/agent-utilities)](https://github.com/Knuckles-Team/agent-utilities)
 [![PyPI - Version](https://img.shields.io/pypi/v/agent-utilities)](https://pypi.org/project/agent-utilities/)
-[![PyPI - Downloads](https://img.shields.io/pypi/dd/agent-utilities)](https://pypi.org/project/agent-utilities/)
-[![PyPI - License](https://img.shields.io/pypi/l/agent-utilities)](https://pypi.org/project/agent-utilities/)
-[![PyPI - Wheel](https://img.shields.io/pypi/wheel/agent-utilities)](https://pypi.org/project/agent-utilities/)
-[![PyPI - Implementation](https://img.shields.io/pypi/implementation/agent-utilities)](https://pypi.org/project/agent-utilities/)
 [![Build](https://github.com/Knuckles-Team/agent-utilities/actions/workflows/release.yml/badge.svg)](https://github.com/Knuckles-Team/agent-utilities/actions/workflows/release.yml)
-[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://knuckles-team.github.io/agent-utilities/)
 
-<p align="center">
-  <a href="https://knuckles-team.github.io/agent-utilities/">Documentation</a> ·
-  <a href="https://knuckles-team.github.io/agent-utilities/capabilities/">Capabilities</a> ·
-  <a href="https://knuckles-team.github.io/agent-utilities/guides/consumption-models/">Interfaces</a> ·
-  <a href="https://knuckles-team.github.io/agent-utilities/status/">Status</a>
-</p>
+*Version: 3.0.0*
 
-## Overview
+## What it contains
 
-Agent Utilities is the Python control plane for building, coordinating, evaluating, and improving SI agents. It provides agent and workflow execution while relying on GraphOS for public service composition and epistemic-graph for durable knowledge.
+| Module | What it does inside one run |
+|---|---|
+| `agent_utilities.harness.edit_engine` | Parses model-proposed edits (search/replace blocks, unified diffs), applies them with graduated matching, and re-prompts on malformed or unmatched edits. |
+| `agent_utilities.harness.contract_validator` | Checks a tool call's pre-conditions and its output's schema and verifier. |
+| `agent_utilities.harness.constraint_engine` | Enforces hierarchical constraints on tool calls (prompt, tool description, middleware, implementation) and escalates repeated violations. |
+| `agent_utilities.harness.quality_gates` | The pre-emit gate: antipattern detection, a preflight checklist and a multi-dimensional critique, in warn or block mode. |
+| `agent_utilities.runtime` | The developer workspace: typed actions and observations, a stateful shell, local and container backends, a policy gate it is given, and the browser and computer-use tier ports. |
+| `agent_utilities.host_ports` | The protocols the host fills: native and remote toolsets, tool clients, outbound credentials, delegated identity, the fleet catalog and the session keepalive. Without a host every binding port fails closed. |
+| `agent_utilities.core.paths` | Resolves the platform config, data, cache and log directories (`GRAPH_OS_CONFIG_DIR`, XDG). |
 
-Super Intelligence (SI) is the project’s term for model-backed agents.
+## Where everything else lives
 
-A typical developer loop is concrete and reviewable: admit a goal with scoped context, select an agent and its tools, run under budgets and policy, inspect the result and run evidence, then evaluate before proposing an improvement. The point is not another chat surface. It is making agent work observable enough to reproduce, diagnose, and improve.
+- **[epistemic-graph](https://github.com/Knuckles-Team/epistemic-graph)**: facts, records,
+  vocabulary, storage and queries, ingest, retrieval, reasoning, memory, decisions, and
+  learning (evaluation, harness evolution, reward and trace records).
+- **[graph-os](https://github.com/Knuckles-Team/graph-os)**: admission, auth, served
+  operations (MCP, REST, A2A), messaging front-ends, the registry and the multiplexer.
+  graph-os hosts this harness and registers the `host_ports` providers.
+- **[agent-connector-sdk](https://github.com/Knuckles-Team/agent-connector-sdk)**:
+  connector contracts, transports, the A2A protocol library and connector helpers.
 
-*Version: 2.5.0*
-
-## Key Capabilities
-
-- Build agents with model providers, skills, tools, and structured outputs.
-- Coordinate plans, teams, workflows, and durable execution.
-- Carry identity, context, budgets, approvals, and policy through agent work.
-- Evaluate outcomes and produce reviewable improvement proposals.
-
-## Documentation
-
-Start at the [Agent Utilities documentation](https://knuckles-team.github.io/agent-utilities/). It includes the [quick start](https://knuckles-team.github.io/agent-utilities/guides/quick-start/), [architecture](https://knuckles-team.github.io/agent-utilities/architecture/), and release-aware [capability status](https://knuckles-team.github.io/agent-utilities/status/).
-
-<!-- BEGIN GENERATED: concepts -->
-
-Synthesized from concept markers in the codebase into **1187 canonical concepts** across **9 pillars**.
-
-> Generated from [`docs/concepts.yaml`](docs/concepts.yaml); see [`docs/status.md`](docs/status.md) for the release-aware breakdown and [`docs/pillars/`](docs/pillars/) for the architecture map.
-
-<!-- END GENERATED: concepts -->
-
-## Architecture
-
-GraphOS owns public MCP, REST, and A2A composition. Agent Utilities owns agent and workflow behavior. The connector SDK owns source transport, while epistemic-graph owns durable graph state, schemas, and reasoning.
-
-![Agent platform runtime architecture](https://raw.githubusercontent.com/Knuckles-Team/epistemic-graph/main/docs/assets/runtime-architecture.svg)
-
-People enter through Agent Web UI, Agent Terminal UI, Geniusbot, or messaging. MCP/REST/A2A clients enter through Graph OS. Both paths reach Agent Utilities and then Epistemic Graph. External source systems reach Epistemic Graph through Agent Connector SDK. Agent Terminal UI currently uses REST capabilities only; ACP chat remains a tracked gap, not a supported path.
-
-## Quick Start
-
-Python 3.12 or newer is required. Install the serving extra, generate and check a local profile, then start the local MCP server:
+## Install and use
 
 ```bash
-uvx --from "agent-utilities[serving]" setup-config generate --profile tiny
-uvx --from "agent-utilities[serving]" graph-os --transport stdio
+pip install agent-utilities
 ```
 
-The [quick start guide](https://knuckles-team.github.io/agent-utilities/guides/quick-start/) covers provider configuration and other deployment profiles.
+```python
+from agent_utilities.runtime import create_workspace
+from agent_utilities.runtime.events import CmdRunAction, TestRunAction
 
-For the first development cycle, configure a provider, run a small goal, inspect its output and evidence, then adjust the agent or skill and repeat with the relevant tests. Keep durable facts in Epistemic Graph and public hosting in Graph OS. Agent Utilities owns the behavior between them.
+async with create_workspace(run_id="r1", prefer_docker=False) as ws:
+    await ws.act(CmdRunAction(command="git status"))
+    result = await ws.act(TestRunAction(selector="tests"))
+```
 
-## Contributing
+## Develop
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for contribution and validation guidance.
+```bash
+uv sync --group dev
+uv run ruff check . && uv run ruff format --check .
+uv run mypy agent_utilities
+uv run pytest -q
+```
 
 ## License
 
-Agent Utilities is released under the [MIT License](LICENSE).
+MIT, see [LICENSE](LICENSE).

@@ -4,22 +4,6 @@
   "owner_repo": "agent-utilities",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "AU-BOUNDARY-R001",
-    "AU-BOUNDARY-R001.1",
-    "AU-BOUNDARY-R001.2",
-    "AU-BOUNDARY-R001.3",
-    "AU-BOUNDARY-R001.4",
-    "AU-BOUNDARY-R001.4.1",
-    "AU-BOUNDARY-R001.4.2",
-    "AU-BOUNDARY-R001.4.2.1",
-    "AU-BOUNDARY-R001.4.2.2",
-    "AU-BOUNDARY-R001.4.2.3",
-    "AU-BOUNDARY-R001.4.2.4",
-    "AU-BOUNDARY-R001.4.3",
-    "AU-BOUNDARY-R001.5",
-    "AU-BOUNDARY-R001.6",
-    "AU-BOUNDARY-R001.7",
-    "AU-BOUNDARY-R001.8",
     "AU-BOUNDARY-R002",
     "AU-BOUNDARY-R002.1",
     "AU-BOUNDARY-R002.2",
@@ -29,47 +13,6 @@
     "AU-BOUNDARY-R002.3.3",
     "AU-BOUNDARY-R002.3.4",
     "AU-BOUNDARY-R002.3.5",
-    "AU-BOUNDARY-R003",
-    "AU-BOUNDARY-R003.1",
-    "AU-BOUNDARY-R003.2",
-    "AU-BOUNDARY-R003.5",
-    "AU-BOUNDARY-R003.6",
-    "AU-BOUNDARY-R003.7",
-    "AU-BOUNDARY-R003.8",
-    "AU-BOUNDARY-R003.9",
-    "AU-BOUNDARY-R003.10",
-    "AU-BOUNDARY-R003.11",
-    "AU-BOUNDARY-R003.12",
-    "AU-BOUNDARY-R003.13",
-    "AU-BOUNDARY-R003.14",
-    "AU-BOUNDARY-R003.15",
-    "AU-BOUNDARY-R003.16",
-    "AU-BOUNDARY-R003.17",
-    "AU-BOUNDARY-R003.18",
-    "AU-BOUNDARY-R003.19",
-    "AU-BOUNDARY-R003.20",
-    "AU-BOUNDARY-R003.21",
-    "AU-BOUNDARY-R003.22",
-    "AU-BOUNDARY-R003.23",
-    "AU-BOUNDARY-R003.24",
-    "AU-BOUNDARY-R003.25",
-    "AU-BOUNDARY-R003.26",
-    "AU-BOUNDARY-R003.27",
-    "AU-BOUNDARY-R003.28",
-    "AU-BOUNDARY-R003.29",
-    "AU-BOUNDARY-R003.3",
-    "AU-BOUNDARY-R003.4",
-    "AU-BOUNDARY-R004",
-    "AU-BOUNDARY-R004.1",
-    "AU-BOUNDARY-R004.2",
-    "AU-BOUNDARY-R004.3",
-    "AU-BOUNDARY-R004.4",
-    "AU-BOUNDARY-R004.5",
-    "AU-BOUNDARY-R004.6",
-    "AU-BOUNDARY-R004.7",
-    "AU-BOUNDARY-R004.8",
-    "AU-BOUNDARY-R004.9",
-    "AU-BOUNDARY-R004.10",
     "AU-BOUNDARY-R005",
     "AU-BOUNDARY-R005.1",
     "AU-BOUNDARY-R005.2",
@@ -99,14 +42,12 @@
     "AU-BOUNDARY-R010.13",
     "AU-BOUNDARY-R010.14",
     "AU-BOUNDARY-R010.15",
-    "AU-BOUNDARY-R010.16",
     "AU-BOUNDARY-R010.17",
     "AU-BOUNDARY-R010.18",
     "AU-BOUNDARY-R010.19",
     "AU-BOUNDARY-R010.20",
     "AU-BOUNDARY-R010.21",
     "AU-BOUNDARY-R010.22",
-    "AU-BOUNDARY-R010.23",
     "AU-BOUNDARY-R010.24",
     "AU-BOUNDARY-R010.25",
     "AU-BOUNDARY-R011",
@@ -121,17 +62,6 @@
     "AU-BOUNDARY-R011.4",
     "AU-BOUNDARY-R011.5",
     "AU-BOUNDARY-R012",
-    "AU-BOUNDARY-R013",
-    "AU-BOUNDARY-R013.1",
-    "AU-BOUNDARY-R013.2",
-    "AU-BOUNDARY-R013.3",
-    "AU-BOUNDARY-R013.4",
-    "AU-BOUNDARY-R013.5",
-    "AU-BOUNDARY-R013.6",
-    "AU-BOUNDARY-R013.7",
-    "AU-BOUNDARY-R013.8",
-    "AU-BOUNDARY-R013.9",
-    "AU-BOUNDARY-R013.10",
     "AU-BOUNDARY-R014",
     "AU-BOUNDARY-R014.1",
     "AU-BOUNDARY-R014.2",
@@ -200,13 +130,14 @@
     "AU-BOUNDARY-R037",
     "AU-BOUNDARY-R037.1",
     "AU-BOUNDARY-R038",
-    "AU-BOUNDARY-R039",
-    "AU-BOUNDARY-R039.1",
     "AU-BOUNDARY-R040",
     "AU-BOUNDARY-R040.1",
     "AU-BOUNDARY-R041",
     "AU-BOUNDARY-R042",
     "AU-BOUNDARY-R043",
+    "AU-BOUNDARY-R043.1",
+    "AU-BOUNDARY-R043.2",
+    "AU-BOUNDARY-R043.3",
     "AU-BOUNDARY-R044",
     "AU-BOUNDARY-R044.1",
     "AU-BOUNDARY-R045",
@@ -221,7 +152,6 @@
     "AU-BOUNDARY-R048.4",
     "AU-BOUNDARY-R048.5",
     "AU-BOUNDARY-R048.6",
-    "AU-BOUNDARY-R048.7",
     "AU-BOUNDARY-R048.8",
     "AU-BOUNDARY-R048.9",
     "AU-BOUNDARY-R048.10",
@@ -229,163 +159,6 @@
     "AU-BOUNDARY-R049"
   ],
   "requirements": [
-    {
-      "id": "AU-BOUNDARY-R001",
-      "title": "Retire AU's duplicated gateway module",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [
-        "aa5eba73e0f7"
-      ],
-      "verified_by": [],
-      "rollup_of": [
-        "AU-BOUNDARY-R001.1",
-        "AU-BOUNDARY-R001.2",
-        "AU-BOUNDARY-R001.3",
-        "AU-BOUNDARY-R001.4",
-        "AU-BOUNDARY-R001.5",
-        "AU-BOUNDARY-R001.6",
-        "AU-BOUNDARY-R001.7",
-        "AU-BOUNDARY-R001.8"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R001.1",
-      "title": "Record what actually landed for the gateway retirement",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "65d9961401fd"
-      ],
-      "verified_by": [
-        "tests/gates/test_boundary_landed_records.py:51"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R001.2",
-      "title": "Delete `agent_utilities/gateway/api.py`",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "0eb67c99cf0a"
-      ],
-      "verified_by": [
-        "tests/gates/test_boundary_r001_r010_deletion_census.py:54"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R001.3",
-      "title": "Delete `agent_utilities/gateway/artifacts_api.py`",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "902f906cac97"
-      ],
-      "verified_by": [
-        "tests/gates/test_boundary_r001_3_deleted.py:28",
-        "tests/gates/test_boundary_r001_3_deleted.py:35"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R001.4",
-      "title": "Delete `agent_utilities/gateway/registry_api.py` (rollup)",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
-      "rollup_of": [
-        "AU-BOUNDARY-R001.4.1",
-        "AU-BOUNDARY-R001.4.2",
-        "AU-BOUNDARY-R001.4.3"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R001.4.1",
-      "title": "Stop mounting `registry_api` routes from `agent_utilities/gateway/graph_api.py`",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "8bc78cbdfda1"
-      ],
-      "verified_by": [
-        "tests/unit/gateway/test_remote_oauth_api.py:194"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R001.4.2",
-      "title": "ROLLUP: repoint the `GET /api/tools` catalog read in `agent_utilities/mcp/kg_server.py` off `registry_api`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
-      "rollup_of": [
-        "AU-BOUNDARY-R001.4.2.1",
-        "AU-BOUNDARY-R001.4.2.2",
-        "AU-BOUNDARY-R001.4.2.3",
-        "AU-BOUNDARY-R001.4.2.4"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R001.4.2.1",
-      "title": "Record the owner of the `servers` catalog read for `GET /api/tools`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R001.4.2.2",
-      "title": "Add one typed `servers`-kind catalog reader that does not import `registry_api`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R001.4.2.3",
-      "title": "Call the new reader from `_read_catalog_kind_sync` in `agent_utilities/mcp/kg_server.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R001.4.2.4",
-      "title": "Update `tests/unit/mcp/test_collapse_tool_endpoints.py` to patch the new reader instead of `registry_api` privates",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R001.4.3",
-      "title": "Delete the `registry_api` module and its tests",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R001.5",
-      "title": "Delete `agent_utilities/gateway/registry.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R001.6",
-      "title": "Delete `agent_utilities/gateway/schemas/graph_analyze.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R001.7",
-      "title": "Delete `agent_utilities/gateway/widgets/genius_agent.py`",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "7717d2e627ab"
-      ],
-      "verified_by": [
-        "tests/gates/test_boundary_r001_7_deleted.py:22",
-        "tests/gates/test_boundary_r001_7_deleted.py:29"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R001.8",
-      "title": "Delete `agent_utilities/gateway/widgets/_optional_client.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
     {
       "id": "AU-BOUNDARY-R002",
       "title": "Retire AU's deployment and skill-certification tooling",
@@ -413,13 +186,11 @@
     {
       "id": "AU-BOUNDARY-R002.2",
       "title": "Delete `agent_utilities/deployment/backends.py`",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "db29b2da626e"
       ],
-      "verified_by": [
-        "tests/gates/test_boundary_r002_2_backends_deleted.py:34"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R002.3",
@@ -471,355 +242,6 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R003",
-      "title": "Retire AU's legacy MCP host and action manifest",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [
-        "2456745c1e4d"
-      ],
-      "verified_by": [],
-      "rollup_of": [
-        "AU-BOUNDARY-R003.1",
-        "AU-BOUNDARY-R003.2",
-        "AU-BOUNDARY-R003.5",
-        "AU-BOUNDARY-R003.6",
-        "AU-BOUNDARY-R003.7",
-        "AU-BOUNDARY-R003.8",
-        "AU-BOUNDARY-R003.9",
-        "AU-BOUNDARY-R003.10",
-        "AU-BOUNDARY-R003.11",
-        "AU-BOUNDARY-R003.12",
-        "AU-BOUNDARY-R003.13",
-        "AU-BOUNDARY-R003.14",
-        "AU-BOUNDARY-R003.15",
-        "AU-BOUNDARY-R003.16",
-        "AU-BOUNDARY-R003.17",
-        "AU-BOUNDARY-R003.18",
-        "AU-BOUNDARY-R003.19",
-        "AU-BOUNDARY-R003.20",
-        "AU-BOUNDARY-R003.21",
-        "AU-BOUNDARY-R003.22",
-        "AU-BOUNDARY-R003.23",
-        "AU-BOUNDARY-R003.24",
-        "AU-BOUNDARY-R003.25",
-        "AU-BOUNDARY-R003.26",
-        "AU-BOUNDARY-R003.27",
-        "AU-BOUNDARY-R003.28",
-        "AU-BOUNDARY-R003.29",
-        "AU-BOUNDARY-R003.3",
-        "AU-BOUNDARY-R003.4"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R003.1",
-      "title": "Record what actually landed for the legacy MCP host retirement",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "65d9961401fd"
-      ],
-      "verified_by": [
-        "tests/gates/test_boundary_landed_records.py:57"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R003.2",
-      "title": "RETIRED: superseded by AU-BOUNDARY-R003.5...AU-BOUNDARY-R003.29",
-      "delivery_state": "RETIRED",
-      "landed_in": [],
-      "verified_by": [],
-      "retired_reason": "superseded by AU-BOUNDARY-R003.5...AU-BOUNDARY-R003.29"
-    },
-    {
-      "id": "AU-BOUNDARY-R003.5",
-      "title": "Decide the per-behavior graph-os operation mapping for `kg_server.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.6",
-      "title": "Repoint `agent_utilities/mcp/tools/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.7",
-      "title": "Repoint `agent_utilities/mcp/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.8",
-      "title": "Repoint `agent_utilities/gateway/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.9",
-      "title": "Repoint `agent_utilities/knowledge_graph/core/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.10",
-      "title": "Repoint `agent_utilities/gateway/schemas/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.11",
-      "title": "Repoint `agent_utilities/deployment/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.12",
-      "title": "Repoint `agent_utilities/security/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.13",
-      "title": "Repoint `agent_utilities/orchestration/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.14",
-      "title": "Repoint `agent_utilities/knowledge_graph/ingestion/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.15",
-      "title": "Repoint `agent_utilities/knowledge_graph/retrieval/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.16",
-      "title": "Repoint `agent_utilities/knowledge_graph/backends/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.17",
-      "title": "Repoint `agent_utilities/core/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.18",
-      "title": "Repoint `agent_utilities/cli/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.19",
-      "title": "Repoint `agent_utilities/server/routers/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.20",
-      "title": "Repoint `agent_utilities/sdd/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.21",
-      "title": "Repoint `agent_utilities/observability/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.22",
-      "title": "Repoint `agent_utilities/messaging/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.23",
-      "title": "Repoint `agent_utilities/media/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.24",
-      "title": "Repoint `agent_utilities/knowledge_graph/live_artifacts/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.25",
-      "title": "Repoint `agent_utilities/harness/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.26",
-      "title": "Repoint `agent_utilities/ecosystem/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.27",
-      "title": "Repoint `agent_utilities/core/registry/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.28",
-      "title": "Repoint `agent_utilities/claude_harness/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.29",
-      "title": "Delete `agent_utilities/mcp/kg_server.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.3",
-      "title": "Delete `agent_utilities/mcp/_graphos_action_manifest.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R003.4",
-      "title": "Remove `_ingest_capabilities` from `agent_utilities/sdd/watcher.py`",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "908c5080c0b5"
-      ],
-      "verified_by": [
-        "tests/gates/test_boundary_r003_4.py:29",
-        "tests/gates/test_boundary_r003_4.py:55"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R004",
-      "title": "Retire AU's multiplexer family duplicated in graph-os",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [
-        "2456745c1e4d"
-      ],
-      "verified_by": [],
-      "rollup_of": [
-        "AU-BOUNDARY-R004.1",
-        "AU-BOUNDARY-R004.2",
-        "AU-BOUNDARY-R004.3",
-        "AU-BOUNDARY-R004.4",
-        "AU-BOUNDARY-R004.5",
-        "AU-BOUNDARY-R004.6",
-        "AU-BOUNDARY-R004.7",
-        "AU-BOUNDARY-R004.8",
-        "AU-BOUNDARY-R004.9",
-        "AU-BOUNDARY-R004.10"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R004.1",
-      "title": "Record what actually landed for the multiplexer-family retirement",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "65d9961401fd"
-      ],
-      "verified_by": [
-        "tests/gates/test_boundary_landed_records.py:70"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R004.2",
-      "title": "RETIRED: superseded by AU-BOUNDARY-R004.3...AU-BOUNDARY-R004.10",
-      "delivery_state": "RETIRED",
-      "landed_in": [],
-      "verified_by": [],
-      "retired_reason": "superseded by AU-BOUNDARY-R004.3...AU-BOUNDARY-R004.10"
-    },
-    {
-      "id": "AU-BOUNDARY-R004.3",
-      "title": "Confirm graph-os's fleet module provides parity for `multiplexer.py`'s routing/dispatch API",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R004.4",
-      "title": "Repoint agent_utilities/mcp/kg_server.py, agent_utilities/mcp/shared_multiplexer.py, and agent_utilities/mcp/tools/intent_tools.py off `agent_utilities/mcp/multiplexer.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R004.5",
-      "title": "Repoint agent_utilities/capabilities/fleet_tool_search.py off `agent_utilities/mcp/multiplexer.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R004.6",
-      "title": "Repoint agent_utilities/deployment/doctor.py off `agent_utilities/mcp/multiplexer.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R004.7",
-      "title": "Repoint agent_utilities/gateway/registry_api.py off `agent_utilities/mcp/multiplexer.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R004.8",
-      "title": "Repoint agent_utilities/orchestration/agent_runner.py off `agent_utilities/mcp/multiplexer.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R004.9",
-      "title": "Repoint agent_utilities/tools/dynamic_tool_orchestrator.py off `agent_utilities/mcp/multiplexer.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R004.10",
-      "title": "Delete `agent_utilities/mcp/multiplexer.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
       "id": "AU-BOUNDARY-R005",
       "title": "Migrate connector packages A-E onto the SDK",
       "delivery_state": "SPECIFIED",
@@ -850,7 +272,7 @@
     {
       "id": "AU-BOUNDARY-R006",
       "title": "Migrate connector packages F-J onto the SDK",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -860,16 +282,13 @@
     {
       "id": "AU-BOUNDARY-R006.1",
       "title": "Ship AU's F-J connector import-census gate",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "105559f760c3",
         "5a00da215c55",
         "fe5ca4e239ec"
       ],
-      "verified_by": [
-        "tests/gates/test_connector_sdk_import_census_gate.py:35",
-        "tests/gates/test_connector_sdk_import_census_gate.py:55"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R007",
@@ -930,7 +349,7 @@
     {
       "id": "AU-BOUNDARY-R009",
       "title": "Migrate connector packages T-Z onto the SDK",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -940,13 +359,11 @@
     {
       "id": "AU-BOUNDARY-R009.1",
       "title": "Ship AU's T-Z connector import-census gate",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "5a00da215c55"
       ],
-      "verified_by": [
-        "tests/gates/test_connector_sdk_import_census_gate.py:45"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R010",
@@ -972,14 +389,12 @@
         "AU-BOUNDARY-R010.13",
         "AU-BOUNDARY-R010.14",
         "AU-BOUNDARY-R010.15",
-        "AU-BOUNDARY-R010.16",
         "AU-BOUNDARY-R010.17",
         "AU-BOUNDARY-R010.18",
         "AU-BOUNDARY-R010.19",
         "AU-BOUNDARY-R010.20",
         "AU-BOUNDARY-R010.21",
         "AU-BOUNDARY-R010.22",
-        "AU-BOUNDARY-R010.23",
         "AU-BOUNDARY-R010.24",
         "AU-BOUNDARY-R010.25"
       ]
@@ -987,13 +402,11 @@
     {
       "id": "AU-BOUNDARY-R010.1",
       "title": "Record what actually landed for the connector-toolkit deletion",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "635f38f64aca"
       ],
-      "verified_by": [
-        "tests/gates/test_boundary_r010_r048_landed_records.py:12"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R010.2",
@@ -1095,13 +508,6 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.16",
-      "title": "Repoint agent_utilities/mcp/check_env_var_drift.py, agent_utilities/mcp/multiplexer.py, and agent_utilities/mcp/server_factory.py off `base_utilities.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
       "id": "AU-BOUNDARY-R010.17",
       "title": "Repoint agent_utilities/agent/factory.py off `base_utilities.py`",
       "delivery_state": "SPECIFIED",
@@ -1139,13 +545,6 @@
     {
       "id": "AU-BOUNDARY-R010.22",
       "title": "Repoint agent_utilities/rlm/config.py off `base_utilities.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R010.23",
-      "title": "Repoint agent_utilities/server/app.py off `base_utilities.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -1269,132 +668,6 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R013",
-      "title": "Restrict graph-os to AU's public API only",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [
-        "4a5540dd2e3d",
-        "5b4e8d0a31d0"
-      ],
-      "verified_by": [
-        "tests/unit/test_api_messaging.py:12"
-      ],
-      "rollup_of": [
-        "AU-BOUNDARY-R013.1",
-        "AU-BOUNDARY-R013.2",
-        "AU-BOUNDARY-R013.3",
-        "AU-BOUNDARY-R013.4",
-        "AU-BOUNDARY-R013.5",
-        "AU-BOUNDARY-R013.6",
-        "AU-BOUNDARY-R013.7",
-        "AU-BOUNDARY-R013.8",
-        "AU-BOUNDARY-R013.9",
-        "AU-BOUNDARY-R013.10"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R013.1",
-      "title": "Export `persistence_reference` from `agent_utilities.api.persistence_privacy` with an import test",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "a2616c523584"
-      ],
-      "verified_by": [
-        "tests/unit/test_api_persistence_privacy.py:11"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R013.2",
-      "title": "Export `Orchestrator` from `agent_utilities.api.orchestration` with an import test",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "a2616c523584"
-      ],
-      "verified_by": [
-        "tests/unit/test_api_orchestration.py:11"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R013.3",
-      "title": "Export the `work_durability` module from `agent_utilities.api.work_durability` with an import test",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "811ea6463bb6"
-      ],
-      "verified_by": [
-        "tests/unit/test_api_work_durability.py:11"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R013.4",
-      "title": "Export `KIND_ORCHESTRATOR_TASK`, `AgentTurnEnvelope`, `enqueue_agent_turn` from `agent_utilities.api.agent_dispatch` with an import test",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "811ea6463bb6"
-      ],
-      "verified_by": [
-        "tests/unit/test_api_agent_dispatch.py:11"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R013.5",
-      "title": "Export `trace_id` from `agent_utilities.api.trace_ontology` with an import test",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "bafa21805b51"
-      ],
-      "verified_by": [
-        "tests/unit/test_api_trace_ontology.py:11"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R013.6",
-      "title": "Export `ACTION_APPROVAL_KIND`, `approval_lease_to_props` from `agent_utilities.api.action_policy` with an import test",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "bafa21805b51"
-      ],
-      "verified_by": [
-        "tests/unit/test_api_action_policy.py:11"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R013.7",
-      "title": "Export `ElevationRequest`, `ElevationApproval`, `ElevationRevocation` from `agent_utilities.api.elevation` with an import test",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "2a5643693ab7"
-      ],
-      "verified_by": [
-        "tests/unit/test_api_elevation.py:11"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R013.8",
-      "title": "Export `ElevationService`, `ElevationSurface` from `agent_utilities.api.elevation` with an import test",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "2a5643693ab7"
-      ],
-      "verified_by": [
-        "tests/unit/test_api_elevation.py:18"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R013.9",
-      "title": "Export `LiveArtifactStore`, `get_live_artifact_store`, `LiveArtifact` from `agent_utilities.api.live_artifacts` with an import test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R013.10",
-      "title": "Export `RefreshService`, `RefreshResult` from `agent_utilities.api.live_artifacts` with an import test",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
       "id": "AU-BOUNDARY-R014",
       "title": "Move graph-os boundary modules out of AU",
       "delivery_state": "SPECIFIED",
@@ -1457,7 +730,7 @@
     {
       "id": "AU-BOUNDARY-R016",
       "title": "Split AU's monolithic configuration module",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "13655b508554"
       ],
@@ -1469,27 +742,22 @@
     {
       "id": "AU-BOUNDARY-R016.1",
       "title": "Gate AU's retained config.py against duplicate environment readers",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "5a00da215c55",
         "fe5ca4e239ec"
       ],
-      "verified_by": [
-        "tests/gates/test_config_duplicate_reader_gate.py:65",
-        "tests/gates/test_config_duplicate_reader_gate.py:71"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R017",
       "title": "Split messaging behavior and authority across AU, graph-os, and EG",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "4a5540dd2e3d",
         "5b4e8d0a31d0"
       ],
-      "verified_by": [
-        "tests/unit/test_api_messaging.py:25"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R018",
@@ -1538,15 +806,12 @@
     {
       "id": "AU-BOUNDARY-R019.1",
       "title": "Ship a typed inventory of the AU-BOUNDARY-R019 facade modules",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0fbe4bf46720",
         "8b325ddf1818"
       ],
-      "verified_by": [
-        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:178",
-        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:185"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R019.2",
@@ -1650,14 +915,12 @@
     {
       "id": "AU-BOUNDARY-R023",
       "title": "Split ingestion commit and derivation into EG",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "4a5540dd2e3d",
         "743e98cda405"
       ],
-      "verified_by": [
-        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:199"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R024",
@@ -1667,9 +930,7 @@
         "4a5540dd2e3d",
         "743e98cda405"
       ],
-      "verified_by": [
-        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:200"
-      ],
+      "verified_by": [],
       "rollup_of": [
         "AU-BOUNDARY-R024.1",
         "AU-BOUNDARY-R024.2",
@@ -1701,14 +962,12 @@
     {
       "id": "AU-BOUNDARY-R025",
       "title": "Move document, conversation, and feed sources to the SDK",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "4a5540dd2e3d",
         "743e98cda405"
       ],
-      "verified_by": [
-        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:201"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R026",
@@ -1724,14 +983,12 @@
     {
       "id": "AU-BOUNDARY-R027",
       "title": "Move deterministic enrichment and derivation to EG",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "4a5540dd2e3d",
         "743e98cda405"
       ],
-      "verified_by": [
-        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:202"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R028",
@@ -1768,7 +1025,7 @@
     {
       "id": "AU-BOUNDARY-R028.2",
       "title": "Retire `kg/infra/{placement_optimizer,inventory_collector}.py`",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "32bdd70f5ea4"
       ],
@@ -1780,39 +1037,33 @@
     {
       "id": "AU-BOUNDARY-R028.2.1",
       "title": "Pin the `kg/infra` production-importer set",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "32bdd70f5ea4",
         "4a5540dd2e3d"
       ],
-      "verified_by": [
-        "tests/gates/test_r028x_module_census.py:129"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R028.3",
       "title": "Retire `kg/quantum/{budget,__init__}.py` and `observability/quantum_trace.py`",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "8c6fb318c5d3",
         "8edddc8b0a00"
       ],
-      "verified_by": [
-        "tests/gates/test_r028_3_r028_4_retirement.py:27"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R028.4",
       "title": "Retire `kg/security/{cognitive_trap_defense,policy_ingestor,graph_validator,rule_ingestor}.py`",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "5c70aeb872d9",
         "8c6fb318c5d3",
         "9fec85433f51"
       ],
-      "verified_by": [
-        "tests/gates/test_r028_3_r028_4_retirement.py:57"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R028.5",
@@ -1826,7 +1077,7 @@
     {
       "id": "AU-BOUNDARY-R028.6",
       "title": "Retire `observability/{trace_ontology,self_ingest,audit_logger}.py`",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "26b087dd3b2f"
       ],
@@ -1838,20 +1089,18 @@
     {
       "id": "AU-BOUNDARY-R028.6.1",
       "title": "Pin the `observability/{trace_ontology,self_ingest,audit_logger}` production-importer set",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4",
         "4a5540dd2e3d"
       ],
-      "verified_by": [
-        "tests/gates/test_r028x_module_census.py:140"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R028.7",
       "title": "Retire `governance/relational_authority.py` and `.json`",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "26b087dd3b2f"
       ],
@@ -1863,20 +1112,18 @@
     {
       "id": "AU-BOUNDARY-R028.7.1",
       "title": "Pin the `governance/relational_authority` importer set",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4",
         "4a5540dd2e3d"
       ],
-      "verified_by": [
-        "tests/gates/test_r028x_module_census.py:163"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R028.8",
       "title": "Retire `kg/research/placement_mining.py`",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4"
@@ -1889,27 +1136,23 @@
     {
       "id": "AU-BOUNDARY-R028.8.1",
       "title": "Pin the `kg/research/placement_mining` production-importer set",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4",
         "4a5540dd2e3d"
       ],
-      "verified_by": [
-        "tests/gates/test_r028x_module_census.py:175"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R029",
       "title": "Move the ontology object model to EG",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "4a5540dd2e3d",
         "743e98cda405"
       ],
-      "verified_by": [
-        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:203"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R030",
@@ -1945,72 +1188,56 @@
     {
       "id": "AU-BOUNDARY-R030.2",
       "title": "Wire `scripts/generate_connector_manifests.py` off the local manifest compiler",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "6825115f4ac3"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/ontology/test_generate_connector_manifests_uses_sdk_pack.py:34"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R030.3",
       "title": "Wire `scripts/update_ontology_lock.py` off the local manifest compiler",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "62e0b302ed8e"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/ontology/test_update_ontology_lock_uses_sdk_pack.py:24",
-        "tests/unit/knowledge_graph/ontology/test_update_ontology_lock_uses_sdk_pack.py:29"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R030.4",
       "title": "Wire `scripts/generate_native_connector_manifest.py` off the local manifest compiler",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "c5d1bf3f8286"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/ontology/test_generate_native_connector_manifest_uses_sdk_pack.py:28",
-        "tests/unit/knowledge_graph/ontology/test_generate_native_connector_manifest_uses_sdk_pack.py:33"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R030.5",
       "title": "Wire `agent_utilities/knowledge_graph/domain_packs/pack_loader.py` off the local manifest compiler",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "d93381eba0db"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/domain_packs/test_pack_loader_uses_sdk_pack.py:22",
-        "tests/unit/knowledge_graph/domain_packs/test_pack_loader_uses_sdk_pack.py:34"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R030.6",
       "title": "Delete `agent_utilities/knowledge_graph/ontology/manifest_compiler.py`",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "c4c654815738"
       ],
-      "verified_by": [
-        "tests/gates/test_au_boundary_r030_6_deleted.py:16"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R030.7",
       "title": "Add `agent_utilities/knowledge_graph/core/ontology_publisher.py`",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "c0dc104b77a9"
       ],
-      "verified_by": [
-        "tests/unit/knowledge_graph/core/test_ontology_publisher.py:22",
-        "tests/unit/knowledge_graph/core/test_ontology_publisher.py:31"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R030.8",
@@ -2049,14 +1276,12 @@
     {
       "id": "AU-BOUNDARY-R031",
       "title": "Replace AU's graph-schema DTOs with EG-generated types",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "4a5540dd2e3d",
         "743e98cda405"
       ],
-      "verified_by": [
-        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:204"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R032",
@@ -2071,26 +1296,22 @@
     {
       "id": "AU-BOUNDARY-R033",
       "title": "Move external graph and database federation to EG",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "4a5540dd2e3d",
         "743e98cda405"
       ],
-      "verified_by": [
-        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:205"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R034",
       "title": "Move retrieval engines to EG",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "4a5540dd2e3d",
         "743e98cda405"
       ],
-      "verified_by": [
-        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:206"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R035",
@@ -2157,27 +1378,6 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R039",
-      "title": "Move front ends off AU internals",
-      "delivery_state": "LANDED",
-      "landed_in": [
-        "795afc53f54d"
-      ],
-      "verified_by": [],
-      "rollup_of": [
-        "AU-BOUNDARY-R039.1"
-      ]
-    },
-    {
-      "id": "AU-BOUNDARY-R039.1",
-      "title": "Pin AU's public front-end import surface",
-      "delivery_state": "LANDED",
-      "landed_in": [
-        "795afc53f54d"
-      ],
-      "verified_by": []
-    },
-    {
       "id": "AU-BOUNDARY-R040",
       "title": "Move agent memory and the learning engine to EG",
       "delivery_state": "LANDED",
@@ -2221,13 +1421,63 @@
     },
     {
       "id": "AU-BOUNDARY-R043",
-      "title": "Retained agent surface is declared and import-bounded",
-      "delivery_state": "LANDED",
+      "title": "The agent run loop stays in Agent Utilities",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "8a45ab8013ad",
         "fdeabad709b3"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R043.1",
+        "AU-BOUNDARY-R043.2",
+        "AU-BOUNDARY-R043.3"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.1",
+      "title": "The run loop applies a received run plan",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e7ce34331f28"
+      ],
+      "verified_by": [
+        "tests/test_run_loop.py:120",
+        "tests/test_run_loop.py:138",
+        "tests/test_run_loop.py:156",
+        "tests/test_run_loop.py:169",
+        "tests/test_run_loop.py:221"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.2",
+      "title": "The run loop has a documented fallback plan and fails closed",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e7ce34331f28"
+      ],
+      "verified_by": [
+        "tests/test_run_loop.py:113",
+        "tests/test_run_loop.py:194",
+        "tests/test_run_loop.py:248",
+        "tests/test_run_loop.py:59",
+        "tests/test_run_loop.py:67"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.3",
+      "title": "The recursive run loop enforces a received depth and budget",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e7ce34331f28"
+      ],
+      "verified_by": [
+        "tests/test_rlm.py:106",
+        "tests/test_rlm.py:20",
+        "tests/test_rlm.py:64",
+        "tests/test_rlm.py:75",
+        "tests/test_rlm.py:82"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R044",
@@ -2318,7 +1568,6 @@
         "AU-BOUNDARY-R048.4",
         "AU-BOUNDARY-R048.5",
         "AU-BOUNDARY-R048.6",
-        "AU-BOUNDARY-R048.7",
         "AU-BOUNDARY-R048.8",
         "AU-BOUNDARY-R048.9",
         "AU-BOUNDARY-R048.10",
@@ -2328,13 +1577,11 @@
     {
       "id": "AU-BOUNDARY-R048.1",
       "title": "`images/` is already relocated",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "635f38f64aca"
       ],
-      "verified_by": [
-        "tests/gates/test_boundary_r010_r048_landed_records.py:18"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R048.2",
@@ -2367,13 +1614,6 @@
     {
       "id": "AU-BOUNDARY-R048.6",
       "title": "Relocate `models/domains/`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
-    },
-    {
-      "id": "AU-BOUNDARY-R048.7",
-      "title": "Move the HR workforce MCP tool to graph-os",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
