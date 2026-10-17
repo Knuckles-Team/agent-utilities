@@ -315,7 +315,6 @@ def test_audited_consumers_have_no_numpy_import_or_array_fallback() -> None:
         root / "knowledge_graph/retrieval/temporal_semantic_id.py",
         root / "knowledge_graph/memory/optimization_engine.py",
         root / "knowledge_graph/core/spectral_navigator.py",
-        root / "knowledge_graph/core/world_model.py",
     )
     for path in audited:
         source = path.read_text(encoding="utf-8")

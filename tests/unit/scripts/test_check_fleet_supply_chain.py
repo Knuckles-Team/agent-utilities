@@ -91,6 +91,30 @@ def test_vcs_revision_contract_accepts_only_full_commit() -> None:
     )
 
 
+def test_workflow_pins_external_actions_but_keeps_pipelines_at_main() -> None:
+    workflow = (
+        "jobs:\n"
+        "  a:\n"
+        "    uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@main\n"
+        "  b:\n"
+        "    uses: other-org/workflows/.github/workflows/build.yml@main\n"
+        "  c:\n"
+        "    uses: Knuckles-Team/pipelines/.github/workflows/build.yml@v1\n"
+    )
+    findings = POLICY._workflow_findings(
+        "repo", PurePosixPath(".github/workflows/ci.yml"), workflow
+    )
+
+    assert [
+        (finding.rule, finding.line)
+        for finding in findings
+        if finding.rule == "SC-GHA-001"
+    ] == [
+        ("SC-GHA-001", 5),
+        ("SC-GHA-001", 7),
+    ]
+
+
 def test_source_snapshot_mode_uses_exact_workspace_membership_without_git(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
