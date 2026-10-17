@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agent-utilities"
 dynamic = ["version"]
-description = "In-run agent harness: edit application, tool contracts, constraints, pre-emit gates, the developer workspace and the host ports graph-os fills"
+description = "In-run agent harness: the agent run loop, edit application, tool contracts, constraints, pre-emit gates, the developer workspace and the host ports graph-os fills"
 readme = "README.md"
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -18,7 +18,13 @@ license = "MIT"
 dependencies = [
     "pydantic>=2.14.1,<2.15.0.dev0",
     "platformdirs>=4.13.3",
+    "pydantic-ai-slim==2.57.0",
+    "pydantic-graph==2.57.0",
+    "pydantic-ai-harness>=0.57.0,<0.58.0",
 ]
+
+[project.optional-dependencies]
+openai = ["pydantic-ai-slim[openai]==2.57.0"]
 
 [[project.authors]]
 name = "Repository Maintainers"

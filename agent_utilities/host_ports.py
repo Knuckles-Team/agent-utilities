@@ -20,7 +20,14 @@ plain typed providers at startup:
   forced refresh) and a **delegated identity provider** (the caller's user
   token and on-behalf-of exchange);
 * an **authority keepalive** that renews the caller's renewable session lease
-  for the whole of one delegation.
+  for the whole of one delegation;
+* a **run decision provider** that answers, for one run request, the run plan:
+  model, tool grant, plan steps, budgets, stop rules and harness settings (the
+  decision itself comes from epistemic-graph through graph-os);
+* a **model provider** that turns a model id from that plan into a pydantic-ai
+  model with graph-os's credentials attached;
+* a **run event sink** that receives every event of one run (graph-os writes
+  the trace into epistemic-graph).
 
 Without a registered provider every binding port fails closed (raises) and
 every read port reports the empty answer, never inventing a surface of its own.
@@ -101,6 +108,15 @@ class DelegatedIdentityProvider:
 
 ToolClientFactory = Callable[..., contextlib.AbstractAsyncContextManager[ToolClient]]
 
+RunDecisionProvider = Callable[[Any], Any]
+"""``(RunRequest) -> RunPlan`` (or an awaitable of it); see ``agent_utilities.graph``."""
+
+ModelProvider = Callable[[str], Any]
+"""``(model_id) -> pydantic-ai Model`` with the host's credentials attached."""
+
+RunEventSink = Callable[[Mapping[str, Any]], None]
+"""Receives one run event (a JSON-shaped mapping) in emission order."""
+
 _NATIVE: NativeToolsetProvider | None = None
 _FLEET: Callable[[], Mapping[str, FleetServer]] | None = None
 _KEEPALIVE: Callable[[], contextlib.AbstractAsyncContextManager[None]] | None = None
@@ -108,6 +124,47 @@ _REMOTE: RemoteToolsetProvider | None = None
 _TOOL_CLIENT: ToolClientFactory | None = None
 _CREDENTIALS: OutboundCredentialProvider | None = None
 _IDENTITY: DelegatedIdentityProvider | None = None
+_DECIDE: RunDecisionProvider | None = None
+_MODELS: ModelProvider | None = None
+_EVENTS: RunEventSink | None = None
+
+
+def register_run_decision_provider(provider: RunDecisionProvider | None) -> None:
+    """Install (or clear) the host's run-plan provider."""
+    global _DECIDE
+    _DECIDE = provider
+
+
+def register_model_provider(provider: ModelProvider | None) -> None:
+    """Install (or clear) the host's model-id resolver."""
+    global _MODELS
+    _MODELS = provider
+
+
+def register_run_event_sink(sink: RunEventSink | None) -> None:
+    """Install (or clear) the host's run event sink."""
+    global _EVENTS
+    _EVENTS = sink
+
+
+def run_decision_provider() -> RunDecisionProvider | None:
+    """The host's run-plan provider, or ``None`` (the harness then uses defaults)."""
+    return _DECIDE
+
+
+def resolve_model(model_id: str) -> Any:
+    """The host-built model for ``model_id``.
+
+    Without a host provider the id passes through unchanged, so pydantic-ai
+    resolves it itself (``"provider:name"`` ids need that provider's extra).
+    """
+    return model_id if _MODELS is None else _MODELS(model_id)
+
+
+def emit_run_event(event: Mapping[str, Any]) -> None:
+    """Send one run event to the host sink; a no-op without a host."""
+    if _EVENTS is not None:
+        _EVENTS(event)
 
 
 def register_native_toolset_provider(provider: NativeToolsetProvider | None) -> None:
