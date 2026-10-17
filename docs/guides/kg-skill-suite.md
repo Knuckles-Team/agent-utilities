@@ -12,7 +12,7 @@ graph-os on 2026-10-03 — `agent-utilities-deployment` was retired in favor of
 graph-os's own `graphos-deployment`, the two evolution skills merged into
 graph-os's `graph-os-evolution`, and the rest moved as-is, since their content
 already drives GraphOS operations graph-os itself serves. They remain
-discoverable fleet-wide through the same `agent_utilities.skill_providers`
+discoverable fleet-wide through the same `agent_connector_sdk.skill_providers`
 entry-point mechanism described below — just packaged there now. The
 mechanics in this guide (the sidecar schema, the forward-test matrix, the
 validation commands) still apply to whatever skill or skills agent-utilities
@@ -115,7 +115,7 @@ endpoint, credential, raw model output, or raw trace identifier.
 ## Installation and discovery
 
 The suite is packaged under `agent_utilities/skills/` and exposed through the
-`agent_utilities.skill_providers` entry-point group. Run
+`agent_connector_sdk.skill_providers` entry-point group. Run
 `agent-utilities install` to materialize provider contributions for supported
 agent clients. The installation contains only the one current name.
 

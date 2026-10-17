@@ -60,7 +60,7 @@ expects installed), `tools`, and the composition fields `extends`
 
 1. **packaged base** — these `agent_utilities/prompts/*.json` → `prompt:<name>`
 2. **fleet-contributed** — every installed agent-package that declares a
-   `[project.entry-points."agent_utilities.prompt_providers"]` → `prompt:<pkg>/<name>`
+   `[project.entry-points."agent_connector_sdk.prompt_providers"]` → `prompt:<pkg>/<name>`
 3. **operator overlay** — `*.json` in `core/paths.prompts_dir()`
    (`~/.config/agent-utilities/prompts/`) — a drop-in override layer.
 

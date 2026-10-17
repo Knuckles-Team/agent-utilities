@@ -267,7 +267,6 @@ async def test_progress_events_and_text_deltas_interleave_in_run_order() -> None
             return_value=(fake_agent, []),
         ),
         patch.object(agent_runner, "_record_execution_trace"),
-        patch.object(agent_runner, "_write_step_credit"),
         patch.object(agent_runner, "_persist_tool_calls"),
     ):
         recorder = _Recorder()

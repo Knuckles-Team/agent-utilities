@@ -5,7 +5,7 @@ CONCEPT:AU-ECO.ui.frontend-contribution
 ## Why this exists
 
 Before this lane, 68/68 fleet packages advertised skills, ontologies, and
-prompts through their own entry-point groups (`agent_utilities.skill_providers`,
+prompts through their own entry-point groups (`agent_connector_sdk.skill_providers`,
 `prompt_providers`, `ontology_providers`) but **none** advertised a WebUI
 integration surface — every WebUI page a package needed required a hand-written
 core edit (a `nav-registry.ts` route, a bespoke view component). This module adds
@@ -29,7 +29,7 @@ referenced capability.
 
 ```mermaid
 flowchart LR
-    A[installed distribution] --> B["entry-point load\n(agent_utilities.frontend_providers)"]
+    A[installed distribution] --> B["entry-point load\n(agent_connector_sdk.frontend_providers)"]
     B --> C["ownership proof\n(core.providers, no code import)"]
     C --> D["read ONE bounded file\ncontribution.json"]
     D --> E["unsafe-content scan\n(reject-list, raw text)"]

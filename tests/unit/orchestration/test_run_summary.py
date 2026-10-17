@@ -217,7 +217,6 @@ async def test_run_agent_fleet_gate_failure_produces_a_transparent_run_summary()
             ),
         ),
         patch.object(agent_runner, "_record_execution_trace") as mock_trace,
-        patch.object(agent_runner, "_write_step_credit"),
     ):
         raw = await agent_runner.run_agent(
             agent_name="messaging-assistant",
@@ -309,7 +308,6 @@ async def test_explicit_server_pin_cannot_be_rebound_and_requires_tool_provenanc
             ),
         ) as execute_server,
         patch.object(agent_runner, "_record_execution_trace") as mock_trace,
-        patch.object(agent_runner, "_write_step_credit"),
     ):
         raw = await agent_runner.run_agent(
             agent_name="github-mcp",
@@ -374,7 +372,6 @@ async def test_run_agent_success_run_summary_has_ok_outcome_and_no_failure() -> 
             ),
         ),
         patch.object(agent_runner, "_record_execution_trace") as record_trace,
-        patch.object(agent_runner, "_write_step_credit"),
     ):
         raw = await agent_runner.run_agent(
             agent_name="some-agent", task="t", include_run_summary=True
@@ -424,7 +421,6 @@ async def test_run_agent_without_include_run_summary_keeps_bare_string_contract(
             ),
         ),
         patch.object(agent_runner, "_record_execution_trace"),
-        patch.object(agent_runner, "_write_step_credit"),
     ):
         out = await agent_runner.run_agent(agent_name="some-agent", task="t")
 
@@ -462,7 +458,6 @@ async def test_run_agent_cancellation_best_effort_records_a_timeout_trace() -> N
             new=AsyncMock(side_effect=_asyncio.CancelledError()),
         ),
         patch.object(agent_runner, "_record_execution_trace") as mock_trace,
-        patch.object(agent_runner, "_write_step_credit"),
     ):
         pinned_run_id = "run:" + "2" * 32
         with pytest.raises(_asyncio.CancelledError):
@@ -511,7 +506,6 @@ async def test_run_agent_cancellation_trace_write_failure_preserves_reraise() ->
             "_record_execution_trace",
             side_effect=RuntimeError("KG backend exploded"),
         ),
-        patch.object(agent_runner, "_write_step_credit"),
     ):
         with pytest.raises(_asyncio.CancelledError):
             await agent_runner.run_agent(agent_name="some-agent", task="t")
@@ -603,7 +597,6 @@ async def test_successful_run_keeps_gateway_loop_live_while_persisting_one_trace
                 ),
             ),
             patch.object(agent_runner, "_record_execution_trace", _blocking_trace),
-            patch.object(agent_runner, "_write_step_credit"),
         ):
             successful_run = _asyncio.create_task(
                 agent_runner.run_agent(

@@ -578,7 +578,7 @@ test = [
     # no-engine CI test job installs only `--extra test --group guardrails`, so
     # without naming it here that import is absent and the whole file errors at
     # collection with `ModuleNotFoundError: No module named 'sqlalchemy'`.
-    "agent-utilities[agent-runtime,feeds,sandbox,acp,rdf,finance,event-kafka,pyarrow,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,trino]",
+    "agent-utilities[agent-runtime,feeds,sandbox,acp,rdf,finance,event-kafka,pyarrow,otel,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,trino]",
     # DEV/TEST-ONLY — a hermetic in-memory comparator, never imported by runtime code.
     # tests/knowledge_graph/test_pack_owl_closure.py, tests/unit/knowledge_graph/
     # test_owl_closure.py and tests/unit/knowledge_graph/test_federation.py build a
@@ -722,7 +722,7 @@ nextcloud = "agent_utilities.messaging.backends.nextcloud:NextcloudTalkBackend"
 # `prompts/*.json` (registry_builder ingests them with bare `prompt:<name>` ids),
 # so it deliberately does NOT also declare a `prompt_providers` entry-point —
 # that would re-ingest the base prompts under a second `agent-utilities/` namespace.
-[project.entry-points."agent_utilities.skill_providers"]
+[project.entry-points."agent_connector_sdk.skill_providers"]
 agent-utilities = "agent_utilities.skills"
 
 [tool.setuptools]
@@ -1101,6 +1101,8 @@ override-dependencies = [
     # logfire-api's floor comes from pydantic-graph's own metadata
     # (`logfire-api>=3.14.1`, unbounded above); real latest is 5.1.1.
     "logfire-api>=3.14.1,<6.0.0.dev0",           # real latest 5.1.1; resolved 6.0.0b7
+    "grpcio>=1.84.0,<1.85.0.dev0",               # real latest 1.84.0; resolved 1.85.0rc1
+    "protobuf>=7.36.2,<7.37.0.dev0",             # real latest 7.36.2; resolved 7.37.0rc1
 ]
 
 # CONCEPT:PHASE2-RECONCILE — searxng has no published wheel for the current

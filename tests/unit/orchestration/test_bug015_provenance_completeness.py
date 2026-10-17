@@ -163,7 +163,6 @@ async def test_main_path_run_summary_reports_degraded_when_trace_write_fails() -
             "_record_execution_trace_ordered",
             new=AsyncMock(return_value=False),  # <-- fault injection: write failed
         ),
-        patch.object(agent_runner, "_write_step_credit"),
     ):
         out = await agent_runner.run_agent(
             agent_name="some-agent", task="list containers", include_run_summary=True
@@ -220,7 +219,6 @@ async def test_main_path_done_event_is_consistent_with_checkpoint_event() -> Non
             "_record_execution_trace_ordered",
             new=AsyncMock(return_value=False),  # <-- fault injection: write failed
         ),
-        patch.object(agent_runner, "_write_step_credit"),
     ):
         await agent_runner.run_agent(
             agent_name="some-agent",

@@ -2,7 +2,7 @@
 """Fleet gate: skill + prompt names are globally unique across the whole environment.
 
 CONCEPT:AU-OS.deployment.agent-factory-autoload / OS-5.82. When every package's
-``agent_utilities.skill_providers`` skills are installed together with the
+``agent_connector_sdk.skill_providers`` skills are installed together with the
 ``universal-skills`` atomic skills and the hub's own ``agent_utilities/skills``,
 two skills that share a ``name:`` frontmatter value would shadow each other in the
 agent's skill directory. This gate makes that a build break.

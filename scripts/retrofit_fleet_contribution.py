@@ -9,7 +9,7 @@ the modular-contribution standard the scaffolder now emits for new packages:
      canonicalised in place so the two stay identical);
   2. a starter skill ``<pkg_module>/skills/<short>-starter/SKILL.md``
      (+ ``skills/__init__.py``) when the package ships no skill yet;
-  3. ``pyproject.toml`` entry-points (``agent_utilities.skill_providers`` /
+  3. ``pyproject.toml`` entry-points (``agent_connector_sdk.skill_providers`` /
      ``prompt_providers``) + ``prompts/**``,``skills/**`` package-data;
   4. widened ``MANIFEST.in`` for sdist parity.
 
@@ -113,11 +113,11 @@ def _patch_pyproject(text: str, repo_name: str, module: str) -> tuple[str, list[
     changes: list[str] = []
     out = text
 
-    if "agent_utilities.skill_providers" not in out:
+    if "agent_connector_sdk.skill_providers" not in out:
         block = (
-            f'[project.entry-points."agent_utilities.skill_providers"]\n'
+            f'[project.entry-points."agent_connector_sdk.skill_providers"]\n'
             f'{repo_name} = "{module}.skills"\n\n'
-            f'[project.entry-points."agent_utilities.prompt_providers"]\n'
+            f'[project.entry-points."agent_connector_sdk.prompt_providers"]\n'
             f'{repo_name} = "{module}.prompts"\n\n'
         )
         for anchor in (

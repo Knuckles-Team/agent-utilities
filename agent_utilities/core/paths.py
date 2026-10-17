@@ -132,7 +132,7 @@ def prompts_dir() -> Path:
 
     CONCEPT:AU-KG.compute.user-override-prompt-library — the user-override layer of the prompt library, mirroring
     :func:`skills_dir`. ``*.json`` blueprints placed here take precedence over
-    the packaged base prompts and fleet-contributed (``agent_utilities.prompt_providers``)
+    the packaged base prompts and fleet-contributed (``agent_connector_sdk.prompt_providers``)
     prompts of the same id when the KG prompt registry is ingested
     (``ingest_prompts_to_graph``). It lives under the *config* dir (not data),
     because these are operator-authored overrides, not runtime artifacts.

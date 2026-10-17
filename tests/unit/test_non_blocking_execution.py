@@ -438,7 +438,6 @@ async def test_shape_planning_and_run_provenance_do_not_block_the_event_loop(
     monkeypatch.setattr(agent_runner, "_prime_code_context", no_code_context)
     monkeypatch.setattr(agent_runner, "_execute_graph", complete_graph)
     monkeypatch.setattr(agent_runner, "_record_execution_trace", slow_trace)
-    monkeypatch.setattr(agent_runner, "_write_step_credit", lambda *_a, **_k: None)
 
     started = time.monotonic()
     run = asyncio.create_task(
@@ -534,7 +533,6 @@ async def test_resolve_agent_runs_off_the_event_loop(
 
     monkeypatch.setattr(agent_runner, "_execute_graph", _fake_graph)
     monkeypatch.setattr(agent_runner, "_record_execution_trace", lambda *a, **k: None)
-    monkeypatch.setattr(agent_runner, "_write_step_credit", lambda *a, **k: None)
 
     out = await agent_runner.run_agent(
         agent_name="portainer-agent",
@@ -588,7 +586,6 @@ async def test_passthrough_agent_skips_resolution(
 
     monkeypatch.setattr(agent_runner, "_execute_graph", _fake_graph)
     monkeypatch.setattr(agent_runner, "_record_execution_trace", lambda *a, **k: None)
-    monkeypatch.setattr(agent_runner, "_write_step_credit", lambda *a, **k: None)
 
     out = await agent_runner.run_agent(
         agent_name="messaging-assistant",

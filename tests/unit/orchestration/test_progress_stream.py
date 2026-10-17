@@ -86,7 +86,6 @@ def _mocked_focused_run(
             new=AsyncMock(return_value=result),
         ),
         patch.object(agent_runner, "_record_execution_trace") as record_trace,
-        patch.object(agent_runner, "_write_step_credit"),
         patch.object(agent_runner, "_persist_tool_calls") as persist_tool_calls,
     ):
         # Return both writer seams so callers can prove provenance was not split

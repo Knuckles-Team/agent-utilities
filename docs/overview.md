@@ -307,7 +307,7 @@ graph TD
 | AU-OS.scaling.shard-topology-visibility-per | Shard Topology Visibility | Per-shard reachability/breaker status surfaces + per-endpoint engine gauges and counters |
 | OS-5.29 | Reactive Replica Autoscaling | Registry-declared scaling bounds + pluggable signal providers + leader-only target-tracking autoscaler behind the policy gate |
 | AU-OS.identity.so-jwt-protected-children | Multiplexer Outbound Service Token | The MCP multiplexer mints + refreshes a Keycloak client-credentials token (audience `agent-services`) and attaches it to every remote child so jwt-enforced connectors are reachable through the aggregator (`mcp/client_credentials.py`, opt-in `MCP_CLIENT_AUTH=oidc-client-credentials`) |
-| OS-5.52 | Modular Skill/Prompt Contribution | Any agent-package ships its own skills + system prompts in its wheel, discovered via the `agent_utilities.skill_providers` / `prompt_providers` entry-points (package-owned skills install into the shared XDG dir) |
+| OS-5.52 | Modular Skill/Prompt Contribution | Any agent-package ships its own skills + system prompts in its wheel, discovered via the `agent_connector_sdk.skill_providers` / `prompt_providers` entry-points (package-owned skills install into the shared XDG dir) |
 | OS-5.72 | Env-var Drift Guard | Code is the single source of truth for env vars; `check_env_var_drift` flags DEAD / UNDOCUMENTED / MISSING_TOOL_MODE across `.env.example`, `mcp_config*.json`, docker compose, and the README (`mcp/check_env_var_drift.py`) |
 
 ### Gateway Service Dashboard (AU-OS.config.gateway-service-dashboard)

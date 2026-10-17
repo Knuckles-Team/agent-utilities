@@ -186,7 +186,7 @@ def _iter_prompt_sources() -> list[tuple[str, Path]]:
     namespaced id, a later same-id source naturally overwrites an earlier one:
 
       1. validated base  — exact XDG generation or current packaged source
-      2. fleet-contributed — each ``agent_utilities.prompt_providers`` dir
+      2. fleet-contributed — each ``agent_connector_sdk.prompt_providers`` dir
       3. operator overlay  — ``prompts_dir()`` (``~/.config/agent-utilities/prompts``)
     """
     from agent_utilities.core.paths import prompts_dir
@@ -321,7 +321,7 @@ async def ingest_prompts_to_graph():
     Replaces the legacy NODE_AGENTS.md registry with a dynamic KG-native
     discovery mechanism. Ingests, in precedence order (CONCEPT:AU-KG.compute.user-override-prompt-library):
     the packaged base prompts (``agent_utilities/prompts/``), every
-    fleet-contributed ``agent_utilities.prompt_providers`` package, and the
+    fleet-contributed ``agent_connector_sdk.prompt_providers`` package, and the
     operator XDG overlay (``prompts_dir()``). Later sources override earlier
     ones of the same namespaced id.
 

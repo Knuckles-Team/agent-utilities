@@ -144,7 +144,7 @@ fi
 
 # 4. Install the skill toolkit into EVERY agent tool present, and wire graph-os MCP.
 #    This sweep also picks up skills contributed by any installed agent-package
-#    via its `agent_utilities.skill_providers` entry-point (CONCEPT:OS-5.52), so
+#    via its `agent_connector_sdk.skill_providers` entry-point (CONCEPT:OS-5.52), so
 #    re-run `agent-utilities install --symlink` after the *-mcp fleet is
 #    deployed to wire in the freshly-installed providers' skills. Contributed
 #    prompts enter the KG automatically on the next registry build.

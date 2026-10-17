@@ -3203,7 +3203,7 @@ class AgentConfig(BaseSettings):
     # manual source_sync. KG_DEV_MODE silences it with the other daemons.
     kg_baseline_ingest: bool = Field(default=True, alias="KG_BASELINE_INGEST")
     # Skill providers whose corpora are baseline content (comma-separated names
-    # of ``agent_utilities.skill_providers`` entry points).
+    # of ``agent_connector_sdk.skill_providers`` entry points).
     kg_baseline_skill_providers: str = Field(
         default="agent-utilities,graph-os,universal-skills",
         alias="KG_BASELINE_SKILL_PROVIDERS",

@@ -57,7 +57,7 @@ from agent_utilities.core.providers import (
     provider_registrations,
 )
 
-FRONTEND_PROVIDER_GROUP = "agent_utilities.frontend_providers"
+FRONTEND_PROVIDER_GROUP = "agent_connector_sdk.frontend_providers"
 DESCRIPTOR_FILENAME = "contribution.json"
 SCHEMA_VERSION = "frontend-contribution.v1"
 
@@ -353,7 +353,7 @@ def scan_unsafe_content(raw_text: str) -> str | None:
 class FrontendContributionRecord:
     """One provider's contribution, resolved to an explicit terminal status.
 
-    Every installed ``agent_utilities.frontend_providers`` entry point
+    Every installed ``agent_connector_sdk.frontend_providers`` entry point
     produces exactly one record -- there is no silent skip (lane invariant:
     "no malformed provider is silently skipped").
     """
@@ -503,7 +503,7 @@ def discover_frontend_contributions(
 ) -> tuple[FrontendContributionRecord, ...]:
     """Discover, parse, and validate every installed frontend contribution.
 
-    Bounded ``O(P)`` over installed ``agent_utilities.frontend_providers``
+    Bounded ``O(P)`` over installed ``agent_connector_sdk.frontend_providers``
     entry points (lane budget); no provider code is imported and no network
     call is made. One malformed package quarantines to its own ``BLOCKED``
     row and never hides or mutates another package's record.

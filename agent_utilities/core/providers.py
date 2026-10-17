@@ -37,9 +37,9 @@ from agent_utilities.core.provider_materialization import (
 
 logger = logging.getLogger(__name__)
 
-SKILL_PROVIDER_GROUP = "agent_utilities.skill_providers"
-PROMPT_PROVIDER_GROUP = "agent_utilities.prompt_providers"
-ONTOLOGY_PROVIDER_GROUP = "agent_utilities.ontology_providers"
+SKILL_PROVIDER_GROUP = "agent_connector_sdk.skill_providers"
+PROMPT_PROVIDER_GROUP = "agent_connector_sdk.prompt_providers"
+ONTOLOGY_PROVIDER_GROUP = "agent_connector_sdk.ontology_providers"
 
 _GROUP_LEGS = {
     SKILL_PROVIDER_GROUP: "skills",

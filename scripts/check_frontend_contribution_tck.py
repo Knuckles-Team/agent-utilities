@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """GOC-24 qualification: run the FrontendContribution.v1 TCK over installed packages.
 
-Discovers every installed ``agent_utilities.frontend_providers`` entry point
+Discovers every installed ``agent_connector_sdk.frontend_providers`` entry point
 (via ``agent_utilities.core.frontend_providers.discover_frontend_contributions``),
 prints one line per package with its terminal status/reason -- OK/DEGRADED
 packages are visible, BLOCKED/MISSING packages are visible with a reason,

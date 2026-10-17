@@ -10,7 +10,7 @@ THE GAP THIS CLOSES
 discovers prompt providers with an in-process ``importlib.metadata
 .entry_points()`` walk, so it only ever sees what is installed in
 **graph-os's own serving venv**. The ~65-68 fleet ``agents/*`` packages that
-declare an ``agent_utilities.prompt_providers`` entry point are deliberately
+declare an ``agent_connector_sdk.prompt_providers`` entry point are deliberately
 NOT co-installed there (``AGENTS.md`` "Dependency discipline" — the same
 precondition ``fleet_skill_harvest`` documents), so their ``prompts/*.json``
 files are *structurally* invisible to in-process discovery: live-pod

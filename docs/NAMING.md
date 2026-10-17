@@ -69,7 +69,7 @@ For `typing.Protocol` classes that define structural contracts.
 
 ## Fleet skill & prompt names — globally unique (CONCEPT:AU-OS.deployment.agent-factory-autoload)
 
-Every agent-package contributes skills via `agent_utilities.skill_providers`. When the
+Every agent-package contributes skills via `agent_connector_sdk.skill_providers`. When the
 whole fleet's skills are installed together with `universal-skills` and the hub's own
 `agent_utilities/skills`, the current runtime resolver **rejects two skills sharing a
 `name:` frontmatter value before ingestion**. Skill names therefore MUST be **globally

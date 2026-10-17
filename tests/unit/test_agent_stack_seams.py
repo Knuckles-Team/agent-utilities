@@ -172,7 +172,6 @@ async def test_run_agent_exceptiongroup_unwrap_end_to_end():
             new=AsyncMock(side_effect=eg),
         ),
         patch.object(agent_runner, "_record_execution_trace"),
-        patch.object(agent_runner, "_write_step_credit"),
     ):
         out = await agent_runner.run_agent(agent_name="some-agent", task="t")
 
@@ -436,7 +435,6 @@ async def test_run_agent_reraises_cancellation_not_flattened():
             new=AsyncMock(side_effect=_asyncio.CancelledError()),
         ),
         patch.object(agent_runner, "_record_execution_trace"),
-        patch.object(agent_runner, "_write_step_credit"),
     ):
         with pytest.raises(_asyncio.CancelledError):
             await agent_runner.run_agent(agent_name="some-agent", task="t")

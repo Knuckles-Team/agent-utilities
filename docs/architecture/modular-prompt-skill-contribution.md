@@ -22,9 +22,9 @@ Any package opts in by declaring two setuptools entry-points pointing at
 *data-only* subpackages:
 
 ```toml
-[project.entry-points."agent_utilities.skill_providers"]
+[project.entry-points."agent_connector_sdk.skill_providers"]
 servicenow-api = "servicenow_api.skills"
-[project.entry-points."agent_utilities.prompt_providers"]
+[project.entry-points."agent_connector_sdk.prompt_providers"]
 servicenow-api = "servicenow_api.prompts"
 ```
 

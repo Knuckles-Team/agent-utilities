@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-579 typed fields · 367 runtime-only call-site inputs.
+580 typed fields · 333 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -429,6 +429,8 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `KG_LOOP_GOAL_EVAL_ENABLED` | `bool` | `True` |
 | `KG_RESEARCH_FEED` | `bool` | `True` |
 | `KG_RESEARCH_FEED_INTERVAL` | `float` | `1800.0` |
+| `KG_CONNECTOR_SYNC` | `bool` | `True` |
+| `KG_CONNECTOR_SYNC_INTERVAL` | `float` | `1800.0` |
 | `KG_RSS_FEEDS` | `str` | `` |
 | `KG_ARXIV_CATEGORIES` | `str` | `` |
 | `KG_ARXIV_MAX_RESULTS` | `int` | `50` |
@@ -722,7 +724,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 
 ## Runtime-only call-site inputs
 
-These keys are discovered from literal `config.setting(...)` calls but are not durable AgentConfig fields. This includes secret values materialized only inside a child process for an upstream SDK. Persisted configuration must use the corresponding `*_REF` field. An ordinary durable setting belongs in AgentConfig and will then move into the typed tables above.
+These keys are discovered from literal `config.setting(...)` calls but are not durable AgentConfig fields. This includes secret values materialized only inside a child process for an upstream SDK. Persisted configuration must use the corresponding `*_REF` field; an ordinary durable setting belongs in AgentConfig and will then move into the typed tables above.
 
 | Environment key | Read sites |
 |---|---:|
@@ -730,7 +732,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `ACTION_IRREVERSIBILITY_AVERSION` | 1 |
 | `AGENTS_ROOT` | 1 |
 | `AGENT_CLAIM_BACKEND` | 1 |
-| `AGENT_ID` | 2 |
 | `AGENT_INVENTORY_YAML` | 1 |
 | `AGENT_MCP_CONFIG_JSON` | 1 |
 | `AGENT_PACKAGES_ROOT` | 1 |
@@ -754,8 +755,8 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `AGENT_UTILITIES_SELF_INGEST_SPILL_MAX` | 1 |
 | `AGENT_UTILITIES_SELF_INGEST_SPILL_PATH` | 1 |
 | `AGENT_UTILITIES_SELF_INGEST_TIMEOUT` | 1 |
-| `AGENT_UTILITIES_TESTING` | 8 |
-| `AGENT_UTILITIES_TOKEN_SECRET` | 3 |
+| `AGENT_UTILITIES_TESTING` | 6 |
+| `AGENT_UTILITIES_TOKEN_SECRET` | 2 |
 | `APPDATA` | 1 |
 | `ARCHI_MODEL_PATH` | 1 |
 | `ARD_FEDERATION_MODE` | 1 |
@@ -786,7 +787,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `CHECKLIST_FILE` | 1 |
 | `CLAUDE_MEMORY_DIR` | 1 |
 | `COMPUTER_USE_TOOLS` | 1 |
-| `DATA_RESIDENCY_REGION` | 1 |
 | `DB_TOOLS` | 2 |
 | `DERIVATIVES_API_KEY` | 1 |
 | `DEVELOPER_TOOLS` | 1 |
@@ -799,7 +799,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `EMERALD_API_KEY` | 1 |
 | `EMERALD_URL` | 1 |
 | `ENABLE_DELEGATED_IDENTITY` | 1 |
-| `ENGINE_SURFACE_PROMETHEUS_URL` | 1 |
 | `EPISTEMIC_GRAPH_KVCACHE_ADDR` | 2 |
 | `EPISTEMIC_GRAPH_KVCACHE_MAX_CONNECTIONS` | 1 |
 | `EPISTEMIC_GRAPH_KVCACHE_PRINCIPAL` | 1 |
@@ -823,7 +822,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `ESSENTIAL_EA_URL` | 1 |
 | `ETHERSCAN_API_KEY` | 1 |
 | `EVENT_BACKEND` | 1 |
-| `FASTMCP_SERVER_AUTH_JWT_PUBLIC_KEY` | 1 |
 | `FLEET_REPLICA_COST_USD_PER_HOUR` | 1 |
 | `FLEET_SCALE_BUDGET_USD_PER_HOUR` | 1 |
 | `FORKD_SNAPSHOT_TAG` | 1 |
@@ -850,7 +848,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `GRAPHOS_TOKEN` | 1 |
 | `GRAPH_DB_POOL_TIMEOUT` | 1 |
 | `GRAPH_DIRECT_DISPATCH` | 1 |
-| `GRAPH_FANOUT_TIMEOUT` | 1 |
 | `GRAPH_PGGRAPH_SCHEMA` | 2 |
 | `GRAPH_PG_AGE` | 1 |
 | `GRAPH_SCHEMA_AUDIT_DIR` | 1 |
@@ -879,24 +876,16 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `JIRA_URL` | 1 |
 | `KAFKA_ENABLED` | 1 |
 | `KEYCLOAK_ADMIN_PASSWORD` | 1 |
-| `KEYCLOAK_CLIENT_ID` | 1 |
-| `KEYCLOAK_CLIENT_SECRET_REF` | 1 |
-| `KEYCLOAK_REALM` | 1 |
-| `KEYCLOAK_URL` | 2 |
+| `KEYCLOAK_URL` | 1 |
 | `KG_ADAPTIVE_CONCURRENCY` | 1 |
 | `KG_AMBIENT_EPISTEMIC` | 1 |
 | `KG_AMBIENT_EPISTEMIC_DISABLED_SOURCES` | 1 |
 | `KG_ASR_MODEL` | 1 |
 | `KG_CARD_MODEL` | 1 |
 | `KG_CONCEPT_CODE_LINK` | 2 |
-| `KG_DAEMON_LOG_LEVEL` | 1 |
-| `KG_DAEMON_METRICS` | 1 |
-| `KG_DAEMON_METRICS_HOST` | 1 |
-| `KG_DAEMON_METRICS_PORT` | 1 |
-| `KG_DAEMON_ROLE` | 4 |
+| `KG_DAEMON_ROLE` | 3 |
 | `KG_EA_WRITEBACK` | 1 |
 | `KG_EMBED_TIMEOUT` | 1 |
-| `KG_ENABLE_HARD_NEGATIVE_MINING` | 1 |
 | `KG_ENGINE_DETACHED` | 1 |
 | `KG_ENRICH_CHUNK_THRESHOLD` | 1 |
 | `KG_ENRICH_MAX_CHUNKS` | 1 |
@@ -908,7 +897,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `KG_INGEST_PROFILE` | 1 |
 | `KG_LLM_PRIORITY_RESERVE` | 1 |
 | `KG_LLM_PRIORITY_RESERVE_FRACTION` | 1 |
-| `KG_LOOP_EMBEDDING_GENERATION` | 1 |
 | `KG_MEDIA_TENANT_ISOLATED_BLOBS` | 1 |
 | `KG_MIN_KEYWORD_DISCOVER_RELEVANCE_THRESHOLD` | 1 |
 | `KG_MIN_LEXICAL_RELEVANCE_THRESHOLD` | 1 |
@@ -930,9 +918,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `KV_CACHE_MIN_CONTEXT_TOKENS` | 1 |
 | `KV_CACHE_MIN_HISTORY_TURNS` | 1 |
 | `KV_CACHE_MIN_PREFIX_TOKENS` | 1 |
-| `LADYBUG_DB_READ_ONLY` | 1 |
-| `LADYBUG_MAX_DB_SIZE` | 1 |
-| `LADYBUG_TRANSIENT_CONNECTIONS` | 1 |
 | `LANGFUSE_PUBLIC_KEY` | 1 |
 | `LANGFUSE_SECRET_KEY` | 1 |
 | `LEANIX_API_TOKEN` | 1 |
@@ -952,14 +937,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `MATTERMOST_URL` | 2 |
 | `MAX_TOOL_CALLS_PER_SESSION` | 1 |
 | `MAX_TOOL_REPEATS` | 1 |
-| `MCP_DISABLED_TOOLS` | 1 |
-| `MCP_ENABLED_TOOLS` | 1 |
-| `MCP_FLEET_REGISTRATION` | 1 |
-| `MCP_FLEET_REGISTRATION_TTL_SECS` | 1 |
-| `MCP_JWT_AUDIENCE` | 1 |
-| `MCP_JWT_ISSUER` | 1 |
-| `MCP_PUBLIC_BASE_URL` | 1 |
-| `MCP_SDK_FLOOR_ENFORCE` | 1 |
 | `MEASUREMENT_LOAD_THRESHOLD` | 1 |
 | `MEDIA_TOOLS` | 1 |
 | `MESSAGING_INBOX_RETRY_S` | 1 |
@@ -994,12 +971,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `NEXTCLOUD_TOKEN` | 1 |
 | `NEXTCLOUD_URL` | 2 |
 | `NEXTCLOUD_USER` | 1 |
-| `OAUTH_UPSTREAM_CLIENT_SECRET_REF` | 1 |
-| `OIDC_BASE_URL` | 1 |
-| `OPENAPI_CLIENT_ID` | 1 |
-| `OPENAPI_CLIENT_SECRET_REF` | 1 |
-| `OPENAPI_PASSWORD_REF` | 1 |
-| `OPENAPI_USERNAME` | 1 |
 | `OPENMAINT_TOKEN` | 1 |
 | `OPENMAINT_URL` | 1 |
 | `OPENSEARCH_CA_CERTS` | 1 |
@@ -1024,7 +995,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `POSTIZ_TOKEN` | 1 |
 | `POSTIZ_URL` | 1 |
 | `PROMETHEUS_MULTIPROC_DIR` | 1 |
-| `PYTEST_CURRENT_TEST` | 1 |
 | `PYTHONPATH` | 1 |
 | `QWEN_IMAGE_URL` | 1 |
 | `REDPANDA_BROKERS` | 1 |
@@ -1045,7 +1015,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `SERVICENOW_URL` | 1 |
 | `SERVICENOW_USERNAME` | 1 |
 | `SESSION_COST_BUDGET_USD` | 1 |
-| `SESSION_ID` | 2 |
 | `SESSION_LATENCY_BUDGET_MS` | 1 |
 | `SESSION_TOKEN_BUDGET` | 1 |
 | `SIGNAL_PHONE_NUMBER` | 1 |
@@ -1062,7 +1031,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `SYNOLOGY_CHAT_WEBHOOK_URL_REF` | 2 |
 | `TECHNITIUM_TOKEN` | 1 |
 | `TECHNITIUM_URL` | 1 |
-| `TRANSPORT` | 1 |
 | `TRM_WRITEBACK_BACKEND` | 1 |
 | `TUNNEL_MANAGER_URL` | 1 |
 | `TUNNEL_URL` | 1 |
