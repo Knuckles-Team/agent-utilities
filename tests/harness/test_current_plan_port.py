@@ -13,7 +13,7 @@ from agent_utilities.api.session import GraphSession, ScopeError, use_session
 from agent_utilities.security.actor_identity import ActorType
 from agent_utilities.security.brain_context import ActorContext
 
-pytestmark = pytest.mark.spec("AU-HARNESS-R014.9", "AU-HARNESS-R014.10")
+pytestmark = pytest.mark.spec("AU-HARNESS-R014.9.1", "AU-HARNESS-R014.10.1")
 
 
 def session():

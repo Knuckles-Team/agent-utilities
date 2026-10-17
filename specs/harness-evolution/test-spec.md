@@ -132,3 +132,7 @@ A fixture reader verifies session forwarding, empty plans, absent ports, malform
 requests, wrong-run snapshots and invalid validity windows. These tests prove no
 runtime storage, update tools, model-request injection or hosted execution.
 R014.7–11 runtime and served assertions in the table remain obligations.
+
+R014.9.1 and R014.10.1 bind only the fixture-reader boundary cases in `tests/harness/test_current_plan_port.py`.
+R014.9.2 and R014.10.2 retain the runtime and diagnostics obligations in the parent rows above.
+The parent requirements roll up both children; fixture tests cannot complete either parent.

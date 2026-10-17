@@ -161,3 +161,8 @@ Checkboxes close only after acceptance evidence. A design, branch, source file o
 - [x] **AU-HARNESS-R014.6:** Validate the public frozen snapshot models and export them through the normal API. Production run-loop binding remains pending.
 
 - [ ] **AU-HARNESS-R014.9 / R014.11:** Bind the read port and PlanState to signed runtime admission, update tools, request injection and termination. Prove hosted execution.
+
+- [x] **AU-HARNESS-R014.9.1:** Expose the public current-plan read method and injected port.
+- [ ] **AU-HARNESS-R014.9.2:** Bind the read adapter to the live scaffold used by tools and model requests.
+- [x] **AU-HARNESS-R014.10.1:** Validate public requests, snapshots and caller authority before exposing protected content.
+- [ ] **AU-HARNESS-R014.10.2:** Prove runtime refusal, metadata-only diagnostics and absence of restoration or model effects.

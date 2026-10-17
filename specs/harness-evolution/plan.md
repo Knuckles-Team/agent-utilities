@@ -331,3 +331,10 @@ model-request injection, and execution lifecycle binding do not exist at this ba
 that port to `run_agent`. GraphOS cannot enable live scaffold availability until
 the execution owner binds the same state to updates, injection and cleanup.
 The public read tests use a fixture reader and prove no served acceptance.
+
+### Public-boundary evidence decomposition
+
+R014.9.1 and R014.10.1 cover the public read port and its refusal boundary.
+R014.9.2 and R014.10.2 retain every runtime binding, unavailable-state and diagnostics obligation.
+The parent rows retain their original criteria and roll up the children.
+Fixture-reader evidence must not mark full runtime wiring or refusal complete.
