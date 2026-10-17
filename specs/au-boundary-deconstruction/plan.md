@@ -36,7 +36,7 @@ AU layers are pure versioned application contracts, domain policy, use cases, pr
 
 ### Existing wiring to reuse
 
-- `agent_utilities.arbora_client` is the AU boundary to arbora (GRAPHOS-*). Do not expose `knowledge_graph/core/engine.py` directly.
+- `agent_utilities.arbora_client` is the AU boundary to arbora (ARBORA-*). Do not expose `knowledge_graph/core/engine.py` directly.
 - `agent_utilities/knowledge_graph/backends/epistemic_graph_backend.py` already illustrates a thin engine adapter. Reuse generated `epistemic_graph` client types and digest checks, then retire duplicated backend dispatch branches.
 - `agent_utilities/knowledge_graph/retrieval/context_compiler.py` is retained as application context composition; graph search/ranking moves to EG methods.
 - `agent_utilities/observability/` retains agent telemetry emission while durable trace and usage records live in EG.
