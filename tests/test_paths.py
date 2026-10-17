@@ -19,7 +19,7 @@ _DIRS = {
 @pytest.fixture(autouse=True)
 def _isolated(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    for name in ("GRAPH_OS_CONFIG_DIR", *_DIRS):
+    for name in ("ARBORA_CONFIG_DIR", "GRAPH_OS_CONFIG_DIR", *_DIRS):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(paths, "_legacy_warned", False)
 
@@ -70,26 +70,26 @@ def test_ensure_dirs_names_the_unwritable_setting(overridden):
         locked.chmod(0o755)
 
 
-def test_graph_os_env_override_wins(monkeypatch, tmp_path):
+def test_arbora_env_override_wins(monkeypatch, tmp_path):
     override = tmp_path / "custom"
     override.mkdir()
     (override / "workspace.yml").write_text("name: x\n")
-    monkeypatch.setenv("GRAPH_OS_CONFIG_DIR", str(override))
+    monkeypatch.setenv("ARBORA_CONFIG_DIR", str(override))
     assert paths.platform_config_file("workspace.yml") == override / "workspace.yml"
     assert paths.platform_config_dir("workspace.yml") == override
     assert paths.config_dir() == override
 
 
 def test_new_xdg_path_preferred_without_warning(tmp_path, warnings):
-    for name in ("graph-os", "agent-utilities"):
+    for name in ("arbora", "agent-utilities"):
         (tmp_path / "xdg" / name).mkdir(parents=True)
         (tmp_path / "xdg" / name / "config.json").write_text("{}")
-    assert paths.platform_config_dir() == tmp_path / "xdg" / "graph-os"
+    assert paths.platform_config_dir() == tmp_path / "xdg" / "arbora"
     assert warnings == []
 
 
 def test_neither_present_returns_new_path_without_creating(tmp_path, warnings):
-    new = tmp_path / "xdg" / "graph-os"
+    new = tmp_path / "xdg" / "arbora"
     assert paths.platform_config_file("workspace.yml") == new / "workspace.yml"
     assert paths.platform_config_dir() == new
     assert not new.exists()
@@ -105,11 +105,11 @@ def test_legacy_override_falls_back_and_warns_once(monkeypatch, tmp_path, warnin
     assert paths.platform_config_file("workspace.yml") == legacy / "workspace.yml"
     assert paths.platform_config_dir() == legacy
     assert len(warnings) == 1
-    assert warnings[0][:2] == (legacy, tmp_path / "xdg" / "graph-os")
+    assert warnings[0][:2] == (legacy, tmp_path / "xdg" / "arbora")
 
 
 def test_legacy_xdg_fallback_is_per_file(tmp_path, warnings):
-    new = tmp_path / "xdg" / "graph-os"
+    new = tmp_path / "xdg" / "arbora"
     new.mkdir(parents=True)
     (new / "workspace.yml").write_text("name: x\n")
     legacy = tmp_path / "xdg" / "agent-utilities"
@@ -117,4 +117,28 @@ def test_legacy_xdg_fallback_is_per_file(tmp_path, warnings):
     (legacy / "config.json").write_text("{}")
     assert paths.platform_config_file("workspace.yml") == new / "workspace.yml"
     assert paths.platform_config_dir() == legacy
-    assert warnings == [(legacy / "config.json", new, "GRAPH_OS_CONFIG_DIR")]
+    assert warnings == [(legacy / "config.json", new, "ARBORA_CONFIG_DIR")]
+
+
+def test_graph_os_dir_is_read_before_agent_utilities(tmp_path, warnings):
+    old = tmp_path / "xdg" / "graph-os"
+    old.mkdir(parents=True)
+    (old / "config.json").write_text("{}")
+    legacy = tmp_path / "xdg" / "agent-utilities"
+    legacy.mkdir(parents=True)
+    (legacy / "config.json").write_text("{}")
+    assert paths.platform_config_dir() == old
+    assert paths.legacy_platform_config_dirs() == (old, legacy)
+    assert warnings == [
+        (old / "config.json", tmp_path / "xdg" / "arbora", "ARBORA_CONFIG_DIR")
+    ]
+
+
+def test_explicit_graph_os_setting_still_honoured(monkeypatch, tmp_path, warnings):
+    old = tmp_path / "explicit-graph-os"
+    monkeypatch.setenv("GRAPH_OS_CONFIG_DIR", str(old))
+    monkeypatch.setenv("AGENT_UTILITIES_CONFIG_DIR", str(tmp_path / "au"))
+    assert paths.platform_config_dir() == old
+    assert len(warnings) == 1
+    monkeypatch.setenv("ARBORA_CONFIG_DIR", str(tmp_path / "new"))
+    assert paths.platform_config_dir() == tmp_path / "new"

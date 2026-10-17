@@ -208,7 +208,7 @@
     },
     {
       "id": "AU-BOUNDARY-R002.3.1",
-      "title": "Record the graph-os owner of the ephemeral loopback OIDC certification authority",
+      "title": "Record the arbora owner of the ephemeral loopback OIDC certification authority",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -669,7 +669,7 @@
     },
     {
       "id": "AU-BOUNDARY-R014",
-      "title": "Move graph-os boundary modules out of AU",
+      "title": "Move arbora boundary modules out of AU",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "3254358d61d6",
@@ -694,7 +694,7 @@
     },
     {
       "id": "AU-BOUNDARY-R014.2",
-      "title": "Move `knowledge_graph/readiness.py` to graph-os",
+      "title": "Move `knowledge_graph/readiness.py` to arbora",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -751,7 +751,7 @@
     },
     {
       "id": "AU-BOUNDARY-R017",
-      "title": "Split messaging behavior and authority across AU, graph-os, and EG",
+      "title": "Split messaging behavior and authority across AU, arbora, and EG",
       "delivery_state": "LANDED",
       "landed_in": [
         "4a5540dd2e3d",

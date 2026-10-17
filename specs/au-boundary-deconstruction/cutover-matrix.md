@@ -4,7 +4,7 @@ Each row is a separately reviewable deliverable. The owner named after the arrow
 
 | Requirement | AU source cut and target behavior | Required acceptance focus |
 |---|---|---|
-| AU-BOUNDARY-R002 | Remove `deployment/**` and duplicate scripts; graph-os owns doctor, skill certification and deployment | CLI ownership, dry-run install, no colliding entry points |
+| AU-BOUNDARY-R002 | Remove `deployment/**` and duplicate scripts; arbora owns doctor, skill certification and deployment | CLI ownership, dry-run install, no colliding entry points |
 | AU-BOUNDARY-R005 | Migrate connector packages A–E to SDK and generated EG client | Import census and real read/write receipt for each package |
 | AU-BOUNDARY-R006 | Migrate connector packages F–J | Same per-package transport and scope proof |
 | AU-BOUNDARY-R007 | Migrate connector packages K–O | Same per-package transport and scope proof |
@@ -13,10 +13,10 @@ Each row is a separately reviewable deliverable. The owner named after the arrow
 | AU-BOUNDARY-R010 | Delete AU connector toolkit and HTTP/credential helpers now replaced in SDK | Zero connector imports of AU toolkit, no compatibility alias |
 | AU-BOUNDARY-R011 | Delete AU source lifecycle and certification code; SDK owns it | Cursor, conflict, mapping and certification conformance |
 | AU-BOUNDARY-R012 | Delete second EG projection and control-plane shim | Generated EG client is sole projection and contract digest |
-| AU-BOUNDARY-R014 | Move request identity, error and other server boundary modules to graph-os | Principal/tenant/context preservation and deny tests |
-| AU-BOUNDARY-R015 | Move AU `server/**` and A2A/ACP/AG-UI hosting to graph-os | Endpoint and cancellation parity, no AU listener |
-| AU-BOUNDARY-R016 | Split `core/config.py`: agent/model policy stays AU. Connector settings to SDK. Hosting settings to graph-os | Config fixture matrix and no duplicate environment reader |
-| AU-BOUNDARY-R017 | Split messaging: graph-os hosts channel adapters, EG owns durable bus/log, AU receives typed events | Delivery, replay, ordering, authorization and outage proof |
+| AU-BOUNDARY-R014 | Move request identity, error and other server boundary modules to arbora | Principal/tenant/context preservation and deny tests |
+| AU-BOUNDARY-R015 | Move AU `server/**` and A2A/ACP/AG-UI hosting to arbora | Endpoint and cancellation parity, no AU listener |
+| AU-BOUNDARY-R016 | Split `core/config.py`: agent/model policy stays AU. Connector settings to SDK. Hosting settings to arbora | Config fixture matrix and no duplicate environment reader |
+| AU-BOUNDARY-R017 | Split messaging: arbora hosts channel adapters, EG owns durable bus/log, AU receives typed events | Delivery, replay, ordering, authorization and outage proof |
 | AU-BOUNDARY-R018 | Replace AU graph engine facade with generated EG client | No Python graph authority or fallback path |
 | AU-BOUNDARY-R019 | Replace graph-compute and session facades with typed EG calls | Session scope, compute budget, typed error parity |
 | AU-BOUNDARY-R020 | Move durable work and queues to EG | Claim fencing, restart, idempotency and tenant isolation |

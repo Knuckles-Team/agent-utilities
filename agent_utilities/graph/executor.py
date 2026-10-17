@@ -170,11 +170,11 @@ async def run(
 
 
 class AgentRunExecutor:
-    """The agent-execution port graph-os composes into its control plane.
+    """The agent-execution port arbora composes into its control plane.
 
-    ``execute_agent`` reads the fields of graph-os's typed execution request
-    (duck-typed, so the harness does not import graph-os) and returns a
-    :class:`RunResult`; graph-os maps it onto its own result type.
+    ``execute_agent`` reads the fields of arbora's typed execution request
+    (duck-typed, so the harness does not import arbora) and returns a
+    :class:`RunResult`; arbora maps it onto its own result type.
     """
 
     def __init__(self, config: Mapping[str, Any] | None = None) -> None:

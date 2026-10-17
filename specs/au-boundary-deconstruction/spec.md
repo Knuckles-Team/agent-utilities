@@ -13,7 +13,7 @@ Agent Utilities exposes one agent execution application API. It no longer hosts 
 
 | Cut | Requirements | Remove from AU after replacement is wired | Authority and retained AU behavior |
 |---|---|---|---|
-| Served shell | AU-BOUNDARY-R002, AU-BOUNDARY-R014–AU-BOUNDARY-R017 | `deployment/`, A2A/ACP/AG-UI hosts, served messaging adapters, duplicate console scripts, non-API imports by clients | graph-os hosts public REST/MCP/A2A, fleet, deployment and messaging (GRAPHOS-DEPLOY, GRAPHOS-FLEET). AU keeps the agent harness. AU reaches graph-os through `agent_utilities.graphos_client`. |
+| Served shell | AU-BOUNDARY-R002, AU-BOUNDARY-R014–AU-BOUNDARY-R017 | `deployment/`, A2A/ACP/AG-UI hosts, served messaging adapters, duplicate console scripts, non-API imports by clients | arbora hosts public REST/MCP/A2A, fleet, deployment and messaging (GRAPHOS-DEPLOY, GRAPHOS-FLEET). AU keeps the agent harness. AU reaches arbora through `agent_utilities.arbora_client`. |
 | Connector lifecycle | AU-BOUNDARY-R005–AU-BOUNDARY-R011, AU-BOUNDARY-R024–AU-BOUNDARY-R026, AU-BOUNDARY-R049 | connector toolkit, `protocols/source_connectors/`, source polling/transport, vendor extractors and sinks, certification | agent-connector-sdk owns source access, cursors, pack authoring and write-back; AU submits typed agent claims only |
 | Graph and semantic state | AU-BOUNDARY-R012, AU-BOUNDARY-R018–AU-BOUNDARY-R023, AU-BOUNDARY-R027–AU-BOUNDARY-R035, AU-BOUNDARY-R040 | second EG projection, graph engine/session facade, durable work/queue, tenancy, graph analytics, deterministic ingestion, ontology/SHACL, graph DTO copies, legacy SPARQL setup, retrieval engines, schema-drift authority and durable memory | epistemic-graph owns durable records, types, schema, reasoning, retrieval and memory; AU keeps policy/context compilation over generated client ports |
 | Cross-cutting state | AU-BOUNDARY-R036–AU-BOUNDARY-R037 | AU SQLite usage facts and `governance/` merge-queue and concept-reservation tooling | EG stores usage facts. Repository-manager owns repository and worktree governance. AU emits usage events |
@@ -26,7 +26,7 @@ The [deliverable matrix](cutover-matrix.md) defines the concrete source cut, tar
 ## Requirements
 
 1. Preserve observable behavior through the new owner and retire each replaced AU entry point in the same coherent change. Do not leave a forwarding alias or dual write as a permanent compatibility layer.
-2. `graph-os` and frontends call AU only through `agent_utilities.api` for agent execution. AU application code never imports public transport, source vendor SDK, or persistence implementation.
+2. `arbora` and frontends call AU only through `agent_utilities.api` for agent execution. AU application code never imports public transport, source vendor SDK, or persistence implementation.
 3. A migration includes an explicit old-operation → new-operation inventory. Each old operation has a tested new owner or a reviewed deletion reason. Authorization, tenant scope, idempotency, error code and receipt parity are checked on the real entry point.
 4. Replace AU graph DTOs with generated EG types from one pinned contract digest. Reject incompatible generations before side effects; do not hand-copy a wire model or digest algorithm.
 5. Migrate durable usage and memory through tenant-scoped EG methods; no local SQLite fallback. Old untrusted records are quarantined until an authorized migration can attest source and tenant.

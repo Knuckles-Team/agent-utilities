@@ -36,7 +36,7 @@ def _no_host():
     ],
 )
 def test_binding_ports_fail_closed(call):
-    with pytest.raises(RuntimeError, match="graph-os"):
+    with pytest.raises(RuntimeError, match="arbora"):
         call()
 
 

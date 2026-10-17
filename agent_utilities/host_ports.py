@@ -1,21 +1,21 @@
-"""Host-provided ports the harness receives from graph-os.
+"""Host-provided ports the harness receives from arbora.
 
 CONCEPT:AU-ORCH.adapter.transport-toolset-factory
 
 agent-utilities is the agent harness only. It never serves, registers or
-connects to a tool surface itself and carries no MCP code: graph-os owns the
+connects to a tool surface itself and carries no MCP code: arbora owns the
 MCP serving surface, every MCP client connection and every outbound
-credential. When the harness runs inside graph-os, graph-os registers these
+credential. When the harness runs inside arbora, arbora registers these
 plain typed providers at startup:
 
-* a **native toolset provider** that binds a caller-granted subset of graph-os's
+* a **native toolset provider** that binds a caller-granted subset of arbora's
   own served operations for one in-process delegation (no self-HTTP);
 * a **fleet catalog provider** that maps each configured fleet server to the
-  public tool prefix graph-os serves it under and its client endpoint;
+  public tool prefix arbora serves it under and its client endpoint;
 * a **remote toolset provider** that builds the pydantic-ai toolset for one
-  fleet endpoint or one client configuration file (graph-os's MCP client);
+  fleet endpoint or one client configuration file (arbora's MCP client);
 * a **tool client factory** that opens a ``list_tools``/``call_tool`` client
-  session for one endpoint (graph-os's MCP client);
+  session for one endpoint (arbora's MCP client);
 * an **outbound credential provider** (service-account auth, header, status,
   forced refresh) and a **delegated identity provider** (the caller's user
   token and on-behalf-of exchange);
@@ -23,10 +23,10 @@ plain typed providers at startup:
   for the whole of one delegation;
 * a **run decision provider** that answers, for one run request, the run plan:
   model, tool grant, plan steps, budgets, stop rules and harness settings (the
-  decision itself comes from epistemic-graph through graph-os);
+  decision itself comes from epistemic-graph through arbora);
 * a **model provider** that turns a model id from that plan into a pydantic-ai
-  model with graph-os's credentials attached;
-* a **run event sink** that receives every event of one run (graph-os writes
+  model with arbora's credentials attached;
+* a **run event sink** that receives every event of one run (arbora writes
   the trace into epistemic-graph).
 
 Without a registered provider every binding port fails closed (raises) and
@@ -60,7 +60,7 @@ class ToolClient(Protocol):
 
 @dataclass(frozen=True)
 class NativeToolsetProvider:
-    """graph-os's in-process binder for its own served operations."""
+    """arbora's in-process binder for its own served operations."""
 
     available_tools: Callable[[], Iterable[str]]
     build_toolset: Callable[[list[str], str], Any]
@@ -68,7 +68,7 @@ class NativeToolsetProvider:
 
 @dataclass(frozen=True)
 class FleetServer:
-    """One fleet server as graph-os serves it: public prefix + client endpoint."""
+    """One fleet server as arbora serves it: public prefix + client endpoint."""
 
     prefix: str
     url: str = ""
@@ -76,10 +76,10 @@ class FleetServer:
 
 @dataclass(frozen=True)
 class RemoteToolsetProvider:
-    """graph-os's builder for client toolsets the harness hands to an agent.
+    """arbora's builder for client toolsets the harness hands to an agent.
 
     ``build_url_toolset(url, toolset_id, timeout)`` returns one toolset bound to
-    ``url`` with graph-os's outbound credentials attached;
+    ``url`` with arbora's outbound credentials attached;
     ``load_config_toolsets(path)`` returns the toolsets a client configuration
     file declares.
     """
@@ -90,7 +90,7 @@ class RemoteToolsetProvider:
 
 @dataclass(frozen=True)
 class OutboundCredentialProvider:
-    """graph-os's service-account credentials for outbound calls."""
+    """arbora's service-account credentials for outbound calls."""
 
     auth: Callable[[], Any]
     header: Callable[[], dict[str, str]]
@@ -100,7 +100,7 @@ class OutboundCredentialProvider:
 
 @dataclass(frozen=True)
 class DelegatedIdentityProvider:
-    """graph-os's caller identity: the user token and on-behalf-of exchange."""
+    """arbora's caller identity: the user token and on-behalf-of exchange."""
 
     user_token: Callable[[], str | None]
     exchange_for_agent: Callable[[str], str | None]
@@ -238,7 +238,7 @@ def build_native_toolset(tool_names: list[str], *, toolset_id: str) -> Any:
     """Bind ``tool_names`` from the host; fail closed when no host is attached."""
     if _NATIVE is None:
         raise RuntimeError(
-            "native graph-os toolset requires the graph-os host to register a provider"
+            "native arbora toolset requires the arbora host to register a provider"
         )
     return _NATIVE.build_toolset(list(tool_names), toolset_id)
 
@@ -249,7 +249,7 @@ def build_url_toolset(
     """The host-built client toolset for ``url``; fail closed without a host."""
     if _REMOTE is None:
         raise RuntimeError(
-            "remote toolsets require the graph-os host to register a provider"
+            "remote toolsets require the arbora host to register a provider"
         )
     return _REMOTE.build_url_toolset(str(url), toolset_id, float(timeout))
 
@@ -258,7 +258,7 @@ def load_config_toolsets(config_path: str | Path) -> list[Any]:
     """The toolsets a client configuration file declares; fail closed without a host."""
     if _REMOTE is None:
         raise RuntimeError(
-            "configured toolsets require the graph-os host to register a provider"
+            "configured toolsets require the arbora host to register a provider"
         )
     return list(_REMOTE.load_config_toolsets(Path(config_path)))
 
@@ -269,7 +269,7 @@ def open_tool_client(
     """Open one host-provided tool client session; fail closed without a host."""
     if _TOOL_CLIENT is None:
         raise RuntimeError(
-            "tool client sessions require the graph-os host to register a factory"
+            "tool client sessions require the arbora host to register a factory"
         )
     return _TOOL_CLIENT(target, timeout=timeout)
 
@@ -290,7 +290,7 @@ def outbound_auth_status() -> dict[str, object]:
         return {
             "mode": "host-unbound",
             "ready": False,
-            "problems": ["no graph-os host credential provider is registered"],
+            "problems": ["no arbora host credential provider is registered"],
             "warnings": [],
         }
     return dict(_CREDENTIALS.status())
@@ -299,7 +299,7 @@ def outbound_auth_status() -> dict[str, object]:
 def refresh_outbound_credentials() -> None:
     """Force the host to rotate its outbound bearer; fail closed without one."""
     if _CREDENTIALS is None:
-        raise RuntimeError("outbound credential renewal requires the graph-os host")
+        raise RuntimeError("outbound credential renewal requires the arbora host")
     _CREDENTIALS.refresh()
 
 
@@ -327,7 +327,7 @@ def fleet_catalog() -> dict[str, FleetServer]:
 
 
 def clean_tool_name(prefix: str, server_name: str, original_tool_name: str) -> str:
-    """The public name graph-os serves a fleet tool under.
+    """The public name arbora serves a fleet tool under.
 
     Strips redundant server/module prefixes from the raw tool name and keeps the
     namespaced result within the 44-character budget (so a client-prefixed name

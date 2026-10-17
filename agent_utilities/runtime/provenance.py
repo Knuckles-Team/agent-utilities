@@ -2,7 +2,7 @@
 
 The workspace emits every action and observation of one run to a provenance
 sink. The harness does not store those records: the host supplies the sink
-(graph-os binds one that writes trace records into epistemic-graph). Without a
+(arbora binds one that writes trace records into epistemic-graph). Without a
 host sink the null mirror drops the events.
 """
 
