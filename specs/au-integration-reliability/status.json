@@ -268,7 +268,7 @@
       ],
       "verified_by": [
         "tests/unit/core/test_connector_sync_sweep.py:19",
-        "tests/unit/core/test_connector_sync_sweep.py:63"
+        "tests/unit/core/test_connector_sync_sweep.py:65"
       ]
     },
     {

@@ -104,7 +104,7 @@
       ],
       "verified_by": [
         "tests/unit/skills/test_inventory_refresh_runtime.py:10",
-        "tests/unit/skills/test_inventory_refresh_runtime.py:26"
+        "tests/unit/skills/test_inventory_refresh_runtime.py:24"
       ]
     },
     {

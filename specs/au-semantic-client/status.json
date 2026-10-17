@@ -912,7 +912,7 @@
         "8e7d9986a683"
       ],
       "verified_by": [
-        "tests/unit/knowledge_graph/test_loop_controller.py:590"
+        "tests/unit/knowledge_graph/test_loop_controller.py:383"
       ]
     },
     {

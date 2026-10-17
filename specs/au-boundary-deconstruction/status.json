@@ -754,8 +754,8 @@
         "fe5ca4e239ec"
       ],
       "verified_by": [
-        "tests/gates/test_config_duplicate_reader_gate.py:65",
-        "tests/gates/test_config_duplicate_reader_gate.py:71"
+        "tests/gates/test_config_duplicate_reader_gate.py:64",
+        "tests/gates/test_config_duplicate_reader_gate.py:70"
       ]
     },
     {
@@ -821,8 +821,8 @@
         "8b325ddf1818"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:178",
-        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:185"
+        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:177",
+        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:184"
       ]
     },
     {
@@ -933,7 +933,7 @@
         "743e98cda405"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:198"
+        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:196"
       ]
     },
     {
@@ -945,7 +945,7 @@
         "743e98cda405"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:199"
+        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:197"
       ],
       "rollup_of": [
         "AU-BOUNDARY-R024.1",
@@ -984,7 +984,7 @@
         "743e98cda405"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:200"
+        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:198"
       ]
     },
     {
@@ -1007,7 +1007,7 @@
         "743e98cda405"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:201"
+        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:199"
       ]
     },
     {
@@ -1185,7 +1185,7 @@
         "743e98cda405"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:202"
+        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:200"
       ]
     },
     {
@@ -1332,7 +1332,7 @@
         "743e98cda405"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:203"
+        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:201"
       ]
     },
     {
@@ -1354,7 +1354,7 @@
         "743e98cda405"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:204"
+        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:202"
       ]
     },
     {
@@ -1366,7 +1366,7 @@
         "743e98cda405"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:205"
+        "tests/gates/test_boundary_r023_r034_relocation_inventory.py:203"
       ]
     },
     {
