@@ -798,14 +798,17 @@ def _read_agent_utilities_testing_env() -> str | None:
 
 
 def _read_agent_utilities_config_dir_env() -> str | None:
-    """Single reader for the ``AGENT_UTILITIES_CONFIG_DIR`` environment variable.
+    """Single reader for the explicit platform config-root variables.
 
     AU-BOUNDARY-R016.1: every call site below reads through this one
-    function instead of its own ``os.environ``/``os.getenv`` call, so the
-    variable has exactly one reader.
+    function instead of its own ``os.environ``/``os.getenv`` call.
+    ``GRAPH_OS_CONFIG_DIR`` wins; the legacy ``AGENT_UTILITIES_CONFIG_DIR`` is
+    honoured for one release (see :func:`agent_utilities.core.paths.platform_config_dir`).
     """
 
-    return os.environ.get("AGENT_UTILITIES_CONFIG_DIR")
+    return os.environ.get("GRAPH_OS_CONFIG_DIR") or os.environ.get(
+        "AGENT_UTILITIES_CONFIG_DIR"
+    )
 
 
 def _ensure_env_loaded():
@@ -1354,18 +1357,11 @@ def _commit_xdg_environment_projection(
 
 
 def _xdg_config_file():
-    """Path to the XDG ``config.json`` (honors ``AGENT_UTILITIES_CONFIG_DIR``)."""
-    from pathlib import Path
+    """Path to the platform ``config.json`` (``GRAPH_OS_CONFIG_DIR`` or
+    ``~/.config/graph-os``; one-release fallback to the agent-utilities location)."""
+    from agent_utilities.core.paths import platform_config_file
 
-    import platformdirs
-
-    override = _read_agent_utilities_config_dir_env()
-    cfg_dir = (
-        Path(override).expanduser()
-        if override
-        else Path(platformdirs.user_config_path("agent-utilities", "knuckles-team"))
-    )
-    return cfg_dir / "config.json"
+    return platform_config_file("config.json")
 
 
 def _validate_persistable_kg_connections(value: Any) -> None:
@@ -3496,9 +3492,11 @@ class AgentConfig(BaseSettings):
     )
     """Runtime-only root for reviewable evolution artifacts. The value is never
     emitted by doctor, logs, graph metadata, traces, or public API responses."""
+    graph_os_config_dir: str | None = Field(default=None, alias="GRAPH_OS_CONFIG_DIR")
     agent_utilities_config_dir: str | None = Field(
         default=None, alias="AGENT_UTILITIES_CONFIG_DIR"
     )
+    """Deprecated alias of ``GRAPH_OS_CONFIG_DIR``; read for one release."""
 
     @field_validator("evolution_staging_root", mode="before")
     @classmethod

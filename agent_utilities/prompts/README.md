@@ -62,7 +62,7 @@ expects installed), `tools`, and the composition fields `extends`
 2. **fleet-contributed** — every installed agent-package that declares a
    `[project.entry-points."agent_connector_sdk.prompt_providers"]` → `prompt:<pkg>/<name>`
 3. **operator overlay** — `*.json` in `core/paths.prompts_dir()`
-   (`~/.config/agent-utilities/prompts/`) — a drop-in override layer.
+   (`~/.config/graph-os/prompts/`) — a drop-in override layer.
 
 A package prompt sets `extends: "agent-utilities:base"` + `compose: append` to
 inherit one of these base prompts at render time. See

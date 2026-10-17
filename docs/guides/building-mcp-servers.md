@@ -247,7 +247,7 @@ does not require the legacy Eunomia SDK.
 ```bash
 my-service-mcp \
   --eunomia-type embedded \
-  --eunomia-policy-file "${XDG_CONFIG_HOME}/agent-utilities/policies/mcp.json"
+  --eunomia-policy-file "${XDG_CONFIG_HOME}/graph-os/policies/mcp.json"
 ```
 
 For a remote policy decision point, configure `EUNOMIA_REMOTE_URL`, an optional

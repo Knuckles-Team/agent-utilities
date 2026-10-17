@@ -14,7 +14,7 @@
 
 **Bootstrap priority** (`resolve_model_registry` via `AgentConfig`)
 
-1. XDG-compliant `~/.config/agent-utilities/config.json`.
+1. XDG-compliant `~/.config/graph-os/config.json`.
 2. Explicit kwargs or process-environment values (for example,
    `LITE_LLM_MODEL_ID`) injected at startup. AgentConfig does not read a checkout
    `.env` file.
@@ -23,7 +23,7 @@
 - `GET /models` returns the models from `AgentConfig`.
 - Mirrored at `GET /api/enhanced/models` by `agent-webui`.
 
-**Example JSON (`~/.config/agent-utilities/config.json`)**
+**Example JSON (`~/.config/graph-os/config.json`)**
 
 ```json
 {

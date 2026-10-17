@@ -593,10 +593,13 @@ def get_watched_directories() -> list[tuple[Path, bool, str]]:
 
 def get_kg_ingest_paths(workspace_path: Path) -> list[Path]:
     """Get all core Knowledge Graph configuration and ontology files to watch."""
+    from agent_utilities.core.paths import platform_config_file
+
     raw_paths = [
-        "~/.config/agent-utilities/inventory.yaml",
-        "~/.config/agent-utilities/mcp_config.json",
-        "~/.config/agent-utilities/config.json",
+        *(
+            str(platform_config_file(name))
+            for name in ("inventory.yaml", "mcp_config.json", "config.json")
+        ),
         "~/.local/share/agent-utilities/topology",
         str(
             workspace_path

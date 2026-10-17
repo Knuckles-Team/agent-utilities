@@ -130,7 +130,7 @@ export DELEGATED_SCOPES="api read write"
 ```
 
 Or add them to the XDG config file at
-`~/.config/agent-utilities/knuckles-team/config.json`:
+`~/.config/graph-os/knuckles-team/config.json`:
 
 ```json
 {
@@ -632,5 +632,5 @@ graph TD
 ```
 
 
-This file lives at `~/.config/agent-utilities/knuckles-team/config.json`
+This file lives at `~/.config/graph-os/knuckles-team/config.json`
 (following XDG Base Directory Specification).

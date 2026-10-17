@@ -4,7 +4,7 @@
 The Autonomous Trading Ecosystem provides a full suite of infrastructure, configurations, and SI-native patterns for executing quantitative and algorithmic trading via the `emerald-exchange` MCP server and the `agent-utilities` ontology framework.
 
 ## 1. Unified Configuration Schema
-The trading ecosystem is configured centrally in the XDG-compliant `~/.config/agent-utilities/config.json` file under the `"trading"` root key.
+The trading ecosystem is configured centrally in the XDG-compliant `~/.config/graph-os/config.json` file under the `"trading"` root key.
 It supports:
 - **Exchange Backends**: Abstractions for `paper`, `alpaca`, `ccxt` (Binance, Coinbase, Kraken), and `freqtrade`.
 - **Risk Limits**: Automated OS-5.1 pre-trade controls (`max_position_pct`, `max_portfolio_drawdown_pct`, `regime_shift_halt`).

@@ -37,7 +37,7 @@ python3 scripts/deploy_wizard.py --use-case test --non-interactive --emit uvx
 
 It asks: **use case → backend → deploy target → server/access → secrets,
 messaging & observability → capacity → models**, then emits the XDG
-`~/.config/agent-utilities/config.json`, a `deploy.env`, and the run artifacts
+`~/.config/graph-os/config.json`, a `deploy.env`, and the run artifacts
 (`uvx` commands, a `docker-compose.override.yml`, or `k8s/agent-utilities.yaml`).
 It warns when an `APP_PROFILE=production` choice would be rejected by the profile
 guard.
@@ -86,7 +86,7 @@ always constructed as the authority; naming a mirror is what turns fan-out on:
 - **Kubernetes** — HA/multi-node. The wizard generates a Namespace + Deployment
   (with `/health` readiness) + Service; scale replicas and add an Ingress/HPA.
 
-### Step 4 — config.json items (XDG `~/.config/agent-utilities/config.json`)
+### Step 4 — config.json items (XDG `~/.config/graph-os/config.json`)
 
 Ask and recommend per tier: `host`/`port`, `enable_web_ui`, `AUTH_TYPE`
 (`none`/`static`/`jwt`/`oauth-proxy`/`oidc-proxy`/`remote-oauth`), `secrets_backend`

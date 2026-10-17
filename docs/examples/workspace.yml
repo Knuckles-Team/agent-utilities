@@ -6,7 +6,7 @@
 #
 # Place this file at the WORKSPACE ROOT (e.g. ${WORKSPACE_ROOT}/workspace.yml).
 # agent-utilities also auto-seeds a default copy at
-# ~/.config/agent-utilities/workspace.yml if none exists; the root file (which an
+# ~/.config/graph-os/workspace.yml if none exists; the root file (which an
 # operator actually edits) takes precedence.
 #
 # Validate it any time with:  agent-utilities-doctor --only workspace_config

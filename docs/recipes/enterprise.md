@@ -92,7 +92,7 @@ and toggle the integrations the operator want.
 }
 ```
 
-(Keys in `~/.config/agent-utilities/config.json` are upper-cased to their env
+(Keys in `~/.config/graph-os/config.json` are upper-cased to their env
 aliases and applied only where the env var is unset — environment always wins.)
 
 ## Scale note

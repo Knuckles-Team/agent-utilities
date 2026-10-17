@@ -9,10 +9,7 @@ KG-capable for heavy work) via OWL relationships instead of hard-coding.
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
-
-from agent_utilities.core.config import setting
 
 from ..models import ExtractionBatch, GraphNode
 from ..registry import register_extractor
@@ -25,8 +22,9 @@ def _slug(text: str) -> str:
 
 
 def _default_config_path() -> str:
-    base = setting("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-    return os.path.join(base, "agent-utilities", "config.json")
+    from agent_utilities.core.paths import platform_config_file
+
+    return str(platform_config_file("config.json"))
 
 
 def extract(config: Any = None) -> ExtractionBatch:

@@ -496,8 +496,9 @@ services:
 
 
 def _xdg_config_path() -> Path:
-    override = os.environ.get("AGENT_UTILITIES_CONFIG_DIR")
-    base = Path(override) if override else Path.home() / ".config" / "agent-utilities"
+    override = os.environ.get("GRAPH_OS_CONFIG_DIR")
+    config_home = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    base = Path(override) if override else Path(config_home) / "graph-os"
     return base / "config.json"
 
 

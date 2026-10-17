@@ -13,7 +13,7 @@
 Non-secret messaging policy lives in the XDG AgentConfig document:
 
 ```
-~/.config/agent-utilities/config.json
+~/.config/graph-os/config.json
 ```
 
 It is loaded and validated by `AgentConfig` in `core/config.py`. Credential
@@ -469,7 +469,7 @@ material even when a platform uses a less obvious field name.
 ## XDG Directory Layout
 
 ```
-~/.config/agent-utilities/
+~/.config/graph-os/
 ├── config.json                    ← All messaging config lives here
 ├── mcp_config.json
 └── a2a_config.json
@@ -495,7 +495,7 @@ print(config.messaging_kg_ingest)  # True
 
 # XDG paths
 print(messaging_sessions_dir())  # ~/.local/share/agent-utilities/messaging/
-print(messaging_config_path())  # ~/.config/agent-utilities/config.json
+print(messaging_config_path())  # ~/.config/graph-os/config.json
 
 # Reload the stable proxy; its validated snapshot swaps without a restart.
 config.reload()

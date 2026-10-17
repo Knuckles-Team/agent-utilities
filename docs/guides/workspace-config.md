@@ -23,9 +23,11 @@ There are two locations, in precedence order:
    up the directory tree from
    the package (`find_workspace_manifest`) and is what the KG ingestion-coverage
    and the `workspace_config` doctor checks validate.
-2. **The XDG config dir** — `$XDG_CONFIG_HOME/agent-utilities/workspace.yml`
+2. **The XDG config dir** — `$XDG_CONFIG_HOME/graph-os/workspace.yml`
    (`get_workspace_yml_path()`), honoring `XDG_CONFIG_HOME` /
-   `AGENT_UTILITIES_CONFIG_DIR`. If **no** file exists there, `load_workspace_yml()`
+   `GRAPH_OS_CONFIG_DIR`. For one release a missing file is read from the
+   legacy `$XDG_CONFIG_HOME/agent-utilities/workspace.yml` (one deprecation
+   warning). If **no** file exists in either, `load_workspace_yml()`
    auto-seeds a built-in default (`DEFAULT_WORKSPACE_YML`) the first time it is
    read, so the platform always has a working manifest.
 

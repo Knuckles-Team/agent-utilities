@@ -129,7 +129,7 @@ async for event in discord.listen():
 All messaging configuration is managed through the unified XDG config file:
 
 ```
-~/.config/agent-utilities/config.json
+~/.config/graph-os/config.json
 ```
 
 > **See:** [AU-ECO.toolkit.journey-map-milestones Messaging Configuration Guide](ECO-4.5-Messaging_Configuration_Guide.md)
@@ -139,7 +139,7 @@ All messaging configuration is managed through the unified XDG config file:
 
 ```
 1. Environment variable (MESSAGING_DISCORD_TOKEN=vault://messaging/discord#token) ← highest
-2. XDG config.json (~/.config/agent-utilities/config.json)
+2. XDG config.json (~/.config/graph-os/config.json)
 3. Platform-native process env vars (DISCORD_BOT_TOKEN)       ← lowest
 ```
 
@@ -175,7 +175,7 @@ All `messaging_*` keys in `config.json` are:
 ### XDG Directory Layout
 
 ```
-~/.config/agent-utilities/
+~/.config/graph-os/
 ├── config.json                    ← All messaging config lives here
 ├── mcp_config.json
 └── a2a_config.json

@@ -116,7 +116,7 @@ Both pipelines share the same downstream tools: `comparative-analysis`,
 All configuration is managed via XDG-compliant paths:
 
 ```
-~/.config/agent-utilities/config.json    # Model registry, API keys
+~/.config/graph-os/config.json    # Model registry, API keys
 secret://oauth/<provider>                # Runtime reference into the configured backend
 ```
 

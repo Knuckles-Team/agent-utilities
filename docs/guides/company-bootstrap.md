@@ -8,7 +8,7 @@ from scratch using the agent-utilities ecosystem.
 
 ## Prerequisites
 
-- [ ] agent-utilities installed and configured (`~/.config/agent-utilities/config.json`)
+- [ ] agent-utilities installed and configured (`~/.config/graph-os/config.json`)
 - [ ] Docker Swarm or standalone Docker available on target hosts
 - [ ] Portainer deployed and accessible via `portainer-mcp`
 - [ ] AdGuard Home deployed and accessible via `adguard-home-mcp`

@@ -42,9 +42,12 @@ Three layers, in precedence order:
    new flags on `AgentConfig` instead of scattered `os.environ` reads. AgentConfig
    never searches a repository or launch directory for a dotenv file.
 2. **XDG `config.json`** — discovered under
-   `$XDG_CONFIG_HOME/agent-utilities/config.json` (override the directory with
-   `AGENT_UTILITIES_CONFIG_DIR`; resolution lives in
-   `agent_utilities/core/paths.py`). Each key is upper-cased to its env name
+   `$XDG_CONFIG_HOME/graph-os/config.json` (override the directory with
+   `GRAPH_OS_CONFIG_DIR`; resolution lives in
+   `agent_utilities/core/paths.py`). For one release, a file absent there is
+   read from the legacy `$XDG_CONFIG_HOME/agent-utilities` (or
+   `AGENT_UTILITIES_CONFIG_DIR`) location, with one deprecation warning naming
+   both paths. Each key is upper-cased to its env name
    and applied **only if that env var is not already set** — so the
    environment always wins. Lists/dicts are JSON-encoded (this is how
    `chat_models` / `embedding_models` registries are normally configured).
@@ -58,7 +61,7 @@ Three layers, in precedence order:
    GraphOS over stdio may derive its neutral process authority in memory; every
    other boundary requires explicit external identity.
 
-Data lives under XDG paths: config `$XDG_CONFIG_HOME/agent-utilities/`, data
+Data lives under XDG paths: config `$XDG_CONFIG_HOME/graph-os/`, data
 `$XDG_DATA_HOME/agent-utilities/` (`AGENT_UTILITIES_DATA_DIR` override), and
 cache `$XDG_CACHE_HOME/agent-utilities/`. The runtime supplies platform defaults
 when an XDG variable is unset.
@@ -677,7 +680,7 @@ SCALING_PROMETHEUS_URL=https://prometheus.example.test:9090
                                     # unset = zero-infra in-process gauges
 
 # -- ActionPolicy (OS-5.24): the single autonomy decision point --
-ACTION_POLICY_PATH=$XDG_CONFIG_HOME/agent-utilities/action-policy.yml
+ACTION_POLICY_PATH=$XDG_CONFIG_HOME/graph-os/action-policy.yml
 # Empty (default) = the shipped conservative policy
 # (deploy/action-policy.default.yml): every mutating kind approval_required,
 # only diagnose/observe/notify/record_dry_run auto. KG governance_rule

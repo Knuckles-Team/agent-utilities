@@ -15,7 +15,7 @@ enforces that flags are declared on `AgentConfig` (`core/config.py`), not read w
 
 `core/config.py` (and `core/paths.py`) are the **only** files that touch `os.environ`.
 Every other module reads through one of two paths, both **driven by `config.json`** —
-the XDG loader injects `~/.config/agent-utilities/config.json` (or
+the XDG loader injects `~/.config/graph-os/config.json` (or
 `AGENT_UTILITIES_CONFIG_DIR`) into `os.environ` before anything reads it, so a JSON key
 `graph_db_uri` becomes `GRAPH_DB_URI`:
 

@@ -108,7 +108,7 @@ durable trace data.
 ## Configuration
 
 Deployment configuration belongs in
-`$XDG_CONFIG_HOME/agent-utilities/config.json` and the external fleet registry:
+`$XDG_CONFIG_HOME/graph-os/config.json` and the external fleet registry:
 
 - leave both external GraphOS process-identity sources unset only for tiny,
   packaged-local GraphOS over stdio with no configured engine endpoints;

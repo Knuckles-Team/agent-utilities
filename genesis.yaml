@@ -243,11 +243,11 @@ private_repos:
   repos:
     inventory:
       purpose: Host inventory — the source of truth for hosts, roles & SSH access.
-      seed_from: ~/.config/agent-utilities/inventory.yaml
+      seed_from: ~/.config/graph-os/inventory.yaml
       ci: false
     config:
       purpose: 'Resolved agent-utilities config: workspace.yml + redacted config/mcp examples.'
-      seed_from: ~/.config/agent-utilities/{workspace.yml,config.json,mcp_config.json}
+      seed_from: ~/.config/graph-os/{workspace.yml,config.json,mcp_config.json}
       ci: false
     networks:
       purpose: Overlay/network bootstrap (Swarm overlays / k8s CNI + CIDR allocations).
@@ -305,7 +305,7 @@ environment_profiles:
   concept: AU-OS.deployment.genesis-environment-profiles
   design_doc: .specify/design/genesis-environment-profiles/design.md
   builtin_dir: deploy/environments
-  extension_dir: ~/.config/agent-utilities/environments (XDG config dir; agent_utilities.core.paths.config_dir()
+  extension_dir: ~/.config/graph-os/environments (XDG config dir; agent_utilities.core.paths.config_dir()
     / 'environments')
   categories:
   - environment

@@ -22,8 +22,6 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from agent_utilities.core.config import setting
-
 logger = logging.getLogger(__name__)
 
 # Canonical env var names per provider (first match wins). Mirrors agent-utilities' existing aliases.
@@ -67,8 +65,9 @@ class ProviderCredentials:
 class CredentialResolver:
     """Resolve provider credentials with the precedence env > file > none.
 
-    ``config_path`` defaults to ``$AGENT_UTILITIES_CONFIG_DIR/media-config.json`` (or
-    ``~/.config/agent-utilities/media-config.json``); the file maps ``{provider: {api_key, base_url}}``.
+    ``config_path`` defaults to ``$GRAPH_OS_CONFIG_DIR/media-config.json`` (or
+    ``~/.config/graph-os/media-config.json``; legacy agent-utilities location read
+    for one release); the file maps ``{provider: {api_key, base_url}}``.
     """
 
     def __init__(
@@ -85,9 +84,9 @@ class CredentialResolver:
 
     @staticmethod
     def _default_config_path() -> Path:
-        base = setting("AGENT_UTILITIES_CONFIG_DIR")
-        root = Path(base) if base else Path.home() / ".config" / "agent-utilities"
-        return root / "media-config.json"
+        from agent_utilities.core.paths import platform_config_file
+
+        return platform_config_file("media-config.json")
 
     def _file(self) -> dict[str, dict]:
         if self._file_cache is None:

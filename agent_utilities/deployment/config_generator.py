@@ -245,6 +245,7 @@ _RESTART_REQUIRED: frozenset[str] = frozenset(
         "EPISTEMIC_GRAPH_STARTUP_TIMEOUT_SECS",
         "KG_DAEMON_ROLE",
         "TASK_QUEUE_BACKEND",
+        "GRAPH_OS_CONFIG_DIR",
         "AGENT_UTILITIES_CONFIG_DIR",
     }
 )

@@ -69,7 +69,7 @@ flowchart TB
 
 ## AgentConfig boundary
 
-The canonical document is `$XDG_CONFIG_HOME/agent-utilities/config.json`. A
+The canonical document is `$XDG_CONFIG_HOME/graph-os/config.json`. A
 container orchestrator presents that document read-only through its config mechanism
 and sets the XDG config root for the workload. Do not maintain a repository `.env`
 file or bake a site profile into an image.

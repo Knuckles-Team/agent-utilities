@@ -56,7 +56,7 @@ flowchart TD
     MAT --> XDG["XDG data: skills/provider/.generations/digest/skill\n(v2 activation marker)"]
     INST --> TOOLS["detected agent tools"]
     ING --> KG[("KG prompt library\nPromptNode prompt:&lt;pkg&gt;/&lt;name&gt;")]
-    OVL["~/.config/agent-utilities/prompts/\n(operator XDG overlay)"] --> ING
+    OVL["~/.config/graph-os/prompts/\n(operator XDG overlay)"] --> ING
     BASE["base prompts\nexact XDG generation or current source"] --> ING
 ```
 
@@ -91,7 +91,7 @@ earlier on the namespaced id):
 
 1. validated base — exact current XDG generation or packaged source → `prompt:<name>`
 2. fleet-contributed — each `prompt_providers` dir → `prompt:<provider>/<name>`
-3. operator overlay — `prompts_dir()` (`~/.config/agent-utilities/prompts/`)
+3. operator overlay — `prompts_dir()` (`~/.config/graph-os/prompts/`)
 
 ## The canonical prompt schema
 

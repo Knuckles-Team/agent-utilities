@@ -8,7 +8,6 @@ from typing import Any
 
 import yaml  # type: ignore
 
-from agent_utilities.core.config import setting
 from agent_utilities.core.paths import ensure_dirs
 
 logger = logging.getLogger(__name__)
@@ -32,12 +31,12 @@ def _workspace_base_path(
 def get_workspace_yml_path() -> Path:
     """Return the path to the global workspace.yml in the XDG config dir."""
     ensure_dirs()
-    # E.g. ~/.config/agent-utilities/workspace.yml
-    config_dir = (
-        Path(setting("XDG_CONFIG_HOME", Path.home() / ".config")) / "agent-utilities"
-    )
-    config_dir.mkdir(parents=True, exist_ok=True)
-    return config_dir / "workspace.yml"
+    # ~/.config/graph-os/workspace.yml (legacy agent-utilities copy read for one release)
+    from agent_utilities.core.paths import platform_config_file
+
+    path = platform_config_file("workspace.yml")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 DEFAULT_WORKSPACE_YML = """# Repository Workspace Configuration

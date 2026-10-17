@@ -9,7 +9,7 @@ scale the engine, and then enable governed autonomy.
 Keep deployment state outside the source tree:
 
 - Store non-secret settings and runtime references in
-  `$XDG_CONFIG_HOME/agent-utilities/config.json`.
+  `$XDG_CONFIG_HOME/graph-os/config.json`.
 - Resolve `secret://`, `vault://`, or `env://` references through the configured
   secret provider at process start. The reference name is stable; the resolved
   value is never written to AgentConfig, logs, traces, or reports.

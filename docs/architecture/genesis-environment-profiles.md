@@ -55,7 +55,7 @@ already uses, so a `*_TOKEN`/`*_PASSWORD` key cannot be smuggled into the
 flowchart LR
     subgraph Discover["list_environment_profiles()"]
         B["deploy/environments/*.yaml\n(repo-shipped: dev, test, prod)"]
-        X["~/.config/agent-utilities/environments/*.yaml\n(operator extension dir)"]
+        X["~/.config/graph-os/environments/*.yaml\n(operator extension dir)"]
     end
     B -->|"stem = profile name"| M["name -> path catalog\n(extension dir overrides a\nbuilt-in of the same name)"]
     X -->|"stem = profile name"| M

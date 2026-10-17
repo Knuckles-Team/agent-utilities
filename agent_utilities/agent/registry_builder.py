@@ -187,7 +187,7 @@ def _iter_prompt_sources() -> list[tuple[str, Path]]:
 
       1. validated base  — exact XDG generation or current packaged source
       2. fleet-contributed — each ``agent_connector_sdk.prompt_providers`` dir
-      3. operator overlay  — ``prompts_dir()`` (``~/.config/agent-utilities/prompts``)
+      3. operator overlay  — ``prompts_dir()`` (``~/.config/graph-os/prompts``)
     """
     from agent_utilities.core.paths import prompts_dir
     from agent_utilities.core.providers import (

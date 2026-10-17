@@ -5,7 +5,7 @@ This document provides a unified reference for all environment variables, config
 ## Environment Variables
 
 ### LLM Configuration
-All LLM configuration (models, API keys, endpoints) is now managed centrally via the XDG configuration file at `~/.config/agent-utilities/config.json`.
+All LLM configuration (models, API keys, endpoints) is now managed centrally via the XDG configuration file at `~/.config/graph-os/config.json`. (Override: `GRAPH_OS_CONFIG_DIR`. For one release the legacy `~/.config/agent-utilities/` copy is read, with a deprecation warning, when the new location has no such file.)
 
 Environment variables for `LLM_BASE_URL`, `LLM_MODEL_ID`, etc., are **deprecated** and will be ignored. API keys can optionally be provided in the `.env` file or directly inside the `config.json` model entries.
 
@@ -152,7 +152,7 @@ All LLM and embedding configuration now routes **exclusively** through the `chat
 
 ### Unified Agent Configuration (`config.json`)
 
-The centralized `config.json` at `~/.config/agent-utilities/config.json` (XDG-compliant) is the **single source of truth** for all configuration.
+The centralized `config.json` at `~/.config/graph-os/config.json` (XDG-compliant) is the **single source of truth** for all configuration.
 
 #### Configuration Precedence Chain
 
@@ -293,7 +293,7 @@ Environment variables are no longer part of the LLM configuration chain. API key
 
   // ── Workspace & Paths ───────────────────────────────────────────
   "workspace_path": "${WORKSPACE_ROOT}",
-  "agent_utilities_config_dir": "~/.config/agent-utilities"
+  "graph_os_config_dir": "~/.config/graph-os"
 }
 ```
 

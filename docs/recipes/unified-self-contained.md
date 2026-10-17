@@ -40,7 +40,7 @@ Both invocations below share the SAME engine-locality config. Only the identity
 block differs (stdio can use the zero-config bootstrap; streamable-http cannot).
 
 ```jsonc
-// ~/.config/agent-utilities/config.json (or AGENT_UTILITIES_CONFIG_DIR)
+// ~/.config/graph-os/config.json (or GRAPH_OS_CONFIG_DIR)
 {
   // Absence — not an empty list, not an empty string — is what selects the
   // local engine. If this key is present in config.json AT ALL (even null/"")

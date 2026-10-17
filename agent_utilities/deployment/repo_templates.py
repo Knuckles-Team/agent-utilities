@@ -10,7 +10,7 @@ profiles) a reusable GitLab CI/runner layout. The whole point is that **this
 operator's environment is never encoded in the public agent-utilities repo**: the
 public repo carries only ABSTRACT, TEMPLATED skeletons (placeholder tokens like
 ``${GIT_NAMESPACE}`` / ``<host>``); the concrete values live ONLY in the operator's
-XDG config (``~/.config/agent-utilities/inventory.yaml`` + ``workspace.yml``) and the
+XDG config (``~/.config/graph-os/inventory.yaml`` + ``workspace.yml``) and the
 private repos this module describes.
 
 This module is the single source of truth the genesis skill (Step 9b) and the
@@ -60,7 +60,7 @@ class RepoTemplate:
     ``skeleton`` maps a relative path to its templated content (with ``${TOKEN}``
     placeholders / ``<...>`` example markers — never real operator data). ``seed_from``
     names the operator XDG source whose *resolved* content genesis commits into the
-    private repo at deploy time (read from ``~/.config/agent-utilities/``), or ``None``
+    private repo at deploy time (read from ``~/.config/graph-os/``), or ``None``
     when the skeleton itself is the seed.
     """
 
@@ -76,7 +76,7 @@ class RepoTemplate:
 # ── the abstract skeleton contents ──────────────────────────────────────────
 _INVENTORY_YAML = """\
 # Operator host inventory — the SOURCE OF TRUTH for this deployment.
-# Genesis seeds this from ~/.config/agent-utilities/inventory.yaml at deploy time.
+# Genesis seeds this from ~/.config/graph-os/inventory.yaml at deploy time.
 # This skeleton is ABSTRACT: replace the <placeholders> with your real hosts.
 # Ansible-style; consumed by agent-utilities (engine_infra.ingest_hosts_from_inventory).
 all:
@@ -97,7 +97,7 @@ _INVENTORY_README = """\
 
 Operator-owned **private** host inventory for this agent-utilities deployment — the
 single source of truth for hosts, roles and SSH access. Mirrors
-`~/.config/agent-utilities/inventory.yaml`.
+`~/.config/graph-os/inventory.yaml`.
 
 - `inventory.yaml` — Ansible-style host inventory (genesis seeds this from your XDG config).
 - Never commit secrets here — SSH keys are *referenced by path*, not embedded.
@@ -108,7 +108,7 @@ _CONFIG_README = """\
 
 Operator-owned **private** agent-utilities configuration for this deployment:
 
-- `workspace.yml` — the workspace/service manifest (mirrors `~/.config/agent-utilities/workspace.yml`).
+- `workspace.yml` — the workspace/service manifest (mirrors `~/.config/graph-os/workspace.yml`).
 - `config.json.example` — the resolved, **secret-redacted** profile config (real
   `config.json` is seeded by genesis with `vault://` / `engine://__secrets__` refs, never plaintext).
 - `mcp_config.json.example` — the MCP fleet wiring (streamable-http endpoints).
@@ -118,7 +118,7 @@ Secrets are *references*, not values — see the `secrets-config` repo.
 
 _WORKSPACE_YML = """\
 # Workspace / service manifest — genesis seeds this from
-# ~/.config/agent-utilities/workspace.yml at deploy time. ABSTRACT skeleton:
+# ~/.config/graph-os/workspace.yml at deploy time. ABSTRACT skeleton:
 name: <operator-workspace>
 path: <workspace-root>
 repositories: []
@@ -328,13 +328,13 @@ STANDARD_REPOS: tuple[RepoTemplate, ...] = (
     RepoTemplate(
         key="inventory",
         purpose="Host inventory — the source of truth for hosts, roles & SSH access.",
-        seed_from="~/.config/agent-utilities/inventory.yaml",
+        seed_from="~/.config/graph-os/inventory.yaml",
         skeleton={"inventory.yaml": _INVENTORY_YAML, "README.md": _INVENTORY_README},
     ),
     RepoTemplate(
         key="config",
         purpose="Resolved agent-utilities config: workspace.yml + redacted config/mcp examples.",
-        seed_from="~/.config/agent-utilities/{workspace.yml,config.json,mcp_config.json}",
+        seed_from="~/.config/graph-os/{workspace.yml,config.json,mcp_config.json}",
         skeleton={
             "workspace.yml": _WORKSPACE_YML,
             "config.json.example": _CONFIG_JSON_EXAMPLE,

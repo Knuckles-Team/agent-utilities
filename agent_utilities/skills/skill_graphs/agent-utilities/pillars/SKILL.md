@@ -104,5 +104,5 @@ standardized endpoints → tool_filtering selects relevant tools for each agent.
 | `AU-OS.governance.reactive-multi-axis-budget` | Guardrails & Safety | `security/guardrails.py` |
 | `AU-OS.governance.wasm-micro-agent-sandbox` | Telemetry & Observability | `observability/token_tracker.py` |
 
-**Architecture**: XDG-compliant paths → config.json at `~/.config/agent-utilities/` →
+**Architecture**: XDG-compliant paths → config.json at `~/.config/graph-os/` →
 cognitive scheduler manages LLM load → guardrails enforce safety contracts.

@@ -19,7 +19,7 @@ The `agent-utilities` ecosystem uses a standardized XDG-compliant JSON configura
 
 ### Unified Configuration (`config.json`)
 
-The primary configuration file is located at `~/.config/agent-utilities/config.json`. This file is dynamically hot-reloadable.
+The primary configuration file is located at `~/.config/graph-os/config.json`. This file is dynamically hot-reloadable.
 
 #### Example `config.json`
 
@@ -113,9 +113,9 @@ geniusbot ────── QThread/direct ─────────┘
 ```
 
 All XDG paths delegate to `core/paths.py`:
-- `services_config_path()` → `~/.config/agent-utilities/services.yaml`
+- `services_config_path()` → `~/.config/graph-os/services.yaml`
 - `dashboard_layout_path()` → `~/.local/share/agent-utilities/layout.yaml`
-- `mcp_config_path()` → `~/.config/agent-utilities/mcp_config.json`
+- `mcp_config_path()` → `~/.config/graph-os/mcp_config.json`
 
 ---
 

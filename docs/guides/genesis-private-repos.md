@@ -6,7 +6,7 @@
 
 Genesis Step 9b provisions a consistent, **abstract** set of operator-owned **private**
 git repos. The public framework repo ships only placeholder skeletons; your concrete
-inventory/networks/secrets/manifests are read from `~/.config/agent-utilities/`
+inventory/networks/secrets/manifests are read from `~/.config/graph-os/`
 (`inventory.yaml`, `workspace.yml`) at deploy time and committed into **your** private
 repos. The standard is defined once in
 [`agent_utilities/deployment/repo_templates.py`](https://github.com/) and surfaced in
@@ -16,7 +16,7 @@ repos. The standard is defined once in
 
 | Repo | Purpose | Seeded from |
 |------|---------|-------------|
-| `inventory` | Host inventory — source of truth for hosts/roles/SSH | `~/.config/agent-utilities/inventory.yaml` |
+| `inventory` | Host inventory — source of truth for hosts/roles/SSH | `~/.config/graph-os/inventory.yaml` |
 | `config` | `workspace.yml` + secret-redacted `config.json`/`mcp_config.json` examples | XDG config |
 | `networks` | Overlay/CNI bootstrap + CIDR allocations | deployment plan |
 | `secrets-config` | Secrets *convention* — `service → vault://` / `engine://__secrets__` references (no plaintext) | secret-store reconcile |
@@ -105,7 +105,7 @@ For each repo the plan marks `action="create"` (already-present repos are `"skip
    files. `render()` uses `Template.safe_substitute`, so a partial context never corrupts
    a skeleton.
 3. **Seed real operator data** — copy the resolved `inventory.yaml` / `workspace.yml`
-   from `~/.config/agent-utilities/` into the `inventory` / `config` private repos
+   from `~/.config/graph-os/` into the `inventory` / `config` private repos
    (`secrets-config` gets only `vault://` / `engine://__secrets__` references via the
    `graph_configure vault_sync` reconcile — never plaintext).
 4. **CI + runners** (non-tiny) — seed `CI_TEMPLATES` into `pipelines` (enterprise) and

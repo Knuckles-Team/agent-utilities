@@ -138,7 +138,7 @@ tool response stable and inspectable.
 
 ## Environment Configuration
 
-The KG MCP server relies on the unified `agent-utilities` configuration for LLM connectivity. Ensure the operator's `~/.config/agent-utilities/config.json` is configured:
+The KG MCP server relies on the unified `agent-utilities` configuration for LLM connectivity. Ensure the operator's `~/.config/graph-os/config.json` is configured:
 
 ```json
 {

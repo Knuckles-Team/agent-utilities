@@ -427,7 +427,7 @@ def build() -> dict:
             "concept": "AU-OS.deployment.genesis-environment-profiles",
             "design_doc": ".specify/design/genesis-environment-profiles/design.md",
             "builtin_dir": ENVIRONMENTS_DIR.relative_to(ROOT).as_posix(),
-            "extension_dir": "~/.config/agent-utilities/environments (XDG config dir;"
+            "extension_dir": "~/.config/graph-os/environments (XDG config dir;"
             " agent_utilities.core.paths.config_dir() / 'environments')",
             "categories": [
                 "environment",

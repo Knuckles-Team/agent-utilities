@@ -23,7 +23,7 @@ From a trusted source checkout:
 
 The bootstrap installs the project, creates the tiny profile only when no config is
 present, and runs a graph smoke test. Its configuration target is the XDG AgentConfig
-document at `$XDG_CONFIG_HOME/agent-utilities/config.json`; it does not create or
+document at `$XDG_CONFIG_HOME/graph-os/config.json`; it does not create or
 consume a repository `.env` file.
 
 For an installed package, generate the same neutral profile directly:

@@ -16,7 +16,7 @@ record. Summary:
 * The named profile SET is data, not a closed enum. ``dev`` / ``test`` / ``prod``
   ship as ``deploy/environments/*.yaml``; an operator adds ``uat``/``sit``/anything
   else by dropping a YAML file in that directory or in their own
-  ``~/.config/agent-utilities/environments/`` — no code change.
+  ``~/.config/graph-os/environments/`` — no code change.
 * ``secrets.required`` holds references only (``env://``, ``vault://``,
   ``secret://``, or ``k8s-secret://<namespace>/<name>``) — never a value. A required
   secret with no reference is a load-time :class:`MissingSecretReferenceError`,

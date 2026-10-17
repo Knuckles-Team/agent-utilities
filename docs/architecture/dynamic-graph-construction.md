@@ -107,7 +107,7 @@ provenance rather than copied prompt content or deployment details.
 ## Configuration and observability
 
 Deployment-varying model routes, timeouts, identity, and telemetry settings come from
-`$XDG_CONFIG_HOME/agent-utilities/config.json`. Credentials and TLS material use
+`$XDG_CONFIG_HOME/graph-os/config.json`. Credentials and TLS material use
 runtime secret/TLS references. Content capture remains off unless explicitly approved.
 
 Each run records the selected shape, confidence, bounded timings, tool references,

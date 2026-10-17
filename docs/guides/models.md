@@ -6,7 +6,7 @@ When the graph orchestrator dispatches tasks to specialist agents, it uses `pick
 
 ## The `config.json` File
 
-Define the operator's models directly in the unified `config.json` file located in the XDG-compliant path: `~/.config/agent-utilities/config.json`.
+Define the operator's models directly in the unified `config.json` file located in the XDG-compliant path: `~/.config/graph-os/config.json`.
 
 ### Example `config.json`
 

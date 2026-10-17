@@ -15,7 +15,7 @@ The **Parallel Engine** (`ParallelEngine`) is the single, unified agent executio
 1. **One Engine, Dynamic Scale**: A single `ParallelEngine` handles every execution. The same code path runs for all scales.
 2. **RLM-Native Synthesis**: All output aggregation uses the RLM pattern — outputs are stored as Pydantic objects (not context windows), metadata-only pointers guide the synthesizer.
 3. **Topology from Manifest**: The engine receives an `ExecutionManifest` generated from any source: planners, workflows, TeamConfigs, stored presets, or OWL-materialized company departments.
-4. **XDG-Native Config**: All scaling parameters live in `~/.config/agent-utilities/config.json` via `AgentConfig`.
+4. **XDG-Native Config**: All scaling parameters live in `~/.config/graph-os/config.json` via `AgentConfig`.
 
 ---
 
@@ -299,7 +299,7 @@ Following execution, the entire topological hierarchy and execution results are 
 
 ## Configuration (XDG)
 
-All configuration lives in `~/.config/agent-utilities/config.json`:
+All configuration lives in `~/.config/graph-os/config.json`:
 
 ```json
 {
