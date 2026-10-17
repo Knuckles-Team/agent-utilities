@@ -67,6 +67,7 @@ DISPATCH_GROUP = "agent-dispatch"
 #: Envelope kinds the dispatch workers know how to execute.
 KIND_GOAL_LOOP = "goal_loop"
 KIND_ORCHESTRATOR_TASK = "orchestrator_task"
+KIND_TOOL_TASK = "tool_task"
 
 # The broker carrier is deliberately a small, versioned, independently
 # verifiable envelope.  It is not a replacement for the native WorkItem

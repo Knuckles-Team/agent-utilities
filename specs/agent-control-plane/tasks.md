@@ -35,3 +35,6 @@ Checkboxes represent accepted deliverables, not merely files authored. Keep them
 - [ ] AC-22: Consume R134.2 selection and GraphOS-R011/R013/R029 schemas through the factory and call gate. Retire local ranking/registry authority after cutover. Require served positive, undisclosed-tool and upstream-refusal acceptance. Closes AU-CONTROL-R042; producer evidence alone is insufficient.
 - [ ] AC-23: The harness runs the given fan-out in parallel and returns results. Closes AU-CONTROL-R043.
 - [ ] AC-24: Add `ClientCapabilityToolset` with five client-capability tools, wire it at the ACP session factory, and prove `apply_patch` reaches a fake transport with no local file change. Closes AU-CONTROL-R044.
+
+- [x] AC-25: Add the reference-only single-tool worker branch and controlled-port execution/refusal/uncertainty tests. Covers the bounded producer wiring in AU-CONTROL-R035.8.
+- [ ] AC-25 production follow-up: Compose the real GraphOS admitted-request store, original-caller reauthorization and durable receipt reconciliation. Coordinate native retry exhaustion with uncertain effects before enabling submission; controlled worker tests do not close served acceptance.

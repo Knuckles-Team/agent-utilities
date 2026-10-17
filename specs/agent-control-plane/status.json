@@ -110,7 +110,8 @@
     "AU-CONTROL-R044.3",
     "AU-CONTROL-R044.4",
     "AU-CONTROL-R044.5",
-    "AU-CONTROL-R044.6"
+    "AU-CONTROL-R044.6",
+    "AU-CONTROL-R035.8"
   ],
   "requirements": [
     {
@@ -534,7 +535,8 @@
         "AU-CONTROL-R035.4",
         "AU-CONTROL-R035.5",
         "AU-CONTROL-R035.6",
-        "AU-CONTROL-R035.7"
+        "AU-CONTROL-R035.7",
+        "AU-CONTROL-R035.8"
       ]
     },
     {
@@ -1114,6 +1116,15 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "AU-CONTROL-R035.8",
+      "title": "Reference-only single-tool worker branch",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/unit/test_tool_task_dispatch.py:29"
+      ]
     }
   ]
 }

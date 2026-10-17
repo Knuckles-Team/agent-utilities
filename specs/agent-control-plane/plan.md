@@ -61,7 +61,7 @@ task + tenant/policy → typed mapping claim → EG AgentAssemble / Decide
 
 `RunSpec` is immutable and digest-bound: task/context handles, L1/L2/L3 component digests, required/optional capabilities, toolset and skill digests, minimum trace fidelity, policy/auth references, account and environment modes, usage units and hard/advisory budgets, deadline/cancel semantics, artifacts, completion predicate, side-effect/idempotency and reconciliation policy. `HarnessDescriptor` is a claim until startup inspection and conformance observe it. `negotiate` returns a typed refusal on any unmet **required** field; optional omissions are recorded. `HarnessPort` exposes `describe`, `negotiate`, `start`, `events`, `cancel`, `result`. `SandboxPort` exposes `lease`, `execute`, `release`, `health` and is only used for `local-sandbox`; caller-managed and provider-managed environments are explicitly identified.
 
-Five adapter families share one conformance contract: in-process pydantic-ai(+harness), Claude Code, Codex, Devin and Grok. Each must prove MCP context, a planted permitted tool, a planted skill, denied tool absence, cancellation, event fidelity, usage quality and outcome reconciliation. API-key and subscription modes are supported only when the descriptor and current provider terms permit automation. A remote provider session is not represented as a local sandbox.
+Five adapter families share one conformance contract: in-process pydantic-ai(+harness), Claude Code, Codex, Devin and Grok. Each must prove MCP context, a planted permitted tool, a planted skill and denied tool absence. Each must also prove cancellation, event fidelity, usage quality and outcome reconciliation. API-key and subscription modes are supported only when the descriptor and current provider terms permit automation. A remote provider session is not represented as a local sandbox.
 
 For swarm work, a committed `TopologyPlan` names width/rounds, `StopRule`, lease plan and per-node `SubagentAllowance`. AU constructs `ElasticTopologyAdmission` from that plan and stores the decision record digest in every spawned child. Continuation may stop early or release capacity. Re-admission is required to increase any cap. Outcome labels come from an independent evaluator. Remove `TopologyEngine.record_outcome` and `KGTeamComposer` success-rate selection at cutover; EG owns policy-backed topology facts and learned heads. AU never imports RDF/OWL/SHACL engines or authors a parallel ontology store.
 
@@ -75,7 +75,7 @@ For swarm work, a committed `TopologyPlan` names width/rounds, `StopRule`, lease
 
 ### Contracts and migration
 
-Consume only the public generated EG client and wire versions pinned in `pyproject.toml`/lock. Add contract golden vectors for RunSpec and event normalization; retain old-record decode support where the public contract requires it. Introduce adapters behind `HarnessPort`, route one production path through them, then delete obsolete selectors and local success writes in the same accepted tree. The [harness-evolution](../harness-evolution/spec.md) spec consumes terminal, independently evaluated runs and must not create a second scheduler.
+Consume only the public generated EG client and wire versions pinned in `pyproject.toml`/lock. Add contract golden vectors for RunSpec and event normalization; retain old-record decode support where the public contract requires it. Introduce adapters behind `HarnessPort` and route one production path through them. Delete obsolete selectors and local success writes in the same accepted tree. The [harness-evolution](../harness-evolution/spec.md) spec consumes terminal, independently evaluated runs and must not create a second scheduler.
 
 ## Skill workflow tool-gap filling (AU-CONTROL-R037)
 
@@ -181,3 +181,44 @@ Reused: the `trace` decorator, `tool_version`, `PersistencePrivacyGuard` and the
 Cross-repository rows: GRAPHOS-ACP `CodingSessionAdmission` admits the workspace root, records the grant and forwards each request to the client. EG-DECISION-ENGINE `HarnessConfig` supplies tool selection and limits. TUI-RUNTIME `CodingSessionView` implements the client capabilities with path containment and approval.
 
 The decision: execution is a client call because the files live on the person's host. The rejected alternative is a cluster service that mounts or syncs the host checkout. It copies data and needs host credentials on the cluster.
+
+## Amendment 2026-10-17: reference-only single-tool worker
+
+R035.8 extends `AgentTurnEnvelope` with a tool-task kind using the existing
+signed `payload_ref` and one-element `allowed_tool_subset`. The payload reference is the digest of the complete immutable owner request.
+The request includes caller authority, tenant, session, operation, parameters,
+policy revision and registry digest. Parameters are canonical JSON data, never a prompt.
+The queue and WorkItem retain only the reference. WorkItem metadata sanitization
+must not rewrite exact operation inputs.
+
+`api/tool_task.py` defines the request, bound result and owner dispatcher port.
+`agent_dispatch_worker` receives that port from composition and invokes it only
+inside the existing WorkItem lease. The owner resolves immutable inputs and
+reauthorizes the original caller immediately before effects, with durable
+idempotency on the signed dispatch job ID. It must refuse uncertain replay.
+The owner persists and retrieves the full immutable bound result receipt.
+Indeterminate outcomes leave the WorkItem nonterminal and withhold broker
+acknowledgment until owner reconciliation returns a definitive bound result.
+Unexpected execution exceptions and malformed post-effect receipts are also
+indeterminate. Only a proven pre-effect refusal can terminally refuse execution.
+Expired tool-task deadlines admit no new effect and cannot prove cancellation
+of a prior effect; nonterminal work remains unacknowledged for owner reconciliation.
+Rejected tool-task carriers also grant no execution and receive no broker ACK;
+untrusted kind can only conservatively withhold acknowledgment. Authenticated
+renewal/reconciliation requires a fresh owner-authenticated carrier and is not
+implemented, so poison deliveries may remain held. Expired authority is never reused.
+The worker checks input binding before execution and result binding before a
+successful terminal commit. An absent port performs no effect.
+
+The actual consumer loop and pool pass this dependency through; no process-global
+registry or local tool executor is introduced. Tests qualify worker wiring with
+controlled ports only. GraphOS must still implement the real admitted-request
+store, current-caller resolver and shared invocation dispatcher before enabling
+one-shot submission. Signed approval and prompt suppression remain unavailable.
+
+Native retry exhaustion remains a production-owner prerequisite. The native claim
+operation can atomically mark scheduling as dead-letter after exhausting its attempt budget. That state does not prove that an uncertain tool effect
+failed, nor does it resolve an unknown receipt. A production owner must durably
+coordinate scheduling terminal states with effect reconciliation before this
+port is composed. The controlled retry-budget tests qualify worker boundaries
+only; a pre-read check cannot repair that native authority contract atomically.

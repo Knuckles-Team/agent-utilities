@@ -70,10 +70,17 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, TypedDict
 
+from agent_utilities.api.tool_task import (
+    ToolTaskDispatcher,
+    ToolTaskRefused,
+    ToolTaskRequest,
+    ToolTaskResult,
+)
 from agent_utilities.orchestration.agent_dispatch import (
     DISPATCH_GROUP,
     KIND_GOAL_LOOP,
     KIND_ORCHESTRATOR_TASK,
+    KIND_TOOL_TASK,
     AgentTurnEnvelope,
     DispatchCarrierError,
     SessionLockCapacityError,
@@ -1761,6 +1768,47 @@ def _resolve_dispatch_engine(engine: Any, envelope: AgentTurnEnvelope) -> Any:
     return engine
 
 
+def _execute_tool_task(
+    envelope: AgentTurnEnvelope,
+    lease: WorkItemLeaseGuard,
+    dispatcher: ToolTaskDispatcher | None,
+) -> ToolTaskResult:
+    """Resolve exact admitted inputs before entering the owner's effect boundary."""
+    envelope.authenticate_carrier()
+    if dispatcher is None:
+        raise ToolTaskRefused("tool_task_dispatcher_unavailable")
+    lease.require_current()
+    request = dispatcher.resolve(
+        envelope.payload_ref, tenant=envelope.tenant, session_id=envelope.session_id
+    )
+    if not isinstance(request, ToolTaskRequest):
+        raise ToolTaskRefused("tool_task_request_unavailable")
+    if (
+        request.request_ref != envelope.payload_ref
+        or request.tenant != envelope.tenant
+        or request.session_id != envelope.session_id
+        or envelope.require_caller_filtered_exposure() != (request.operation_id,)
+    ):
+        raise ToolTaskRefused("tool_task_request_mismatch")
+    lease.require_current()
+    try:
+        result = dispatcher.execute(
+            request, job_id=envelope.job_id, require_current=lease.require_current
+        )
+    except WorkItemLeaseLost:
+        raise
+    except Exception as exc:  # noqa: BLE001 — crossing an effect boundary is uncertain
+        raise RuntimeError("tool_task_execution_uncertain") from exc
+    if not isinstance(result, ToolTaskResult) or (
+        result.job_id != envelope.job_id
+        or result.request_ref != envelope.payload_ref
+        or result.principal != request.principal
+    ):
+        raise RuntimeError("tool_task_result_mismatch")
+    lease.require_current()
+    return result
+
+
 def _run_agent_turn_kind(
     envelope: AgentTurnEnvelope,
     engine: Any,
@@ -1769,8 +1817,11 @@ def _run_agent_turn_kind(
     token: str | None,
     now: float | None,
     claim_ttl_s: float,
-) -> str:
+    tool_task_dispatcher: ToolTaskDispatcher | None = None,
+) -> str | ToolTaskResult:
     """Dispatch by envelope kind; returns the turn outcome (default "failed")."""
+    if envelope.kind == KIND_TOOL_TASK:
+        return _execute_tool_task(envelope, lease, tool_task_dispatcher)
     if envelope.kind == KIND_GOAL_LOOP:
         spec = load_goal_run(envelope.payload_ref, token=token, now=now)
         if spec is None:
@@ -1810,6 +1861,7 @@ def _commit_agent_turn_result(
     job_id: str,
     outcome: str,
     error_detail: str,
+    receipt_ref: str | None = None,
 ) -> str:
     """Durably commit the dispatch WorkItem's result; returns ``outcome`` unchanged.
 
@@ -1823,8 +1875,10 @@ def _commit_agent_turn_result(
         dispatch_item_id,
         dispatch_claim,
         outcome="succeeded" if outcome == "completed" else "failed",
-        result_ref=f"dispatch:{job_id}:completed" if outcome == "completed" else None,
-        error_ref=f"dispatch:{job_id}:{error_detail or outcome}"
+        result_ref=(receipt_ref or f"dispatch:{job_id}:completed")
+        if outcome == "completed"
+        else None,
+        error_ref=receipt_ref or f"dispatch:{job_id}:{error_detail or outcome}"
         if outcome != "completed"
         else None,
         retryable=False,
@@ -1843,6 +1897,7 @@ def execute_agent_turn(
     token: str | None = None,
     now: float | None = None,
     claim_ttl_s: float | None = None,
+    tool_task_dispatcher: ToolTaskDispatcher | None = None,
 ) -> str:
     """Claim + execute + write back ONE dispatched turn; return the outcome.
 
@@ -1857,8 +1912,26 @@ def execute_agent_turn(
     from agent_utilities.knowledge_graph.core import work_durability as _wi
 
     dispatch_item_id = f"workitem:dispatch:{envelope.job_id}"
+    if envelope.kind == KIND_TOOL_TASK:
+        envelope.authenticate_carrier(now=now)
+        admitted = _wi.get_work_item(engine, dispatch_item_id)
+        if not isinstance(admitted, dict) or (
+            admitted.get("payload_ref") != envelope.payload_ref
+            or admitted.get("tenant") != envelope.tenant
+        ):
+            raise ToolTaskRefused("tool_task_work_item_mismatch")
     with session_execution_guard(envelope.session_id):
         if envelope.deadline_unix and (now or time.time()) > envelope.deadline_unix:
+            if envelope.kind == KIND_TOOL_TASK:
+                current = _wi.get_work_item(engine, dispatch_item_id)
+                if (
+                    isinstance(current, dict)
+                    and current.get("status") in _wi.TERMINAL_WORK_ITEM_STATUSES
+                ):
+                    return "skipped"
+                # Deadline expiry cannot prove a prior effect was cancelled.
+                # Do not execute late; the owner must reconcile separately.
+                return "indeterminate"
             _wi.cancel_work_item(
                 engine, dispatch_item_id, reason="dispatch_deadline_expired", now=now
             )
@@ -1872,9 +1945,16 @@ def execute_agent_turn(
             lease_ttl_s=claim_ttl_s,
         )
         if dispatch_claim is None:
+            if envelope.kind == KIND_TOOL_TASK:
+                current = _wi.get_work_item(engine, dispatch_item_id)
+                if (
+                    not isinstance(current, dict)
+                    or current.get("status") not in _wi.TERMINAL_WORK_ITEM_STATUSES
+                ):
+                    return "fenced"
             return "skipped"  # authoritative negative; no legacy claim fallback
         if not _wi.mark_running(engine, dispatch_item_id, dispatch_claim, now=now):
-            return "skipped"
+            return "fenced" if envelope.kind == KIND_TOOL_TASK else "skipped"
         lease = WorkItemLeaseGuard(
             engine,
             dispatch_item_id,
@@ -1885,15 +1965,27 @@ def execute_agent_turn(
             lease.start()
             outcome = "failed"
             error_detail = ""
+            receipt_ref = None
             try:
-                outcome = _run_agent_turn_kind(
+                result = _run_agent_turn_kind(
                     envelope,
                     engine,
                     lease,
                     token=token,
                     now=now,
                     claim_ttl_s=claim_ttl_s,
+                    tool_task_dispatcher=tool_task_dispatcher,
                 )
+                if isinstance(result, ToolTaskResult):
+                    if result.outcome == "indeterminate":
+                        # Only the owner can reconcile the immutable receipt.
+                        # Keep this WorkItem nonterminal and broker unacknowledged.
+                        return "indeterminate"
+                    receipt_ref = result.receipt_ref
+                    error_detail = result.outcome
+                    outcome = result.outcome
+                else:
+                    outcome = result
             except WorkItemLeaseLost:
                 raise
             except Exception as e:  # noqa: BLE001 — BUG-003: a turn-execution
@@ -1910,8 +2002,18 @@ def execute_agent_turn(
                 logger.error(
                     "agent-dispatch turn execution error (%s)", type(e).__name__
                 )
+                if envelope.kind == KIND_TOOL_TASK and not isinstance(
+                    e, ToolTaskRefused
+                ):
+                    # A lost reply or malformed post-effect receipt cannot prove
+                    # failure. Only the authoritative owner can reconcile it.
+                    return "indeterminate"
                 outcome = "failed"
-                error_detail = f"{type(e).__name__}: {e}"[:500]
+                error_detail = (
+                    type(e).__name__
+                    if envelope.kind == KIND_TOOL_TASK
+                    else f"{type(e).__name__}: {e}"[:500]
+                )
             return _commit_agent_turn_result(
                 lease,
                 engine,
@@ -1920,6 +2022,7 @@ def execute_agent_turn(
                 job_id=envelope.job_id,
                 outcome=outcome,
                 error_detail=error_detail,
+                receipt_ref=receipt_ref,
             )
         except WorkItemLeaseLost:
             return "fenced"
@@ -2232,6 +2335,11 @@ def _authenticate_or_poison(
         _record_turn_outcome(
             "carrier_rejected" if poison_id else "carrier_rejected_unrecorded"
         )
+        if envelope.kind == KIND_TOOL_TASK:
+            # Untrusted kind only withholds acknowledgment; it grants no authority.
+            # A rejected carrier cannot establish resolution of an earlier effect.
+            time.sleep(idle_sleep_s)
+            return False
         if not _ack_after_durable_outcome(queue, item_id, engine, poison_id):
             time.sleep(idle_sleep_s)
         return False
@@ -2287,6 +2395,7 @@ def _execute_dispatch_turn(
     lifecycle: DispatchWorkerLifecycle,
     active: list[str],
     heartbeat_interval_s: float,
+    tool_task_dispatcher: ToolTaskDispatcher | None = None,
 ) -> tuple[str, float]:
     """Run one claimed turn under the session guard.
 
@@ -2297,7 +2406,12 @@ def _execute_dispatch_turn(
     try:
         active[:] = [envelope.session_id]
         _heartbeat(queue, token, active)
-        outcome = execute_agent_turn(envelope, engine, token=token)
+        if tool_task_dispatcher is None:
+            outcome = execute_agent_turn(envelope, engine, token=token)
+        else:
+            outcome = execute_agent_turn(
+                envelope, engine, token=token, tool_task_dispatcher=tool_task_dispatcher
+            )
     except SessionLockCapacityError:
         # The local coordination cap is a bounded admission signal, not a
         # terminal WorkItem outcome.  Leave the delivery for another
@@ -2441,6 +2555,7 @@ def run_dispatch_consumer_loop(
     idle_sleep_s: float = 0.5,
     heartbeat_interval_s: float = HEARTBEAT_INTERVAL_S,
     lifecycle: DispatchWorkerLifecycle | None = None,
+    tool_task_dispatcher: ToolTaskDispatcher | None = None,
 ) -> None:
     """Drain ``agent_turns`` until ``stop_event``: claim → execute → ack.
 
@@ -2490,7 +2605,14 @@ def run_dispatch_consumer_loop(
             continue
 
         outcome, next_heartbeat = _execute_dispatch_turn(
-            queue, engine, envelope, token, lifecycle, active, heartbeat_interval_s
+            queue,
+            engine,
+            envelope,
+            token,
+            lifecycle,
+            active,
+            heartbeat_interval_s,
+            tool_task_dispatcher=tool_task_dispatcher,
         )
         # ``continue`` (not ``break``): the top-of-loop check now waits for
         # the drain to clear and calls ``reconnect`` itself, via
@@ -2521,6 +2643,7 @@ def start_dispatch_worker_pool(
     engine: Any = None,
     background_session: Any = None,
     lifecycle: DispatchWorkerLifecycle | None = None,
+    tool_task_dispatcher: ToolTaskDispatcher | None = None,
 ) -> list[threading.Thread]:
     """Start ``worker_count`` dispatch consumer threads against ``queue``.
 
@@ -2560,6 +2683,7 @@ def start_dispatch_worker_pool(
                 engine,
                 worker_id=f"{worker_token()}:{idx}",
                 lifecycle=worker_lifecycle,
+                tool_task_dispatcher=tool_task_dispatcher,
             )
 
         t = _authorized_background_thread(

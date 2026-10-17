@@ -86,3 +86,11 @@ Call the catalogued but undisclosed id; assert `tool_not_disclosed` and zero dow
 ### Client-capability toolset acceptance
 
 Run `tests/integration/test_client_capability_toolset_run_loop.py::test_apply_patch_reaches_transport_only` through the ACP run loop with a fake `ClientCapabilityTransport`. Assert one transport call with the patch and no changed file on the host. Assert `client_capability_refused` when the transport is disconnected.
+
+### Reference-only tool-task worker coverage
+
+| Requirement | Evidence level | Test coverage |
+|---|---|---|
+| AU-CONTROL-R035.8 request and worker wiring. | Unit, controlled owner/backend ports. | `tests/unit/test_tool_task_dispatch.py` checks versioned canonical input and exact signed request/subset binding. It checks consumer-loop dispatch and bound terminal receipts. |
+| AU-CONTROL-R035.8 refusal and uncertainty. | Unit, controlled owner/backend ports. | The suite checks missing owners, changed requests, lease loss, exceptions and malformed results. It checks reconciliation, failed running transitions, deadline expiry and rejected carriers without premature ACK. |
+| AU-CONTROL-R035.8 production owner. | Pending served acceptance. | Real caller refresh, immutable request persistence and durable effect deduplication remain unproved. Authenticated reconciliation and native retry-exhaustion coordination remain unproved. Scheduler dead-letter does not resolve an unknown effect receipt. |
