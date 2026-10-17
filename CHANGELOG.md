@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [## [Unreleased]] - 2026-10-17 — Agent harness only
+## [3.0.1] - 2026-10-17 — Arbora rename
+
+### Changed
+- graph-os is renamed to Arbora. The platform config resolver prefers `ARBORA_CONFIG_DIR` / `~/.config/arbora`; for one release it still reads `GRAPH_OS_CONFIG_DIR` / `~/.config/graph-os`, then the agent-utilities location, with one deprecation warning.
+
+## [3.0.0] - 2026-10-17 — Agent harness only
 
 ### Removed
 - **Cut to the in-run harness.** Every module outside the harness keep set is deleted:
@@ -1230,7 +1235,7 @@ No unreleased changes.
 ### Changed
 - **Version authority moved to 2.0.0** (`agent_utilities/_version.py`), coordinated
   with a fleet-wide pin cascade: all agent-utilities pins across the dependent
-  ecosystem repos were widened to `>=2.0.0,<## [Unreleased]` in the same operation so the
+  ecosystem repos were widened to `>=2.0.0,<3.0.0` in the same operation so the
   fleet stays installable. This entry establishes the 2.x line; feature content
   accumulated since 1.27.1 remains under `[Unreleased]` and ships with the next
   published release. Completion pass (provider-fleet floor, this entry, and
