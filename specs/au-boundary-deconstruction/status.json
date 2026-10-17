@@ -135,6 +135,9 @@
     "AU-BOUNDARY-R041",
     "AU-BOUNDARY-R042",
     "AU-BOUNDARY-R043",
+    "AU-BOUNDARY-R043.1",
+    "AU-BOUNDARY-R043.2",
+    "AU-BOUNDARY-R043.3",
     "AU-BOUNDARY-R044",
     "AU-BOUNDARY-R044.1",
     "AU-BOUNDARY-R045",
@@ -1418,13 +1421,63 @@
     },
     {
       "id": "AU-BOUNDARY-R043",
-      "title": "Retained agent surface is declared and import-bounded",
-      "delivery_state": "LANDED",
+      "title": "The agent run loop stays in Agent Utilities",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "8a45ab8013ad",
         "fdeabad709b3"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R043.1",
+        "AU-BOUNDARY-R043.2",
+        "AU-BOUNDARY-R043.3"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.1",
+      "title": "The run loop applies a received run plan",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8db7a50738e9"
+      ],
+      "verified_by": [
+        "tests/test_run_loop.py:120",
+        "tests/test_run_loop.py:138",
+        "tests/test_run_loop.py:156",
+        "tests/test_run_loop.py:169",
+        "tests/test_run_loop.py:221"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.2",
+      "title": "The run loop has a documented fallback plan and fails closed",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8db7a50738e9"
+      ],
+      "verified_by": [
+        "tests/test_run_loop.py:113",
+        "tests/test_run_loop.py:194",
+        "tests/test_run_loop.py:248",
+        "tests/test_run_loop.py:59",
+        "tests/test_run_loop.py:67"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.3",
+      "title": "The recursive run loop enforces a received depth and budget",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8db7a50738e9"
+      ],
+      "verified_by": [
+        "tests/test_rlm.py:106",
+        "tests/test_rlm.py:20",
+        "tests/test_rlm.py:64",
+        "tests/test_rlm.py:75",
+        "tests/test_rlm.py:82"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R044",
