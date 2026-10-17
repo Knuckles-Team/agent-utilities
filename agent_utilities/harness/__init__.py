@@ -89,15 +89,14 @@ from .self_guided_play import (
     SelfGuidedSelfPlay,
 )
 from .substrate_trainer import GrpoSample, SubstrateTrainer, TrainingJobSpec
-from .world_model_task import WorldModelVerifier, build_world_model_task
 
 # CONCEPT:AU-KG.compute.numpy-scipy-drop's compiled ``epistemic_graph.numeric`` kernel is
 # not (yet) published on PyPI — importing it raises ``ImportError`` wherever only the
-# published ``epistemic-graph`` client wheel is installed. ``assimilation_benchmark``,
-# ``latent_efficiency_benchmark``, and ``superhuman_gate`` transitively require it
+# published ``epistemic-graph`` client wheel is installed. ``assimilation_benchmark``
+# and ``superhuman_gate`` transitively require it
 # (assimilation_benchmark -> retrieval.generative_recommender -> agent_utilities.numeric).
 # Because importing ANY submodule of a package first runs that package's ``__init__``,
-# eagerly importing these three here previously forced the numeric kernel onto every
+# eagerly importing these here previously forced the numeric kernel onto every
 # process's mandatory identity-minting hot path: ``observability.correlation`` imports
 # ``agent_utilities.harness.tracing``, and ``security.request_identity.mint_graph_session``
 # — now required by every engine-client process (ingest_worker, the messaging daemon,
@@ -109,11 +108,6 @@ _LAZY_SUBMODULE_ATTRS: dict[str, tuple[str, str]] = {
     "BenchmarkResult": (".assimilation_benchmark", "BenchmarkResult"),
     "run_all": (".assimilation_benchmark", "run_all"),
     "to_markdown": (".assimilation_benchmark", "to_markdown"),
-    "bench_latent_rollout_memory": (
-        ".latent_efficiency_benchmark",
-        "bench_latent_rollout_memory",
-    ),
-    "run_latent_efficiency_benchmarks": (".latent_efficiency_benchmark", "run_all"),
     "CertificationResult": (".superhuman_gate", "CertificationResult"),
     "SuperhumanCertifier": (".superhuman_gate", "SuperhumanCertifier"),
 }
@@ -136,9 +130,6 @@ __all__ = [
     "BenchmarkResult",
     "run_all",
     "to_markdown",
-    # Latent-native efficiency benchmark (CONCEPT:AU-AHE.harness.empirical-evidence-that-latent)
-    "bench_latent_rollout_memory",
-    "run_latent_efficiency_benchmarks",
     "OptimisticStateLocker",
     "BranchMergeStateLocker",
     "ToolContract",
@@ -218,9 +209,6 @@ __all__ = [
     "SpecializationTask",
     "Verifier",
     "VerifierResult",
-    # World-model SAI specialization track (CONCEPT:AU-KG.compute.kg-3)
-    "WorldModelVerifier",
-    "build_world_model_task",
     # Superhuman-certification gate (CONCEPT:AU-OS.safety.superhuman-gate)
     "SuperhumanCertifier",
     "CertificationResult",

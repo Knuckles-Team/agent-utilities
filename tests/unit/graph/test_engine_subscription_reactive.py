@@ -9,7 +9,6 @@ CDC/watch feed — i.e. the consumer reacts to the change-event, not a poll inte
 
 Covers:
 * the ``EngineSubscription`` primitive (catch-up + watch deliver a real write);
-* the world-model gate fires on a ``WorldModelTransition`` write (not a full re-scan);
 * the autoscaler signal subscription fires on a control-plane WorkItem change.
 """
 
@@ -98,43 +97,6 @@ def test_unavailable_source_is_noop() -> None:
     assert sub.available is False
     assert sub.poll(block_ms=0) == 0
     assert sub.catch_up() == 0
-
-
-# ── world-model reactive gate ────────────────────────────────────────────
-
-
-def test_world_model_subscription_fires_on_transition(engine_graph) -> None:
-    """The world-model reactive gate (KG-2.253) registers ``pending`` on a real
-    ``WorldModelTransition`` write — the daemon tick re-specializes on THIS change
-    instead of re-querying the whole transition history."""
-    from agent_utilities.harness.world_model_task import (
-        WORLD_MODEL_TRANSITION_LABEL,
-        world_model_subscription,
-    )
-
-    # The builder resolves the engine's content compute; feed it the per-test
-    # tenant directly so the subscription watches exactly this graph.
-    sub = world_model_subscription(engine_graph)
-    assert sub.available
-    assert sub.pending_state["pending"] == 0
-
-    # No transitions yet → the gate stays closed (would skip the expensive cycle).
-    sub.poll(block_ms=0)
-    assert sub.pending_state["pending"] == 0
-
-    # Persist a transition exactly as WorldModel.record_observation does.
-    engine_graph.add_node(
-        "wm_transition:abc123",
-        {
-            "node_type": WORLD_MODEL_TRANSITION_LABEL,
-            "state": "s0",
-            "action": "a0",
-            "next_state": "s1",
-        },
-    )
-
-    sub.poll(block_ms=0)
-    assert sub.pending_state["pending"] == 1, "world model must react to the write"
 
 
 # ── autoscaler reactive signal ───────────────────────────────────────────

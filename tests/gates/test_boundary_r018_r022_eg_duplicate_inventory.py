@@ -112,7 +112,6 @@ EG_DUPLICATE_INVENTORY: dict[str, tuple[str, tuple[str, ...]]] = {
             "knowledge_graph/core/blast_radius.py",
             "knowledge_graph/core/hydration.py",
             "knowledge_graph/core/maintainer.py",
-            "knowledge_graph/core/world_model.py",
             "knowledge_graph/core/ownership_claim.py",
             "knowledge_graph/core/fingerprint.py",
             "knowledge_graph/maintenance",

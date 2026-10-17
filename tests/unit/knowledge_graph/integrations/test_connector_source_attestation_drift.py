@@ -158,12 +158,6 @@ def test_a_minor_bump_also_leaves_signed_attestations_valid(
     assert compatibility_violations(PRESERVED_FLEET_COMPATIBILITY) == []
 
 
-def test_the_preserved_fleet_bundles_are_admissible_at_the_released_version() -> None:
-    """All 68 Jul-28 bundles failed on this one field; they must now pass."""
-
-    assert compatibility_violations(PRESERVED_FLEET_COMPATIBILITY) == []
-
-
 def test_a_major_bump_is_the_only_boundary_that_invalidates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

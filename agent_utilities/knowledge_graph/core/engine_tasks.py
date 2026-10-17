@@ -2968,12 +2968,6 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
             )
         )
         _maint(
-            "sai_factory",
-            "sai_factory",
-            _cfg.kg_sai_factory_interval,
-            enabled=_cfg.kg_sai_factory,
-        )
-        _maint(
             "failure_ingest",
             "failure_ingest",
             _cfg.kg_failure_evolution_interval,
@@ -4000,71 +3994,6 @@ class TaskManagerMixin(TaskQueryMixin, GraphEngineProtocol):
             )
         except Exception as e:  # noqa: BLE001
             logger.error("loop tick error: %s", e)
-
-    def _world_model_subscription(self) -> Any:
-        """Lazily-built reactive ``WorldModelTransition`` change-feed (CONCEPT:AU-KG.compute.reactive-push).
-
-        One subscription per daemon process, cached on the engine, so the SAI tick
-        consumes the engine's pushed change-events instead of re-scanning the whole
-        transition history every tick. Rebuilt transparently if it couldn't resolve
-        a streaming surface on first use (engine not yet connected).
-        """
-        sub = getattr(self, "_wm_subscription", None)
-        if sub is None or not getattr(sub, "available", False):
-            from agent_utilities.harness.world_model_task import (
-                world_model_subscription,
-            )
-
-            sub = world_model_subscription(self)
-            self._wm_subscription = sub
-        return sub
-
-    def _tick_sai_factory(self) -> None:
-        """One SAI-factory world-model specialization cycle (CONCEPT:AU-AHE.harness.sai-controller).
-
-        REACTIVE (CONCEPT:AU-KG.compute.reactive-push): instead of re-querying the ENTIRE
-        ``WorldModelTransition`` history every tick, poll the engine's change-feed
-        subscription and only re-specialize when the engine pushed a NEW transition
-        since the last tick (the change that caused it) — or on cold-start
-        catch-up. When the engine has no streaming surface (``available`` False),
-        fall back to the periodic specialization so behaviour is never worse than
-        before. Grounds a learned dynamics model in the transition history and
-        persists a ``SaiFactoryCycle`` node. AU-native (no LLM/GPU). Throttled +
-        opt-in via ``KG_SAI_FACTORY``; a no-op when too little history exists.
-        """
-        try:
-            from agent_utilities.harness.superhuman_gate import SuperhumanCertifier
-            from agent_utilities.harness.world_model_task import (
-                specialize_world_model_from_engine,
-            )
-
-            sub = self._world_model_subscription()
-            if sub.available:
-                # Non-blocking poll: O(new transitions) on the engine's pushed
-                # feed, NOT a full re-scan. Skip the expensive specialization when
-                # nothing changed since the last tick.
-                sub.poll(block_ms=0)
-                pending = sub.pending_state["pending"]
-                if pending == 0:
-                    logger.debug("SAI factory tick: no new transitions (reactive skip)")
-                    return
-                sub.pending_state["pending"] = 0
-
-            summary = specialize_world_model_from_engine(
-                self, certifier=SuperhumanCertifier()
-            )
-            if summary is None:
-                logger.debug("SAI factory tick: insufficient transition history")
-                return
-            logger.info(
-                "SAI factory cycle: task=%s reward=%s reached=%s transitions=%s",
-                summary.get("task_id"),
-                summary.get("final_specialist_reward"),
-                summary.get("reached"),
-                summary.get("transitions"),
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.error("sai_factory tick failed: %s", e)
 
     def _tick_failure_ingest(self) -> None:
         """Ingest Langfuse failures → gap topics → regression-gated remediation.

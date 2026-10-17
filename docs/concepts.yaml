@@ -383,7 +383,6 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/harness/__init__.py
-  - agent_utilities/harness/latent_efficiency_benchmark.py
   doc: empirical evidence that the latent-native enhancements move
 - id: AU-AHE.harness.evolution-branch-bridge
   name: Evolution-to-branch bridge publishing promoted proposals as regression-gated reviewable local
@@ -1325,13 +1324,6 @@ concepts:
   code_paths:
   - agent_utilities/protocols/a2a_config.py
   doc: A2A Config File Loading
-- id: AU-ECO.interop.a2a-native-planner
-  name: A2A-Native PlannerAgent
-  pillar: AU-ECO
-  status: live
-  code_paths:
-  - agent_utilities/protocols/a2a_graph_skill.py
-  doc: A2A-Native PlannerAgent
 - id: AU-ECO.interop.ard-federation-relay
   name: ARD federation relay
   pillar: AU-ECO
@@ -1696,7 +1688,6 @@ concepts:
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/models/schema_packs/finance.py
   - agent_utilities/orchestration/durable_execution.py
-  - agent_utilities/protocols/a2a_epistemic.py
   - agent_utilities/protocols/acp_adapter.py
   - agent_utilities/security/permissions_kernel.py
   - agent_utilities/tools/agent_tools.py
@@ -2349,7 +2340,6 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/graph/reactive/engine_subscription.py
-  - agent_utilities/harness/world_model_task.py
   - agent_utilities/orchestration/fleet_autoscaler.py
   doc: Engine change-feed subscription primitive for poll→push reactivity
 - id: AU-KG.compute.code-intelligence-tools
@@ -2433,13 +2423,6 @@ concepts:
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
   doc: Firefly III accounts/transactions/budgets →
-- id: AU-KG.compute.first-class-action-conditioned
-  name: a first-class action-conditioned world model wrapping the graph
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/core/world_model.py
-  doc: a first-class action-conditioned world model wrapping the graph
 - id: AU-KG.compute.first-class-reasoner-paradigm
   name: a first-class Reasoner paradigm abstraction with an outcome-learning router that selects a reasoning
     paradigm per task by capability tags blended with a learned reward EMA and feeds the scored result
@@ -2533,8 +2516,6 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/harness/__init__.py
-  - agent_utilities/harness/world_model_task.py
-  - agent_utilities/knowledge_graph/core/world_model.py
   doc: AU-KG.compute.kg-3
 - id: AU-KG.compute.lane-bound-task
   name: request cooperative cancellation
@@ -2680,13 +2661,6 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   doc: The per-batch foreground check in
-- id: AU-KG.compute.reuse-model-latent
-  name: the latent the model already computes
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/core/world_model.py
-  doc: the latent the model already computes
 - id: AU-KG.compute.single-dropped-connection
   name: A single dropped connection
   pillar: AU-KG
@@ -6461,13 +6435,6 @@ concepts:
   code_paths:
   - agent_utilities/graph/workspace_attention.py
   doc: named-aggregation consensus over winners
-- id: AU-ORCH.execution.coordination-negotiation
-  name: Coordination negotiation before execution
-  pillar: AU-ORCH
-  status: live
-  code_paths:
-  - agent_utilities/protocols/a2a_graph_skill.py
-  doc: Coordination negotiation before execution
 - id: AU-ORCH.execution.coordination-protocol-metadata
   name: Selected coordination protocol metadata
   pillar: AU-ORCH

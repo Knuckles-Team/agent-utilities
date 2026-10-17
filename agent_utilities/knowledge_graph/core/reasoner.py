@@ -93,29 +93,6 @@ class ProgramSynthesisReasoner:
         )
 
 
-class WorldModelReasoner:
-    """Model-based paradigm: roll a policy forward over the world model (KG-2.67)."""
-
-    name = "world_model"
-    capability_tags: tuple[str, ...] = ("planning", "dynamics")
-
-    def reason(self, task: ReasoningTask) -> ReasoningResult:
-        wm = task.payload["world_model"]
-        policy = task.payload["policy"]
-        traj = wm.rollout(task.payload["start"], policy, task.payload.get("horizon", 5))
-        goal_state = task.payload.get("goal_state")
-        reached = goal_state is not None and any(
-            t.next_state == goal_state for t in traj
-        )
-        if goal_state is not None:
-            score = 1.0 if reached else 0.0
-        else:
-            score = max(0.0, min(1.0, wm.expected_return(traj)))
-        return ReasoningResult(
-            answer=traj, reasoner=self.name, score=score, trace={"horizon": len(traj)}
-        )
-
-
 class DeductiveReasoner:
     """Symbolic paradigm: forward-chain rules to a fixpoint over a fact set."""
 
@@ -343,7 +320,6 @@ def get_reasoner_router() -> ReasonerRouter:
     if _DEFAULT_ROUTER is None:
         router = ReasonerRouter()
         router.register(ProgramSynthesisReasoner())
-        router.register(WorldModelReasoner())
         router.register(DeductiveReasoner())
         router.register(GenerativeReasoner())
         _DEFAULT_ROUTER = router

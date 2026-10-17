@@ -49,8 +49,6 @@ _LAZY_MODULE_EXPORTS: tuple[tuple[str, str], ...] = (
         "EventLedger BehaviorDispatcher reactive_behavior BudgetGuard BudgetTrippedException",
     ),
     (".prompting.builder", "build_system_prompt_from_workspace load_identity"),
-    (".server", "create_agent_server"),
-    (".gateway_client", "GatewayClient"),
     (".knowledge_graph.core.codemaps", "CodemapGenerator"),
     (".agent_chat.parser", "parse_codemap_mentions"),
     (
@@ -132,8 +130,6 @@ __all__ = [
     # Agent creation
     "create_agent",
     "create_agent_parser",
-    "create_agent_server",
-    "GatewayClient",
     # Graph orchestration
     "GraphState",
     "create_graph_agent",

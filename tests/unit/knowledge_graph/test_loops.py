@@ -112,6 +112,8 @@ def test_active_loops_reads_status_only_from_work_items():
 def test_claim_loop_uses_native_lease_and_lost_race_is_final():
     engine = LoopEngine()
     loop = _submit(engine, "one owner", kind="develop")
+    # Submission records its own native metadata CAS; measure only the claims.
+    engine.native_calls.clear()
     with _authority():
         assert claim_loop(engine, loop["id"]) is True
         assert claim_loop(engine, loop["id"]) is False

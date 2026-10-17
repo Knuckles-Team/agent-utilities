@@ -18,7 +18,6 @@ from agent_utilities.knowledge_graph.core.reasoner import (
     get_reasoner_router,
     reason,
 )
-from agent_utilities.knowledge_graph.core.world_model import WorldModel
 
 pytestmark = pytest.mark.concept("AU-KG.compute.first-class-reasoner-paradigm")
 
@@ -53,24 +52,6 @@ class TestParadigmsViaRouter:
         result = get_reasoner_router().reason(task)
         assert result.reasoner == "deductive"
         assert "C" in result.answer and result.score == 1.0
-
-    def test_planning_routes_to_world_model(self):
-        wm = WorldModel()
-        wm.observe("a", "go", "b")
-        wm.observe("b", "go", "goal")
-        task = ReasoningTask(
-            goal="reach goal",
-            tags=("planning",),
-            payload={
-                "world_model": wm,
-                "start": "a",
-                "policy": lambda _s: "go",
-                "horizon": 2,
-                "goal_state": "goal",
-            },
-        )
-        result = get_reasoner_router().reason(task)
-        assert result.reasoner == "world_model" and result.score == 1.0
 
     def test_generative_uses_injected_fn(self):
         router = ReasonerRouter()

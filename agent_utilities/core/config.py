@@ -4520,18 +4520,6 @@ class AgentConfig(BaseSettings):
     # deployment must opt in its categories.
     kg_arxiv_categories: str = Field(default="", alias="KG_ARXIV_CATEGORIES")
     kg_arxiv_max_results: int = Field(default=50, alias="KG_ARXIV_MAX_RESULTS")
-    # SAI factory self-specialization (CONCEPT:AU-AHE.harness.sai-controller). LLM-free, bounded, and
-    # propose-only (it only persists a SaiFactoryCycle metrics node — nothing is
-    # merged or deployed), and a *no-op when there is too little transition history*,
-    # so it costs nothing on an idle system. Like the anomaly consumer, that makes it
-    # safe to run natively ⇒ ON by default (set KG_SAI_FACTORY=0 to disable). The tick
-    # grounds a learned world model in persisted WorldModelTransition history and
-    # specializes its config; the same loop is reachable on demand via
-    # graph_analyze(action='specialize') through the gateway.
-    kg_sai_factory: bool = Field(default=True, alias="KG_SAI_FACTORY")
-    kg_sai_factory_interval: float = Field(
-        default=3600.0, alias="KG_SAI_FACTORY_INTERVAL"
-    )
     # Failure-driven evolution — dormant with no Langfuse credentials and
     # configure-by-default once both credentials are runtime-injected. An
     # explicit false remains an opt-out. Pulls failures into propose-only
@@ -5944,66 +5932,6 @@ class AgentConfig(BaseSettings):
     )
     """Secrets-backend reference for the Memento raw-retention encryption key."""
 
-    a2a_broker: Literal["epistemic_graph"] = Field(
-        default="epistemic_graph", alias="A2A_BROKER"
-    )
-    """FastA2A operation delivery uses the native durable engine broker."""
-
-    a2a_storage: Literal["epistemic_graph"] = Field(
-        default="epistemic_graph", alias="A2A_STORAGE"
-    )
-    """FastA2A task/context state uses native durable engine records."""
-
-    a2a_broker_poll_interval_ms: int = Field(
-        default=100, ge=10, le=5_000, alias="A2A_BROKER_POLL_INTERVAL_MS"
-    )
-    a2a_broker_lease_ms: int = Field(
-        default=300_000, ge=10_000, le=3_600_000, alias="A2A_BROKER_LEASE_MS"
-    )
-    a2a_broker_prefetch: int = Field(
-        default=1, ge=1, le=128, alias="A2A_BROKER_PREFETCH"
-    )
-    a2a_broker_message_ttl_ms: int = Field(
-        default=86_400_000,
-        ge=60_000,
-        le=604_800_000,
-        alias="A2A_BROKER_MESSAGE_TTL_MS",
-    )
-    a2a_broker_max_delivery_count: int = Field(
-        default=5, ge=1, le=100, alias="A2A_BROKER_MAX_DELIVERY_COUNT"
-    )
-    a2a_max_payload_bytes: int = Field(
-        default=262_144, ge=4_096, le=4_194_304, alias="A2A_MAX_PAYLOAD_BYTES"
-    )
-    a2a_max_history: int = Field(default=100, ge=1, le=1_000, alias="A2A_MAX_HISTORY")
-    a2a_max_artifacts: int = Field(default=50, ge=1, le=500, alias="A2A_MAX_ARTIFACTS")
-    a2a_max_context_messages: int = Field(
-        default=100, ge=1, le=1_000, alias="A2A_MAX_CONTEXT_MESSAGES"
-    )
-    a2a_storage_update_retries: int = Field(
-        default=4, ge=1, le=16, alias="A2A_STORAGE_UPDATE_RETRIES"
-    )
-    a2a_dispatch_reconcile_interval_ms: int = Field(
-        default=1_000,
-        ge=10,
-        le=60_000,
-        alias="A2A_DISPATCH_RECONCILE_INTERVAL_MS",
-    )
-    """Interval for recovering persisted A2A dispatches after a process failure."""
-
-    a2a_dispatch_reconcile_limit: int = Field(
-        default=64, ge=1, le=1_024, alias="A2A_DISPATCH_RECONCILE_LIMIT"
-    )
-    """Maximum persisted A2A tasks inspected by one reconciliation tick."""
-
-    a2a_cancellation_poll_interval_ms: int = Field(
-        default=1_000,
-        ge=10,
-        le=60_000,
-        alias="A2A_CANCELLATION_POLL_INTERVAL_MS",
-    )
-    """Maximum interval between durable cross-process cancellation checks."""
-
     a2a_config: str | None = Field(default=None, alias="A2A_CONFIG")
     """Path to a2a_config.json for external A2A agent discovery (CONCEPT:AU-ECO.messaging.native-backend-abstraction)."""
     a2a_refresh_interval: int = Field(default=300, alias="A2A_REFRESH_INTERVAL")
@@ -6610,8 +6538,6 @@ _LAZY_PASSTHROUGH_FIELDS: tuple[tuple[str, str], ...] = (
         "DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD",
         "langfuse_dataset_capture_threshold",
     ),
-    ("DEFAULT_A2A_BROKER", "a2a_broker"),
-    ("DEFAULT_A2A_STORAGE", "a2a_storage"),
     ("DEFAULT_A2A_CONFIG", "a2a_config"),
     ("DEFAULT_A2A_REFRESH_INTERVAL", "a2a_refresh_interval"),
     ("DEFAULT_MAX_TOKENS", "max_tokens"),
@@ -6902,8 +6828,6 @@ def __dir__() -> list[str]:
             "DEFAULT_OTEL_EXPORTER_OTLP_PROTOCOL",
             "DEFAULT_LANGFUSE_HOST",
             "DEFAULT_LANGFUSE_DATASET_CAPTURE_THRESHOLD",
-            "DEFAULT_A2A_BROKER",
-            "DEFAULT_A2A_STORAGE",
             "DEFAULT_A2A_CONFIG",
             "DEFAULT_A2A_REFRESH_INTERVAL",
             "DEFAULT_MAX_TOKENS",

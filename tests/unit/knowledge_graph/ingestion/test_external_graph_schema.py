@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 
 import pytest
 
@@ -14,123 +13,10 @@ from agent_utilities.knowledge_graph.ingestion.external_graph_schema import (
     external_graph_readiness,
     external_mapping_policy_digest,
     get_discovery_adapter,
-    governed_semantic_mapping_enricher,
     mapping_policy_digest,
     mapping_profile_status,
     propose_mapping_profile,
 )
-
-
-def test_governed_semantic_mapper_uses_lite_bounded_context_transport(
-    monkeypatch,
-) -> None:
-    bundle = SimpleNamespace(cache_key="synthetic-bundle")
-    captured: dict[str, object] = {}
-
-    def fake_completion(received_bundle, prompt, **kwargs):
-        captured.update(bundle=received_bundle, prompt=prompt, kwargs=kwargs)
-        return SimpleNamespace(
-            choices=[
-                SimpleNamespace(
-                    message=SimpleNamespace(content='{"Service":"Document"}')
-                )
-            ]
-        )
-
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.retrieval.context_compiler_serving.bundle_chat_completion",
-        fake_completion,
-    )
-
-    assert governed_semantic_mapping_enricher(bundle) == {"Service": "Document"}
-    assert captured["bundle"] is bundle
-    assert captured["kwargs"] == {
-        "model": "lite",
-        "timeout_s": 30.0,
-        "max_retries": 0,
-        "max_tokens": 512,
-        "temperature": 0,
-    }
-    assert "JSON object" in str(captured["prompt"])
-
-
-@pytest.mark.parametrize(
-    "content",
-    [
-        "```json\n{}\n```",
-        "[{}]",
-        '{"Service": NaN}',
-        '{"Service": 7}',
-        '{"Service":"Document","Service":"Other"}',
-    ],
-)
-def test_governed_semantic_mapper_rejects_non_strict_output(
-    monkeypatch, content
-) -> None:
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.retrieval.context_compiler_serving.bundle_chat_completion",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
-        ),
-    )
-
-    with pytest.raises(ExternalGraphSchemaError, match="semantic mapper response"):
-        governed_semantic_mapping_enricher(SimpleNamespace())
-
-
-def test_semantic_proposal_compiles_private_context_and_allowlists_suggestions(
-    monkeypatch,
-) -> None:
-    from agent_utilities.knowledge_graph.retrieval.context_compiler import (
-        ContextCompiler,
-    )
-
-    bundle = SimpleNamespace(as_text=lambda: "compiled")
-    verified_session = object()
-    captured: dict[str, object] = {}
-
-    def fake_compile(self, query, **kwargs):
-        captured.update(
-            query=query,
-            kwargs=kwargs,
-            rows=list(self.engine._rows),
-        )
-        return bundle
-
-    monkeypatch.setattr(ContextCompiler, "compile", fake_compile)
-
-    def semantic_enricher(received_bundle):
-        assert received_bundle is bundle
-        return {
-            "Service": "Document",
-            "Component": "UnknownTarget",
-            "UnknownLabel": "Document",
-        }
-
-    store = _Store()
-    proposal = propose_mapping_profile(
-        _Graph(),
-        backend="neo4j",
-        connection="external-catalog",
-        source_alias="business-graph",
-        ontology_classes=["Document"],
-        secret_store=store,
-        runtime_policy_digest=external_mapping_policy_digest({}),
-        semantic_enricher=semantic_enricher,
-        context_session=verified_session,
-    )
-
-    profile = json.loads(
-        store.values["external-graphs/external-catalog/mapping-profile"]
-    )
-    assert profile["type_map"] == {"Service": "Document"}
-    assert proposal["semantic_enrichment"] == "propose-only"
-    assert captured["kwargs"]["session"] is verified_session
-    assert captured["kwargs"]["token_budget"] == 1_500
-    assert {row["name"] for row in captured["rows"]} == {
-        "Service",
-        "Component",
-    }
 
 
 def test_generic_opencypher_profile_uses_neo4j_compatible_label_function() -> None:

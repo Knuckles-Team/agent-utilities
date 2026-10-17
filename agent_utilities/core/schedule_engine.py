@@ -99,7 +99,6 @@ _MAINTENANCE_REF_ALLOWLIST = frozenset(
         "reasoning",
         "reconcile_mirrors",
         "runtime_reliability",
-        "sai_factory",
         "tenant_gc",
         "trace_retention",
         "tms_revalidation",
