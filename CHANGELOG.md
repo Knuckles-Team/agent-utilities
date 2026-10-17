@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-10-17 — Arbora rename
+
+### Changed
+- graph-os is renamed to Arbora. The platform config resolver prefers `ARBORA_CONFIG_DIR` / `~/.config/arbora`; for one release it still reads `GRAPH_OS_CONFIG_DIR` / `~/.config/graph-os`, then the agent-utilities location, with one deprecation warning.
+
 ## [3.0.0] - 2026-10-17 — Agent harness only
 
 ### Removed

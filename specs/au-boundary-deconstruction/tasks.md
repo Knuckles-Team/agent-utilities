@@ -4,7 +4,7 @@
 
 | Task | IDs | State | Done when |
 |---|---|---|---|
-| Served shell and caller cut | AU-BOUNDARY-R002, AU-BOUNDARY-R014, AU-BOUNDARY-R015, AU-BOUNDARY-R016, AU-BOUNDARY-R017 | TODO | graph-os parity plus AU deletion and script/import census |
+| Served shell and caller cut | AU-BOUNDARY-R002, AU-BOUNDARY-R014, AU-BOUNDARY-R015, AU-BOUNDARY-R016, AU-BOUNDARY-R017 | TODO | arbora parity plus AU deletion and script/import census |
 | Connector and source cut | AU-BOUNDARY-R005, AU-BOUNDARY-R006, AU-BOUNDARY-R007, AU-BOUNDARY-R008, AU-BOUNDARY-R009, AU-BOUNDARY-R010, AU-BOUNDARY-R011, AU-BOUNDARY-R024, AU-BOUNDARY-R025, AU-BOUNDARY-R026 | TODO | SDK transport/pack certification plus all AU caller deletions |
 | Graph, schema, retrieval, memory cut | AU-BOUNDARY-R012, AU-BOUNDARY-R018, AU-BOUNDARY-R019, AU-BOUNDARY-R020, AU-BOUNDARY-R021, AU-BOUNDARY-R022, AU-BOUNDARY-R023, AU-BOUNDARY-R027, AU-BOUNDARY-R028, AU-BOUNDARY-R029, AU-BOUNDARY-R030, AU-BOUNDARY-R031, AU-BOUNDARY-R032, AU-BOUNDARY-R033, AU-BOUNDARY-R034, AU-BOUNDARY-R035, AU-BOUNDARY-R040 | TODO | generated EG method parity, trusted migration and AU adapter-only shape |
 | AU-BOUNDARY-R028 split by code root (EG-REPO-INGEST-R003) | AU-BOUNDARY-R028.1, AU-BOUNDARY-R028.2, AU-BOUNDARY-R028.3, AU-BOUNDARY-R028.4, AU-BOUNDARY-R028.5, AU-BOUNDARY-R028.6, AU-BOUNDARY-R028.7, AU-BOUNDARY-R028.8 | TODO | each child's own files deleted (or reported blocked pending an EG client) and the import census passes |
@@ -12,13 +12,13 @@
 | Fabricated-data finance module removal | AU-BOUNDARY-R041 | TODO | import census shows no listed module and no caller |
 | Inventory completeness check | AU-BOUNDARY-R042 | TODO | tree-versus-inventory test fails on an unlisted directory, an undecided row or a stale path |
 | Agent run loop | AU-BOUNDARY-R043 | TODO | run-loop and recursive-loop behaviour tests |
-| Fleet, scaling and deployment modules | AU-BOUNDARY-R044 | TODO | caller census and graph-os consumer tests |
+| Fleet, scaling and deployment modules | AU-BOUNDARY-R044 | TODO | caller census and arbora consumer tests |
 | Knowledge-graph file-level owners | AU-BOUNDARY-R045 | TODO | every tracked file under `knowledge_graph/` maps to one owner; parity tests per move |
 | File-level owners for partly covered packages | AU-BOUNDARY-R046 | TODO | no tracked file without an owner; no requirement by description only |
 | Engine-facing adapters and caches | AU-BOUNDARY-R047 | TODO | differential tests against the engine; no second store or kernel |
 | Domain models, shapes, assets and skill content | AU-BOUNDARY-R048 | TODO | each directory placed; pack or skill validation in the receiving repository |
 | Governed write-back execution | AU-BOUNDARY-R049 | IN PROGRESS | `run_writeback` calls every sink through the SDK `DurableWritableConnector`. The governed and existing write-back suites pass at the merged head |
-| Governed write-back on the EG ledger | AU-BOUNDARY-R049 | TODO | live applies use `EpistemicGraphWriteBackLedger` once graph-os serves the EG `WriteBack` operation. A restart test proves receipt replay |
+| Governed write-back on the EG ledger | AU-BOUNDARY-R049 | TODO | live applies use `EpistemicGraphWriteBackLedger` once arbora serves the EG `WriteBack` operation. A restart test proves receipt replay |
 | Permanent owner guard | AU-BOUNDARY-R038 | TODO | generated manifest, CI gate and exact-head check |
 | Quality gates and evidence | all of the above | TODO | CCCC, KISS, Dupehound, jscpd, language linters and the full test suite pass at the merged head and the result is recorded in [evidence.md](evidence.md) |
 
@@ -38,7 +38,7 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [x] **AU-BOUNDARY-R036.1:** Typed inventory of usage-store paths pending move to EG
 - [x] **AU-BOUNDARY-R037.1:** Typed inventory of governance modules pending move to repository-manager
 - [x] **AU-BOUNDARY-R040.1:** Typed inventory of memory/learning-engine paths pending move to EG
-- [x] **AU-BOUNDARY-R044.1:** Typed inventory of orchestration paths pending move to graph-os
+- [x] **AU-BOUNDARY-R044.1:** Typed inventory of orchestration paths pending move to arbora
 - [x] **AU-BOUNDARY-R045.1:** Typed inventory of unplaced knowledge_graph packages pending move
 - [x] **AU-BOUNDARY-R047.1:** Typed inventory of engine-facing adapters pending thin-client cutover
 - [x] **AU-BOUNDARY-R030.1:** Record what has already landed for the emitter cutover (SDK pack compilation + gate call site landed; 4 callers and 3 new modules remain).
@@ -71,7 +71,7 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R002.1:** Record that PR #26 (`fca0c5ee42b3`) did not delete `backends.py`/`certification_oidc.py`; `status.json`'s LANDED is wrong.
 - [ ] **AU-BOUNDARY-R002.2:** Delete `agent_utilities/deployment/backends.py`.
 - [ ] **AU-BOUNDARY-R002.3:** ROLLUP: delete `agent_utilities/deployment/certification_oidc.py` via children R002.3.1 to R002.3.5.
-- [ ] **AU-BOUNDARY-R002.3.1:** Record the graph-os owner of the ephemeral loopback OIDC certification authority.
+- [ ] **AU-BOUNDARY-R002.3.1:** Record the arbora owner of the ephemeral loopback OIDC certification authority.
 - [ ] **AU-BOUNDARY-R002.3.2:** Repoint or remove the `certification_oidc` import in `skill_validation.py` and `skill_validation_assets.py`.
 - [ ] **AU-BOUNDARY-R002.3.3:** Delete `scripts/certification/loopback_oidc.py` and `tests/unit/scripts/test_loopback_oidc.py`.
 - [ ] **AU-BOUNDARY-R002.3.4:** Remove `certification_oidc.py` from the egress-boundary and release-wheel script path lists.
@@ -124,9 +124,9 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R011.2.5:** Delete `protocols/universal_connector.py` once it has zero importers.
 - [ ] **AU-BOUNDARY-R011.3:** Delete the `protocols/source_connectors/**` package and fix its importers.
 - [ ] **AU-BOUNDARY-R011.4:** Delete `knowledge_graph/integrations/connector_certification.py`, `connector_certification_cli.py`, `connector_source_attestation.py` and fix their importers.
-- [ ] **AU-BOUNDARY-R011.5:** Delete `knowledge_graph/ontology/connector_manifest.py`, `connector_manifest_gate.py`, `connector_manifests/**`, and drop `graph-os-certify-connector`.
+- [ ] **AU-BOUNDARY-R011.5:** Delete `knowledge_graph/ontology/connector_manifest.py`, `connector_manifest_gate.py`, `connector_manifests/**`, and drop `arbora-certify-connector`.
 - [ ] **AU-BOUNDARY-R014.1:** Record that R014's moves, including `knowledge_graph/readiness.py`, have not started.
-- [ ] **AU-BOUNDARY-R014.2:** Move `knowledge_graph/readiness.py` to graph-os and delete the AU copy.
+- [ ] **AU-BOUNDARY-R014.2:** Move `knowledge_graph/readiness.py` to arbora and delete the AU copy.
 - [ ] **AU-BOUNDARY-R015.1:** Record that R015's moves, including `protocols/a2a_epistemic.py`, have not started.
 - [ ] **AU-BOUNDARY-R015.2:** Delete `protocols/a2a_epistemic.py` and drop the `agent-utilities-acp` script.
 - [ ] **AU-BOUNDARY-R024.1:** Record that R024's moves, including `source_sync.py` and `governance_import.py`, have not started.

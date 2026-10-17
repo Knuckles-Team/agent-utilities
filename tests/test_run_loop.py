@@ -247,7 +247,7 @@ async def test_execute_graph_iter_calls_the_handler():
 
 # spec: AU-BOUNDARY-R043.2
 def test_tool_endpoints_fail_closed_without_a_host():
-    with pytest.raises(RuntimeError, match="graph-os host"):
+    with pytest.raises(RuntimeError, match="arbora host"):
         create_graph_agent(mcp_url="http://x")
 
 

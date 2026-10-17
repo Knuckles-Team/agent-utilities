@@ -7,7 +7,7 @@ serve or connect on its own.
 [![PyPI - Version](https://img.shields.io/pypi/v/agent-utilities)](https://pypi.org/project/agent-utilities/)
 [![Build](https://github.com/Knuckles-Team/agent-utilities/actions/workflows/release.yml/badge.svg)](https://github.com/Knuckles-Team/agent-utilities/actions/workflows/release.yml)
 
-*Version: 3.0.0*
+*Version: 3.0.1*
 
 ## What it contains
 
@@ -19,16 +19,16 @@ serve or connect on its own.
 | `agent_utilities.harness.quality_gates` | The pre-emit gate: antipattern detection, a preflight checklist and a multi-dimensional critique, in warn or block mode. |
 | `agent_utilities.runtime` | The developer workspace: typed actions and observations, a stateful shell, local and container backends, a policy gate it is given, and the browser and computer-use tier ports. |
 | `agent_utilities.host_ports` | The protocols the host fills: native and remote toolsets, tool clients, outbound credentials, delegated identity, the fleet catalog and the session keepalive. Without a host every binding port fails closed. |
-| `agent_utilities.core.paths` | Resolves the platform config, data, cache and log directories (`GRAPH_OS_CONFIG_DIR`, XDG). |
+| `agent_utilities.core.paths` | Resolves the platform config, data, cache and log directories (`ARBORA_CONFIG_DIR`, XDG). |
 
 ## Where everything else lives
 
 - **[epistemic-graph](https://github.com/Knuckles-Team/epistemic-graph)**: facts, records,
   vocabulary, storage and queries, ingest, retrieval, reasoning, memory, decisions, and
   learning (evaluation, harness evolution, reward and trace records).
-- **[graph-os](https://github.com/Knuckles-Team/graph-os)**: admission, auth, served
+- **[arbora](https://github.com/Knuckles-Team/arbora)**: admission, auth, served
   operations (MCP, REST, A2A), messaging front-ends, the registry and the multiplexer.
-  graph-os hosts this harness and registers the `host_ports` providers.
+  arbora hosts this harness and registers the `host_ports` providers.
 - **[agent-connector-sdk](https://github.com/Knuckles-Team/agent-connector-sdk)**:
   connector contracts, transports, the A2A protocol library and connector helpers.
 

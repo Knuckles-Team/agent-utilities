@@ -9,7 +9,7 @@ scattered hardcoded ``knowledge_graph.db`` references with a single source
 of truth for path resolution.
 
 Architecture:
-    - ``config_dir()``: ``~/.config/graph-os/`` — config files,
+    - ``config_dir()``: ``~/.config/arbora/`` — config files,
       mcp_config.json, a2a_config.json
     - ``data_dir()``: ``~/.local/share/agent-utilities/`` — KG database,
       ontologies, vector indexes, runtime artifacts
@@ -17,7 +17,8 @@ Architecture:
       similarity indexes, skill graph cache
 
 Directory roots can be overridden via environment variables:
-    - ``GRAPH_OS_CONFIG_DIR`` (legacy ``AGENT_UTILITIES_CONFIG_DIR`` for one release)
+    - ``ARBORA_CONFIG_DIR`` (legacy ``GRAPH_OS_CONFIG_DIR`` then
+      ``AGENT_UTILITIES_CONFIG_DIR`` for one release)
     - ``AGENT_UTILITIES_DATA_DIR``
     - ``AGENT_UTILITIES_CACHE_DIR``
 """
@@ -36,22 +37,28 @@ APP_NAME = "agent-utilities"
 APP_AUTHOR = "knuckles-team"
 
 
-# --- Platform (Graph OS) configuration directory ---------------------------
+# --- Platform (Arbora) configuration directory ---------------------------
 # Mirrors agent_connector_sdk.paths.platform_config_dir (kept local so the
 # harness bootstrap does not depend on an SDK release for path resolution).
 #
-# Graph OS owns the platform configuration location: ``GRAPH_OS_CONFIG_DIR``
-# or ``$XDG_CONFIG_HOME/graph-os``. For one release, a file that is absent
-# there is read from the legacy agent-utilities location
-# (``AGENT_UTILITIES_CONFIG_DIR`` or ``$XDG_CONFIG_HOME/agent-utilities``),
-# and a single deprecation warning names both paths. An explicit
-# ``AGENT_UTILITIES_CONFIG_DIR`` with no ``GRAPH_OS_CONFIG_DIR`` is still
-# honoured as the directory (with the same warning) for that release.
+# Arbora owns the platform configuration location: ``ARBORA_CONFIG_DIR``
+# or ``$XDG_CONFIG_HOME/arbora``. For one release, a file that is absent
+# there is read from the legacy locations, in order: the pre-rename graph-os
+# location (``GRAPH_OS_CONFIG_DIR`` or ``$XDG_CONFIG_HOME/graph-os``), then
+# the agent-utilities location (``AGENT_UTILITIES_CONFIG_DIR`` or
+# ``$XDG_CONFIG_HOME/agent-utilities``), and a single deprecation warning
+# names both paths. An explicit legacy setting with no ``ARBORA_CONFIG_DIR``
+# is still honoured as the directory (with the same warning) for that release.
 
-PLATFORM_CONFIG_DIR_SETTING = "GRAPH_OS_CONFIG_DIR"
-LEGACY_PLATFORM_CONFIG_DIR_SETTING = "AGENT_UTILITIES_CONFIG_DIR"
-PLATFORM_APP_DIR = "graph-os"
-LEGACY_PLATFORM_APP_DIR = "agent-utilities"
+PLATFORM_CONFIG_DIR_SETTING = "ARBORA_CONFIG_DIR"
+LEGACY_PLATFORM_CONFIG_DIR_SETTINGS = (
+    "GRAPH_OS_CONFIG_DIR",
+    "AGENT_UTILITIES_CONFIG_DIR",
+)
+LEGACY_PLATFORM_APP_DIRS = ("graph-os", "agent-utilities")
+LEGACY_PLATFORM_CONFIG_DIR_SETTING = LEGACY_PLATFORM_CONFIG_DIR_SETTINGS[-1]
+PLATFORM_APP_DIR = "arbora"
+LEGACY_PLATFORM_APP_DIR = LEGACY_PLATFORM_APP_DIRS[-1]
 
 _platform_logger = logging.getLogger(__name__)
 _legacy_warned = False
@@ -67,16 +74,23 @@ def _env_dir(name: str) -> Path | None:
 
 
 def preferred_platform_config_dir() -> Path:
-    """``GRAPH_OS_CONFIG_DIR`` or ``$XDG_CONFIG_HOME/graph-os`` (no fallback)."""
+    """``ARBORA_CONFIG_DIR`` or ``$XDG_CONFIG_HOME/arbora`` (no fallback)."""
     return _env_dir(PLATFORM_CONFIG_DIR_SETTING) or _config_home() / PLATFORM_APP_DIR
+
+
+def legacy_platform_config_dirs() -> tuple[Path, ...]:
+    """The legacy directories in fallback order (graph-os, then agent-utilities)."""
+    return tuple(
+        _env_dir(setting_name) or _config_home() / app_dir
+        for setting_name, app_dir in zip(
+            LEGACY_PLATFORM_CONFIG_DIR_SETTINGS, LEGACY_PLATFORM_APP_DIRS, strict=True
+        )
+    )
 
 
 def legacy_platform_config_dir() -> Path:
     """``AGENT_UTILITIES_CONFIG_DIR`` or ``$XDG_CONFIG_HOME/agent-utilities``."""
-    return (
-        _env_dir(LEGACY_PLATFORM_CONFIG_DIR_SETTING)
-        or _config_home() / LEGACY_PLATFORM_APP_DIR
-    )
+    return legacy_platform_config_dirs()[-1]
 
 
 def _warn_legacy(legacy: Path) -> None:
@@ -86,8 +100,8 @@ def _warn_legacy(legacy: Path) -> None:
     _legacy_warned = True
     _platform_logger.warning(
         "Deprecated config location %s is in use; move the platform "
-        "configuration to %s (or set %s). The agent-utilities fallback is "
-        "removed in the next release.",
+        "configuration to %s (or set %s). The graph-os and agent-utilities "
+        "fallbacks are removed in the next release.",
         legacy,
         preferred_platform_config_dir(),
         PLATFORM_CONFIG_DIR_SETTING,
@@ -98,22 +112,25 @@ def platform_config_file(name: str) -> Path:
     """Resolve one platform config file, e.g. ``workspace.yml``.
 
     Returns the file under :func:`preferred_platform_config_dir` when it exists
-    there; otherwise the legacy file when that exists (logging the one-time
+    there; otherwise the first legacy file that exists (logging the one-time
     deprecation warning); otherwise the preferred path, for a writer to create.
-    An explicit legacy ``AGENT_UTILITIES_CONFIG_DIR`` without
-    ``GRAPH_OS_CONFIG_DIR`` resolves inside that directory.
+    An explicit legacy ``GRAPH_OS_CONFIG_DIR`` or ``AGENT_UTILITIES_CONFIG_DIR``
+    without ``ARBORA_CONFIG_DIR`` resolves inside that directory.
     """
-    explicit_legacy = _env_dir(LEGACY_PLATFORM_CONFIG_DIR_SETTING)
-    if explicit_legacy and not _env_dir(PLATFORM_CONFIG_DIR_SETTING):
-        _warn_legacy(explicit_legacy)
-        return explicit_legacy / name
+    if not _env_dir(PLATFORM_CONFIG_DIR_SETTING):
+        for setting_name in LEGACY_PLATFORM_CONFIG_DIR_SETTINGS:
+            explicit_legacy = _env_dir(setting_name)
+            if explicit_legacy:
+                _warn_legacy(explicit_legacy)
+                return explicit_legacy / name
     preferred = preferred_platform_config_dir() / name
     if preferred.exists():
         return preferred
-    legacy = legacy_platform_config_dir() / name
-    if legacy.exists():
-        _warn_legacy(legacy)
-        return legacy
+    for legacy_dir in legacy_platform_config_dirs():
+        legacy = legacy_dir / name
+        if legacy.exists():
+            _warn_legacy(legacy)
+            return legacy
     return preferred
 
 
@@ -128,11 +145,11 @@ def platform_config_dir(probe: str = "config.json") -> Path:
 
 
 def config_dir() -> Path:
-    """Return the Graph OS platform config directory.
+    """Return the Arbora platform config directory.
 
-    Default: ``~/.config/graph-os/`` (``$XDG_CONFIG_HOME/graph-os``)
+    Default: ``~/.config/arbora/`` (``$XDG_CONFIG_HOME/arbora``)
 
-    Override via ``GRAPH_OS_CONFIG_DIR``. For one release the legacy
+    Override via ``ARBORA_CONFIG_DIR``. For one release the legacy
     ``AGENT_UTILITIES_CONFIG_DIR`` / ``~/.config/agent-utilities/`` is used
     when ``config.json`` lives only there (see :func:`platform_config_dir`).
 
@@ -217,7 +234,7 @@ def skills_dir() -> Path:
 def prompts_dir() -> Path:
     """Return the XDG overlay directory for user-supplied system-prompt blueprints.
 
-    Default: ``~/.config/graph-os/prompts/``
+    Default: ``~/.config/arbora/prompts/``
 
     Override via ``AGENT_UTILITIES_PROMPTS_DIR`` environment variable.
 
@@ -269,7 +286,7 @@ def kg_db_path() -> Path:
 def mcp_config_path() -> Path:
     """Return the path to the global MCP config for cross-IDE discovery.
 
-    Default: ``~/.config/graph-os/mcp_config.json``
+    Default: ``~/.config/arbora/mcp_config.json``
     """
     return config_dir() / "mcp_config.json"
 
@@ -277,7 +294,7 @@ def mcp_config_path() -> Path:
 def a2a_config_path() -> Path:
     """Return the path to the global A2A config for agent discovery.
 
-    Default: ``~/.config/graph-os/a2a_config.json``
+    Default: ``~/.config/arbora/a2a_config.json``
     """
     return config_dir() / "a2a_config.json"
 
@@ -355,7 +372,7 @@ def messaging_config_path() -> Path:
 
     CONCEPT:AU-ECO.messaging.native-backend-abstraction — Native Messaging Backend Abstraction
 
-    Default: ``~/.config/graph-os/config.json``
+    Default: ``~/.config/arbora/config.json``
     (messaging keys are inside the same config.json, not a separate file)
 
     See Also:
@@ -371,7 +388,7 @@ def services_config_path() -> Path:
 
     CONCEPT:AU-OS.config.gateway-service-dashboard — Gateway Service Dashboard
 
-    Default: ``~/.config/graph-os/services.yaml``
+    Default: ``~/.config/arbora/services.yaml``
 
     Contains the user-editable service layout for the gateway dashboard.
     Auto-generated from ``mcp_config.json`` on first run if not present.
@@ -454,7 +471,7 @@ def ensure_dirs() -> None:
     failure to a later, unrelated write call site.
     """
     named_dirs: list[tuple[str, Path]] = [
-        ("GRAPH_OS_CONFIG_DIR (config_dir())", config_dir()),
+        ("ARBORA_CONFIG_DIR (config_dir())", config_dir()),
         ("AGENT_UTILITIES_DATA_DIR (data_dir())/kg", data_dir() / "kg"),
         ("AGENT_UTILITIES_CACHE_DIR (cache_dir())", cache_dir()),
         ("AGENT_UTILITIES_DATA_DIR (data_dir())/ontologies", ontology_dir()),

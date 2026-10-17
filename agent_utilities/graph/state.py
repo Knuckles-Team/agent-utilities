@@ -1,6 +1,6 @@
 """Typed state of one agent run: the request, the plan it receives, the result.
 
-The harness never chooses any field of a :class:`RunPlan`. The host (graph-os,
+The harness never chooses any field of a :class:`RunPlan`. The host (arbora,
 answering from epistemic-graph) supplies the plan through
 :func:`agent_utilities.host_ports.register_run_decision_provider`. Without a
 host, :func:`default_run_plan` builds the documented fallback plan from the
