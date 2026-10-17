@@ -517,7 +517,7 @@ def test_nonmaterialized_data_provider_group_remains_bounded_and_nonimporting(
     _serve_entries(monkeypatch, entry)
 
     assert providers.iter_provider_dirs(
-        "agent_utilities.source_connector_providers"
+        "agent_connector_sdk.source_connector_providers"
     ) == [("provider-a", owned)]
 
 

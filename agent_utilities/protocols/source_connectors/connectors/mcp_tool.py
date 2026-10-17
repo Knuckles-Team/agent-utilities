@@ -1123,7 +1123,7 @@ def _apply_mandatory_preset_fields(name: str, preset: dict[str, Any]) -> dict[st
 # uses for fleet skills/prompts (CONCEPT:AU-OS.deployment.agent-factory-autoload, ``core/providers.py``)::
 #
 #     # in the connector package's pyproject.toml
-#     [project.entry-points."agent_utilities.source_connector_providers"]
+#     [project.entry-points."agent_connector_sdk.source_connector_providers"]
 #     jellyfin-mcp = "jellyfin_mcp.ingestion"
 #
 # pointing at a data subpackage that contains a ``mcp_source_presets.json`` file —
@@ -1135,7 +1135,7 @@ def _apply_mandatory_preset_fields(name: str, preset: dict[str, Any]) -> dict[st
 # The owning distribution manifest resolves this directory without importing provider
 # code; bounded regular-file validation rejects links and special files. Discovery is
 # failure-isolated and cached for the process.
-SOURCE_PRESET_PROVIDER_GROUP = "agent_utilities.source_connector_providers"
+SOURCE_PRESET_PROVIDER_GROUP = "agent_connector_sdk.source_connector_providers"
 _PRESET_DATA_FILE = "mcp_source_presets.json"
 _TOOL_SCHEMA_DATA_FILE = "tool_schema_fingerprints.json"
 _contributed_presets_cache: dict[str, dict[str, Any]] | None = None

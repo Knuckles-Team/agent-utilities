@@ -49,7 +49,9 @@ _GROUP_LEGS = {
 _MODULE_NAME = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$", re.ASCII
 )
-_PROVIDER_GROUP = re.compile(r"^agent_utilities\.[A-Za-z0-9_.-]+_providers$", re.ASCII)
+_PROVIDER_GROUP = re.compile(
+    r"^agent_connector_sdk\.[A-Za-z0-9_.-]+_providers$", re.ASCII
+)
 _FRONTMATTER_NAME = re.compile(r"(?m)^name:\s*[\"']?([^\r\n#\"']+?)[\"']?\s*$")
 _MAX_EDITABLE_PYPROJECT_BYTES = 1_048_576
 

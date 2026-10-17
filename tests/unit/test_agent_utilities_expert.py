@@ -40,6 +40,55 @@ _PROMPT_PATH = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _graphos_native_host():
+    """Stand in for the graph-os host: it binds its own served operations natively."""
+    from pydantic_ai.toolsets import FunctionToolset
+
+    from agent_utilities import host_ports
+
+    served = ("graph_analyze", "graph_query", "graph_orchestrate")
+
+    def _build(names: list[str], toolset_id: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            id=toolset_id,
+            metadata={"graphos_native": True},
+            tools={name: object() for name in names},
+            filtered=FunctionToolset().filtered,
+        )
+
+    def _remote(_url: str, toolset_id: str | None, _timeout: float) -> FunctionToolset:
+        return FunctionToolset(id=toolset_id)
+
+    host_ports.register_native_toolset_provider(
+        host_ports.NativeToolsetProvider(
+            available_tools=lambda: served, build_toolset=_build
+        )
+    )
+    host_ports.register_remote_toolset_provider(
+        host_ports.RemoteToolsetProvider(
+            build_url_toolset=_remote, load_config_toolsets=lambda _path: []
+        )
+    )
+    template = next(item for item in _BUILTIN_AGENT_TEMPLATES if item["name"] == EXPERT)
+    host_ports.register_fleet_catalog_provider(
+        lambda: {
+            server: host_ports.FleetServer(
+                prefix=server.replace("-", "_"),
+                url=f"https://{server}.example.test/mcp",
+            )
+            for server in template["toolset_ids"]
+            if server != "graph-os"
+        }
+    )
+    try:
+        yield
+    finally:
+        host_ports.register_native_toolset_provider(None)
+        host_ports.register_remote_toolset_provider(None)
+        host_ports.register_fleet_catalog_provider(None)
+
+
 def _isolated_engine() -> IntelligenceGraphEngine:
     """Build an ``IntelligenceGraphEngine`` bound to THIS test's isolated graph.
 

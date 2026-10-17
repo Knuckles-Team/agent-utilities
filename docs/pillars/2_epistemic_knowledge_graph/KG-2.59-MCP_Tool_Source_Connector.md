@@ -134,7 +134,7 @@ uses for skills/prompts (CONCEPT:AU-OS.deployment.agent-factory-autoload):
 
 ```toml
 # in the connector package's pyproject.toml
-[project.entry-points."agent_utilities.source_connector_providers"]
+[project.entry-points."agent_connector_sdk.source_connector_providers"]
 jellyfin-mcp = "jellyfin_mcp.ingestion"
 ```
 
