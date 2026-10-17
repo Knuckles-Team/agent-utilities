@@ -26,3 +26,13 @@ Quality acceptance includes zero newly duplicated code under jscpd and dupehound
 | The change set is canonical and excludes private keys and clients | `test_change_set_is_canonical_and_drops_private_ops` |
 
 All tests live in `tests/unit/knowledge_graph/enrichment/test_writeback_governed.py`. The existing write-back, approval, preflight, bitemporal and ETL suites run unchanged against the new path.
+
+## AU-BOUNDARY-R043 agent run loop
+
+| Row | Proof | Test |
+|---|---|---|
+| `AU-BOUNDARY-R043.1` | The host plan drives the run. Steps share one history. Budgets and stop rules stop the run. | `tests/test_run_loop.py` |
+| `AU-BOUNDARY-R043.2` | The fallback plan reads only the request and configuration. Missing providers fail closed. | `tests/test_run_loop.py` |
+| `AU-BOUNDARY-R043.3` | The recursive loop caps slices and depth. It classifies each failure. | `tests/test_rlm.py` |
+
+The tests use fakes for the host ports and pydantic-ai function models. They run under `pytest -n auto` in random order.
