@@ -1439,7 +1439,7 @@
       "title": "The run loop applies a received run plan",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "8db7a50738e9"
+        "e7ce34331f28"
       ],
       "verified_by": [
         "tests/test_run_loop.py:120",
@@ -1454,7 +1454,7 @@
       "title": "The run loop has a documented fallback plan and fails closed",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "8db7a50738e9"
+        "e7ce34331f28"
       ],
       "verified_by": [
         "tests/test_run_loop.py:113",
@@ -1469,7 +1469,7 @@
       "title": "The recursive run loop enforces a received depth and budget",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "8db7a50738e9"
+        "e7ce34331f28"
       ],
       "verified_by": [
         "tests/test_rlm.py:106",
