@@ -1,5 +1,0 @@
-{
-  "id": "duplicate-registry-writer",
-  "store": "graphos",
-  "authority_fields": ["registry_lifecycle"]
-}
