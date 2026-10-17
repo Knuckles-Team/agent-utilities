@@ -84,7 +84,7 @@ _CURRENT_COMPONENT_VERSIONS = {
     # resolve (NE-249). All three declarations of this one fact must move
     # together.
     "epistemic-graph": "2.27.0",
-    "agent-utilities": "2.5.0",
+    "agent-utilities": "3.0.0",
     "langfuse-agent": "1.0.3",
     "connector-bundles": "1",
     "prebundled-skills": "1",
@@ -111,12 +111,12 @@ _CURRENT_COMPONENT_DEPENDENCIES = {
     "epistemic-operations-protocol": {},
     "epistemic-graph": {},
     "agent-utilities": {"epistemic-graph": "==2.27.0"},
-    "langfuse-agent": {"agent-utilities": "==2.5.0"},
+    "langfuse-agent": {"agent-utilities": "==3.0.0"},
     "connector-bundles": {
-        "agent-utilities": "==2.5.0",
+        "agent-utilities": "==3.0.0",
         "epistemic-graph": "==2.27.0",
     },
-    "prebundled-skills": {"agent-utilities": "==2.5.0"},
+    "prebundled-skills": {"agent-utilities": "==3.0.0"},
     "ontology-lock": {},
     "index-migrations": {},
 }

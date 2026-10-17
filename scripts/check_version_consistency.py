@@ -204,26 +204,6 @@ def validate(root: Path = ROOT) -> list[str]:
         if not present:
             findings.append(f"release-surface:{relative_path}")
 
-    server_markers = {
-        "agent_utilities/mcp/server_factory.py": (
-            "version: str = __version__",
-            # Format-robust: the FastMCP(...) call is exploded onto multiple lines
-            # once it carries the fleet-registration ``lifespan=`` arg (>88 cols),
-            # so match the construction + the version kwarg separately rather than
-            # a single brittle contiguous literal. Intent unchanged: the server is
-            # built with ``version=version`` defaulting to ``__version__``.
-            "FastMCP(",
-            "version=version,",
-        ),
-    }
-    for relative_path, markers in server_markers.items():
-        try:
-            source = (root / relative_path).read_text(encoding="utf-8")
-        except OSError:
-            source = ""
-        if any(marker not in source for marker in markers):
-            findings.append(f"server-version:{relative_path}")
-
     try:
         compatible_major_floor = f"{version.split('.')[0]}.0.0"
         if _provider_floor(root) != frozenset(

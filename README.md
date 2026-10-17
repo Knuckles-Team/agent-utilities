@@ -44,7 +44,7 @@ Super Intelligence (SI) is the project’s term for model-backed agents.
 
 A typical developer loop is concrete and reviewable: admit a goal with scoped context, select an agent and its tools, run under budgets and policy, inspect the result and run evidence, then evaluate before proposing an improvement. The point is not another chat surface. It is making agent work observable enough to reproduce, diagnose, and improve.
 
-*Version: 2.5.0*
+*Version: 3.0.0*
 
 ## Key Capabilities
 

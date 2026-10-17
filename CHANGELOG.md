@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-16 — Agent harness only
+
 ### Removed
 - **Nine `graph-os`-owned pre-bundled skills (13 → 4, CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage).**
   Deleted `agent_utilities/skills/{agent-utilities-source-integration,autonomous-contribution,

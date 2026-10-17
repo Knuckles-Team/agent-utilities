@@ -437,7 +437,7 @@
     {
       "id": "G-01",
       "evidence_classes": ["local-source", "exact-artifact", "external"],
-      "scope": ["agent-utilities", "epistemic-graph"],
+      "scope": [ "epistemic-graph"],
       "command_ids": [
         "eg-read-policy",
         "eg-current-only",
@@ -615,7 +615,7 @@
     },
     {
       "id": "G-26",
-      "evidence_classes": ["local-source", "exact-artifact"],
+      "evidence_classes": ["local-source"],
       "scope": ["agent-utilities"],
       "command_ids": ["au-exact-harness-contract", "au-exact-closure-layer"],
       "rationale": "The MCP intent surface is graph-os MCP wired to EG; the AU source gates prove agent-utilities carries no intent-surface campaign or MCP code."

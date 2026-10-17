@@ -29,7 +29,7 @@ import yaml
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 
-REQUIRED_SPECIFIERS = frozenset({(">=", "2.0.0"), ("<", "3.0.0")})
+REQUIRED_SPECIFIERS = frozenset({(">=", "3.0.0"), ("<", "4.0.0")})
 _RETIRED_AGENT_UTILITIES_EXTRAS = frozenset({"agent", "engine"})
 _EPHEMERAL_AGENT_UTILITIES_SOURCE = {
     "agent-utilities": {

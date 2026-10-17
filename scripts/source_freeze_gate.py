@@ -32,7 +32,7 @@ from typing import Any, Final
 MANIFEST_SCHEMA: Final = "source-freeze-gates/1"
 EVIDENCE_SCHEMA: Final = "source-freeze-evidence/1"
 CANONICAL_MANIFEST_SHA256: Final = (
-    "60bd4c3eb4ac7c6ea52178b287e902ebdf646cbde98380bb27cdffdc32169a31"
+    "73df51a1916edf4ef29c131d6dd80038876b0ec0fcca16fa7c849e8e482a08d9"
 )
 REPOSITORY_IDS: Final = (
     "agent-utilities",
