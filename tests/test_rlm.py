@@ -17,6 +17,7 @@ class SandboxRejected(Exception):
     pass
 
 
+# spec: AU-BOUNDARY-R043.3
 @pytest.mark.parametrize(
     ("exc", "expected"),
     [
@@ -60,6 +61,7 @@ def scripted(*calls: tuple[str, dict]) -> FunctionModel:
     return FunctionModel(fn)
 
 
+# spec: AU-BOUNDARY-R043.3
 async def test_root_reads_slices_and_recurses():
     root = scripted(
         ("read_input", {"start": 2, "end": 5}), ("sub_query", {"question": "q"})
@@ -70,12 +72,14 @@ async def test_root_reads_slices_and_recurses():
     assert out["usage"]["requests"] >= 3 and out["max_depth"] == 3
 
 
+# spec: AU-BOUNDARY-R043.3
 async def test_read_input_is_capped_by_the_slice_limit():
     root = scripted(("read_input", {"start": 0, "end": 100}))
     out = await run_rlm("t", "x" * 50, config=RLMConfig(model=root, max_slice_chars=4))
     assert out["result"] == "xxxx"
 
 
+# spec: AU-BOUNDARY-R043.3
 async def test_recursion_stops_at_max_depth():
     root = scripted(("sub_query", {"question": "q"}))
     out = await run_rlm("t", "abc", config=RLMConfig(model=root, max_depth=1))
@@ -90,6 +94,7 @@ async def test_model_failure_returns_a_typed_failure():
     assert (out["ok"], out["failure_class"]) == (False, "sandbox_exec_timeout")
 
 
+# spec: AU-BOUNDARY-R043.3
 async def test_fatal_failure_propagates():
     def boom(messages, info):
         raise SandboxFatalError("dead")
@@ -98,6 +103,7 @@ async def test_fatal_failure_propagates():
         await run_rlm("t", config=RLMConfig(model=FunctionModel(boom)))
 
 
+# spec: AU-BOUNDARY-R043.3
 async def test_without_a_model_the_host_plan_supplies_it():
     host_ports.register_run_decision_provider(
         lambda req: RunPlan(

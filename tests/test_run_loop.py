@@ -56,6 +56,7 @@ def plan_of(model, **kw) -> RunPlan:
     return RunPlan(model=model, steps=kw.pop("steps", ("q",)), **kw)
 
 
+# spec: AU-BOUNDARY-R043.2
 async def test_no_model_fails_closed(events):
     result = await run(RunRequest(task="hi"))
     assert result.status == "failed"
@@ -63,6 +64,7 @@ async def test_no_model_fails_closed(events):
     assert [e["type"] for e in events] == ["error"]
 
 
+# spec: AU-BOUNDARY-R043.2
 @pytest.mark.parametrize(
     ("request_kw", "config", "check"),
     [
@@ -86,6 +88,7 @@ def test_default_plan_reads_only_request_and_config(request_kw, config, check):
     assert check(plan)
 
 
+# spec: AU-BOUNDARY-R043.1
 @pytest.mark.parametrize("is_async", [False, True])
 async def test_host_decision_provider_supplies_the_plan(is_async):
     seen: list[RunRequest] = []
@@ -107,12 +110,14 @@ async def test_host_decision_provider_supplies_the_plan(is_async):
     assert seen[0].agent_name == "n"
 
 
+# spec: AU-BOUNDARY-R043.2
 async def test_provider_returning_non_plan_fails():
     host_ports.register_run_decision_provider(lambda request: {"model": "x"})
     result = await run(RunRequest(task="t"))
     assert result.status == "failed" and "RunPlan" in (result.error or "")
 
 
+# spec: AU-BOUNDARY-R043.1
 async def test_steps_share_one_history_and_emit_events(events):
     log: list[int] = []
     result = await run(
@@ -130,6 +135,7 @@ async def test_steps_share_one_history_and_emit_events(events):
     assert result.usage["requests"] == 3
 
 
+# spec: AU-BOUNDARY-R043.1
 @pytest.mark.parametrize(
     ("stop", "budget", "status", "steps"),
     [
@@ -147,6 +153,7 @@ async def test_stop_rules_and_budgets_are_enforced(stop, budget, status, steps):
         assert (result.error or "").startswith("budget:")
 
 
+# spec: AU-BOUNDARY-R043.1
 async def test_model_ids_resolve_through_the_host():
     asked: list[str] = []
 
@@ -159,6 +166,7 @@ async def test_model_ids_resolve_through_the_host():
     assert (result.output, asked) == ("ok", ["host:model"])
 
 
+# spec: AU-BOUNDARY-R043.1
 async def test_granted_tools_bind_through_the_native_provider():
     toolset = FunctionToolset()
 
@@ -183,6 +191,7 @@ async def test_granted_tools_bind_through_the_native_provider():
     assert bound == [(["lookup"], "run-r1")]
 
 
+# spec: AU-BOUNDARY-R043.2
 async def test_granted_tools_without_a_host_fail_closed():
     result = await run(
         RunRequest(task="t"), plan=plan_of(TestModel(), tool_names=("x",))
@@ -209,6 +218,7 @@ async def test_model_error_is_a_failed_terminal_event():
     assert result.status == "failed" and "model down" in (result.error or "")
 
 
+# spec: AU-BOUNDARY-R043.1
 async def test_bundle_runs_through_execute_graph():
     graph, config = create_graph_agent(
         tag_prompts={"ops": "be ops"}, agent_model="m", name="Ops"
@@ -235,6 +245,7 @@ async def test_execute_graph_iter_calls_the_handler():
     assert seen == out and out[-1] == "graph_complete"
 
 
+# spec: AU-BOUNDARY-R043.2
 def test_tool_endpoints_fail_closed_without_a_host():
     with pytest.raises(RuntimeError, match="graph-os host"):
         create_graph_agent(mcp_url="http://x")
@@ -262,6 +273,7 @@ def test_workspace_prompt_becomes_instructions(tmp_path, has_file):
     assert config["system_prompt"] == ("ws prompt" if has_file else "")
 
 
+# spec: AU-BOUNDARY-R043.1
 async def test_agent_run_executor_maps_a_host_request():
     host_ports.register_model_provider(lambda _id: echo_model())
     executor = AgentRunExecutor({"agent_model": "m"})

@@ -11,7 +11,7 @@
 | Usage and governance cut | AU-BOUNDARY-R036, AU-BOUNDARY-R037 | TODO | EG durable usage and repository-manager governance parity |
 | Fabricated-data finance module removal | AU-BOUNDARY-R041 | TODO | import census shows no listed module and no caller |
 | Inventory completeness check | AU-BOUNDARY-R042 | TODO | tree-versus-inventory test fails on an unlisted directory, an undecided row or a stale path |
-| Retained agent surface | AU-BOUNDARY-R043 | TODO | import-boundary test over the kept packages |
+| Agent run loop | AU-BOUNDARY-R043 | TODO | run-loop and recursive-loop behaviour tests |
 | Fleet, scaling and deployment modules | AU-BOUNDARY-R044 | TODO | caller census and graph-os consumer tests |
 | Knowledge-graph file-level owners | AU-BOUNDARY-R045 | TODO | every tracked file under `knowledge_graph/` maps to one owner; parity tests per move |
 | File-level owners for partly covered packages | AU-BOUNDARY-R046 | TODO | no tracked file without an owner; no requirement by description only |
@@ -132,3 +132,6 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R024.1:** Record that R024's moves, including `source_sync.py` and `governance_import.py`, have not started.
 - [ ] **AU-BOUNDARY-R024.2:** Move `knowledge_graph/core/source_sync.py` to the agent connector SDK and delete the AU copy.
 - [ ] **AU-BOUNDARY-R024.3:** Move `knowledge_graph/governance_import.py` to the SDK and delete the AU copy.
+- [x] **AU-BOUNDARY-R043.1:** Restore the `graph/` run loop over the host decision port.
+- [x] **AU-BOUNDARY-R043.2:** Add the fallback plan and the fail-closed refusals.
+- [x] **AU-BOUNDARY-R043.3:** Restore the `rlm/` recursive run loop.
