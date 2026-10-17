@@ -181,8 +181,6 @@ SCHEMA = GraphSchemaDefinition(
                 "graph_router_timeout": "FLOAT",
                 "kg_llm_concurrency": "INT64",
                 "enable_otel": "BOOLEAN",
-                "a2a_broker": "STRING",
-                "a2a_storage": "STRING",
                 "timestamp": "STRING",
                 "metadata": "STRING",
                 "is_permanent": "BOOLEAN",

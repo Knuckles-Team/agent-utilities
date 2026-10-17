@@ -87,7 +87,6 @@ The `AGUIGraphEmitter` translates graph events to AG-UI wire format:
 |----------|-------------------|---------|
 | **AG-UI** | ✅ Full bypass | Uses `execute_graph_iter()` + `AGUIGraphEmitter` |
 | **ACP** | ⚡ Optimized | Per-session `agent_factory` with session-aware closures |
-| **A2A** | ✅ Direct | `PlannerGraphSkill` calls the same execution authority |
 | **SSE** | ✅ Already direct | `/stream` has always called `run_graph_stream()` directly |
 
 ### Capabilities Unlocked by `graph.iter()`
@@ -333,11 +332,6 @@ First-class KG capability nodes with auto-activation, trigger conditions, and dy
 - **Module**: `agent_utilities/models/knowledge_graph.py`, `agent_utilities/graph/executor.py`
 - **Features**: Trigger conditions (input_size_gt, domain, has_images), HAS_CAPABILITY edges, priority ordering
 
-### 13. PlannerGraphSkill (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
-A2A-native routing entry point that bypasses LLM orchestration overhead. When a `graph_bundle` is present, A2A requests route directly through the graph planner.
-- **Module**: `agent_utilities/protocols/a2a_graph_skill.py`, `agent_utilities/server/app.py`
-- **Features**: Automatic registration when graph is present, priority over LLM-mediated routing
-
 ---
 
 ## Post-Execution Feedback Loop
@@ -374,7 +368,6 @@ The server ensures all child processes (MCP servers, TUI, background threads) ar
 - `CONCEPT:AU-ORCH.adapter.hot-cache-invalidation` — Registry Hot Cache
 - `CONCEPT:AU-AHE.evaluation.interpretability-tests` — TeamConfig Promotion & Proven Team Reuse
 - `CONCEPT:AU-ORCH.adapter.hot-cache-invalidation` — AgentCapability Type System & Auto-Activation
-- `CONCEPT:AU-ECO.messaging.native-backend-abstraction` — A2A PlannerGraphSkill (Graph-Native Routing)
 
 
 ## Secret Storage (Encrypted Engine, Vault, and OpenBao)
@@ -443,7 +436,6 @@ token = client.resolve_ref("env://GITLAB_TOKEN")
 - **Registry Hot Cache (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)**: Session-scoped O(1) specialist lookups with event-driven invalidation. Filters 50+ specialists down to the top-7 relevant per query, reducing prompt bloat by ~7x. Invalidates on MCP reload, pipeline completion, Self-Model updates, and TeamConfig promotions.
 - **TeamConfig Promotion (CONCEPT:AU-AHE.evaluation.interpretability-tests)**: Proven specialist coalitions are automatically persisted as reusable templates in the Knowledge Graph. Enables 3-stage hybrid routing: TeamConfig match → Self-Model bias → LLM planning fallback. Includes RLM + TeamConfig synergy for automatic recursive decomposition on large inputs.
 - **AgentCapability Auto-Activation (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)**: First-class KG capability nodes with trigger conditions and handler modules. Capabilities like RLM, critic, and summarizer auto-enable based on input constraints (e.g., input size, domain, tool count).
-- **A2A-Native Graph Execution (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: `PlannerGraphSkill` provides a direct A2A entry point that bypasses LLM orchestration overhead. When a graph is present, A2A requests route directly through the graph planner.
 - **A2A Config File (CONCEPT:AU-ECO.messaging.native-backend-abstraction)**: File-based external A2A agent discovery via `a2a_config.json`. Supports `secret://`, `env://`, and `vault://` auth token resolution. Includes soft-fail startup and periodic background re-fetch of remote agent cards.
 - **Unified Specialist Model (CONCEPT:AU-ORCH.adapter.hot-cache-invalidation)**: Collapses the `prompt`/`mcp` agent type distinction into a single `specialist` type. Any specialist can host any combination of MCP tools and/or agent skills. A2A agents remain their own execution protocol.
 - **Post-Execution Feedback Loop (CONCEPT:AU-AHE.evaluation.interpretability-tests)**: Verification outcomes feed back to both the Self-Model (domain success rates, tool proficiency) and TeamConfig (reward tracking), enabling continuous routing improvement.

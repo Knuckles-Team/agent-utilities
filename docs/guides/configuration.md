@@ -226,8 +226,6 @@ Environment variables are no longer part of the LLM configuration chain. API key
   "langfuse_dataset_capture_threshold": 0.0,
 
   // ── A2A Agent Discovery ─────────────────────────────────────────
-  "a2a_broker": "epistemic_graph",
-  "a2a_storage": "epistemic_graph",
   "a2a_config": null,
   "a2a_refresh_interval": 300,
 

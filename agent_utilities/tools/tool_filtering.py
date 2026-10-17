@@ -14,109 +14,12 @@ tool definition objects.
 
 import logging
 import os
-import re
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 
 import yaml  # type: ignore
 
-if TYPE_CHECKING:
-    from fasta2a import Skill
-from pathlib import Path
-
 logger = logging.getLogger(__name__)
-
-
-def _parse_skill_from_md(skill_file: Path, skill_id: str) -> Skill | None:
-    """Parse a skill definition from a SKILL.md markdown file.
-
-    Extracts frontmatter metadata (name, description, version, tags) to
-    construct a fastA2A Skill object.
-
-    Args:
-        skill_file: Path to the SKILL.md file.
-        skill_id: Unique identifier for the skill.
-
-    Returns:
-        A Skill object if parsing is successful, otherwise None.
-
-    """
-    import yaml
-    from fasta2a import Skill
-
-    try:
-        with open(skill_file) as f:
-            content = f.read()
-
-            fm_match = re.search(
-                r"^---\s*\n(.*?)\n---", content, re.DOTALL | re.MULTILINE
-            )
-            if fm_match:
-                frontmatter = fm_match.group(1)
-                data = yaml.safe_load(frontmatter)
-
-                skill_name = data.get("name", skill_id)
-                skill_desc = data.get("description", f"Access to {skill_name} tools")
-
-                skill_version = str(
-                    data.get(
-                        "version", data.get("metadata", {}).get("version", "0.1.0")
-                    )
-                )
-
-                tool_tags = data.get("tags", [skill_id])
-                if not isinstance(tool_tags, list):
-                    tool_tags = [str(tool_tags)]
-
-                return Skill(
-                    id=skill_id,
-                    name=skill_name,
-                    description=skill_desc,
-                    version=skill_version,
-                    tags=tool_tags,
-                    input_modes=["text"],
-                    output_modes=["text"],
-                )
-    except Exception as e:
-        logger.debug("Error parsing configured skill (%s)", type(e).__name__)
-    return None
-
-
-def load_skills_from_directory(directory: str) -> list[Skill]:
-    """Load all skills found in a specified directory.
-
-    Scans the directory for SKILL.md files directly or within subdirectories
-    and constructs Skill objects for each valid entry.
-
-    Args:
-        directory: Path to the directory containing skill definitions.
-
-    Returns:
-        A list of loaded Skill objects.
-
-    """
-    skills: list[Skill] = []
-    base_path = Path(directory)
-
-    if not base_path.exists():
-        logger.debug(f"Skills directory not found: {directory}")
-        return skills
-
-    skill_file = base_path / "SKILL.md"
-    if skill_file.exists():
-        skill = _parse_skill_from_md(skill_file, base_path.name)
-        if skill:
-            skills.append(skill)
-            return skills
-
-    if base_path.is_dir():
-        for item in base_path.iterdir():
-            if item.is_dir():
-                sub_skill_file = item / "SKILL.md"
-                if sub_skill_file.exists():
-                    skill = _parse_skill_from_md(sub_skill_file, item.name)
-                    if skill:
-                        skills.append(skill)
-    return skills
 
 
 def extract_skill_tags(skill_path: str) -> list[str]:

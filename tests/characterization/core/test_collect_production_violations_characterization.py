@@ -61,9 +61,7 @@ def _fully_toy_config(**overrides):
         messaging_alert_intake_token_ref="",
         messaging_alert_intake_host="0.0.0.0",
         mcp_url="http://remote.invalid/mcp",
-        a2a_broker="in-memory",
         agent_bus_log_backend="kafka",
-        a2a_storage="in-memory",
         kafka_bootstrap_servers=None,
         epistemic_graph_max_resident_graphs=0,
         epistemic_graph_lazy_open_page_size=0,
@@ -132,9 +130,7 @@ def _clean_prod_config(**overrides):
         sparql_endpoints=(),
         chat_models=(),
         embedding_models=(),
-        a2a_broker="epistemic_graph",
         agent_bus_log_backend="engine",
-        a2a_storage="epistemic_graph",
         kafka_bootstrap_servers="redpanda-0:9092",
         epistemic_graph_max_resident_graphs=1024,
         epistemic_graph_lazy_open_page_size=4096,
@@ -189,13 +185,9 @@ def test_fully_toy_config_violation_list_exact_order_and_content():
         "messaging alert intake must bind to loopback in production.",
         "mcp_url uses plaintext HTTP to a remote service; use HTTPS or a "
         "loopback transport in production.",
-        "a2a_broker must be 'epistemic_graph'; the native durable broker is "
-        "the sole current FastA2A delivery plane.",
         "agent_bus_log_backend must be 'engine' in production; the Kafka "
         "AgentBus Kafka topology creates a consumer group per "
         "recipient, and graph fallback is not a scalable delivery plane.",
-        "a2a_storage must be 'epistemic_graph'; native CAS-fenced records are "
-        "the sole current FastA2A state plane.",
         "kafka_bootstrap_servers is unset; the reactive event ledger falls "
         "back to the single-process in-memory EventBus (no durability, no "
         "cross-node fan-out). Set it to a Redpanda/Kafka cluster for prod.",

@@ -11,7 +11,6 @@ This document describes the **First Principles Architecture** layer — a set of
 | **Prompt bloat** | Every routing call serialized the full specialist registry into the LLM prompt | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: Hot cache filters to top-7 relevant specialists per query |
 | **Redundant team discovery** | LLM re-discovers the same specialist combinations for recurring query patterns | CONCEPT:AU-AHE.evaluation.interpretability-tests: TeamConfig promotes proven coalitions as reusable templates |
 | **Static tool binding** | Specialists had fixed tool sets; capabilities like RLM or critic were never auto-attached | CONCEPT:AU-ORCH.adapter.hot-cache-invalidation: AgentCapability nodes auto-activate based on input constraints |
-| **LLM orchestration overhead** | A2A requests required a full LLM planning round-trip even when the graph planner can handle them | CONCEPT:AU-ECO.messaging.native-backend-abstraction: PlannerGraphSkill provides a direct graph-backed A2A entry point |
 | **No feedback loop** | Execution outcomes were never fed back to improve future routing | CONCEPT:AU-AHE.evaluation.interpretability-tests + CONCEPT:AU-KG.memory.tiered-memory-caching: Verification outcomes update Self-Model and TeamConfig rewards |
 
 ## Architecture Overview
@@ -19,13 +18,11 @@ This document describes the **First Principles Architecture** layer — a set of
 ```mermaid
 graph LR
     subgraph Ingress ["Protocol Ingress"]
-        ECO-4.1: A2A[A2A] --> PGS["PlannerGraphSkill\n(CONCEPT:AU-ECO.messaging.native-backend-abstraction)"]
         ECO-4.1: ACP[ACP] --> Router
         AGUI[ECO-4.0: AG-UI] --> Router
     end
 
     subgraph Routing ["3-Stage Hybrid Routing"]
-        PGS --> Router
         Router --> TC{"TeamConfig\nMatch?\n(CONCEPT:AU-AHE.evaluation.interpretability-tests)"}
         TC -- "Hit" --> Dispatch
         TC -- "Miss" --> SM{"Self-Model\nBias?\n(CONCEPT:AU-KG.memory.tiered-memory-caching)"}
@@ -245,53 +242,6 @@ for specialist in specialists:
 | `domain` | `"code"` | Task is code-related |
 | `has_images` | `true` | Input contains image data |
 | `tool_count_gt` | `20` | Specialist has >20 tools |
-
----
-
-## CONCEPT:AU-ECO.messaging.native-backend-abstraction — PlannerGraphSkill (A2A-Native Routing)
-
-**Module:** `agent_utilities/protocols/a2a_graph_skill.py`, `agent_utilities/server/app.py`
-
-### Problem
-
-A2A requests always went through the full LLM-mediated pipeline: parse request → LLM decides routing → dispatch to graph. This added an unnecessary inference round-trip when the graph planner already had enough information to handle the request directly.
-
-### Solution
-
-`PlannerGraphSkill` is an A2A-native skill that routes requests directly through the graph planner, bypassing LLM orchestration overhead:
-
-```python
-class PlannerGraphSkill:
-    """CONCEPT:AU-ECO.messaging.native-backend-abstraction — A2A-Native PlannerAgent"""
-
-    def __init__(self, graph_bundle):
-        self.graph_bundle = graph_bundle
-
-    async def execute(self, request):
-        """Direct graph-backed planning — no LLM round-trip."""
-        state = GraphState(user_query=request.query)
-        result = await execute_graph(self.graph_bundle, state)
-        return result
-```
-
-### Registration
-
-The skill is automatically registered in `server/app.py` when a `graph_bundle` is available:
-
-```python
-# In build_agent_app():
-if graph_bundle:
-    planner_skill = PlannerGraphSkill(graph_bundle)
-    a2a_skills.append(planner_skill)  # Registered before generic LLM skill
-```
-
-### Routing Priority
-
-| Priority | Entry Point | When Used |
-|----------|------------|-----------|
-| 1 (highest) | `PlannerGraphSkill` | A2A requests when `graph_bundle` is present |
-| 2 | Direct Graph Execution | AG-UI/ACP through the single execution authority |
-| 3 (fallback) | LLM-Mediated | When no graph is available or A2A negotiation needed |
 
 ---
 

@@ -39,8 +39,6 @@ def _make_config(**overrides):
 def _toy_config(**overrides):
     base = dict(
         graph_persistence_type="file",
-        a2a_broker="in-memory",
-        a2a_storage="in-memory",
         agent_bus_log_backend=None,
         # Keep this fixture focused on the 13 durability/observability failures;
         # identity bypasses have their own parameterized production tests below.
@@ -73,8 +71,6 @@ def _toy_config(**overrides):
 def _prod_config(**overrides):
     base = dict(
         graph_persistence_type="postgresql",
-        a2a_broker="epistemic_graph",
-        a2a_storage="epistemic_graph",
         agent_bus_log_backend="engine",
         kafka_bootstrap_servers="redpanda-0:9092,redpanda-1:9092",
         usage_db_backend="postgres",
@@ -118,17 +114,15 @@ def test_prod_profile_with_file_persistence_fails():
     cfg = _toy_config()
     with pytest.raises(ProductionProfileError) as exc:
         assert_production_safe(cfg, profile="prod")
-    # The error must list every offending setting (persistence, broker, storage,
+    # The error must list every offending setting (persistence, bus,
     # the unset reactive ledger, and production observability/safety gates).
-    assert len(exc.value.offending) >= 11
+    assert len(exc.value.offending) >= 10
     joined = "\n".join(exc.value.offending)
     assert "graph_persistence_type" in joined
-    assert "a2a_broker" in joined
     assert "agent_bus_log_backend" in joined
     assert "kafka_bootstrap_servers" in joined
     assert "epistemic_graph_max_resident_graphs" in joined
     assert "epistemic_graph_lazy_open_page_size" in joined
-    assert "a2a_storage" in joined
     assert "usage_db_backend" in joined
     assert "persistence_identity_hmac_key_ref" in joined
     # Reconciliation: an unset permissions_signing_key_ref is NOT a violation when a

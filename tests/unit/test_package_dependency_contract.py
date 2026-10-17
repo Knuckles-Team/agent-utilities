@@ -97,8 +97,6 @@ def test_documented_config_example_is_current_agent_config() -> None:
 
     assert unknown == set()
     validated = _validate_agent_config_without_settings(configured)
-    assert validated.a2a_broker == "epistemic_graph"
-    assert validated.a2a_storage == "epistemic_graph"
     assert validated.tool_guard_mode == "strict"
 
 

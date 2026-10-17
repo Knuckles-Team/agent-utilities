@@ -18,10 +18,9 @@ written for the person who will actually run this, not as design narrative.
   use, refuses anything but a versioned `vault://`/`secret://` reference, and fails closed
   (`ReleaseSigningError`) rather than falling back to an ephemeral key. Proven against a
   fake OpenBao transport in `tests/unit/security/test_openbao_signing_custody.py`.
-* All four manifest generators (`scripts/generate_connector_manifests.py`,
-  `scripts/generate_native_connector_manifest.py`,
-  `scripts/generate_connector_capability_bundles.py`, and the fingerprint step in
-  `scripts/certify_connector_tool_schemas.py`) already call this signer internally — this
+* All three manifest generators (`scripts/generate_connector_manifests.py`,
+  `scripts/generate_native_connector_manifest.py`, and
+  `scripts/generate_connector_capability_bundles.py`) already call this signer internally — this
   page's job is never to re-implement signing, only to give it a place with the real key.
 * `agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py` already fails
   closed on an unsigned manifest, a tampered manifest, or a wrong signer — this is

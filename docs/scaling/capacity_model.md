@@ -266,6 +266,5 @@ operational evidence from the exact-release campaign.
 
 Reaching any of these scales requires non-toy backends. `core/config.py` exposes
 `AgentConfig.assert_production_safe()` (see `core/profile_guard.py`): under
-`APP_PROFILE=prod` it rejects `graph_persistence_type` of `file`/`sqlite` and
-`a2a_broker`/`a2a_storage` of `in-memory`, so a single-host config can never be
+`APP_PROFILE=prod` it rejects `graph_persistence_type` of `file`/`sqlite`, so a single-host config can never be
 mistaken for a production deployment.

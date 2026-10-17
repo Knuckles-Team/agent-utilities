@@ -6,30 +6,11 @@ CONCEPT:AU-ECO.messaging.native-backend-abstraction — Agent Tool System
 from unittest.mock import MagicMock
 
 from agent_utilities.tools.tool_filtering import (
-    _parse_skill_from_md,
     extract_skill_tags,
     extract_tool_tags,
     filter_tools_by_tag,
-    load_skills_from_directory,
     skill_matches_tags,
 )
-
-
-def test_parse_skill_from_md(tmp_path):
-    skill_file = tmp_path / "SKILL.md"
-    skill_file.write_text("""---
-name: Test Skill
-description: A test skill
-version: 1.0.0
-tags: [tag1, tag2]
----
-# Content
-""")
-    skill = _parse_skill_from_md(skill_file, "test_id")
-    assert skill is not None
-    assert skill["name"] == "Test Skill"
-    assert "tag1" in skill["tags"]
-    assert skill["version"] == "1.0.0"
 
 
 def test_extract_skill_tags(tmp_path):
@@ -80,19 +61,3 @@ categories: [cat1]
     assert skill_matches_tags(str(skill_dir), ["cat1"]) is True
     assert skill_matches_tags(str(skill_dir), ["skill"]) is True  # matches basename
     assert skill_matches_tags(str(skill_dir), ["other"]) is False
-
-
-def test_load_skills_from_directory(tmp_path):
-    s1 = tmp_path / "s1"
-    s1.mkdir()
-    (s1 / "SKILL.md").write_text("---\nname: S1\n---")
-
-    s2 = tmp_path / "s2"
-    s2.mkdir()
-    (s2 / "SKILL.md").write_text("---\nname: S2\n---")
-
-    skills = load_skills_from_directory(str(tmp_path))
-    assert len(skills) == 2
-    names = [s["name"] for s in skills]
-    assert "S1" in names
-    assert "S2" in names

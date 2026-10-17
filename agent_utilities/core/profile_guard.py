@@ -11,8 +11,6 @@ development become unsafe because they pin the system to a single process or a
 single machine and therefore cannot scale or survive a restart:
 
 * ``graph_persistence_type`` of ``file`` / ``sqlite`` -> single-host, non-shardable.
-* ``a2a_broker`` / ``a2a_storage`` other than ``epistemic_graph`` -> the
-  native durable FastA2A delivery and CAS state planes are bypassed.
 * ``USAGE_DB_BACKEND`` other than ``postgres`` -> per-process analytics state.
 * usage tracking or the configured OTLP signal path disabled -> operational
   evidence and tenant-aware SLOs are incomplete.
@@ -118,7 +116,6 @@ class ProductionProfileError(RuntimeError):
             f"The following settings use single-host/in-memory defaults that cannot "
             f"scale or survive a restart:\n{joined}\n"
             f"Set production-grade backends (e.g. graph_persistence_type='postgresql', "
-            f"a2a_broker='epistemic_graph', a2a_storage='epistemic_graph', "
             f"USAGE_DB_BACKEND='postgres') and runtime-injected secret/OTLP references."
         )
 
@@ -361,17 +358,6 @@ def _check_endpoints(config: AgentConfig) -> list[str]:
     return offending
 
 
-def _check_a2a_broker(config: AgentConfig) -> list[str]:
-    offending: list[str] = []
-    broker = (getattr(config, "a2a_broker", "") or "").strip().lower()
-    if broker != "epistemic_graph":
-        offending.append(
-            "a2a_broker must be 'epistemic_graph'; the native durable broker is "
-            "the sole current FastA2A delivery plane."
-        )
-    return offending
-
-
 def _check_agent_bus(config: AgentConfig) -> list[str]:
     # The Kafka AgentBus topology creates one consumer group per
     # recipient/subscription. That topology is useful at modest scale but is not
@@ -388,17 +374,6 @@ def _check_agent_bus(config: AgentConfig) -> list[str]:
             "agent_bus_log_backend must be 'engine' in production; the Kafka "
             "AgentBus Kafka topology creates a consumer group per "
             "recipient, and graph fallback is not a scalable delivery plane."
-        )
-    return offending
-
-
-def _check_a2a_storage(config: AgentConfig) -> list[str]:
-    offending: list[str] = []
-    storage = (getattr(config, "a2a_storage", "") or "").strip().lower()
-    if storage != "epistemic_graph":
-        offending.append(
-            "a2a_storage must be 'epistemic_graph'; native CAS-fenced records are "
-            "the sole current FastA2A state plane."
         )
     return offending
 
@@ -582,9 +557,7 @@ def collect_production_violations(config: AgentConfig) -> list[str]:
     offending.extend(_check_mcp_boundary(config))
     offending.extend(_check_messaging_alert_intake(config))
     offending.extend(_check_endpoints(config))
-    offending.extend(_check_a2a_broker(config))
     offending.extend(_check_agent_bus(config))
-    offending.extend(_check_a2a_storage(config))
     offending.extend(_check_kafka(config))
     offending.extend(_check_graph_resource_limits(config))
     offending.extend(_check_local_engine_encryption(config))

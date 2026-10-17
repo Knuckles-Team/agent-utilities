@@ -73,8 +73,6 @@ _SYSTEM_CONFIG_KEYS = (
     "graph_router_timeout",
     "kg_llm_concurrency",
     "enable_otel",
-    "a2a_broker",
-    "a2a_storage",
     "max_concurrent_agents",
     "graph_persistence_type",
 )

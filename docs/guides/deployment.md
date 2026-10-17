@@ -257,9 +257,6 @@ defaults** and requires a durable, shardable engine plus a real event broker:
 - a durable engine — the packaged, supervised `epistemic_graph` engine (default), or a
   shared/remote engine via `GRAPH_SERVICE_ENDPOINTS`; the pure `memory` backend
   is rejected.
-- `a2a_broker` = `redis`/`postgres`, `a2a_storage` = `redis`/`postgres`.
-  These are the adapter names currently constructed by `server/app.py`; an
-  engine-native broker/storage pair remains an identified implementation gap.
 - `kafka_bootstrap_servers` set (the reactive event ledger needs a real broker).
 
 ```json

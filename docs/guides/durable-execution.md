@@ -136,7 +136,7 @@ sequenceDiagram
 
 ## Operational checks
 
-- Run `agent-utilities-doctor --only engine a2a_persistence` before dispatch.
+- Run `agent-utilities-doctor --only engine` before dispatch.
 - Run `agent-dispatch-worker` for queued agent turns; workers claim and commit
   through native WorkItem operations.
 - Treat `dead_letter`, repeated lease loss, or an unavailable native verb as an

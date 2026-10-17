@@ -72,8 +72,6 @@
     "langfuse_public_key_ref": null,
     "langfuse_secret_key_ref": null,
     "langfuse_host": "https://cloud.langfuse.com",
-    "a2a_broker": "epistemic_graph",
-    "a2a_storage": "epistemic_graph",
     "a2a_config": null,
     "a2a_refresh_interval": 300,
     "kafka_bootstrap_servers": null,

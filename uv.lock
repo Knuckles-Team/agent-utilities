@@ -141,7 +141,6 @@ agent-groq = [
     { name = "pydantic-ai-slim", extra = ["groq"] },
 ]
 agent-headless = [
-    { name = "fasta2a", extra = ["pydantic-ai"] },
     { name = "httpx" },
     { name = "pydantic-ai-harness" },
     { name = "pydantic-ai-skills" },
@@ -160,7 +159,6 @@ agent-mistral = [
 ]
 agent-runtime = [
     { name = "agent-terminal-ui" },
-    { name = "fasta2a", extra = ["pydantic-ai"] },
     { name = "httpx" },
     { name = "pydantic-ai-harness" },
     { name = "pydantic-ai-skills" },
@@ -177,7 +175,6 @@ all = [
     { name = "botbuilder-core" },
     { name = "confluent-kafka" },
     { name = "discord-py" },
-    { name = "fasta2a", extra = ["pydantic-ai"] },
     { name = "feedparser" },
     { name = "google-api-python-client" },
     { name = "google-auth" },
@@ -383,7 +380,6 @@ sandbox = [
     { name = "wasmtime" },
 ]
 serving = [
-    { name = "fasta2a", extra = ["pydantic-ai"] },
     { name = "feedparser" },
     { name = "httpx" },
     { name = "hvac" },
@@ -415,11 +411,11 @@ test = [
     { name = "agent-terminal-ui" },
     { name = "aiohttp" },
     { name = "confluent-kafka" },
-    { name = "fasta2a", extra = ["pydantic-ai"] },
     { name = "feedparser" },
     { name = "hmmlearn" },
     { name = "httpx" },
     { name = "hypothesis" },
+    { name = "logfire", extra = ["httpx"] },
     { name = "mutmut" },
     { name = "mypy" },
     { name = "nest-asyncio" },
@@ -457,11 +453,11 @@ test-backends = [
     { name = "aiohttp" },
     { name = "aiokafka" },
     { name = "confluent-kafka" },
-    { name = "fasta2a", extra = ["pydantic-ai"] },
     { name = "feedparser" },
     { name = "hmmlearn" },
     { name = "httpx" },
     { name = "hypothesis" },
+    { name = "logfire", extra = ["httpx"] },
     { name = "mutmut" },
     { name = "mypy" },
     { name = "nest-asyncio" },
@@ -524,7 +520,7 @@ requires-dist = [
     { name = "agent-connector-sdk", editable = ".uv-workspace-siblings/agent-connector-sdk" },
     { name = "agent-terminal-ui", marker = "extra == 'terminal'", specifier = ">=2.2.0" },
     { name = "agent-utilities", extras = ["acp", "agent-anthropic", "agent-google", "agent-groq", "agent-huggingface", "agent-mistral", "agent-runtime", "ann", "auth", "browser", "documents", "embeddings-huggingface", "embeddings-ollama", "embeddings-openai", "feeds", "finance", "langfuse", "logfire", "messaging", "pyarrow", "rdf", "sandbox", "stardog", "test", "vault"], marker = "extra == 'all'", specifier = ">=1.0.0" },
-    { name = "agent-utilities", extras = ["acp", "agent-anthropic", "agent-google", "agent-groq", "agent-huggingface", "agent-mistral", "agent-runtime", "event-kafka", "feeds", "finance", "otel", "pyarrow", "rdf", "sandbox", "trino"], marker = "extra == 'test'" },
+    { name = "agent-utilities", extras = ["acp", "agent-anthropic", "agent-google", "agent-groq", "agent-huggingface", "agent-mistral", "agent-runtime", "event-kafka", "feeds", "finance", "logfire", "otel", "pyarrow", "rdf", "sandbox", "trino"], marker = "extra == 'test'" },
     { name = "agent-utilities", extras = ["agent-headless", "auth", "embeddings-openai", "feeds", "langfuse", "logfire", "messaging-mattermost", "messaging-telegram", "metrics", "otel", "rdf", "vault"], marker = "extra == 'serving'" },
     { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-huggingface'", specifier = ">=1.0.0" },
     { name = "agent-utilities", extras = ["embeddings"], marker = "extra == 'embeddings-ollama'", specifier = ">=1.0.0" },
@@ -545,8 +541,6 @@ requires-dist = [
     { name = "defusedxml", specifier = ">=0.7.1,<0.8.0.dev0" },
     { name = "discord-py", marker = "extra == 'messaging-discord'", specifier = ">=2.7.1" },
     { name = "epistemic-graph", extras = ["full"], editable = ".uv-workspace-siblings/epistemic-graph" },
-    { name = "fasta2a", extras = ["pydantic-ai"], marker = "extra == 'agent-headless'", specifier = ">=0.6.1,<1.0.0" },
-    { name = "fasta2a", extras = ["pydantic-ai"], marker = "extra == 'agent-runtime'", specifier = ">=0.6.1,<1.0.0" },
     { name = "feedparser", marker = "extra == 'feeds'", specifier = ">=6.0.14" },
     { name = "filelock", specifier = ">=4.2.0" },
     { name = "google-api-python-client", marker = "extra == 'messaging-googlechat'", specifier = ">=2.198.0" },
@@ -1895,25 +1889,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/52/92/8a611141e42930c0f194f7504063ab87dfe970cf1a5af28e7703df448734/executing-2.3.0.tar.gz", hash = "sha256:15919cb5d667e5cb4e099511971d00d659573fff2dd5c4e6cd8b71636c7858d2", size = 1338003, upload-time = "2026-10-10T14:06:04.64Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/4d/dd/8bc67e7d5ffc1d88aa5af511189dfb76dc4e1e5b808fab186146ef2663e5/executing-2.3.0-py3-none-any.whl", hash = "sha256:736e859c9f8701f11fcf516856f26f562e04776387824b43a35a1dfe21c84122", size = 29393, upload-time = "2026-10-10T14:06:02.777Z" },
-]
-
-[[package]]
-name = "fasta2a"
-version = "0.6.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "opentelemetry-api" },
-    { name = "pydantic" },
-    { name = "starlette" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/b1/28/35949997804129537becf17d0635b8b2b67036589a4da851e44a053857fc/fasta2a-0.6.1.tar.gz", hash = "sha256:e97b92771ad338166b1516dcbb687c9f3f8392a5cd5820542ec4b75ff5219a48", size = 1453473, upload-time = "2026-05-15T20:51:22.059Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/21/21/4d7e00c10bb4ec33a196efc55190ae086e97f5f487945bdfceb94df3e8d8/fasta2a-0.6.1-py3-none-any.whl", hash = "sha256:1b5369ee1b62405eebafa6d71c57c9e40a1a3f0dcbae5ec3aa6ee450361028dd", size = 28888, upload-time = "2026-05-15T20:51:20.222Z" },
-]
-
-[package.optional-dependencies]
-pydantic-ai = [
-    { name = "pydantic-ai-slim" },
 ]
 
 [[package]]
