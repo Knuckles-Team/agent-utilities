@@ -206,6 +206,20 @@ def test_live_colliding_action_decision_ids_survive_distinct_and_intact() -> Non
     assert clean_a["id"] != clean_b["id"]
 
 
+def test_iban_shaped_agent_instance_id_in_metadata_survives() -> None:
+    """The literal id that flaked agent activation: its hex satisfies the IBAN
+    shape, and the activation WorkItem stores it under ``agent_instance_id``."""
+
+    instance_id = "agent-instance:fb60ee66d4c043aa9d8db8c5d5cf8b36"
+
+    clean, report = sanitize_for_persistence(
+        {"metadata": {"agent_instance_id": instance_id}}
+    )
+
+    assert clean["metadata"]["agent_instance_id"] == instance_id
+    assert "iban" not in report.detected_types
+
+
 def test_real_iban_in_free_text_field_is_still_redacted() -> None:
     """The scoping fix must not weaken IBAN detection in genuine free text --
     only exempt values stored directly under structural-identifier keys."""

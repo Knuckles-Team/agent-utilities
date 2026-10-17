@@ -182,6 +182,9 @@ _PERSON_CONTEXT = frozenset({"author", "employee", "owner", "person", "user"})
 #                         durable execution, and AG-UI events
 #                         (`analytics_worker.py`, `durable_execution_kg.py`,
 #                         `envelope_ingest.py`, `agui_emitter.py`).
+#   - agent_instance_id : the activation WorkItem's copy of its
+#                         `agent-instance:<uuid4 hex>` id
+#                         (`orchestration/agent_activation.py`).
 # Deliberately excluded: ``key`` — used in this codebase for heterogeneous,
 # non-identifier purposes (DSL rule keys, object-store keys, BPMN process
 # keys) where a value collision with a free-text pattern has not been
@@ -204,6 +207,7 @@ _STRUCTURAL_ID_FIELDS = frozenset(
         "agent_id",
         "run_id",
         "trace_id",
+        "agent_instance_id",
     }
 )
 

@@ -120,10 +120,10 @@ def test_install_defers_scoring_via_completion_hook():
         rules=[AutomationRule("correctness", "answer is 4")],
         judge=_judge_contains("4"),
     )
-    sampler._pool = (
-        None  # force inline scoring in the hook (deterministic for the test)
-    )
     sampler.install()
+    # install() always creates a pool; drop it AFTER installing so the hook
+    # scores inline and the assertion below never races a worker thread.
+    sampler._pool = None
     assert be.on_trace_complete is not None
     _trace(
         be, "t3", "the answer is 4"
