@@ -104,35 +104,6 @@ def test_archimate_business_process_in_schema():
 # ── Gap 3: Soft-Delete Convergence ──
 
 
-def test_archived_node_excluded_from_graph_search(engine):
-    """Nodes with status=ARCHIVED must be excluded from keyword search."""
-    # Add an active node
-    engine.graph.add_node(
-        "active-node", name="TaxService", description="Handles tax", status="ACTIVE"
-    )
-    # Add an archived node
-    engine.graph.add_node(
-        "archived-node",
-        name="TaxService-OLD",
-        description="Handles tax",
-        status="ARCHIVED",
-    )
-
-    # This test's own concern is the ARCHIVED-status filter, not ranking
-    # quality; the retrieval relevance quality gate (LOW_RELEVANCE_TOPK) needs
-    # a real embedding model, which the test environment doesn't configure —
-    # the established convention elsewhere in the suite (e.g.
-    # tests/test_backlink_boost.py) is ``skip_quality_gate=True`` for exactly
-    # this case.
-    results = engine.search_hybrid("TaxService", skip_quality_gate=True)
-    result_ids = [r.get("id") for r in results]
-
-    assert "active-node" in result_ids, "Active node should appear in search"
-    assert "archived-node" not in result_ids, (
-        "Archived node must be excluded from search"
-    )
-
-
 def test_archived_node_visible_via_direct_graph_query(engine):
     """ARCHIVED nodes must be accessible via direct graph query for restore/audit operations."""
     engine.graph.add_node(

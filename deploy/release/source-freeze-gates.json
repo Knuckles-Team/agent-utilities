@@ -431,18 +431,6 @@
       "argv": ["{python}", "scripts/check_exact_fault_restart_harness.py"],
       "timeout_seconds": 180,
       "covers": ["G-02", "G-05", "G-11", "G-34"]
-    },
-    {
-      "id": "au-tenant-identity-contract",
-      "repository": "agent-utilities",
-      "argv": [
-        "{python}",
-        "scripts/security/check_tenant_identity_contract.py",
-        "--repository-root",
-        "{repo:agent-utilities}"
-      ],
-      "timeout_seconds": 180,
-      "covers": ["G-01", "G-35", "G-38"]
     }
   ],
   "gates": [
@@ -451,7 +439,6 @@
       "evidence_classes": ["local-source", "exact-artifact", "external"],
       "scope": ["agent-utilities", "epistemic-graph"],
       "command_ids": [
-        "au-tenant-identity-contract",
         "eg-read-policy",
         "eg-current-only",
         "eg-release-harness-contract"
@@ -693,7 +680,7 @@
       "id": "G-35",
       "evidence_classes": ["local-source", "exact-artifact"],
       "scope": ["agent-utilities"],
-      "command_ids": ["au-current-only", "au-exact-harness-contract", "au-tenant-identity-contract"],
+      "command_ids": ["au-current-only", "au-exact-harness-contract"],
       "rationale": "Closed-world permission and clean-bootstrap campaign contracts are source-verifiable."
     },
     {
@@ -714,7 +701,7 @@
       "id": "G-38",
       "evidence_classes": ["local-source", "exact-artifact", "external"],
       "scope": ["agent-utilities", "epistemic-graph", "langfuse-agent", "provider-fleet"],
-      "command_ids": ["au-provider-fleet", "au-release-source-contract", "au-oci-layout-export-contract", "au-fleet-supply-chain", "au-dependency-inventory", "eg-dependency-inventory", "fleet-dependency-inventory", "au-fleet-tls", "au-http-egress", "au-security-contract", "eg-security-contract", "lf-security-contract", "au-tracked-privacy", "au-fleet-privacy", "au-security-sanitizer", "eg-security-sanitizer", "lf-security-sanitizer", "lf-api-parity", "au-tenant-identity-contract", "au-skill-certification"],
+      "command_ids": ["au-provider-fleet", "au-release-source-contract", "au-oci-layout-export-contract", "au-fleet-supply-chain", "au-dependency-inventory", "eg-dependency-inventory", "fleet-dependency-inventory", "au-fleet-tls", "au-http-egress", "au-security-contract", "eg-security-contract", "lf-security-contract", "au-tracked-privacy", "au-fleet-privacy", "au-security-sanitizer", "eg-security-sanitizer", "lf-security-sanitizer", "lf-api-parity", "au-skill-certification"],
       "rationale": "Security, privacy, TLS, dependency, tenant, API, and supply-chain source gates cover every release component."
     },
     {

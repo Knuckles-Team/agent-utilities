@@ -334,38 +334,6 @@ def test_dedicated_graph_iri_is_predictable():
 # ── End-to-end plumbing: kg_connections spec → create_backend → the backend ───
 
 
-def test_create_backend_threads_a_declared_target_into_the_neo4j_mirror(fake_neo4j):
-    """The operator-facing path: ``mirror_target`` in a connection spec must
-    survive ``create_backend`` and actually select the session database."""
-    from agent_utilities.knowledge_graph import backends as B
-
-    backend = B.create_backend(
-        "neo4j",
-        uri="bolt://neo:7687",
-        user="u",
-        password="p",
-        mirror_target={"mode": "dedicated", "name": "kg_mirror"},
-    )
-    assert backend.mirror_target.mode == MODE_DEDICATED
-    assert backend.database == "kg_mirror"
-    # create_schema() ran during construction — and landed in kg_mirror, not home.
-    assert {db for db, _q, _p in fake_neo4j.runs} == {"kg_mirror"}
-
-
-def test_create_backend_rejects_a_contradictory_declaration(fake_neo4j):
-    from agent_utilities.knowledge_graph import backends as B
-
-    with pytest.raises(MirrorTargetError, match="disagree"):
-        B.create_backend(
-            "neo4j",
-            uri="bolt://neo:7687",
-            user="u",
-            password="p",
-            db_name="prod_kg",
-            mirror_target="default",
-        )
-
-
 def test_build_mirror_set_records_a_refusal_and_attaches_nothing(monkeypatch):
     """A refused mirror is isolated like any other failed mirror — the authority
     stays up — but it is reported distinctly so a health check says "fix the

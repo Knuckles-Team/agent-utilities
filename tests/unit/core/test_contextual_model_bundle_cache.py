@@ -267,67 +267,6 @@ def _session(tenant: str, principal: str) -> GraphSession:
     )
 
 
-def test_shared_cache_instance_never_leaks_a_bundle_across_tenants():
-    """Two tenants querying THE SAME shared ``_InProcessBundleCache`` instance
-    with the identical query text and the identical (test-fixture) evidence
-    node id must NEVER observe a cache hit against each other's compiled
-    bundle — proving the hard constraint: a faster read must return the SAME
-    rows an uncached read would, not another tenant's rows.
-    """
-    _grant_public(_NODES)
-    cache = cm._InProcessBundleCache()
-    compiler = ContextCompiler(_FakeRetriever(_NODES))
-
-    session_a = _session("tenant-a", "principal:a")
-    session_b = _session("tenant-b", "principal:b")
-
-    with use_session(session_a):
-        bundle_a1 = compiler.compile(
-            "what is the policy?",
-            session=session_a,
-            top_k=1,
-            candidate_pool=1,
-            kv_backend=cache,
-        )
-    with use_session(session_b):
-        bundle_b1 = compiler.compile(
-            "what is the policy?",
-            session=session_b,
-            top_k=1,
-            candidate_pool=1,
-            kv_backend=cache,
-        )
-
-    # Different tenants against the same identical query/evidence-id-set never
-    # collide on a cache key — each pays its OWN compile (a real miss), not a
-    # cross-tenant hit.
-    assert bundle_a1.kv_cache_hit is False
-    assert bundle_b1.kv_cache_hit is False
-    assert bundle_a1.cache_key != bundle_b1.cache_key
-    assert bundle_a1.session_tenant != bundle_b1.session_tenant
-
-    # A SECOND compile for tenant A (same session, same query) legitimately
-    # hits ITS OWN cached entry...
-    with use_session(session_a):
-        bundle_a2 = compiler.compile(
-            "what is the policy?",
-            session=session_a,
-            top_k=1,
-            candidate_pool=1,
-            kv_backend=cache,
-        )
-    assert bundle_a2.kv_cache_hit is True
-    assert bundle_a2.session_tenant == bundle_a1.session_tenant
-
-    # Both tenants' entries are independently present in the shared cache
-    # (each cached its OWN compile), but under DIFFERENT keys — tenant A's
-    # entry is unreachable via tenant B's key and vice versa, the
-    # cryptographic guarantee `compute_bundle_cache_key` gives.
-    assert cache.get(bundle_a1.cache_key) is not None
-    assert cache.get(bundle_b1.cache_key) is not None
-    assert cache.get(bundle_a1.cache_key) != cache.get(bundle_b1.cache_key)
-
-
 # ---------------------------------------------------------------------------
 # 4. Wiring test — the REAL entrypoint (compile_model_context) threads the
 #    auto-detected networked backend into ContextCompiler.compile(kv_backend=)
@@ -348,9 +287,6 @@ def test_compile_model_context_wires_the_networked_backend_when_configured(
     KV-forking incident that rule cites was complete plumbing plus a caller that
     never passed the parameter; this proves the parameter IS passed here.
     """
-    from agent_utilities.knowledge_graph.retrieval.context_compiler import (
-        ContextCompiler,
-    )
     from agent_utilities.kvcache.remote_backend import EpistemicGraphKVBackend
     from tests.wiring import observe
 

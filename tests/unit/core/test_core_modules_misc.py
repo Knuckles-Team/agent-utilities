@@ -373,18 +373,6 @@ def test_init_lazy_unknown_attribute_raises():
         _ = agent_utilities.this_attribute_does_not_exist
 
 
-def test_init_lazy_prompts_and_server():
-    import agent_utilities
-
-    # prompt_builder
-    assert agent_utilities.load_identity is not None
-    assert agent_utilities.build_system_prompt_from_workspace is not None
-
-    # server
-    assert agent_utilities.create_agent_server is not None
-    assert agent_utilities.create_agent_server is not None
-
-
 def test_init_lazy_codemaps_and_models():
     import agent_utilities
 
@@ -669,11 +657,3 @@ def test_prune_large_messages_truncates():
 # ---------------------------------------------------------------------------
 # __main__.py
 # ---------------------------------------------------------------------------
-
-
-def test_main_setup_logging_debug(monkeypatch):
-    import agent_utilities.__main__ as m
-
-    m.setup_logging(debug=True)
-    m.setup_logging(debug=False)
-    assert True, "Debug logging setup completed"

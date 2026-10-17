@@ -14,11 +14,8 @@ This does not perform the moves. The real cutover for each row still
 requires the restart, tenant-scoped-read, duplicate-event, or census test
 each row's acceptance criterion names, run against the receiving repository.
 
-AU-BOUNDARY-R039 is the one row in this slice that is not a directory move:
-it binds AU's own public import surface for external front ends. Its typed
-fact is the module inventory of ``agent_utilities/api/`` -- the only surface
-front ends may import -- so a shrink of that surface without updating the
-front-end import census is caught here, on the AU side of the boundary.
+AU-BOUNDARY-R039 (the former ``agent_utilities/api/`` front-end surface) is
+complete: that surface left Agent Utilities with the 3.0.0 cut.
 """
 
 from __future__ import annotations
@@ -91,32 +88,11 @@ RELOCATION_INVENTORY: dict[str, tuple[str, tuple[str, ...]]] = {
     ),
 }
 
-# requirement_id -> AU-owned paths that must keep existing: the public
-# surface external front ends (web UI, chat front end, terminal UI) are
-# allowed to import. AU-BOUNDARY-R039 shrinks this set only by a change that also
-# updates the front-end import census in the receiving repositories.
-FRONT_END_SURFACE_INVENTORY: dict[str, tuple[str, ...]] = {
-    "AU-BOUNDARY-R039": (
-        "api/__init__.py",
-        "api/catalog.py",
-        "api/agent_control_contracts.py",
-        "api/agent_control_plane.py",
-    ),
-}
-
 
 def _relocation_entries() -> list[tuple[str, str]]:
     return [
         (requirement_id, module_path)
         for requirement_id, (_, module_paths) in RELOCATION_INVENTORY.items()
-        for module_path in module_paths
-    ]
-
-
-def _surface_entries() -> list[tuple[str, str]]:
-    return [
-        (requirement_id, module_path)
-        for requirement_id, module_paths in FRONT_END_SURFACE_INVENTORY.items()
         for module_path in module_paths
     ]
 
@@ -139,22 +115,6 @@ def test_inventoried_relocation_still_present(
     )
 
 
-@pytest.mark.parametrize("requirement_id,module_path", _surface_entries())
-def test_front_end_surface_module_still_present(
-    requirement_id: str, module_path: str
-) -> None:
-    """Every module named as part of AU's public front-end-facing surface
-    must still exist. Shrinking this surface without updating the front-end
-    import census is exactly the drift AU-BOUNDARY-R039 guards against.
-    """
-    target = PACKAGE_ROOT / module_path
-    assert target.exists(), (
-        f"{requirement_id} inventory names '{module_path}' as part of AU's "
-        "public front-end surface, but it no longer exists. Update the "
-        "front-end import census in the same change."
-    )
-
-
 def test_relocation_inventory_covers_exactly_the_assigned_rows() -> None:
     """Pin the row set this slice covers so a future edit that adds or drops
     a row notices the change instead of silently expanding scope.
@@ -167,4 +127,3 @@ def test_relocation_inventory_covers_exactly_the_assigned_rows() -> None:
         "AU-BOUNDARY-R045",
         "AU-BOUNDARY-R047",
     }
-    assert set(FRONT_END_SURFACE_INVENTORY) == {"AU-BOUNDARY-R039"}

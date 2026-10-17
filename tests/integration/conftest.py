@@ -181,17 +181,6 @@ def ephemeral_kafka() -> Iterator[dict[str, Any]]:
 
 
 @pytest.fixture()
-def ephemeral_ladybug(tmp_path: Path) -> Iterator[dict[str, Any]]:
-    """An embedded LadybugDB (Kuzu) backed by a throwaway file under ``tmp_path``.
-
-    LadybugDB is single-writer/embedded — it needs no container, just an isolated
-    path. ``AGENT_UTILITIES_TESTING=true`` (set in the root conftest) puts it in
-    transient-connection mode so it never wedges the file lock between tests.
-    """
-    yield {"db_path": str(tmp_path / "parity_knowledge_graph.db")}
-
-
-@pytest.fixture()
 def real_ingestion_engine(engine_graph: Any) -> Any:
     """An ``IngestionEngine`` bound to the real engine tenant of ``engine_graph``."""
     from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (

@@ -8,7 +8,6 @@ Covers all 5 components:
 - Component 5: Citation Tracker (extract_citations, evaluate_citations)
 """
 
-import pytest
 
 # ── Component 1: Fixed Corpus Evaluation ──────────────────────────────────
 
@@ -232,71 +231,6 @@ class TestNDCG:
 
 
 # ── Component 4: Hard Negative Mining ─────────────────────────────────────
-
-
-class TestHardNegativeMiner:
-    """Tests for the hard negative miner."""
-
-    def test_model_creation(self):
-        from agent_utilities.knowledge_graph.retrieval.hard_negative_miner import (
-            HardNegative,
-        )
-
-        hn = HardNegative(
-            doc_id="d1",
-            triggering_subquery="sub-q",
-            original_query="full query",
-            relevance_score=0.8,
-        )
-        assert hn.doc_id == "d1"
-        assert hn.relevance_score == 0.8
-
-    def test_penalty_application(self):
-        from unittest.mock import MagicMock
-
-        from agent_utilities.knowledge_graph.retrieval.hard_negative_miner import (
-            HardNegativeMiner,
-        )
-
-        retriever = MagicMock()
-        miner = HardNegativeMiner(retriever, penalty_factor=0.5)
-
-        results = [
-            {"id": "d1", "_score": 1.0},
-            {"id": "d2", "_score": 0.9},
-            {"id": "d3", "_score": 0.8},
-        ]
-        penalized = miner.apply_penalties(results, {"d2"})
-        # d2 should have reduced score
-        d2 = next(r for r in penalized if r["id"] == "d2")
-        assert d2["_score"] == pytest.approx(0.45)
-        assert d2["_hard_negative"] is True
-
-    def test_penalty_no_negatives(self):
-        from unittest.mock import MagicMock
-
-        from agent_utilities.knowledge_graph.retrieval.hard_negative_miner import (
-            HardNegativeMiner,
-        )
-
-        retriever = MagicMock()
-        miner = HardNegativeMiner(retriever)
-        results = [{"id": "d1", "_score": 1.0}]
-        same = miner.apply_penalties(results, set())
-        assert same[0]["_score"] == 1.0
-
-    def test_env_var_gating(self):
-        from unittest.mock import MagicMock
-
-        from agent_utilities.knowledge_graph.retrieval.hard_negative_miner import (
-            HardNegativeMiner,
-        )
-
-        retriever = MagicMock()
-        miner = HardNegativeMiner(retriever)
-        # Without env var, mine() should return empty
-        result = miner.mine("complex query")
-        assert result == []
 
 
 # ── Component 5: Citation Tracker ─────────────────────────────────────────

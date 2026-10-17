@@ -11,9 +11,7 @@ import pytest
 
 from agent_utilities.harness.compute_governor import ComputeGovernor
 from agent_utilities.knowledge_graph.core.reasoner import (
-    ReasonerRouter,
     ReasoningResult,
-    ReasoningTask,
 )
 
 pytestmark = pytest.mark.concept("AU-OS.scaling.value-test-time-compute")
@@ -51,31 +49,3 @@ class _Para:
     def reason(self, task):
         self.calls += 1
         return ReasoningResult(answer=self.name, reasoner=self.name, score=self._score)
-
-
-class TestRouterAdaptive:
-    def test_stops_after_satisficing_paradigm(self):
-        router = ReasonerRouter(reward_weight=0.5)
-        winner = _Para("winner", 1.0)
-        loser = _Para("loser", 0.4)
-        router.register(winner)
-        router.register(loser)
-        # bias routing so the winner is tried first
-        router._index.record_outcome("winner", reward=1.0)
-        result = router.reason_adaptive(
-            ReasoningTask(goal="x", tags=("shared",)), ComputeGovernor(satisfice=0.95)
-        )
-        assert result.reasoner == "winner" and result.trace["attempts"] == 1
-        assert loser.calls == 0  # never tried — compute saved
-
-    def test_tries_more_when_unsatisfied(self):
-        router = ReasonerRouter()
-        router.register(_Para("a", 0.5))
-        router.register(_Para("b", 0.5))
-        result = router.reason_adaptive(
-            ReasoningTask(goal="x", tags=("shared",)),
-            ComputeGovernor(satisfice=0.95, min_marginal_gain=0.05, max_attempts=4),
-        )
-        # both score 0.5: tries a (0.5), then b adds no gain ⇒ stops at 2
-        assert result.trace["attempts"] == 2
-        assert result.trace["governor"]["best"] == 0.5

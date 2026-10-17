@@ -47,20 +47,12 @@ kg.reason(
         },
     )
 )
-
-# Symbolic: forward-chain to a goal fact (routes to the deductive paradigm)
-kg.reason(
-    ReasoningTask(
-        goal="derive C",
-        tags=("deduction",),
-        payload={
-            "facts": ["A"],
-            "rules": [(("A",), "B"), (("B",), "C")],
-            "goal_fact": "C",
-        },
-    )
-)
 ```
+
+A symbolic task tagged `deduction` (with `facts`, `rules` and a `goal_fact` in the
+payload) routes to the deductive paradigm the same way; see
+`tests/unit/knowledge_graph/test_kg_2_68_reasoner_router.py` for runnable examples of
+every paradigm.
 
 Each call routes to the paradigm whose learned reward EMA + capability tags best fit, runs
 it, and feeds the result's score back — so the router self-improves. Register a new

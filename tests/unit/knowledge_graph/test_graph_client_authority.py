@@ -269,10 +269,3 @@ def test_orchestrator_and_ingestion_tasks_have_distinct_native_queues() -> None:
     ).read_text(encoding="utf-8")
     assert 'queue="orchestrator_task"' in source
     assert 'kind="ingest_task"' in source
-
-
-def test_served_tool_dispatch_requires_minted_graph_session() -> None:
-    source = (_SOURCE_ROOT / "mcp" / "kg_server.py").read_text(encoding="utf-8")
-    assert "with verified_tool_session_scope()" in source
-    assert "session.engine_verified_context()" in source
-    assert "_actor_from_kwargs" not in source

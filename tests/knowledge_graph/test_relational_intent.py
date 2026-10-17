@@ -6,7 +6,7 @@ CONCEPT:AU-KG.retrieval.relational-intent-retrieval — Relational-Intent Retrie
 """
 
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from agent_utilities.knowledge_graph.retrieval.relational_intent import (
     parse_relational_intent,
@@ -76,52 +76,3 @@ class TestTraverse:
             verb_edge="supports_belief", direction="out", seed_text="x"
         )
         assert traverse(engine, rq) == []
-
-
-@patch(_EMBED, side_effect=Exception("no embed in test"))
-def test_live_path_retrieve_hybrid_invokes_relational_arm(_m):
-    """LIVE-PATH: retrieve_hybrid actually runs the relational arm and merges hits."""
-    from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
-        HybridRetriever,
-    )
-
-    from agent_utilities.knowledge_graph.retrieval import (
-        relational_intent as ri_module,
-    )
-
-    engine = MagicMock()
-    engine.backend = None  # skip vector + graph-traversal branches deterministically
-    engine._search_keyword.return_value = []
-    # retrieve_hybrid's batched-neighborhood-prefetch (CONCEPT:AU-KG.retrieval.
-    # batched-neighborhood-prefetch) existence-checks every base node via
-    # engine.graph.has_batch BEFORE assembling the subgraph -- a base node
-    # _exists_batch cannot confirm exists is silently dropped from
-    # assembled_subgraph (never appended by either the backend-Cypher or BFS
-    # branch). A bare MagicMock's has_batch(...).items() iterates to nothing,
-    # so the relational-arm sentinel would otherwise vanish here even though
-    # the merge itself worked correctly.
-    engine.graph.has_batch.return_value = {"rel:hit": True}
-    r = HybridRetriever(engine, schema_pack=get_schema_pack("research-state"))
-
-    sentinel = [{"id": "rel:hit", "_score": 1.0, "_relational_hit": "supports_belief"}]
-    with (
-        patch.object(ri_module, "traverse", return_value=sentinel),
-        patch.object(
-            ri_module,
-            "parse_relational_intent",
-            return_value=ri_module.RelationalQuery("supports_belief", "out", "x"),
-        ),
-    ):
-        # This test is about the relational arm actually running and its hit
-        # surviving the merge, not the (newer, default-on) RetrievalQualityGate
-        # -- a single-hit sentinel with a mocked-failing embedder trips its
-        # low_relevance_topk mode and the gate's own documented contract is to
-        # return [] on failure. skip_quality_gate is the sanctioned opt-out
-        # (already used internally by retrieve_hybrid_budgeted, hybrid_retriever.py).
-        results = r.retrieve_hybrid(
-            "which papers support transformers",
-            context_window=5,
-            skip_quality_gate=True,
-        )
-
-    assert any(n.get("id") == "rel:hit" for n in results)

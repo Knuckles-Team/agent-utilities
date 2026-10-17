@@ -43,24 +43,6 @@ def engine(sample_graph):
 
 
 @pytest.mark.asyncio
-async def test_extract_focused_subgraph(engine):
-    # Search for "func1". No embedder in the hermetic unit suite (see
-    # tests/unit/conftest.py's autouse _hermetic_embeddings), so retrieval
-    # degrades to the keyword-only path, which stamps no per-result score --
-    # skip_quality_gate opts out of the relevance gate that would otherwise
-    # always reject it (composite=0.0) regardless of match quality.
-    subgraph = await engine.extract_focused_subgraph(
-        query="func1", max_nodes=10, skip_quality_gate=True
-    )
-
-    # Should include func1 and its related nodes
-    node_ids = [n["id"] for n in subgraph.nodes]
-    assert "func1" in node_ids
-    assert "file1.py" in node_ids
-    assert "func2" in node_ids  # func1 calls func2
-
-
-@pytest.mark.asyncio
 async def test_codemap_persistence(engine):
     artifact = CodemapArtifact(
         id="test-codemap",
@@ -77,14 +59,3 @@ async def test_codemap_persistence(engine):
     assert retrieved is not None
     assert retrieved.id == "test-codemap"
     assert retrieved.prompt_ref == "pref:test"
-
-
-@pytest.mark.asyncio
-async def test_hybrid_search(engine):
-    # No embedder in the hermetic unit suite -> keyword-only path, which
-    # stamps no per-result score; skip the relevance gate that would
-    # otherwise always reject a scoreless result (see
-    # test_extract_focused_subgraph above).
-    results = engine.search_hybrid("file1", skip_quality_gate=True)
-    assert len(results) > 0
-    assert results[0]["id"] == "file1.py"

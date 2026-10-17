@@ -185,37 +185,6 @@ class TestAgentRunner:
         meta = _resolve_agent_from_kg(engine, "nonexistent-agent")
         assert meta["type"] == "unknown"
 
-    def test_build_execution_config(self, monkeypatch):
-        """Config builder produces valid config dict."""
-        from agent_utilities.orchestration.agent_runner import (
-            _build_execution_config,
-        )
-
-        monkeypatch.setattr(agent_config, "chat_models", _standard_model())
-        # _build_execution_config resolves a live toolset for a "server" agent
-        # via _fleet_server_url(toolset_id), which reads FLEET_MCP_URL_TEMPLATE
-        # straight from the environment (setting() is a live os.environ read,
-        # not an AgentConfig attribute) -- unset in this sandbox, so give it a
-        # deterministic template rather than depending on real fleet config.
-        monkeypatch.setenv("FLEET_MCP_URL_TEMPLATE", "https://{server}.mcp.test")
-        engine = _create_engine()
-        agent_meta = {
-            "type": "server",
-            "server_id": "srv:test",
-            "tools": [{"name": "test_tool", "description": "A tool"}],
-            "capabilities": ["testing"],
-            "mcp_command": "uv",
-            "url": "",
-            "system_prompt": "",
-        }
-
-        config = _build_execution_config(engine, "test-agent", agent_meta)
-
-        assert "tag_prompts" in config
-        assert "test-agent" in config["tag_prompts"]
-        assert "test_tool" in config["tag_prompts"]
-        assert config["provider"] is not None
-
     def test_record_execution_trace(self):
         """Execution trace creates RunTrace node."""
         from agent_utilities.observability.trace_ontology import trace_id

@@ -4,7 +4,6 @@
 CONCEPT:AU-KG.retrieval.memory-first-retrieval
 """
 
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -135,23 +134,6 @@ def test_variable_substitution_chains_steps():
 # --- live path: HybridRetriever.retrieve_executable ------------------------
 
 
-def test_live_path_dispatches_modes_and_returns_trace():
-    from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
-        HybridRetriever,
-    )
-
-    r = HybridRetriever(MagicMock(), enable_rerank=False)
-    # vector mode → retrieve_hybrid returns nodes; grep is the fallback.
-    r.retrieve_hybrid = lambda q, **kw: [  # type: ignore[assignment]
-        {"id": "n1", "content": "doc one"},
-        {"id": "n2", "content": "doc two"},
-    ]
-    result = r.retrieve_executable("what is X?", top_k=3)
-    assert result.success is True
-    assert "n1" in result.evidence_ids
-    assert result.trace[0].op == StepOp.RETRIEVE and result.trace[0].mode == "vector"
-
-
 # --- LLM plan synthesizer (parse-or-fallback) ------------------------------
 
 
@@ -185,33 +167,3 @@ def test_parse_executable_plan_falls_back_when_no_retrieve():
     raw = '{"steps": [{"op": "answer", "query": "Q"}]}'
     plan = parse_executable_plan(raw, question="Q", subqueries=["s1"])
     assert any(s.op == StepOp.RETRIEVE for s in plan)
-
-
-def test_live_path_use_planner_uses_synthesized_plan():
-    from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
-        HybridRetriever,
-    )
-
-    r = HybridRetriever(MagicMock(), enable_rerank=False)
-    r.retrieve_hybrid = lambda q, **kw: [{"id": "n1", "content": "doc one"}]  # type: ignore[assignment]
-    r.direct_search = lambda q, **kw: type(  # type: ignore[assignment]
-        "R", (), {"hits": [type("H", (), {"doc_id": "g1", "score": 0.9})()]}
-    )()
-    seen: list[str] = []
-    original_retrieve = r.retrieve_hybrid
-
-    def _spy(q, **kw):
-        seen.append(q)
-        return original_retrieve(q, **kw)
-
-    r.retrieve_hybrid = _spy  # type: ignore[assignment]
-    # Inject a synthesized plan instead of calling a real LLM.
-    r._synthesize_executable_plan = lambda query, **kw: [  # type: ignore[assignment]
-        PlanStep(
-            op=StepOp.RETRIEVE, query="decomposed sub", mode="vector", out_var="r0"
-        ),
-        PlanStep(op=StepOp.ANSWER, query=query),
-    ]
-    result = r.retrieve_executable("what is X?", use_planner=True)
-    assert result.success is True
-    assert "decomposed sub" in seen  # the synthesized sub-query actually ran

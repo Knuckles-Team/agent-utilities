@@ -41,6 +41,18 @@ def _canonical_node_payload(value: Any, node_type: str) -> dict[str, Any]:
     return data
 
 
+def _prompt_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Map a backend prompt row to the prompt record shape."""
+    return {
+        "id": row.get("id", ""),
+        "name": row.get("name", ""),
+        "description": row.get("description", ""),
+        "content": row.get("system_prompt", ""),
+        "capabilities": row.get("capabilities", []),
+        "timestamp": row.get("timestamp", ""),
+    }
+
+
 @dataclass
 class FocusedSubgraph:
     """A task-specific subgraph extraction result."""
@@ -364,17 +376,7 @@ class RegistryMixin(_Base):
                 {},
             )
             for row in rows:
-                results.append(
-                    {
-                        "id": row.get("id", ""),
-                        "name": row.get("name", ""),
-                        "description": row.get("description", ""),
-                        "content": row.get("system_prompt", ""),
-                        "capabilities": row.get("capabilities", []),
-                        "timestamp": row.get("timestamp", ""),
-                        "type": "prompt",
-                    }
-                )
+                results.append({**_prompt_row(row), "type": "prompt"})
             return results
 
         # In-memory
@@ -398,12 +400,7 @@ class RegistryMixin(_Base):
             if rows:
                 row = rows[0]
                 return {
-                    "id": row.get("id", ""),
-                    "name": row.get("name", ""),
-                    "description": row.get("description", ""),
-                    "content": row.get("system_prompt", ""),
-                    "capabilities": row.get("capabilities", []),
-                    "timestamp": row.get("timestamp", ""),
+                    **_prompt_row(row),
                     "json_blueprint": row.get("json_blueprint", {}),
                 }
         if self.graph.has_node(prompt_id):
@@ -668,93 +665,76 @@ class RegistryMixin(_Base):
     #  Granular Resource Queries (Skills, Tools, Prompts)
     # ─────────────────────────────────────────────────────────────────────
 
-    def get_skills(self) -> list[dict[str, Any]]:
-        """Return pre-baked skills (Skill nodes and agent skills).
-
-        CONCEPT:AU-KG.query.object-graph-mapper — Granular Resource Queries
-        """
+    def _callable_resources(
+        self,
+        cypher: str,
+        entry_type: str,
+        backend_entry: typing.Callable[[dict[str, Any]], dict[str, Any]],
+        memory_match: typing.Callable[[dict[str, Any]], bool],
+        memory_source: typing.Callable[[dict[str, Any]], Any],
+    ) -> list[dict[str, Any]]:
+        """List callable resources from the backend, then the in-memory graph."""
         results: list[dict[str, Any]] = []
         if self.backend:
-            rows = self.backend.execute(
-                "MATCH (s:CallableResource) WHERE s.resource_type = 'AGENT_SKILL' "
-                "RETURN s.id, s.name, s.description, s.source_ref, s.timestamp",
-                {},
-            )
-            for row in rows:
+            for row in self.backend.execute(cypher, {}):
                 results.append(
                     {
                         "id": row.get("id", ""),
                         "name": row.get("name", ""),
                         "description": row.get("description", ""),
                         "enabled": True,
-                        "type": "skill",
-                        "source": "universal-skills",
-                        "source_ref": row.get("source_ref", ""),
+                        "type": entry_type,
+                        **backend_entry(row),
                     }
                 )
-
-        # Also check in-memory graph for Skill-type nodes
         for nid in self.graph.node_ids():
             data = self.graph._get_node_properties(nid)
-            n_type = str(data.get("node_type", "")).lower()
-            r_type = str(data.get("resource_type", "")).lower()
-            if n_type == "skill" or r_type == "agent_skill":
-                if not any(r["id"] == nid for r in results):
-                    results.append(
-                        {
-                            "id": nid,
-                            "name": data.get("name", nid),
-                            "description": data.get("description", ""),
-                            "enabled": True,
-                            "type": "skill",
-                            "source": data.get("package_name", "custom"),
-                        }
-                    )
-
+            if memory_match(data) and not any(r["id"] == nid for r in results):
+                results.append(
+                    {
+                        "id": nid,
+                        "name": data.get("name", nid),
+                        "description": data.get("description", ""),
+                        "enabled": True,
+                        "type": entry_type,
+                        "source": memory_source(data),
+                    }
+                )
         return sorted(results, key=lambda x: x.get("name", "").lower())
+
+    def get_skills(self) -> list[dict[str, Any]]:
+        """Return pre-baked skills (Skill nodes and agent skills).
+
+        CONCEPT:AU-KG.query.object-graph-mapper — Granular Resource Queries
+        """
+        return self._callable_resources(
+            "MATCH (s:CallableResource) WHERE s.resource_type = 'AGENT_SKILL' "
+            "RETURN s.id, s.name, s.description, s.source_ref, s.timestamp",
+            "skill",
+            lambda row: {
+                "source": "universal-skills",
+                "source_ref": row.get("source_ref", ""),
+            },
+            lambda data: (
+                str(data.get("node_type", "")).lower() == "skill"
+                or str(data.get("resource_type", "")).lower() == "agent_skill"
+            ),
+            lambda data: data.get("package_name", "custom"),
+        )
 
     def get_tools(self) -> list[dict[str, Any]]:
         """Return MCP tools from the KG.
 
         CONCEPT:AU-KG.query.object-graph-mapper — Granular Resource Queries
         """
-        results: list[dict[str, Any]] = []
-        if self.backend:
-            rows = self.backend.execute(
-                "MATCH (r:CallableResource) WHERE r.resource_type = 'MCP_TOOL' "
-                "RETURN r.id, r.name, r.description, r.endpoint, r.timestamp",
-                {},
-            )
-            for row in rows:
-                results.append(
-                    {
-                        "id": row.get("id", ""),
-                        "name": row.get("name", ""),
-                        "description": row.get("description", ""),
-                        "enabled": True,
-                        "type": "mcp_tool",
-                        "source": row.get("endpoint", "mcp"),
-                    }
-                )
-
-        # Also check Server->PROVIDES->CallableResource
-        for nid in self.graph.node_ids():
-            data = self.graph._get_node_properties(nid)
-            r_type = str(data.get("resource_type", "")).lower()
-            if r_type == "mcp_tool":
-                if not any(r["id"] == nid for r in results):
-                    results.append(
-                        {
-                            "id": nid,
-                            "name": data.get("name", nid),
-                            "description": data.get("description", ""),
-                            "enabled": True,
-                            "type": "mcp_tool",
-                            "source": data.get("endpoint", "mcp"),
-                        }
-                    )
-
-        return sorted(results, key=lambda x: x.get("name", "").lower())
+        return self._callable_resources(
+            "MATCH (r:CallableResource) WHERE r.resource_type = 'MCP_TOOL' "
+            "RETURN r.id, r.name, r.description, r.endpoint, r.timestamp",
+            "mcp_tool",
+            lambda row: {"source": row.get("endpoint", "mcp")},
+            lambda data: str(data.get("resource_type", "")).lower() == "mcp_tool",
+            lambda data: data.get("endpoint", "mcp"),
+        )
 
     def get_prompts_list(self) -> list[dict[str, Any]]:
         """Return system prompts and custom prompts from KG.

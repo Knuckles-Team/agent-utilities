@@ -4,8 +4,8 @@ CONCEPT:AU-KG.query.object-graph-mapper / KG-2.7 — one ``backend_under_test`` 
 backend, built through the production ``create_backend`` factory against the
 ephemeral fixtures defined in ``tests/integration/conftest.py``.
 
-The two zero-infra params (epistemic_graph + ladybug) run in the default PR
-suite; the container-backed params carry ``pytest.mark.live`` so the full matrix
+The zero-infra epistemic_graph param runs in the default PR suite; the
+container-backed params carry ``pytest.mark.live`` so the full matrix
 runs only under ``pytest -m live``.
 """
 
@@ -22,10 +22,7 @@ from agent_utilities.knowledge_graph.backends import create_backend
 
 _BACKEND_PARAMS = [
     pytest.param("epistemic_graph", id="epistemic_graph"),
-    pytest.param("ladybug", id="ladybug"),
     pytest.param("postgresql", id="pggraph", marks=pytest.mark.live),
-    pytest.param("neo4j", id="neo4j", marks=pytest.mark.live),
-    pytest.param("falkordb", id="falkordb", marks=pytest.mark.live),
 ]
 
 
@@ -46,25 +43,9 @@ def backend_under_test(request: pytest.FixtureRequest) -> Iterator[Any]:
                 "epistemic-graph engine not running (GRAPH_SERVICE_ENDPOINTS unset)"
             )
         kwargs: dict[str, Any] = {}
-    elif backend_type == "ladybug":
-        kwargs = {"db_path": request.getfixturevalue("ephemeral_ladybug")["db_path"]}
     elif backend_type == "postgresql":
         info = request.getfixturevalue("ephemeral_pg_age")
         kwargs = {"uri": info["uri"], "db_name": info["db_name"]}
-    elif backend_type == "neo4j":
-        info = request.getfixturevalue("ephemeral_neo4j")
-        kwargs = {
-            "uri": info["uri"],
-            "user": info["user"],
-            "password": info["password"],
-        }
-    elif backend_type == "falkordb":
-        info = request.getfixturevalue("ephemeral_falkordb")
-        kwargs = {
-            "host": info["host"],
-            "port": info["port"],
-            "db_name": info["db_name"],
-        }
     else:  # pragma: no cover — guarded by the param list above
         pytest.skip(f"unknown backend param {backend_type!r}")
 

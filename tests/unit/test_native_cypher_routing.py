@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import ast
 import inspect
 import json
-from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -152,33 +150,6 @@ def test_graph_compute_exposes_separate_native_read_and_write_calls() -> None:
     assert ".query.cypher_write(" in write_source
     assert "backend" not in read_source
     assert "backend" not in write_source
-
-
-def test_public_query_modules_do_not_call_backend_or_graphcore() -> None:
-    root = Path(__file__).resolve().parents[2] / "agent_utilities"
-    public_files = (
-        root / "gateway" / "graph_api.py",
-        root / "mcp" / "kg_server.py",
-        root / "mcp" / "tools" / "query_tools.py",
-    )
-    offenders: list[str] = []
-    for path in public_files:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Name) and node.id == "GraphCore":
-                offenders.append(f"{path.name}:{node.lineno}:GraphCore")
-            if not isinstance(node, ast.Call) or not isinstance(
-                node.func, ast.Attribute
-            ):
-                continue
-            receiver = node.func.value
-            if (
-                isinstance(receiver, ast.Attribute)
-                and receiver.attr == "backend"
-                and node.func.attr.startswith("execute")
-            ):
-                offenders.append(f"{path.name}:{node.lineno}:backend")
-    assert offenders == []
 
 
 # --- literal-inlining helper (pure rendering — unaffected by the read/write/

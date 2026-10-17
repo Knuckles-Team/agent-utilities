@@ -69,15 +69,3 @@ def test_citation_processor_builds_and_annotates():
     assert "[1](http://a)" in annotated
     assert "[2](http://b)" in annotated
     assert "[9]" in annotated  # out-of-range marker left intact
-
-
-@pytest.mark.concept("AU-ECO.connector.apply-any-query-analysis")
-def test_retriever_accepts_query_analysis_flag():
-    import inspect
-
-    from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import (
-        HybridRetriever,
-    )
-
-    params = inspect.signature(HybridRetriever.retrieve_hybrid).parameters
-    assert "query_analysis" in params

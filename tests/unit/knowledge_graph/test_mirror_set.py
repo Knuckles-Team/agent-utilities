@@ -68,14 +68,6 @@ def _configure(monkeypatch):
     )
 
 
-def test_file_locked_mirror_skipped_for_client_role(monkeypatch):
-    _configure(monkeypatch)
-    monkeypatch.setattr(host_lock, "effective_daemon_role", lambda: "client")
-    mirrors = B._build_mirror_set()
-    assert "team-falkor" in mirrors  # network mirror always built
-    assert "local-ladybug" not in mirrors  # file-locked → host-only
-
-
 def test_file_locked_mirror_built_for_host_role(monkeypatch):
     _configure(monkeypatch)
     monkeypatch.setattr(host_lock, "effective_daemon_role", lambda: "host")

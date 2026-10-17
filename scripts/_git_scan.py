@@ -63,6 +63,28 @@ import subprocess
 from pathlib import Path
 
 
+def run_git(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess:
+    """Run git with repo-relative paths, never ``git -C <subdir>``.
+
+    git exports ``GIT_DIR``/``GIT_INDEX_FILE``/``GIT_WORK_TREE`` into every
+    hook subprocess. Inherited blindly they silently re-root path resolution,
+    which is how ~20 copied gate helpers once measured an empty universe and
+    reported a confident clean verdict. They are kept (the index being
+    committed IS the one to read) but every invocation runs from the resolved
+    toplevel.
+    """
+    return subprocess.run(
+        ["git", *args], cwd=cwd, capture_output=True, text=True, check=False
+    )
+
+
+def git_toplevel() -> str | None:
+    """The toplevel git reports for the current directory, or ``None``."""
+    r = run_git("rev-parse", "--show-toplevel")
+    out = r.stdout.strip()
+    return out if r.returncode == 0 and out else None
+
+
 def repo_root_of(target: Path) -> Path | None:
     """The nearest ancestor of ``target`` (inclusive) that looks like a git
     repository root, found by pure filesystem inspection -- never by asking

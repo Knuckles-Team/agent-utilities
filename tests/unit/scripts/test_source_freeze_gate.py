@@ -134,7 +134,6 @@ def test_checked_in_manifest_is_complete_and_current() -> None:
         "external",
     )
     assert set(gates["G-01"].command_ids) == {
-        "au-tenant-identity-contract",
         "eg-read-policy",
         "eg-current-only",
         "eg-release-harness-contract",

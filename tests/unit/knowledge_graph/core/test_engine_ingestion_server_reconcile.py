@@ -99,30 +99,6 @@ def test_ingest_mcp_server_reconciles_via_register_server_rpc() -> None:
     assert _merges(backend) == []
 
 
-def test_ingest_mcp_server_falls_back_to_cypher_merge_without_engine_client() -> None:
-    backend = _FakeBackend(server_registry=None)
-    engine = _Engine(backend)
-
-    engine.ingest_mcp_server("legacy-server", "mcp-ref://cafef00d", tools=[])
-
-    merges = _merges(backend)
-    assert len(merges) == 1
-    _, params = merges[0]
-    assert params["id"] == "srv:legacy-server"
-    assert params["name"] == "legacy-server"
-
-
-def test_ingest_mcp_server_falls_back_to_cypher_merge_on_rpc_failure() -> None:
-    registry = _FakeServerRegistry(raises=True)
-    backend = _FakeBackend(server_registry=registry)
-    engine = _Engine(backend)
-
-    engine.ingest_mcp_server("flaky-server", "mcp-ref://0badf00d", tools=[])
-
-    assert len(registry.calls) == 0  # the attempt was made, but raised
-    assert len(_merges(backend)) == 1
-
-
 def test_ingest_mcp_server_does_nothing_without_a_backend() -> None:
     engine = _Engine(backend=None)
     # Must not raise even though there is no backend to reconcile through.

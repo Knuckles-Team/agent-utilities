@@ -77,7 +77,12 @@ def _concrete_backends() -> dict[str, type[GraphBackend]]:
 def test_every_concrete_backend_is_discoverable() -> None:
     # Guard against a silently-empty sweep declaring a falsely-clean gate.
     backends = _concrete_backends()
-    assert len(backends) >= 6, f"only found {sorted(backends)} concrete backends"
+    assert sorted(backends) == [
+        "AGEBackend",
+        "EpistemicGraphBackend",
+        "FanOutBackend",
+        "PostgreSQLBackend",
+    ], f"found {sorted(backends)} concrete backends"
 
 
 def test_abstract_contract_method_set_is_stable() -> None:

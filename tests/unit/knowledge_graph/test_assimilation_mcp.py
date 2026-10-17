@@ -4,7 +4,6 @@
 CONCEPT:AU-KG.query.vendor-agnostic-traversal
 """
 
-from pathlib import Path
 
 import pytest
 
@@ -45,12 +44,3 @@ def test_run_assimilation_pass_idempotent_and_force():
     run_assimilation_pass(engine)
     assert run_assimilation_pass(engine)["skipped"] is True
     assert run_assimilation_pass(engine, force=True)["skipped"] is False
-
-
-def test_mcp_assimilate_action_is_wired():
-    # Regression guard: graph_evolution routes the assimilate action.
-    src = Path("agent_utilities/mcp/tools/evolution_tools.py").read_text(
-        encoding="utf-8"
-    )
-    assert 'action == "assimilate"' in src
-    assert "run_assimilation_pass" in src

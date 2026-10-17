@@ -68,18 +68,8 @@ from agent_utilities.knowledge_graph.retrieval.context_compiler import (
 from agent_utilities.knowledge_graph.retrieval.context_compiler_serving import (
     bundle_chat_completion,
 )
+from scripts._tls import tls_context as _tls_context
 from tests.retrieval.fakes import FakeRetriever
-
-
-def _tls_context():
-    """Default TLS context honoring SSL_CERT_FILE/REQUESTS_CA_BUNDLE/SSL_CERT_DIR."""
-    import os
-    import ssl
-
-    cafile = os.environ.get("SSL_CERT_FILE") or os.environ.get("REQUESTS_CA_BUNDLE")
-    capath = os.environ.get("SSL_CERT_DIR")
-    return ssl.create_default_context(cafile=cafile or None, capath=capath or None)
-
 
 _METRIC_RE = re.compile(
     r"^vllm:(prefix_cache_hits_total|prefix_cache_queries_total)\{[^}]*\}\s+([0-9.eE+]+)",

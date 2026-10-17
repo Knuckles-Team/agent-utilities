@@ -191,18 +191,6 @@ def _session(actor: ActorContext) -> GraphSession:
     )
 
 
-def test_search_surface_search_hybrid_admits_an_org_shared_node(monkeypatch, brain):
-    monkeypatch.setattr(
-        sr, "_durable_access_rows", lambda _ids: {"doc-1": _org_shared_row("doc-1")}
-    )
-    actor = _actor()
-    session = _session(actor)
-    nodes = [{"id": "doc-1", "type": "Doc", "_score": 0.9, "status": "ACTIVE"}]
-    with use_session(session):
-        out = _Engine(nodes).search_hybrid("q", top_k=5, session=session)
-    assert [n["id"] for n in out] == ["doc-1"]
-
-
 def test_search_surface_peer_denial_cross_tenant_gets_zero_rows(monkeypatch, brain):
     monkeypatch.setattr(
         sr, "_durable_access_rows", lambda _ids: {"doc-1": _org_shared_row("doc-1")}

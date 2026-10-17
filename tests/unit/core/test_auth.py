@@ -6,6 +6,7 @@ Covers JWT decoding, bearer-policy enforcement, JWKS caching, CORS, and
 TrustedHost configuration.
 """
 
+import contextlib
 import time
 from unittest import mock
 from unittest.mock import MagicMock
@@ -46,9 +47,52 @@ def _make_config(**overrides):
     return cfg
 
 
+def _jwt_configured(**decode):
+    """Patch a JWKS-configured server whose ``_decode_jwt`` is ``mock(**decode)``."""
+    cfg = _make_config(auth_jwt_jwks_uri="https://identity.example.test/jwks")
+    stack = contextlib.ExitStack()
+    stack.enter_context(mock.patch("agent_utilities.core.config.config", cfg))
+    stack.enter_context(
+        mock.patch(
+            "agent_utilities.security.auth._fetch_jwks",
+            new=mock.AsyncMock(return_value={"keys": []}),
+        )
+    )
+    stack.enter_context(
+        mock.patch("agent_utilities.security.auth._decode_jwt", **decode)
+    )
+    return stack
+
+
 # ---------------------------------------------------------------------------
 # JWT Decode Tests
 # ---------------------------------------------------------------------------
+
+
+_ISSUER = "https://auth.example.com"
+
+
+def _signed_token(*, signed_with_other_key: bool = False, **claims):
+    """Return ``(token, jwks)`` for an RS256 JWT carrying ``claims``.
+
+    ``exp``/``iat`` default to a valid one-hour window. With
+    ``signed_with_other_key`` the JWKS publishes a key that did not sign it.
+    """
+    from joserfc import jwt as joserfc_jwt
+    from joserfc.jwk import RSAKey
+
+    key = RSAKey.generate_key(2048)
+    published = RSAKey.generate_key(2048) if signed_with_other_key else key
+    now = int(time.time())
+    payload = {"sub": "user123", "exp": now + 3600, "iat": now, **claims}
+    token = joserfc_jwt.encode({"alg": "RS256"}, payload, key)
+    return token, {"keys": [published.as_dict(is_private=False)]}
+
+
+def _assert_rejected(token, jwks, *, issuer=_ISSUER, audience="my-api"):
+    with pytest.raises(TokenValidationError) as exc_info:
+        _decode_jwt(token, jwks, issuer=issuer, audience=audience)
+    assert exc_info.value.status_code == 401
 
 
 class TestDecodeJWT:
@@ -57,177 +101,52 @@ class TestDecodeJWT:
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_valid_token(self):
         """Decoding a valid JWT with matching claims succeeds."""
-        from joserfc import jwt as joserfc_jwt
-        from joserfc.jwk import RSAKey
-
-        key = RSAKey.generate_key(2048)
-        jwks = {"keys": [key.as_dict(is_private=False)]}
-
-        header = {"alg": "RS256"}
-        payload = {
-            "sub": "user123",
-            "iss": "https://auth.example.com",
-            "aud": "my-api",
-            "exp": int(time.time()) + 3600,
-            "iat": int(time.time()),
-        }
-        token = joserfc_jwt.encode(header, payload, key)
-
-        claims = _decode_jwt(
-            token, jwks, issuer="https://auth.example.com", audience="my-api"
-        )
+        token, jwks = _signed_token(iss=_ISSUER, aud="my-api")
+        claims = _decode_jwt(token, jwks, issuer=_ISSUER, audience="my-api")
         assert claims["sub"] == "user123"
-        assert claims["iss"] == "https://auth.example.com"
+        assert claims["iss"] == _ISSUER
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_expired_token_raises(self):
         """Expired tokens raise TokenValidationError with 401."""
-        from joserfc import jwt as joserfc_jwt
-        from joserfc.jwk import RSAKey
-
-        key = RSAKey.generate_key(2048)
-        jwks = {"keys": [key.as_dict(is_private=False)]}
-
-        header = {"alg": "RS256"}
-        payload = {
-            "sub": "user123",
-            "iss": "https://auth.example.com",
-            "aud": "my-api",
-            "exp": int(time.time()) - 3600,
-            "iat": int(time.time()) - 7200,
-        }
-        token = joserfc_jwt.encode(header, payload, key)
-
-        with pytest.raises(TokenValidationError) as exc_info:
-            _decode_jwt(
-                token, jwks, issuer="https://auth.example.com", audience="my-api"
-            )
-        assert exc_info.value.status_code == 401
+        now = int(time.time())
+        token, jwks = _signed_token(
+            iss=_ISSUER, aud="my-api", exp=now - 3600, iat=now - 7200
+        )
+        _assert_rejected(token, jwks)
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_wrong_issuer_raises(self):
         """Token with wrong issuer raises TokenValidationError."""
-        from joserfc import jwt as joserfc_jwt
-        from joserfc.jwk import RSAKey
-
-        key = RSAKey.generate_key(2048)
-        jwks = {"keys": [key.as_dict(is_private=False)]}
-
-        header = {"alg": "RS256"}
-        payload = {
-            "sub": "user123",
-            "iss": "https://wrong-issuer.com",
-            "aud": "my-api",
-            "exp": int(time.time()) + 3600,
-            "iat": int(time.time()),
-        }
-        token = joserfc_jwt.encode(header, payload, key)
-
-        with pytest.raises(TokenValidationError) as exc_info:
-            _decode_jwt(
-                token,
-                jwks,
-                issuer="https://correct-issuer.com",
-                audience="my-api",
-            )
-        assert exc_info.value.status_code == 401
+        token, jwks = _signed_token(iss="https://wrong-issuer.com", aud="my-api")
+        _assert_rejected(token, jwks, issuer="https://correct-issuer.com")
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_wrong_audience_raises(self):
         """Token with wrong audience raises TokenValidationError."""
-        from joserfc import jwt as joserfc_jwt
-        from joserfc.jwk import RSAKey
-
-        key = RSAKey.generate_key(2048)
-        jwks = {"keys": [key.as_dict(is_private=False)]}
-
-        header = {"alg": "RS256"}
-        payload = {
-            "sub": "user123",
-            "iss": "https://auth.example.com",
-            "aud": "wrong-audience",
-            "exp": int(time.time()) + 3600,
-            "iat": int(time.time()),
-        }
-        token = joserfc_jwt.encode(header, payload, key)
-
-        with pytest.raises(TokenValidationError) as exc_info:
-            _decode_jwt(
-                token,
-                jwks,
-                issuer="https://auth.example.com",
-                audience="correct-audience",
-            )
-        assert exc_info.value.status_code == 401
+        token, jwks = _signed_token(iss=_ISSUER, aud="wrong-audience")
+        _assert_rejected(token, jwks, audience="correct-audience")
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_bad_signature_raises(self):
         """Token signed with a different key raises TokenValidationError."""
-        from joserfc import jwt as joserfc_jwt
-        from joserfc.jwk import RSAKey
-
-        key1 = RSAKey.generate_key(2048)
-        key2 = RSAKey.generate_key(2048)
-        jwks = {"keys": [key2.as_dict(is_private=False)]}  # Different key
-
-        header = {"alg": "RS256"}
-        payload = {
-            "sub": "user123",
-            "iss": "https://auth.example.com",
-            "aud": "my-api",
-            "exp": int(time.time()) + 3600,
-            "iat": int(time.time()),
-        }
-        token = joserfc_jwt.encode(header, payload, key1)
-
-        with pytest.raises(TokenValidationError) as exc_info:
-            _decode_jwt(
-                token, jwks, issuer="https://auth.example.com", audience="my-api"
-            )
-        assert exc_info.value.status_code == 401
+        token, jwks = _signed_token(
+            signed_with_other_key=True, iss=_ISSUER, aud="my-api"
+        )
+        _assert_rejected(token, jwks)
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_no_issuer_audience_check(self):
         """Decoding without issuer/audience validation succeeds."""
-        from joserfc import jwt as joserfc_jwt
-        from joserfc.jwk import RSAKey
-
-        key = RSAKey.generate_key(2048)
-        jwks = {"keys": [key.as_dict(is_private=False)]}
-
-        header = {"alg": "RS256"}
-        payload = {
-            "sub": "user123",
-            "exp": int(time.time()) + 3600,
-            "iat": int(time.time()),
-        }
-        token = joserfc_jwt.encode(header, payload, key)
-
+        token, jwks = _signed_token()
         claims = _decode_jwt(token, jwks, issuer=None, audience=None)
         assert claims["sub"] == "user123"
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     def test_decode_audience_list_valid(self):
         """Token with audience as list containing expected value succeeds."""
-        from joserfc import jwt as joserfc_jwt
-        from joserfc.jwk import RSAKey
-
-        key = RSAKey.generate_key(2048)
-        jwks = {"keys": [key.as_dict(is_private=False)]}
-
-        header = {"alg": "RS256"}
-        payload = {
-            "sub": "user123",
-            "iss": "https://auth.example.com",
-            "aud": ["my-api", "other-api"],
-            "exp": int(time.time()) + 3600,
-            "iat": int(time.time()),
-        }
-        token = joserfc_jwt.encode(header, payload, key)
-
-        claims = _decode_jwt(
-            token, jwks, issuer="https://auth.example.com", audience="my-api"
-        )
+        token, jwks = _signed_token(iss=_ISSUER, aud=["my-api", "other-api"])
+        claims = _decode_jwt(token, jwks, issuer=_ISSUER, audience="my-api")
         assert claims["sub"] == "user123"
 
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
@@ -288,18 +207,7 @@ class TestVerifyCredentials:
     @pytest.mark.concept("CONCEPT:AU-OS.config.secrets-authentication")
     @pytest.mark.asyncio
     async def test_valid_bearer_identity_is_propagated(self):
-        cfg = _make_config(auth_jwt_jwks_uri="https://identity.example.test/jwks")
-        with (
-            mock.patch("agent_utilities.core.config.config", cfg),
-            mock.patch(
-                "agent_utilities.security.auth._fetch_jwks",
-                new=mock.AsyncMock(return_value={"keys": []}),
-            ),
-            mock.patch(
-                "agent_utilities.security.auth._decode_jwt",
-                return_value={"sub": "subject"},
-            ),
-        ):
+        with _jwt_configured(return_value={"sub": "subject"}):
             result = await authenticate_header_values(authorization=[b"Bearer token"])
         assert result == {"auth_type": "jwt", "sub": "subject"}
 
@@ -334,17 +242,8 @@ class TestBearerHeaderParser:
 
     @pytest.mark.asyncio
     async def test_token_claim_cannot_override_server_minted_auth_type(self):
-        cfg = _make_config(auth_jwt_jwks_uri="https://identity.example.test/jwks")
-        with (
-            mock.patch("agent_utilities.core.config.config", cfg),
-            mock.patch(
-                "agent_utilities.security.auth._fetch_jwks",
-                new=mock.AsyncMock(return_value={"keys": []}),
-            ),
-            mock.patch(
-                "agent_utilities.security.auth._decode_jwt",
-                return_value={"sub": "principal:verified", "auth_type": "api_key"},
-            ),
+        with _jwt_configured(
+            return_value={"sub": "principal:verified", "auth_type": "api_key"}
         ):
             identity = await authenticate_header_values(
                 authorization=[b"Bearer opaque-token"]
@@ -365,19 +264,8 @@ class TestBearerHeaderParser:
         token")`` is exactly how a missing dependency was misreported as a
         rejected credential — only a genuine 401 credential rejection may
         collapse to ``PermissionError``."""
-        cfg = _make_config(auth_jwt_jwks_uri="https://identity.example.test/jwks")
-        with (
-            mock.patch("agent_utilities.core.config.config", cfg),
-            mock.patch(
-                "agent_utilities.security.auth._fetch_jwks",
-                new=mock.AsyncMock(return_value={"keys": []}),
-            ),
-            mock.patch(
-                "agent_utilities.security.auth._decode_jwt",
-                side_effect=TokenValidationError(
-                    status_code=500, detail="joserfc missing"
-                ),
-            ),
+        with _jwt_configured(
+            side_effect=TokenValidationError(status_code=500, detail="joserfc missing")
         ):
             with pytest.raises(TokenValidationError) as exc_info:
                 await authenticate_header_values(authorization=[b"Bearer opaque-token"])
@@ -390,19 +278,10 @@ class TestBearerHeaderParser:
         """A genuine credential rejection (401) from ``_decode_jwt`` still
         collapses to ``PermissionError`` — only the non-401 fault class
         changed behavior."""
-        cfg = _make_config(auth_jwt_jwks_uri="https://identity.example.test/jwks")
-        with (
-            mock.patch("agent_utilities.core.config.config", cfg),
-            mock.patch(
-                "agent_utilities.security.auth._fetch_jwks",
-                new=mock.AsyncMock(return_value={"keys": []}),
-            ),
-            mock.patch(
-                "agent_utilities.security.auth._decode_jwt",
-                side_effect=TokenValidationError(
-                    status_code=401, detail="Invalid token signature"
-                ),
-            ),
+        with _jwt_configured(
+            side_effect=TokenValidationError(
+                status_code=401, detail="Invalid token signature"
+            )
         ):
             with pytest.raises(PermissionError):
                 await authenticate_header_values(authorization=[b"Bearer opaque-token"])

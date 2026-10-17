@@ -77,13 +77,12 @@ from __future__ import annotations
 import argparse
 import ast
 import collections
-import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-from scripts._git_scan import tracked_or_walked  # noqa: E402
+from scripts._git_scan import git_toplevel, run_git, tracked_or_walked  # noqa: E402
 
 SCOPE = ROOT / "agent_utilities" / "mcp"
 
@@ -235,25 +234,8 @@ def _print_census(findings: list[Finding]) -> None:
 # fails.
 
 
-def _git(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess:
-    """Run git from the repo toplevel with repo-relative paths.
-
-    git exports ``GIT_DIR``/``GIT_INDEX_FILE``/``GIT_WORK_TREE`` into every
-    hook subprocess. Inherited blindly they silently re-root path resolution,
-    which is how ~20 copied gate helpers once measured an empty universe and
-    reported a confident clean verdict. They are kept (the index being
-    committed IS the one to read) but every invocation runs from the resolved
-    toplevel -- never ``git -C <subdir>``.
-    """
-    return subprocess.run(
-        ["git", *args], cwd=cwd, capture_output=True, text=True, check=False
-    )
-
-
-def _repo_root() -> str | None:
-    r = _git("rev-parse", "--show-toplevel")
-    out = r.stdout.strip()
-    return out if r.returncode == 0 and out else None
+_git = run_git
+_repo_root = git_toplevel
 
 
 def _changed_py_files(root: str) -> list[str]:

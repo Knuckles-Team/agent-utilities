@@ -145,6 +145,9 @@ from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from scripts._git_scan import git_toplevel, run_git  # noqa: E402
+
 SRC_DIR = ROOT / "agent_utilities"
 TESTS_DIR = ROOT / "tests"
 PYPROJECT = ROOT / "pyproject.toml"
@@ -1466,20 +1469,8 @@ def _finding_key(entry: dict) -> str:
 #   * retired flags (``--update-wire-first-baseline``) exit 2.
 
 
-def _git(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess:
-    """Run git from the repo toplevel with repo-relative paths — see
-    ``check_swallowed_errors.py``'s identically-named helper for why every
-    invocation runs from the resolved toplevel and never ``git -C <subdir>``
-    (GIT_DIR/GIT_INDEX_FILE ambient-env hazard)."""
-    return subprocess.run(
-        ["git", *args], cwd=cwd, capture_output=True, text=True, check=False
-    )
-
-
-def _repo_root() -> str | None:
-    r = _git("rev-parse", "--show-toplevel")
-    out = r.stdout.strip()
-    return out if r.returncode == 0 and out else None
+_git = run_git
+_repo_root = git_toplevel
 
 
 def _relevant_wire_first_files_changed(root: str) -> bool:

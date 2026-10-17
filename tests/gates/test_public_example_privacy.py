@@ -15,12 +15,9 @@ PUBLIC_EXAMPLES = (
     "docs/architecture/graph_backends_architecture.md",
     "docs/pillars/4_ecosystem_peripherals/ECO-4.5-Messaging_Configuration_Guide.md",
     "agent_utilities/core/config.py",
-    "agent_utilities/gateway/widgets/langfuse.py",
     "agent_utilities/knowledge_graph/core/hydration.py",
     "agent_utilities/knowledge_graph/core/source_sync.py",
     "agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py",
-    "agent_utilities/mcp/kg_server.py",
-    "agent_utilities/mcp/multiplexer.py",
     "agent_utilities/models/knowledge_graph.py",
     "tests/unit/core/test_config.py",
     "tests/unit/knowledge_graph/core/test_source_sync.py",
@@ -86,21 +83,3 @@ def test_private_network_gate_keeps_negative_and_documentation_ranges_distinct()
 
     assert all(PRIVATE_IPV4.search(value) for value in private_examples)
     assert all(PRIVATE_IPV4.search(value) is None for value in documentation_examples)
-
-
-def test_tool_catalog_exposes_only_neutral_resource_references() -> None:
-    source = (ROOT / "agent_utilities/mcp/kg_server.py").read_text(encoding="utf-8")
-
-    assert '"file_path": f"skill://{name}"' in source
-    # `f"tool://{stem}"`, not `f"tool://{f.stem}"`: the batched-toggle-state
-    # refactor (see the "ONE batched engine round trip for every toggle
-    # state" comment in kg_server.py) split what used to be a single
-    # per-``Path`` loop into `_gather_builtin_tool_stems()` -- which computes
-    # `f.stem` once, per Path, and returns `list[str]` -- and a separate
-    # dict comprehension that only ever sees those already-extracted stem
-    # strings. `stem` here IS `f.stem`'s value; this asserts the same
-    # neutral-resource-reference property the original literal did, just
-    # spelled the way the extracted code now spells it.
-    assert '"file_path": f"tool://{stem}"' in source
-    assert '"command": "[configured]"' in source
-    assert '"args": ["[configured]"]' in source

@@ -33,7 +33,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_utilities.knowledge_graph.retrieval import context_compiler as cc
 from agent_utilities.knowledge_graph.retrieval.context_compiler import (
     Citation,
     ContextBundle,
@@ -137,62 +136,3 @@ class _FakeKVBackend:
         self.put_calls += 1
         self.store[key] = value
         return True
-
-
-def test_compile_calls_registration_only_after_a_successful_store(monkeypatch):
-    """Wire-First: drive the REAL ``compile()`` entry point end-to-end (not
-    just the helper in isolation) and prove it invokes
-    ``_register_bundle_materialization`` exactly once a store actually lands.
-
-    ``enforce`` is monkeypatched to an identity pass-through — the ONE piece
-    of ``compile()`` that needs a live policy/marking store this offline
-    sandbox has no deployed engine for (see module docstring); everything
-    else, including the KV-cache store and the registration seam under test,
-    runs for real.
-    """
-    monkeypatch.setattr(cc, "enforce", lambda candidates, actor, mask=True: candidates)
-
-    engine = _FakeCandidateRetriever(
-        [
-            {
-                "id": "claim:a",
-                "type": "Claim",
-                "name": "Claim A",
-                "description": "a distinctive premise about widgets",
-                "score": 0.9,
-            }
-        ]
-    )
-    # Give the retrieval double an `add_node` too, so it also serves as the
-    # registration target `compile()` writes through.
-    added_nodes: list[tuple[str, str, dict[str, Any]]] = []
-    engine.add_node = lambda node_id, node_type, properties=None: added_nodes.append(
-        (node_id, node_type, dict(properties or {}))
-    )
-
-    calls: list[tuple[ContextBundle, str]] = []
-    original = ContextCompiler._register_bundle_materialization
-
-    def _spy(self, bundle, cache_key):
-        calls.append((bundle, cache_key))
-        return original(self, bundle, cache_key)
-
-    monkeypatch.setattr(ContextCompiler, "_register_bundle_materialization", _spy)
-
-    compiler = ContextCompiler(engine)
-    kv = _FakeKVBackend()
-    bundle = compiler.compile(
-        "a distinctive nonrepeating query about widget provenance",
-        top_k=1,
-        candidate_pool=1,
-        kv_backend=kv,
-    )
-
-    assert kv.put_calls == 1
-    assert len(calls) == 1
-    assert calls[0] == (bundle, bundle.cache_key)
-    assert len(added_nodes) == 1
-    node_id, node_type, props = added_nodes[0]
-    assert node_id == f"context_bundle:{bundle.cache_key}"
-    assert node_type == "ContextBundleMaterialization"
-    assert props["invalidation_deps"] == ["claim:a"]

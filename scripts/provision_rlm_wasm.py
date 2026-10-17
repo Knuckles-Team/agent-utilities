@@ -30,18 +30,9 @@ import platformdirs
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from scripts._tls import tls_context as _tls_context  # noqa: E402
 
 # VMware wasm-language-runtimes CPython-3.12 WASI build (stdlib embedded; single file).
-def _tls_context():
-    """Default TLS context honoring SSL_CERT_FILE/REQUESTS_CA_BUNDLE/SSL_CERT_DIR."""
-    import os
-    import ssl
-
-    cafile = os.environ.get("SSL_CERT_FILE") or os.environ.get("REQUESTS_CA_BUNDLE")
-    capath = os.environ.get("SSL_CERT_DIR")
-    return ssl.create_default_context(cafile=cafile or None, capath=capath or None)
-
-
 _PAYLOAD_URL = (
     "https://github.com/vmware-labs/webassembly-language-runtimes/releases/download/"
     "python%2F3.12.0%2B20231211-040d5a6/python-3.12.0.wasm"

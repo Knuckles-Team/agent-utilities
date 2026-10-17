@@ -219,10 +219,6 @@ class TestPromptRuleExtraction:
 # ── Integration tests (with mock engine) ──────────────────────────────
 
 
-class MockHybridRetriever:
-    embed_model = None
-
-
 class MockEngine:
     """Minimal mock for IntelligenceGraphEngine."""
 
@@ -233,7 +229,7 @@ class MockEngine:
 
         self.graph = GraphComputeEngine(backend_type="rust")
         self.backend = None
-        self.hybrid_retriever = MockHybridRetriever()
+        self.embed_model = None
 
     def link_nodes(self, src, tgt, edge_type, metadata=None):
         self.graph.add_edge(src, tgt, relationship=edge_type, **(metadata or {}))
