@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-407 publishable pages · 32 direct nav targets · 129 public capabilities · 842 action rows · 579 typed configuration fields · 367 runtime-only call-site inputs.
+407 publishable pages · 32 direct nav targets · 129 public capabilities · 840 action rows · 580 typed configuration fields · 367 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -21,7 +21,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [One-link self-deploy](../deploy.md) — catalog
 - [Ecosystem capability and skill fleet](../ecosystem-capability-fleet.md) — direct nav
 - [The Ecosystem — How agent-utilities Fits](../ecosystem.md) — catalog
-- [For AI Agents](../for-ai-agents.md) — direct nav
+- [For SI Agents](../for-ai-agents.md) — direct nav
 - [Ecosystem glossary](../glossary.md) — direct nav
 - [Index](../index.md) — direct nav
 - [The Journey of Agent Utilities: From Spark to Living Organizational Intelligence](../journey.md) — catalog
@@ -101,7 +101,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Registry Hot Cache](../guides/registry-cache.md) — catalog
 - [Recursive Language Models (RLM)](../guides/rlm.md) — catalog
 - [Scalable Frontends — one shared backend, multiple thin instances](../guides/scalable-frontends.md) — catalog
-- [Scoring Method & Retrieval Semantics](../guides/scoring_method.md) — catalog
+- [Scoring Method & Retrieval Semantics](../guides/scoring_methodology.md) — catalog
 - [Spec-Driven Development (SDD) Orchestrator](../guides/sdd.md) — catalog
 - [Secrets & Authentication](../guides/secrets-auth.md) — catalog
 - [Secure Jupyter Sandbox (CONCEPT:AU-ECO.messaging.native-backend-abstraction)](../guides/secure-sandbox.md) — catalog
@@ -285,11 +285,11 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Canonical execution trace and outcome ontology](../architecture/trace_outcome_ontology.md) — catalog
 - [Cross-layer deployment troubleshooting — the troubleshoot context provider](../architecture/troubleshooting.md) — catalog
 - [Unattended Claude Code Harness](../architecture/unattended_claude_harness.md) — catalog
-- [Unified Agent Entrypoint — one seam into the graph agents (checked)](../architecture/unified-agent-entrypoint.md) — catalog
+- [Unified Agent Entrypoint — one seam into the graph agents (validated)](../architecture/unified-agent-entrypoint.md) — catalog
 - [Universal external graph connectors](../architecture/universal-external-graph-connectors.md) — direct nav
 - [HNSW Vector Index Lifecycle](../architecture/vector_index_lifecycle.md) — catalog
 - [Vendor-Neutral Enterprise Ontology](../architecture/vendor_neutral_enterprise_ontology.md) — catalog
-- [Checked Identity Carrier Contract (GOC-15)](../architecture/checked-identity-carrier-contract.md) — catalog
+- [Checked Identity Carrier Contract (GOC-15)](../architecture/verified-identity-carrier-contract.md) — catalog
 - [Governed Warm-Fork Sandboxes](../architecture/warm-fork-sandboxes.md) — catalog
 
 ## Pillars
@@ -423,7 +423,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 
 - [Ontology School](../learn/index.md) — catalog
 - [Interfaces, Object Types, and Links](../learn/lessons/ontology-model-101/01-interfaces-object-types-and-links.md) — catalog
-- [The operator's First UQL Pipeline](../learn/lessons/querying-with-uql/01-the operator's-first-uql-pipeline.md) — catalog
+- [The operator's First UQL Pipeline](../learn/lessons/querying-with-uql/01-your-first-uql-pipeline.md) — catalog
 
 ## Operations
 

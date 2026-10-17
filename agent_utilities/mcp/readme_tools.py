@@ -69,7 +69,11 @@ def _table(rows: list[tuple[str, str, str]], first: str, second: str) -> list[st
     """Render 3-column rows as a Markdown table body."""
     out = [
         f"| {first} | {second} | Description |",
-        "|" + "-" * (len(first) + 2) + "|" + "-" * (len(second) + 2) + "|-------------|",
+        "|"
+        + "-" * (len(first) + 2)
+        + "|"
+        + "-" * (len(second) + 2)
+        + "|-------------|",
     ]
     for name, middle, desc in rows:
         out.append(f"| `{name}` | {middle} | {desc} |")
@@ -101,14 +105,18 @@ def render_tools_table(mcp: Any) -> str:
     toggles = getattr(backing, "_condensed_tool_toggles", None) or {}
     backing_tags = {
         name: set(getattr(tool, "tags", None) or [])
-        for name, tool in (_provider_tools(backing) if backing is not None else {}).items()
+        for name, tool in (
+            _provider_tools(backing) if backing is not None else {}
+        ).items()
     }
     op_rows: list[tuple[str, str, str]] = []
     for op in sorted(operations.values(), key=lambda o: o.id):
         env = toggles.get(op.tool)
         toggle = f"`{env}`" if env else _toggle_env(backing_tags.get(op.tool, set()))
         verb = "ask, act" if op.reads else "act"
-        op_rows.append((op.id, f"{verb} · {toggle}", op.description.replace("|", "\\|")))
+        op_rows.append(
+            (op.id, f"{verb} · {toggle}", op.description.replace("|", "\\|"))
+        )
 
     lines = [START, ""]
     lines.append("#### Intent tools")

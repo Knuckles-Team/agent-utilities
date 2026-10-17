@@ -157,3 +157,7 @@ Checkboxes close only after acceptance evidence. A design, branch, source file o
 - [ ] HE-153: **Refusal.** The metric must refuse claims with no grounding source. Closes AU-HARNESS-R036.4.
 - [ ] HE-154: **Evidence.** The run trace must record topic metrics and tolerance. Closes AU-HARNESS-R036.5.
 - [ ] HE-155: **Hot-path proof.** Eight of ten claims are grounded within tolerance. Closes AU-HARNESS-R036.6.
+
+- [x] **AU-HARNESS-R014.6:** Validate the public frozen snapshot models and export them through the normal API. Production run-loop binding remains pending.
+
+- [ ] **AU-HARNESS-R014.9 / R014.11:** Bind the read port and PlanState to signed runtime admission, update tools, request injection and termination. Prove hosted execution.

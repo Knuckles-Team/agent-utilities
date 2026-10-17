@@ -21,3 +21,14 @@ The checked-in skill manifest records provider repository URL, source path, vers
 Failure is explicit: missing toolchain lists install step. Absent optional live profile says not run. Stale skill refuses a false current claim. Digest mismatch blocks served execution. Fixture cleanup always runs. No gate silently skips a required behavioral test.
 
 Quality: CCCC for installer/control-flow complexity, jscpd and dupehound for duplicated bootstrap scripts, KISS for one toolchain manifest and one installer, plus Ruff/mypy/Pytest and normal hooks. A docs publishing workflow may report its own failure but does not gate unrelated code merges.
+
+
+### Existing import exclusions
+
+The import simulator applies existing excluded module prefixes to each immediate
+import origin. Excluded modules use native imports, including unguarded imports.
+Their nonexcluded dependencies still receive simulation checks. Module cache
+entries grant no exemption. Prefix matching requires a dotted boundary.
+No new exclusion or Windows CI policy is introduced. Native Windows execution
+remains the authority for excluded modules. Focused subprocess tests cover guarded
+adapters, direct imports, from-imports, cached modules and nonexcluded helpers.

@@ -156,7 +156,11 @@ This strategy means the system progressively learns: the more queries it handles
 
 ### Authentication Passthrough (`custom_headers`)
 
-`create_agent_server()` and `create_graph_agent_server()` accept a generic `custom_headers: dict[str, Any] | None = None` kwarg that is propagated verbatim to the LLM HTTP client as request headers. agent-utilities itself is **auth-agnostic** -- it does not ship provider-specific auth code (OIDC, client-credentials flows, bearer-token fetchers, etc.) and has no opinion about where those headers come from. Downstream packages are free to populate the dict from any source: environment variables, a token-fetching library, static config, a secret manager, or a callable that refreshes on every run. TLS trust is selected independently through mandatory-verification runtime profiles.
+`create_agent_server()` and `create_graph_agent_server()` accept `custom_headers: dict[str, Any] | None = None`.
+They pass these headers verbatim to the LLM HTTP client.
+Agent Utilities does not implement provider authentication or choose where callers obtain headers.
+Downstream packages provide headers from configuration, token libraries, secret managers or refresh callbacks.
+Mandatory-verification runtime profiles select TLS trust independently.
 
 ## Graph Orchestration Architecture
 
@@ -493,3 +497,34 @@ The graph incorporates key Behavior Tree patterns **inside** the HSM structure.
 15. **Feedback Loop**: Score 0.4-0.7 -> re-dispatch same plan with feedback. Score < 0.4 -> full re-plan via `planner_step`.
 16. **Synthesis**: Once validated (score >= 0.7), the `synthesizer_step` composes the final markdown response.
 17. **Memory Persistence**: Execution metadata is persisted to the Knowledge Graph as a `historical_execution` memory.
+
+
+## Current-plan data contract
+
+`agent_utilities.api` exports `CurrentPlanRequest`, `CurrentPlanSnapshot`,
+`CurrentPlanRead` and `PlanItem`. These frozen models validate data; they expose no
+runtime reader or transport operation. Requests carry only a run identifier.
+Snapshots retain ordered items, a nonnegative revision and a UTC validity interval.
+An unavailable read cannot carry snapshot content.
+
+```mermaid
+flowchart LR
+    Input[Python or JSON data] --> Validation[Strict current-plan models]
+    Validation --> Valid[Immutable validated data]
+    Validation --> Refusal[Validation error]
+```
+
+
+### Current plan reads
+
+`AgentControlPlane.current_plan` requires current session authority on each read. Its
+injected `CurrentPlanReadPort` provides immutable snapshots. An absent port or inaccessible run returns unavailable, distinct from an empty plan.
+
+```mermaid
+flowchart LR
+    Caller[Verified caller] --> Control[AgentControlPlane.current_plan]
+    Control --> Port[CurrentPlanReadPort]
+```
+
+The signed harness configuration and execution lifecycle binding are not yet
+implemented. This API does not enable a scaffold or reconstruct one from history.

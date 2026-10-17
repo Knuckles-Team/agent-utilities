@@ -315,12 +315,14 @@ def test_typed_batch_writes_annotate_clustered_mutation_refusal(run_op) -> None:
             super().__init__("mutation authority has no replicated ordering")
 
     graph = MagicMock()
-    graph.batch_update.side_effect = ClusteredRefusal("CLUSTER_MUTATION_UNAVAILABLE")
+    refusal = ClusteredRefusal("CLUSTER_MUTATION_UNAVAILABLE")
+    graph.batch_update.side_effect = refusal
     backend = _backend(graph)
 
     with pytest.raises(ClusteredRefusal) as caught:
         run_op(backend)
 
+    assert caught.value is refusal
     assert caught.value.engine_error_code == "CLUSTER_MUTATION_UNAVAILABLE"
     payload = public_error_payload(caught.value)
     assert payload.get("engine_error_code") == "CLUSTER_MUTATION_UNAVAILABLE"

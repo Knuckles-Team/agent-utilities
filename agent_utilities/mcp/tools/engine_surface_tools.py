@@ -3221,12 +3221,12 @@ def register_engine_surface_tools(
         requesting_tenant: str = Field(
             default="",
             description="instantiate_agent/restore_conversation: the caller's tenant "
-            "(checked against the checkpoint's stored tenant, fail-closed).",
+            "(validated against the checkpoint's stored tenant, fail-closed).",
         ),
         current_policy_version: str = Field(
             default="",
             description="instantiate_agent/restore_conversation: current policy "
-            "version to validate against (empty ⇒ skip the staleness check).",
+            "version to validate against (empty ⇒ skip staleness validation).",
         ),
         new_run_id: str = Field(
             default="", description="instantiate_agent: the new run's id."
@@ -3243,7 +3243,7 @@ def register_engine_surface_tools(
         observation_json: str = Field(
             default="{}",
             description="recommend/checkpoint_now: a CheckpointObservation as JSON "
-            "(rebuild cost, sibling/queued tasks, retrieved/novel items, claim/"
+            "(rebuild cost, sibling/queued tasks, fetched/novel items, claim/"
             "evidence counts, contradictions, churn, phase, model_self_report). Every "
             "field is optional; an omitted field means NOT MEASURED and its scorer "
             "abstains rather than guessing.",
@@ -3274,10 +3274,12 @@ def register_engine_surface_tools(
         ),
         trigger: str = Field(
             default="agent",
-            description="checkpoint_now/promote: which path took this checkpoint — "
-            "'user', 'agent' or 'system'. PROVENANCE ONLY. It is recorded on the audit "
-            "record and never read by the eligibility decision, which derives authority "
-            "from your verified session instead.",
+            description=(
+                "checkpoint_now/promote: which path took this checkpoint — 'user', 'agent' or "
+                "'system'. PROVENANCE ONLY. The audit record stores this value. The eligibility "
+                "decision derives authority from the validated caller session instead. The trigger "
+                "does not grant authority."
+            ),
         ),
         persist: bool = Field(
             default=False,
@@ -4366,8 +4368,10 @@ def register_engine_surface_tools(
     def graph_fork(
         code: str = Field(
             default="",
-            description="A single code snippet run on each of 'n' branches (ignored "
-            "when 'branches_json' is provided).",
+            description=(
+                "A single code snippet run on each of 'n' branches (ignored when 'branches_json' is "
+                "set)."
+            ),
         ),
         n: int = Field(
             default=0, description="Fan-out count when using 'code' (branches to fork)."
@@ -4386,7 +4390,7 @@ def register_engine_surface_tools(
         ),
         context_query: str = Field(
             default="",
-            description="Optional: retrieve an engine cross-modal candidate set (vector+graph"
+            description="Optional: fetch an engine cross-modal candidate set (vector+graph"
             "+text) for this query ONCE and fork it into every branch (reused, no recompute).",
         ),
         candidate_var: str = Field(
@@ -4451,21 +4455,19 @@ def register_engine_surface_tools(
         name="graph_viz",
         description=(
             "CONCEPT:AU-KG.coordination.engine-message-broker — GOC-88/D-VZ-1 V5: render native "
-            "charts through the engine's LOD ColumnStore/export pipeline (Method::Viz) "
-            "— no matplotlib, no per-view chart code. action='plot_from_query' (the "
-            "common path: 'query' [+'mark','x_field','y_field',+'color_field',"
-            "+'size_field',+'title'] — runs the SQL query against the connected graph "
-            "and renders the result; answers {'unavailable': true} rather than an "
-            "empty chart when the query returns no usable rows), 'export_chart' "
-            "('spec_json' + 'dataset_json' — an already-built ViewSpec/VizDatasetSource "
-            "pair, thin pass-through), 'describe_chart' ('view_result_json' [+'spec_json'] "
-            "— a plain-language, LLM-facing summary of what was actually drawn: mark, "
-            "LOD tier, exact-vs-approximated, row count — no engine call), or "
-            "'capability_matrix' (which mark x surface pairs are real today). "
-            "'format' is png|svg|pdf; 'width_px'/'height_px' bound the canvas; "
-            "'max_primitives'/'max_bytes' bound the render budget — LOD selection is "
-            "bounded by these, never by row count. Degrades cleanly ({'degraded': true}) "
-            "when the engine build has no viz surface (feature 'viz-static-export')."
+            "charts through the engine's LOD ColumnStore/export pipeline (Method::Viz). No "
+            "matplotlib or per-view chart code. `plot_from_query` runs `query` against the "
+            "connected graph and renders the result. Optional fields: `mark`, `x_field`, "
+            "`y_field`, `color_field`, `size_field`, and `title`. No usable rows returns "
+            "`{'unavailable': true}`, not an empty chart. `export_chart` passes an existing "
+            "`spec_json`/`dataset_json` ViewSpec/VizDatasetSource pair to the engine. "
+            "`describe_chart` summarizes `view_result_json`, with optional `spec_json`, without "
+            "an engine call. Its summary includes mark, LOD tier, exact-versus-approximated "
+            "status, and row count. `capability_matrix` lists supported mark/surface pairs. "
+            "`format` is png|svg|pdf. `width_px` and `height_px` bound the canvas. "
+            "`max_primitives` and `max_bytes` bound the render budget and LOD selection; row "
+            "count does not. Returns `{'degraded': true}` when the engine lacks the "
+            "`viz-static-export` feature."
         ),
         tags=["graph-os", "engine", "visualization", "chart", "viz"],
     )
@@ -4520,10 +4522,11 @@ def register_engine_surface_tools(
         ),
         row_limit: int = Field(
             default=200_000,
-            description="Max query rows fed inline into the render (action='plot_from_query'); "
-            "the query itself should aggregate/LIMIT for anything larger — this is a "
-            "safety cap on the wire payload, not the render budget (that's "
-            "max_primitives/max_bytes, honored server-side regardless of row_limit).",
+            description=(
+                "Maximum query rows sent inline for `plot_from_query`. Larger queries should "
+                "aggregate or use LIMIT. This cap bounds the wire payload. The server enforces the "
+                "separate `max_primitives`/`max_bytes` render budget for every `row_limit`."
+            ),
         ),
         dataset_ref: str = Field(
             default="graph_viz", description="Dataset id for the render."

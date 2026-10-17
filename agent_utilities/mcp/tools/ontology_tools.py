@@ -1376,15 +1376,14 @@ def register_ontology_tools(mcp):
     @mcp.tool(
         name="ontology_interface",
         description=(
-            "Ontology interfaces: resolve implementers (targeting), check conformance, or emit "
-            "OWL (CONCEPT:AU-KG.ontology.conformance-check). Set registry='enterprise' to "
+            "Ontology interfaces: resolve implementers (targeting), validate conformance, or "
+            "emit OWL (CONCEPT:AU-KG.ontology.conformance-check). Set registry='enterprise' to "
             "operate on the enterprise-standard contracts "
-            "(CONCEPT:AU-KG.ontology.populated-at-import-real-3). "
-            "'explain_routing_eligibility' (CONCEPT:AU-P1-3, X-4) answers WHY a "
-            "candidate tool/agent (entity_id) is — or would be — eligible for a required "
-            "ontology capability type: ontology SUBSUMPTION path, tenant/policy match, and the "
-            "calibrated bandit reward, computed engine-native-first over "
-            "`graph.routing.enrichers.capability_routing.explain_routing_eligibility`. "
+            "(CONCEPT:AU-KG.ontology.populated-at-import-real-3). 'explain_routing_eligibility' "
+            "(CONCEPT:AU-P1-3, X-4) answers WHY a candidate tool/agent (entity_id) is — or would "
+            "be — eligible for a required ontology capability type: ontology SUBSUMPTION path, "
+            "tenant/policy match, and the calibrated bandit reward, computed engine-native-first "
+            "over `graph.routing.enrichers.capability_routing.explain_routing_eligibility`. "
             "'graph' (CONCEPT:AU-KG.ontology.schema-graph-visualization) renders the interface + "
             "link-type registries as a Cytoscape-style node/edge schema diagram; 'summary' "
             "renders the same schema as a Markdown document; 'lint' "
@@ -1398,8 +1397,8 @@ def register_ontology_tools(mcp):
             default="list",
             description=(
                 "'list' interfaces, 'implementers' (resolve an interface/type to concrete "
-                "types), 'conforms' (check an object), 'owl', 'graph' (schema as a node/edge "
-                "diagram), 'summary' (schema as Markdown), 'lint' (naming-style + typo check), "
+                "types), 'conforms' (validate an object), 'owl', 'graph' (schema as a node/edge "
+                "diagram), 'summary' (schema as Markdown), 'lint' (naming-style + typo validation), "
                 "or 'explain_routing_eligibility' (X-4 WHY-eligible routing explanation)."
             ),
         ),
@@ -1474,9 +1473,10 @@ def register_ontology_tools(mcp):
     @mcp.tool(
         name="ontology_sampling_profile",
         description=(
-            "Task-aware LLM sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection/KG-2.94): list/describe "
-            "the per-task-class profiles, 'resolve' the profile that would be picked for a "
-            "prompt/role, 'set' a profile (SHACL-validated), 'evolve' one round, or emit OWL."
+            "Task-aware LLM sampling profiles "
+            "(CONCEPT:AU-ORCH.routing.sampling-profile-selection/KG-2.94): list/describe the "
+            "per-task-class profiles, 'resolve' the profile selected for a prompt/role, 'set' a "
+            "profile (SHACL-validated), 'evolve' one round, or emit OWL."
         ),
         tags=["graph-os", "ontology"],
     )
@@ -1619,8 +1619,8 @@ def register_ontology_tools(mcp):
         name="graph_ontology",
         description=(
             "GraphSchema lifecycle control plane. load/update attach an explicit "
-            "iri+version Turtle document through EG; list/get return generated "
-            "GraphSchema metadata; delete detaches the exact source. EG alone "
+            "iri+version Turtle document through EG. list/get return generated "
+            "GraphSchema metadata. delete detaches the exact source. EG alone "
             "validates, composes, persists, reasons over, and reports schema state."
         ),
         tags=["graph-os", "ontology", "lifecycle"],
@@ -2386,7 +2386,11 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="ontology_link_materialize",
-        description="Reify a many-to-many ontology link as a (junction_node, edge_a, edge_b) triple and write it (CONCEPT:AU-KG.domains.trade-journal-bias-auditor).",
+        description=(
+            "Reify an ontology link with multiple endpoints on each side as a (junction_node, "
+            "edge_a, edge_b) triple and write it "
+            "(CONCEPT:AU-KG.domains.trade-journal-bias-auditor)."
+        ),
         tags=["graph-os", "ontology"],
     )
     async def ontology_link_materialize(
@@ -2464,7 +2468,7 @@ def register_ontology_tools(mcp):
         name="object_edits",
         description=(
             "Durable object-edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback): record a structured edit "
-            "(property_set/link_add/link_remove/object_create/object_delete), revert "
+            "(`property_set/link_add/link_remove/object_create/object_delete`), revert "
             "an edit, or read per-object history / as_of snapshot. For a property_set, "
             "pass 'expect' to record the edit ONLY if the object still matches those "
             "values (CONCEPT:AU-KG.ontology.optimistic-concurrency-object-property) — optimistic concurrency for concurrent agent "
@@ -2482,17 +2486,17 @@ def register_ontology_tools(mcp):
         ),
         edit_type: str = Field(
             default="property_set",
-            description="property_set|link_add|link_remove|object_create|object_delete (for action='record').",
+            description="`property_set|link_add|link_remove|object_create|object_delete` (for action='record').",
         ),
         properties_json: str = Field(
             default="{}",
             description="JSON property map (record property_set/object_create).",
         ),
         link_target: str = Field(
-            default="", description="Link target id (record link_add/link_remove)."
+            default="", description="Link target id (record `link_add/link_remove`)."
         ),
         link_label: str = Field(
-            default="related", description="Link label (record link_add/link_remove)."
+            default="related", description="Link label (record `link_add/link_remove`)."
         ),
         edit_id: str = Field(default="", description="Edit id (action='revert')."),
         ts: float = Field(default=0.0, description="Unix timestamp (action='as_of')."),

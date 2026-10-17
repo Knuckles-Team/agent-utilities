@@ -57,7 +57,7 @@ def register_governance_tools(mcp: Any) -> None:
         ),
         target_id: str = Field(
             default="",
-            description="Existing target id for a risk veto or policy check.",
+            description="Existing target id for a risk veto or policy validation.",
         ),
         reason: str = Field(default="", description="Risk-veto or policy reason."),
         kind: str = Field(

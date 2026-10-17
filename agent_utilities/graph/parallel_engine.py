@@ -1129,7 +1129,7 @@ class ParallelEngine:
         """Run one node through its registered L4 ``HarnessPort``."""
         from ..layers.harness_node import run_agent_spec
 
-        timeout = agent.timeout or getattr(config, "agent_execution_timeout", 120.0)
+        timeout = agent.timeout or config.agent_execution_timeout
         task = await self._build_agent_task(agent, manifest, wave_results, proc)
         return await run_agent_spec(agent, task, timeout_s=timeout, engine=self.engine)
 
@@ -1155,7 +1155,7 @@ class ParallelEngine:
             ``AgentExecutionResult`` with the agent's output.
         """
         start_time = time.monotonic()
-        timeout = agent.timeout or getattr(config, "agent_execution_timeout", 120.0)
+        timeout = agent.timeout or config.agent_execution_timeout
 
         task = await self._build_agent_task(agent, manifest, wave_results, proc)
         model_id = self._resolve_agent_model_id(agent, graph_deps)

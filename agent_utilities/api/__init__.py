@@ -13,6 +13,11 @@ from agent_utilities.api.agent_control_contracts import (
     CapabilityResolution,
     CapabilitySearchPort,
     CapabilitySearchRequest,
+    CurrentPlanRead,
+    CurrentPlanReadPort,
+    CurrentPlanRequest,
+    CurrentPlanSnapshot,
+    PlanItem,
     SignedAgentDispatchPort,
     SignedAgentDispatchReceipt,
     SignedAgentDispatchRequest,
@@ -78,6 +83,11 @@ from agent_utilities.api.session import (
 )
 
 __all__ = [
+    "CurrentPlanRead",
+    "CurrentPlanReadPort",
+    "CurrentPlanRequest",
+    "CurrentPlanSnapshot",
+    "PlanItem",
     "ActionDecision",
     "ActionPolicy",
     "ActionRequest",

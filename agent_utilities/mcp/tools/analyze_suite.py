@@ -79,7 +79,10 @@ def register_analyze_suite_tools(
     async def graph_code(
         action: GraphCodeAction = Field(
             default="code_context",
-            description="code_context | cross_repo_usages | call_graph | similar_code | routes | change_coupling | code_evolution | blast_radius | code_metrics | arch_report | adr",
+            description=(
+                "`code_context | cross_repo_usages | call_graph | similar_code | routes | "
+                "change_coupling | code_evolution | blast_radius | code_metrics | arch_report | adr`"
+            ),
         ),
         query: str = Field(
             default="", description="Question / area / symbol name / repo path."
@@ -155,7 +158,7 @@ def register_analyze_suite_tools(
     async def graph_evaluate(
         action: GraphEvaluateAction = Field(
             default="evaluate",
-            description="evaluate | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | assimilation_benchmark | evolve_model | evolve_code | forecast | causal | invariant | quant_crypto | quant_microstructure | quant_regime | quant_insider",
+            description="`evaluate | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | assimilation_benchmark | evolve_model | evolve_code | forecast | causal | invariant | quant_crypto | quant_microstructure | quant_regime | quant_insider`",
         ),
         query: str = Field(
             default="",

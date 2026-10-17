@@ -1429,7 +1429,7 @@ class WorkflowRunner:
         session_id: str,
         task: str | None,
         outputs: dict[str, str],
-        grounding: GroundingPolicy,
+        grounding: GroundingPolicy | None,
         engine: IntelligenceGraphEngine,
     ) -> StepResult:
         """Run one workflow step via :func:`run_agent`.
@@ -1658,7 +1658,7 @@ class WorkflowRunner:
         engine: IntelligenceGraphEngine,
         session_id: str,
         task: str | None,
-        grounding: GroundingPolicy,
+        grounding: GroundingPolicy | None,
         workflow_name: str,
     ) -> tuple[str | None, int, bool]:
         """Run one wave: resolve ready steps, process gates, dispatch agent steps.

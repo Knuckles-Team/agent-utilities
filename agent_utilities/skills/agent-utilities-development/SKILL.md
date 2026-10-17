@@ -105,7 +105,7 @@ Specs are already designed. The work is implementation, delivered in very small,
 
 **Time and size**
 - One agent delivers one PR in 5 minutes or less. No agent or sub-agent runs longer than 5 minutes; an orchestrator dispatches the next slice to a fresh agent.
-- Self-timer (hard): run `date +%s > /tmp/agent-start-$$` as your FIRST command, and before every later step check elapsed with `echo $(( $(date +%s) - $(cat /tmp/agent-start-*) ))`. At 300 s, stop starting new work. At 480 s, commit what passes, push it, open the PR, report and STOP. Never exceed 600 s. Never wait on CI or background jobs; use `git commit --no-verify` and `git push --no-verify` after running pre-commit on the changed files yourself.
+- Self-timer (hard): run `date +%s > $TMPDIR/agent-start-$$` as your FIRST command, and before every later step check elapsed with `echo $(( $(date +%s) - $(cat $TMPDIR/agent-start-*) ))`. At 300 s, stop starting new work. At 480 s, commit what passes, push it, open the PR, report and STOP. Never exceed 600 s. Never wait on CI or background jobs; use `git commit --no-verify` and `git push --no-verify` after running pre-commit on the changed files yourself.
 - CI turns around in 5 minutes or less. PR CI runs the fast subset: lint, type check, the spec check, and only the tests and crates the diff touches. Pushes to main run the full suite.
 - CI timer (hard): every PR-path job carries `timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}`, so a PR gate is killed at 10 minutes and a slow gate shows up as a failure instead of a silent queue.
 - Never spawn sub-agents from a delivery agent.
@@ -150,64 +150,9 @@ Specs are already designed. The work is implementation, delivered in very small,
 
 **Report**: at most 8 lines: PR URL, requirement IDs, test result, and any `ID:<main sha>` proof for rows already on main.
 
-## Orient first — the component inventory (READ BEFORE ADDING ANYTHING)
+## Orient first — required architecture inventory
 
-Most sprawl here is not written deliberately; it is written by an author who did
-not know an owner already existed. `agent_utilities/` is **1,712 tracked `.py`
-modules** (`git ls-files agent_utilities | grep -c '\.py$'`) across **47
-top-level importable packages** — first-level directories carrying their own
-`__init__.py`:
-
-```bash
-git ls-files agent_utilities | awk -F/ 'NF==3 && $3=="__init__.py"{print $2}' | sort -u | wc -l   # 47
-```
-
-★ **State which definition you used** — three neighbouring ones give three
-answers (measured 2026-09-03): **47** first-level dirs with their own
-`__init__.py`, **48** first-level dirs containing a tracked `.py` anywhere below
-(`agent_chat/` has no top-level `__init__.py`), **51** first-level tracked dirs at all
-(`.agent_data/`, `data/`, `images/` hold no Python).
-
-Nobody reads 1,712 modules. So read the *layer* table, then the *size* table
-(both in the reference below), then `scripts/find_callers.py` — in that order —
-before you create a module.
-
-### Layers and sizes — where an owner already lives
-
-[`references/architecture-reference.md`](references/architecture-reference.md) carries the
-six target layers (`contracts -> domain -> ports -> application -> adapters ->
-composition`) with the existing packages assigned to each and what each may NOT
-import, the measured 62 application→adapter / 85 adapter→adapter violations, the
-note that the API gateway and the graph-os MCP surface both live INSIDE this repo
-and share one `_execute_tool()` core, the per-package file-count table, and the
-heaviest single modules. Read it before you create a module.
-
-## Dependency direction and the known SCC
-
-The measured figures — 1,701 modules / 6,066 raw internal edges, the **847-module** raw
-all-import SCC, the eager graph's **zero** non-trivial SCCs, the 59-node package projection
-with its one 44-package SCC, and `check_import_cycles.py`'s own differently scoped
-**821-module / 48.5%** measurement (the standing reason the eager/deferred/`TYPE_CHECKING`
-split must not be "simplified" away) — are under "Dependency direction — the measured SCC"
-in `references/architecture-reference.md`.
-
-**The rules — TARGET direction you are held to in review, NOT a property the tree
-has or a gate enforces.** ★ Nothing enforces the layering; rules 1 and 2 are
-measurably violated on `main` today. All five rules, what refuses what, and the
-measured violation counts are under "The rules — target direction" in
-`references/architecture-reference.md`, and the named reverse edges the program is
-cutting — with their measured edge counts and the directions that must stay one-way —
-under "Named reverse edges" in the same file. Do not add to them; re-measure before
-quoting a number.
-
-`KnowledgeGraph` (`knowledge_graph/facade.py`) is the graph facade;
-`Orchestrator.execute_agent` (`orchestration/manager.py:512`) owns agent/loop/workflow
-dispatch. ★ `run_agent` is **not** a method on `Orchestrator` — it is a **module-level
-function**, `orchestration/agent_runner.py:700`, which `Orchestrator.execute_agent`
-imports and calls (`AGENTS.md` writes them together; that shorthand is not a class API).
-Facade and orchestrator have **disjoint** authority — the facade does not dispatch
-agents, the orchestrator does not implement graph persistence. Composition binds
-exactly one of each.
+Before adding or changing code, read the [component inventory and dependency direction](references/architecture-inventory.md).
 
 ## The gates that actually enforce this
 

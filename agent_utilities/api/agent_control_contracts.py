@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
@@ -30,6 +31,64 @@ WorkItemStatus = Literal[
 
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+
+class PlanItem(_StrictModel):
+    """One immutable item in the run scaffold, in producer order."""
+
+    text: str = Field(min_length=1)
+    status: Literal["pending", "in_progress", "done"]
+
+
+class CurrentPlanRequest(_StrictModel):
+    """Identify a run without supplying caller authority."""
+
+    run_id: str = Field(min_length=1, max_length=512)
+
+
+class CurrentPlanSnapshot(_StrictModel):
+    """Immutable scaffold content and its producer validity interval."""
+
+    run_id: str = Field(min_length=1, max_length=512)
+    revision: int = Field(ge=0)
+    observed_at: datetime
+    expires_at: datetime
+    items: tuple[PlanItem, ...]
+
+    @model_validator(mode="after")
+    def validate_interval(self) -> CurrentPlanSnapshot:
+        """Require UTC observation and a strictly later UTC expiry."""
+        if any(
+            value.utcoffset() != timedelta(0)
+            for value in (self.observed_at, self.expires_at)
+        ):
+            raise ValueError("Plan timestamps must use UTC")
+        if self.expires_at <= self.observed_at:
+            raise ValueError("Plan expiry must follow observation")
+        return self
+
+
+class CurrentPlanRead(_StrictModel):
+    """Separate an available empty scaffold from unavailable state."""
+
+    availability: Literal["available", "unavailable"]
+    snapshot: CurrentPlanSnapshot | None = None
+
+    @model_validator(mode="after")
+    def validate_availability(self) -> CurrentPlanRead:
+        """Unavailable reads must carry no scaffold content."""
+        if (self.availability == "available") != (self.snapshot is not None):
+            raise ValueError("Plan availability must match snapshot presence")
+        return self
+
+
+@runtime_checkable
+class CurrentPlanReadPort(Protocol):
+    """Read run state using current server-verified caller authority."""
+
+    async def read(
+        self, request: CurrentPlanRequest, *, session: GraphSession
+    ) -> CurrentPlanRead: ...
 
 
 class AgentControlPlaneUnavailable(RuntimeError):

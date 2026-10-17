@@ -302,11 +302,10 @@ def register_workflow_tools(mcp: Any) -> None:
         workflow_run_id: str = Field(
             default="",
             description=(
-                "execute_dynamic only: RESUME a halted run. Pass the "
-                "workflow_run_id a previous execute_dynamic reported to replay "
-                "its already-completed steps instead of re-dispatching them "
-                "(the response reports 'resumed' and 'replayed_step_ids'). "
-                "Leave empty to start a brand-new run."
+                "execute_dynamic only: RESUME a stopped run. Pass the workflow_run_id a previous "
+                "execute_dynamic reported to replay its already-completed steps instead of "
+                "re-dispatching them (the response reports 'resumed' and 'replayed_step_ids'). Leave "
+                "empty to start a brand-new run."
             ),
         ),
     ) -> str:

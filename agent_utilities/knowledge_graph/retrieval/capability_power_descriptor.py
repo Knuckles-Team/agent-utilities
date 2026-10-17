@@ -762,7 +762,7 @@ def _render_capability_section(c: CapabilityPowerDescriptor) -> list[str]:
     lines.extend(_render_capability_typed_input(c))
     lines.append("")
     lines.append(
-        f"**Eligibility predicates:** {c.eligibility_predicates.get('formula', '(n/a)')}"
+        f"**Eligibility predicates:** `{c.eligibility_predicates.get('formula', '(n/a)')}`"
     )
     lines.append("")
     lines.append(

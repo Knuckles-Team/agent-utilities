@@ -107,5 +107,5 @@ documentation:
 - `ontology_interface(action='lint')` — naming-convention and typo checks
   against the live interface registry.
 
-Next lesson: **[Querying with UQL](../querying-with-uql/01-the operator's-first-uql-pipeline.md)** —
+Next lesson: **[Querying with UQL](../querying-with-uql/01-your-first-uql-pipeline.md)** —
 now that the operator can read the shape of the graph, learn to ask it questions.

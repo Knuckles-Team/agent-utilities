@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-579 typed fields · 367 runtime-only call-site inputs.
+580 typed fields · 367 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -429,6 +429,8 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `KG_LOOP_GOAL_EVAL_ENABLED` | `bool` | `True` |
 | `KG_RESEARCH_FEED` | `bool` | `True` |
 | `KG_RESEARCH_FEED_INTERVAL` | `float` | `1800.0` |
+| `KG_CONNECTOR_SYNC` | `bool` | `True` |
+| `KG_CONNECTOR_SYNC_INTERVAL` | `float` | `1800.0` |
 | `KG_RSS_FEEDS` | `str` | `` |
 | `KG_ARXIV_CATEGORIES` | `str` | `` |
 | `KG_ARXIV_MAX_RESULTS` | `int` | `50` |

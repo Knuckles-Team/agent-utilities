@@ -107,7 +107,8 @@ Harness tests assert receipt and application of these contracts. They do not pro
 
 ## Planned current-plan snapshot acceptance
 
-These are future acceptance tests for AU-HARNESS-R014.6 through R014.11, not runtime evidence.
+R014.6 has public model validation tests. R014.9–10 have public read-boundary tests; runtime activation and R014.11 remain future
+acceptance tests; model tests do not provide runtime evidence.
 Use a scripted model, fake clock and verified-session fixtures through the existing public control plane.
 
 | Row | Planned acceptance path | Required observation |
@@ -124,3 +125,10 @@ Capture a successful snapshot, then advance time to expiry, deny refresh, switch
 Each consumer must clear prior protected items while preserving independently available run-trace fields.
 Terminal runs and unsupported harness adapters must return unavailable without reconstruction.
 TUI-RUNTIME-R010.6 and GENIUSBOT-CLIENT-R019.6 own their client delivery evidence; an AU unit pass cannot close them.
+
+
+Current public read-boundary evidence lives in `tests/harness/test_current_plan_port.py`.
+A fixture reader verifies session forwarding, empty plans, absent ports, malformed
+requests, wrong-run snapshots and invalid validity windows. These tests prove no
+runtime storage, update tools, model-request injection or hosted execution.
+R014.7–11 runtime and served assertions in the table remain obligations.

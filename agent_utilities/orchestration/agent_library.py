@@ -21,6 +21,7 @@ Every surface reads and writes through :class:`AgentLibrary`:
 
 from __future__ import annotations
 
+import builtins
 import json
 import re
 from collections.abc import Callable, Iterable, Mapping
@@ -242,7 +243,9 @@ class AgentLibrary:
             return self._save_graph(record)
         return self._save_runnable(record)
 
-    def bound_tools(self, tool_ids: Iterable[str], mcp_server: str = "") -> list[str]:
+    def bound_tools(
+        self, tool_ids: Iterable[str], mcp_server: str = ""
+    ) -> builtins.list[str]:
         """The given tool ids plus every ingested tool of ``mcp_server``."""
         resolved = list(tool_ids)
         if mcp_server:
@@ -252,7 +255,9 @@ class AgentLibrary:
             )
         return resolved
 
-    def bind_tools(self, resource_id: str, tool_ids: Iterable[str]) -> list[str]:
+    def bind_tools(
+        self, resource_id: str, tool_ids: Iterable[str]
+    ) -> builtins.list[str]:
         """Link each distinct tool id under ``USES_TOOL``; returns them sorted."""
         seen: set[str] = set()
         for tool_id in tool_ids:

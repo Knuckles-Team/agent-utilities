@@ -869,7 +869,7 @@ def register_engine_tools(mcp) -> None:
         )
         description = (
             f"Low-level epistemic-graph engine surface for the '{domain}' domain"
-            + (f" ({blurb})" if blurb else "")
+            + (f". {blurb}" if blurb else "")
             + ". Action-routed 1:1 over the epistemic_graph client: set 'action' to "
             f"the method name and 'params_json' to its JSON kwargs. Actions: "
             f"{', '.join(sorted(methods))}."

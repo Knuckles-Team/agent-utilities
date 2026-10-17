@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
@@ -25,6 +26,9 @@ from agent_utilities.api.agent_control_contracts import (
     CapabilityResolution,
     CapabilitySearchPort,
     CapabilitySearchRequest,
+    CurrentPlanRead,
+    CurrentPlanReadPort,
+    CurrentPlanRequest,
     SignedAgentDispatchPort,
     SignedAgentDispatchReceipt,
     SignedAgentDispatchRequest,
@@ -208,6 +212,7 @@ class AgentControlPlane:
         agent_executor: AgentExecutionPort | None = None,
         work_item_store: WorkItemStorePort | None = None,
         signed_dispatch: SignedAgentDispatchPort | None = None,
+        current_plan_reader: CurrentPlanReadPort | None = None,
     ) -> None:
         if eg_client is None:
             raise ValueError("a session-routed epistemic-graph client is required")
@@ -223,6 +228,7 @@ class AgentControlPlane:
         self._agent_executor = agent_executor
         self._work_item_store = work_item_store
         self._signed_dispatch = signed_dispatch
+        self._current_plan_reader = current_plan_reader
         # Validate eagerly so invalid or expired authority never creates a usable
         # control plane. It is checked again immediately before every call.
         session.engine_verified_context()
@@ -267,6 +273,7 @@ class AgentControlPlane:
                 (),
             ),
             ("list_work_items", WorkItemListRequest, WorkItemPage, "kg:read", ()),
+            ("current_plan", CurrentPlanRequest, CurrentPlanRead, "kg:read", ()),
             (
                 "cancel_work_item",
                 WorkItemCancelRequest,
@@ -306,6 +313,31 @@ class AgentControlPlane:
                 f"the {name} application port is not configured"
             )
         return port
+
+    async def current_plan(self, request: CurrentPlanRequest) -> CurrentPlanRead:
+        """Read a current scaffold; unavailable state carries no protected values."""
+        if not isinstance(request, CurrentPlanRequest):
+            raise TypeError("request must be a validated CurrentPlanRequest")
+        request = CurrentPlanRequest.model_validate(request.model_dump())
+        session = self._verified_session("kg:read")
+        if self._current_plan_reader is None:
+            return CurrentPlanRead(availability="unavailable")
+        with self._verified_client_context(session):
+            result = await self._current_plan_reader.read(request, session=session)
+        # Revalidate even model_construct instances received from a faulty port.
+        if not isinstance(result, CurrentPlanRead):
+            raise AgentControlPlaneUnavailable("invalid current-plan result")
+        result = CurrentPlanRead.model_validate(result.model_dump())
+        snapshot = result.snapshot
+        now = datetime.now(UTC)
+        if snapshot is not None and (
+            snapshot.run_id != request.run_id
+            or snapshot.observed_at > now
+            or snapshot.expires_at <= now
+        ):
+            return CurrentPlanRead(availability="unavailable")
+        self._verified_session("kg:read")
+        return result
 
     async def resolve_capability(
         self, request: CapabilitySearchRequest
@@ -635,6 +667,7 @@ def compose_agent_control_plane(
     agent_executor: AgentExecutionPort | None = None,
     work_item_store: WorkItemStorePort | None = None,
     signed_dispatch: SignedAgentDispatchPort | None = None,
+    current_plan_reader: CurrentPlanReadPort | None = None,
 ) -> AgentControlPlane:
     """Compose AU application operations from verified inputs and explicit ports."""
     return AgentControlPlane(
@@ -644,6 +677,7 @@ def compose_agent_control_plane(
         agent_executor=agent_executor,
         work_item_store=work_item_store,
         signed_dispatch=signed_dispatch,
+        current_plan_reader=current_plan_reader,
     )
 
 

@@ -109,49 +109,42 @@ def register_epistemic_tools(mcp: Any) -> None:
     @mcp.tool(
         name="graph_epistemic",
         description=(
-            "Purpose-named epistemic-answer surface over the engine's belief/"
-            "provenance primitives (CONCEPT:AU-KB-CURRENCY) — 'why do we believe "
-            "this', 'why NOT', 'what would change my mind', 'what changed between "
-            "two points in time', 'resolve this contradiction'. Actions: 'status' "
-            "(node_id -> acceptance capstone: believed? since when? on what "
-            "evidence? what would invalidate it? requires the opt-in epistemic-tms "
-            "engine feature), 'why' (node_id [+ optional "
-            "disclosure_level='Full'|'Skeleton'|'ExistenceOnly'] -> the "
-            "justification tree, policy-redacted when disclosure_level is set), "
-            "'why_not' (node_id -> the diagnostic for a claim that is NOT "
-            "believed: reason is one of 'Unknown' (claim absent from the graph), "
-            "'InsufficientConfidence' (unattacked but too weak), 'Contradicted' "
-            "(names the blocking 'blockers'), or 'Undecided' (a symmetric conflict "
-            "— names the 'competing' claims), plus the claim's 'confidence'; null "
-            "when the claim IS believed; requires epistemic-tms), "
-            "'what_would_invalidate' (node_id -> the minimal evidence-id set whose "
-            "retraction would flip belief — 'evidence_ids' + 'believed_now'/"
-            "'believed_after'; null when no such flip exists within the search "
-            "bound; requires epistemic-tms), 'what_changed' (tx_from + tx_to -> "
-            "whole-graph bitemporal diff between two transaction times; requires "
-            "epistemic-tms), 'resolve_conflict' (node_ids + optional "
-            "semantics='grounded' -> argumentation-based resolution over a set of "
-            "contradicting claims). Thin wrapper over the engine's own "
-            "client.query methods — reuses the same dispatcher as engine_query, "
-            "adds no new belief logic. 'why_not'/'what_would_invalidate' have no "
-            "standalone engine method: both call the SAME client.query."
-            "epistemic_status(node_id) 'status' does, then project the response "
-            "down to just that one field (EpistemicStatusResult.status.why_not / "
-            ".what_would_invalidate on the wire) — a purpose-named shortcut, not a "
-            "new capability. A build/config that doesn't expose an action "
-            "degrades to a clear error rather than raising."
+            "Purpose-named epistemic-answer surface over the engine's belief/provenance "
+            "primitives (CONCEPT:AU-KB-CURRENCY) — explain belief, missing belief, invalidating "
+            "evidence, changes over time, and contradiction resolution. Actions: 'status' "
+            "(node_id -> acceptance capstone: believed? since when? on what evidence? what would "
+            "invalidate it? requires the opt-in epistemic-tms engine feature), 'why' (node_id [+ "
+            "optional disclosure_level='Full'|'Skeleton'|'ExistenceOnly'] -> the justification "
+            "tree, policy-redacted when disclosure_level is set), 'why_not' (node_id -> the "
+            "diagnostic for a claim that is NOT believed: reason is one of 'Unknown' (claim "
+            "absent from the graph), 'InsufficientConfidence' (unattacked but too weak), "
+            "'Contradicted' (names the blocking 'blockers'), or 'Undecided' (a symmetric "
+            "conflict — names the 'competing' claims), plus the claim's 'confidence'; null when "
+            "the claim IS believed; requires epistemic-tms), 'what_would_invalidate' (node_id -> "
+            "the minimal evidence-id set whose retraction would flip belief — 'evidence_ids' + "
+            "'believed_now'/'believed_after'; null when no such flip exists within the search "
+            "bound; requires epistemic-tms), 'what_changed' (tx_from + tx_to -> whole-graph "
+            "bitemporal diff between two transaction times; requires epistemic-tms), "
+            "'resolve_conflict' (node_ids + optional semantics='grounded' -> argumentation-based "
+            "resolution over a set of contradicting claims). Thin wrapper over the engine's own "
+            "client.query methods — reuses the same dispatcher as engine_query, adds no new "
+            "belief logic. 'why_not'/'what_would_invalidate' have no standalone engine method: "
+            "both call the SAME client.query.epistemic_status(node_id) 'status' does, then "
+            "project the response down to just that one field "
+            "(EpistemicStatusResult.status.why_not / .what_would_invalidate on the wire) — a "
+            "purpose-named shortcut, not a new capability. A build/config that doesn't expose an "
+            "action degrades to a clear error rather than raising."
         ),
         tags=["graph-os", "epistemic", "belief", "provenance", "engine"],
     )
     def graph_epistemic(
         action: str = Field(
             default="why",
-            description="status | why | why_not | what_would_invalidate | "
-            "what_changed | resolve_conflict",
+            description="`status | why | why_not | what_would_invalidate | what_changed | resolve_conflict`",
         ),
         node_id: str = Field(
             default="",
-            description="Claim/node id (status, why, why_not, what_would_invalidate).",
+            description="Claim/node id (`status`, `why`, `why_not`, `what_would_invalidate`).",
         ),
         node_ids: str = Field(
             default="[]",

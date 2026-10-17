@@ -279,7 +279,7 @@ Designed and recorded, **not yet implemented**:
   its ultimate principal matches the session's own authenticated principal,
   so a spawn can never forge a chain for an identity it does not run under.
   Full field-level carrier contract, including this claim:
-  [Checked identity carrier contract](checked-identity-carrier-contract.md).
+  [Checked identity carrier contract](verified-identity-carrier-contract.md).
 
 ## Config reference
 

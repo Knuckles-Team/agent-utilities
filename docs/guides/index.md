@@ -55,7 +55,7 @@ Using and extending the graph itself — schema, retrieval scoring, long-context
 - [KG-Native Orchestration](kg_native_orchestration.md)
 - [KG Schema Extensions: Research Assimilation](kg_schema_extensions.md)
 - [Universal Knowledge Assimilation Engine](knowledge-assimilation.md)
-- [Scoring Method & Retrieval Semantics](scoring_method.md)
+- [Scoring Method & Retrieval Semantics](scoring_methodology.md)
 - [Registry Hot Cache](registry-cache.md)
 - [Lossless Context Management (LCM) Guide](lcm_memory.md)
 - [Recursive Language Models (RLM)](rlm.md)

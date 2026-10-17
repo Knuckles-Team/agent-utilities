@@ -10,7 +10,7 @@ the same store the agent-webui ``/api/enhanced/agent-library`` routes use.
 from __future__ import annotations
 
 import json
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from pydantic import Field
 
@@ -74,7 +74,23 @@ def _seed_roles(library: Any, **_: Any) -> dict[str, Any]:
     return {"agents": [r.view() for r in seed_role_agents(library)]}
 
 
-_ACTIONS = {"list": _list, "get": _get, "save": _save, "seed_roles": _seed_roles}
+class _ActionHandler(Protocol):
+    def __call__(
+        self,
+        library: Any,
+        *,
+        agent_id: str,
+        kind: str,
+        agent_json: str,
+    ) -> dict[str, Any]: ...
+
+
+_ACTIONS: dict[str, _ActionHandler] = {
+    "list": _list,
+    "get": _get,
+    "save": _save,
+    "seed_roles": _seed_roles,
+}
 
 
 def run_agent_library_action(

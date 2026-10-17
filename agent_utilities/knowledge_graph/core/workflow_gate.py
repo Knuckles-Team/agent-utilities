@@ -211,9 +211,7 @@ def _build_workflow_turtle(
     lines.append(f"{wf_uri} a {_turtle_uri('WorkflowDefinition')} .")
     name = props.get("name")
     if isinstance(name, str) and name:
-        lines.append(
-            f"{wf_uri} {_turtle_uri('name')} {_turtle_string_literal(name)} ."
-        )
+        lines.append(f"{wf_uri} {_turtle_uri('name')} {_turtle_string_literal(name)} .")
     step_count = props.get("step_count")
     if isinstance(step_count, int | float):
         lines.append(

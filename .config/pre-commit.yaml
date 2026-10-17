@@ -87,7 +87,7 @@ repos:
     args: ["--skip", "B101,B104,B105,B110,B112,B404,B603,B607,B608"]
     exclude: ^(tests/|test/|scripts/|script/|__tests__/|run_test\.py|\.specify/)
 - repo: https://github.com/Knuckles-Team/pipelines
-  rev: main # pipelines is always referenced at main, never SHA-pinned
+  rev: 3e09846658e4c62269d4da7e8f0e1d48b3415d3c # revision exercised by the existing hook environment
   hooks:
   - id: complexity-staged
     stages: [pre-push]

@@ -184,5 +184,5 @@ The exact claim keys `GraphSession.engine_verified_context()` emits, their
 required/optional status, per-surface (Iceberg/SPARQL/observability/WebUI)
 carrier coverage, and the explicit consumer handoff for lanes minting or
 checking a caller identity (GOC-15) are frozen in
-[Checked Identity Carrier Contract](checked-identity-carrier-contract.md) —
+[Checked Identity Carrier Contract](verified-identity-carrier-contract.md) —
 this document's field-level companion.

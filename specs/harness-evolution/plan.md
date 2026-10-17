@@ -206,7 +206,7 @@ The vLLM-compatible adapter requests only supported observations and fails capab
 
 `WorkOffer/v1` is derived from the single Gap's WorkItem. It records expected utility, closure probability, estimated token/GPU/CI/time cost, uncertainty and blast radius. It also records reversibility, cooldown, dependencies, scope, evidence digests and units. EG's legal-option stage excludes open dependencies, active cooldown, missing capability/tenant/repository scope, policy violations and inadmissible budget. Initial `WorkOfferUtilityRateV1` is checked fixed-point arithmetic **inside EG Decide**: `floor(utility_micros * closure_ppm / max(cost_microunits, cost_floor))`, then tie-break by native priority, age and ID. AU does not sort offers. A committed decision does not grant authority; only a native fenced claim admits work.
 
-AU creates a proposal with repository, exact base commit, path allowlist, patch digest, evidence, required gates, approval policy, risk and idempotency key. graph-os authenticates/authorizes it; repository-manager alone checks base, creates the worktree, applies the bounded patch, runs gates and commits explicitly. Conflict, dirty base, path escape, failed gate, missing approval and uncertain remote result leave the proposal pending. Gap resolution waits for a verified materialization receipt. Never write the same transition to old and new records.
+AU creates a proposal with repository, exact base commit, path allowlist and patch digest. It includes evidence, required gates, approval policy, risk and idempotency key. graph-os authenticates/authorizes it; repository-manager alone checks base, creates the worktree, applies the bounded patch, runs gates and commits explicitly. Conflict, dirty base, path escape, failed gate, missing approval and uncertain remote result leave the proposal pending. Gap resolution waits for a verified materialization receipt. Never write the same transition to old and new records.
 
 ### Security and observability
 
@@ -301,4 +301,33 @@ The AU adapter compares the verified session with the tenant and principal captu
 
 `GRAPHOS-OPS-R021.4.5` projects this read as `runs.get.current_plan` while retaining independent trace fields. `TUI-RUNTIME-R010.4` and `GENIUSBOT-CLIENT-R019.4` show the projection and clear expired or denied values. Their served proof rows remain separate obligations. GRAPHOS-OPS-R021.4.6 owns transport registration and generated client parity.
 
-BLOCKED for delivery: implement R012 runtime composition and R014.1 through R014.5, then this AU public port and its host binding. The port, runtime lookup and served acceptance do not exist at the audited base. Keep all new rows SPECIFIED until implementation and exact-head evidence exist. This definition closes the missing producer contract, not the missing producer runtime.
+BLOCKED for delivery: implement R012 runtime composition and R014.1 through R014.5, then this AU public port and its host binding. The admitted run lifecycle and served acceptance do not exist at the audited base. Keep all new rows SPECIFIED until implementation and exact-head evidence exist. This definition closes the missing producer contract, not the missing producer runtime.
+
+
+### R014.6 public model implementation
+
+`api/agent_control_contracts.py` owns the frozen `PlanItem` and current-plan models.
+The future R014.1 runtime must reuse this item type instead of defining another.
+The public `agent_utilities.api` package exports the models. Model validation
+rejects unknown fields, invalid statuses, negative revisions and invalid intervals.
+UTC timestamps and immutable item tuples preserve producer order. Available empty
+plans differ from unavailable reads, which cannot carry a snapshot.
+
+The model increment implements R014.6. The read-boundary increment below adds
+public read-boundary evidence for R014.9–10; complete runtime wiring and R014.11 remain pending. GraphOS must not advertise live snapshot
+availability until the runtime, verified reader and served proof exist.
+
+### R014 snapshot read boundary
+
+The public control plane now accepts `current_plan_reader: CurrentPlanReadPort`
+and rechecks `kg:read` before calling it and before returning protected values.
+It rejects mismatched run identities and snapshots outside their validity window.
+The boundary validates output from an injected reader and returns unavailable
+when none is bound. It does not implement storage or a run lifecycle.
+
+R014.7–11 remain incomplete. Signed R012 configuration, run-scaffold updates,
+model-request injection, and execution lifecycle binding do not exist at this base.
+`execute_agent` forwards an injected port; AU supplies no concrete adapter from
+that port to `run_agent`. GraphOS cannot enable live scaffold availability until
+the execution owner binds the same state to updates, injection and cleanup.
+The public read tests use a fixture reader and prove no served acceptance.

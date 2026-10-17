@@ -78,9 +78,7 @@ POINTS: dict[str, DecisionPoint] = {
             evaluator_role=DECIDE_EVALUATOR_ROLE,
         ),
         _point("ingestion-lane", "au.ingestion.lane", "ingestion_lane", **_SAMPLED),
-        _point(
-            "enrichment-schedule", "au.enrichment.schedule", "enrichment_schedule"
-        ),
+        _point("enrichment-schedule", "au.enrichment.schedule", "enrichment_schedule"),
         _point(
             "entity-same-as",
             "au.entity.same_as",

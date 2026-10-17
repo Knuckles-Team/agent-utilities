@@ -2914,17 +2914,16 @@ def register_query_tools(mcp):
     @mcp.tool(
         name="graph_projection",
         description=(
-            "CONCEPT:AU-KG.query.node-link-projection — run the SAME query `graph_query` would "
-            "and project the result into a stable node-link JSON shape: "
-            "{nodes:[{id,label,properties}], links:[{source,target,label,properties}]} — "
-            "the D3/force-graph convention every 2D/3D graph renderer already speaks. "
-            "A dict-valued result column shaped like a node ({id, ...}) becomes a node; "
-            "one shaped like a relationship ({source/start/..., target/end/..., type, ...}) "
-            "becomes a link; a plain scalar column is never fabricated into either. "
-            "Nodes are de-duplicated by id across all rows. Takes ONE JSON request "
-            "object (project rule, wD10 preamble addendum — no new wide MCP-tool "
-            "signatures) rather than one Field per argument: request_json is "
-            "{query (required), params, scope, reference_id, as_of, connection, "
+            "CONCEPT:AU-KG.query.node-link-projection — run the same query as `graph_query` and "
+            "project the result into a stable node-link JSON shape: "
+            "{nodes:[{id,label,properties}], links:[{source,target,label,properties}]} — the "
+            "D3/force-graph convention every 2D/3D graph renderer already speaks. A dict-valued "
+            "result column shaped like a node ({id, ...}) becomes a node; one shaped like a "
+            "relationship ({source/start/..., target/end/..., type, ...}) becomes a link; a "
+            "plain scalar column is never fabricated into either. Nodes are de-duplicated by id "
+            "across all rows. Takes ONE JSON request object (project rule, wD10 preamble "
+            "addendum — no new wide MCP-tool signatures) rather than one Field per argument: "
+            "request_json is {query (required), params, scope, reference_id, as_of, connection, "
             "graph} — identical fields/semantics to graph_query's own arguments."
         ),
         tags=["graph-os", "query", "visualization"],
@@ -3771,44 +3770,41 @@ def register_query_tools(mcp):
     @mcp.tool(
         name="graph_document_tree",
         description=(
-            "Reasoning-tree (vectorless) document retrieval over a per-document "
-            "section tree (CONCEPT:AU-KG.retrieval.section-tree/tree-navigation; "
-            "distills PageIndex). action: 'build' (build + optionally persist the "
-            "section tree from text or a stored document), 'structure' (return the "
-            "text-free table-of-contents map = get_document_structure), 'content' "
-            "(fetch section bodies for cited char ranges like '96..208,300..420' = "
-            "get_page_content), 'retrieve' (walk the tree by relevance and return "
-            "sections with cited start..end ranges), 'fragments' (the addressable "
-            "evidence spine — every citable Fragment of an artifact/document with "
-            "its stable address + content hash; CONCEPT:AU-KG.ingest.stable-fragment-address), "
-            "'cite' (resolve a stored citation against the current artifact and "
-            "report current | stale | moved | lost). Complements graph_search for "
-            "long single documents where similar != relevant."
+            "Reasoning-tree document retrieval uses a vectorless section tree per document "
+            "(CONCEPT:AU-KG.retrieval.section-tree/tree-navigation; distills PageIndex). "
+            "`build` creates the tree from text or a stored document, with optional persistence. "
+            "`structure` returns its text-free table of contents through `get_document_structure`. "
+            "`content` fetches section bodies for cited character ranges through `get_page_content`, such as `96..208,300..420`. "
+            "`retrieve` follows relevance and returns sections with cited start/end ranges. "
+            "`fragments` returns each citable Fragment of an artifact/document with its stable address and content hash "
+            "(CONCEPT:AU-KG.ingest.stable-fragment-address). "
+            "`cite` resolves a stored citation against the current artifact, reporting `current`, `stale`, `moved`, or `lost`. "
+            "This complements `graph_search` for long single documents where similarity does not establish relevance."
         ),
         tags=["graph-os", "retrieval", "document", "tree"],
     )
     def graph_document_tree(
         action: str = Field(
-            description="build | structure | content | retrieve | fragments | cite",
+            description="`build | structure | content | retrieve | fragments | cite`",
         ),
         document_id: str = Field(
             default="",
-            description="Target Document id (structure/content, and build/retrieve when loading from the graph).",
+            description="Target Document id (`structure/content`, and `build/retrieve` when loading from the graph).",
         ),
         text: str = Field(
             default="",
-            description="action=build/retrieve — inline document text (markdown) to build the tree from, instead of loading a stored document.",
+            description="`action=build/retrieve` — inline document text (markdown) to build the tree from, instead of loading a stored document.",
         ),
         query: str = Field(
             default="",
-            description="action=retrieve — the natural-language query to navigate the tree with.",
+            description="`action=retrieve` — the natural-language query to navigate the tree with.",
         ),
         ranges: str = Field(
             default="",
             description="action=content — char ranges to fetch, e.g. '96..208,300..420'.",
         ),
         top_k: int = Field(
-            default=5, description="action=retrieve — max sections to return."
+            default=5, description="`action=retrieve` — max sections to return."
         ),
         persist: bool = Field(
             default=True,
@@ -3824,7 +3820,7 @@ def register_query_tools(mcp):
         ),
         use_llm: bool = Field(
             default=False,
-            description="action=retrieve — try LLM tree navigation before the lexical walk.",
+            description="`action=retrieve` — try LLM tree navigation before the lexical walk.",
         ),
         artifact_id: str = Field(
             default="",

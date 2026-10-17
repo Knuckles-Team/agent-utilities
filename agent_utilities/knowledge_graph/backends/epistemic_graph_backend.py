@@ -131,6 +131,10 @@ def _cypher_literal(value: Any) -> str:
     )
 
 
+# Native exception types expose this validated public diagnostic dynamically.
+_ENGINE_ERROR_CODE_ATTRIBUTE = "engine_error_code"
+
+
 def _run_batch_update(graph: Any, operations: list[dict[str, Any]]) -> Any:
     """Run ``BatchUpdate``, annotating a validated native refusal before re-raising.
 
@@ -153,7 +157,7 @@ def _run_batch_update(graph: Any, operations: list[dict[str, Any]]) -> Any:
     except Exception as exc:  # noqa: BLE001 - attach the validated native refusal code, then re-raise unchanged
         code = validated_engine_error_code(getattr(exc, "code", None))
         if code is not None:
-            exc.engine_error_code = code
+            setattr(exc, _ENGINE_ERROR_CODE_ATTRIBUTE, code)
         raise
 
 

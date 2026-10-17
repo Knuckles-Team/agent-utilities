@@ -2,51 +2,51 @@
 
 > **GENERATED — do not edit by hand.** Regenerate with `python3 scripts/gen_capability_power.py --write`; `scripts/check_cpd.py` gates drift in CI/pre-commit (CONCEPT:AU-KG.retrieval.capability-power-descriptor). Seam 8 Phase 1 — `plans/program-design-2026-07-11-epistemic-tool-routing.md` section 2b.
 >
-> 129 capabilities · generated 2026-10-08T20:38:47Z. Every field is derived from a live source (the MCP tool registry, the generated graph-os action manifest, the EG-P0-1 capability ledger, transcribed measured benchmarks) — an empty field means the source had no answer, never a fabricated one.
+> 129 capabilities · generated 2026-10-17T01:51:30Z. Every field is derived from a live source (the MCP tool registry, the generated graph-os action manifest, the EG-P0-1 capability ledger, transcribed measured benchmarks) — an empty field means the source had no answer, never a fabricated one.
 
 ## Index
 
 | Capability | Intent verbs | One-line power | Actions | REST |
 |---|---|---|---:|---|
-| [`act`](#capability-act) | act | Run work, an operation or a fleet tool; previews first, then run with plan_ref. | 1 | `/intent/act` |
+| [`act`](#capability-act) | act | Run work, an operation or a fleet tool; previews first, then execute with plan_ref. | 1 | `/intent/act` |
 | [`agent_library`](#capability-agent_library) | manage, find, ask | The Agent Library of built agents (system prompt, tools, skills, model profile, context policy, | 4 | `/graph/agent-library` |
 | [`ask`](#capability-ask) | ask | Read or answer from the Knowledge Graph. action='<tool>.<op>' (see action='describe'), or leave it | 1 | `/intent/ask` |
 | [`ask_data`](#capability-ask_data) | ask | answer a DATA question over the Knowledge Graph with a DB-GPT-style, multi-step data-analysis agent | 1 | `/graph/ask-data` |
 | [`concept_registry`](#capability-concept_registry) | find, ask | Coordinate canonical OKF-CIS concept ids for linked worktrees on one host | 1 | `/concept/registry` |
 | [`document_process`](#capability-document_process) | write | Document → ontology processing (CONCEPT:AU-KG.ingest.chunk-overlap-stage): extract → chunk(overlap) | 1 | `/document/process` |
-| [`engine_admin`](#capability-engine_admin) | manage | Low-level epistemic-graph engine surface for the 'admin' domain (ops/maintenance: online backup + | 6 | `/engine/admin` |
-| [`engine_analytics`](#capability-engine_analytics) | ask | Low-level epistemic-graph engine surface for the 'analytics' domain (centrality + (personalized) | 5 | `/engine/analytics` |
-| [`engine_blob`](#capability-engine_blob) | write | Low-level epistemic-graph engine surface for the 'blob' domain (streamed content-addressed media | 11 | `/engine/blob` |
-| [`engine_broker`](#capability-engine_broker) | act, manage, ask | Low-level epistemic-graph engine surface for the 'broker' domain (native message broker: | 22 | `/engine/broker` |
-| [`engine_channels`](#capability-engine_channels) | act | Low-level epistemic-graph engine surface for the 'channels' domain (dynamic agent communication | 8 | `/engine/channels` |
-| [`engine_consensus`](#capability-engine_consensus) | act | Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust identity + multisig | 5 | `/engine/consensus` |
-| [`engine_datascience`](#capability-engine_datascience) | ask | Low-level epistemic-graph engine surface for the 'datascience' domain (estimators + primitives + | 15 | `/engine/datascience` |
-| [`engine_edges`](#capability-engine_edges) | write | Low-level epistemic-graph engine surface for the 'edges' domain (edge CRUD, temporal | 10 | `/engine/edges` |
-| [`engine_finance`](#capability-engine_finance) | ask, act | Low-level epistemic-graph engine surface for the 'finance' domain (quantitative finance | 67 | `/engine/finance` |
-| [`engine_graph`](#capability-engine_graph) | ask, write | Low-level epistemic-graph engine surface for the 'graph' domain (graph algorithms, AST parse/index, | 27 | `/engine/graph` |
-| [`engine_graphlearn`](#capability-engine_graphlearn) | act, ask | Low-level epistemic-graph engine surface for the 'graphlearn' domain (KAN graph-learning: | 2 | `/engine/graphlearn` |
-| [`engine_ledger`](#capability-engine_ledger) | write, act | Low-level epistemic-graph engine surface for the 'ledger' domain (audit ledger get/clear/apply). | 4 | `/engine/ledger` |
-| [`engine_lifecycle`](#capability-engine_lifecycle) | manage, act | Low-level epistemic-graph engine surface for the 'lifecycle' domain (prune/decay/evict, | 10 | `/engine/lifecycle` |
-| [`engine_mining`](#capability-engine_mining) | ask | Low-level epistemic-graph engine surface for the 'mining' domain (association-rule mining | 18 | `/engine/mining` |
-| [`engine_modalities`](#capability-engine_modalities) | write, ask | Low-level epistemic-graph engine surface for the 'modalities' domain (native | 16 | `/engine/modalities` |
-| [`engine_nodes`](#capability-engine_nodes) | write, ask | Low-level epistemic-graph engine surface for the 'nodes' domain (node CRUD, batch/union reads, | 22 | `/engine/nodes` |
-| [`engine_placement`](#capability-engine_placement) | manage, ask | Low-level epistemic-graph engine surface for the 'placement' domain (DIST-P2-1 raft | 4 | `/engine/placement` |
-| [`engine_query`](#capability-engine_query) | ask | Low-level epistemic-graph engine surface for the 'query' domain (SQL / Cypher / GraphQL / UQL / | 26 | `/engine/query` |
-| [`engine_rbac`](#capability-engine_rbac) | manage | Low-level epistemic-graph engine surface for the 'rbac' domain (RBAC policy administration: roles + | 5 | `/engine/rbac` |
-| [`engine_rdf`](#capability-engine_rdf) | write, ask | Low-level epistemic-graph engine surface for the 'rdf' domain (RDF triples + SPARQL + OWL | 14 | `/engine/rdf` |
-| [`engine_reasoning`](#capability-engine_reasoning) | why | Low-level epistemic-graph engine surface for the 'reasoning' domain (forward-chaining OWL/RDFS | 1 | `/engine/reasoning` |
-| [`engine_resharding`](#capability-engine_resharding) | manage | Low-level epistemic-graph engine surface for the 'resharding' domain (M3 catalog/reshard/rebalance | 7 | `/engine/resharding` |
-| [`engine_streaming`](#capability-engine_streaming) | act | Low-level epistemic-graph engine surface for the 'streaming' domain (CDC / continuous queries / | 13 | `/engine/streaming` |
-| [`engine_tenants`](#capability-engine_tenants) | manage | Low-level epistemic-graph engine surface for the 'tenants' domain (multi-tenant graph | 3 | `/engine/tenants` |
-| [`engine_timeseries`](#capability-engine_timeseries) | write, ask | Low-level epistemic-graph engine surface for the 'timeseries' domain (native TSDB | 10 | `/engine/timeseries` |
-| [`engine_txn`](#capability-engine_txn) | act | Low-level epistemic-graph engine surface for the 'txn' domain (server-side OCC ACID transactions). | 18 | `/engine/txn` |
-| [`engine_viz`](#capability-engine_viz) | act, ask | Low-level epistemic-graph engine surface for the 'viz' domain (D-VZ-1 native visualization: | 2 | `/engine/viz` |
+| [`engine_admin`](#capability-engine_admin) | manage | Low-level epistemic-graph engine surface for the 'admin' domain. ops/maintenance: online backup + | 6 | `/engine/admin` |
+| [`engine_analytics`](#capability-engine_analytics) | ask | Low-level epistemic-graph engine surface for the 'analytics' domain. centrality + (personalized) | 5 | `/engine/analytics` |
+| [`engine_blob`](#capability-engine_blob) | write | Low-level epistemic-graph engine surface for the 'blob' domain. streamed content-addressed media | 11 | `/engine/blob` |
+| [`engine_broker`](#capability-engine_broker) | act, manage, ask | Low-level epistemic-graph engine surface for the 'broker' domain. native message broker: | 22 | `/engine/broker` |
+| [`engine_channels`](#capability-engine_channels) | act | Low-level epistemic-graph engine surface for the 'channels' domain. dynamic agent communication | 8 | `/engine/channels` |
+| [`engine_consensus`](#capability-engine_consensus) | act | Low-level epistemic-graph engine surface for the 'consensus' domain. zero-trust identity + multisig | 5 | `/engine/consensus` |
+| [`engine_datascience`](#capability-engine_datascience) | ask | Low-level epistemic-graph engine surface for the 'datascience' domain. estimators + primitives + | 15 | `/engine/datascience` |
+| [`engine_edges`](#capability-engine_edges) | write | Low-level epistemic-graph engine surface for the 'edges' domain. edge CRUD, temporal | 10 | `/engine/edges` |
+| [`engine_finance`](#capability-engine_finance) | ask, act | Low-level epistemic-graph engine surface for the 'finance' domain. quantitative finance | 67 | `/engine/finance` |
+| [`engine_graph`](#capability-engine_graph) | ask, write | Low-level epistemic-graph engine surface for the 'graph' domain. graph algorithms, AST parse/index, | 27 | `/engine/graph` |
+| [`engine_graphlearn`](#capability-engine_graphlearn) | act, ask | Low-level epistemic-graph engine surface for the 'graphlearn' domain. | 2 | `/engine/graphlearn` |
+| [`engine_ledger`](#capability-engine_ledger) | write, act | Low-level epistemic-graph engine surface for the 'ledger' domain. audit ledger get/clear/apply. | 4 | `/engine/ledger` |
+| [`engine_lifecycle`](#capability-engine_lifecycle) | manage, act | Low-level epistemic-graph engine surface for the 'lifecycle' domain. prune/decay/evict, | 10 | `/engine/lifecycle` |
+| [`engine_mining`](#capability-engine_mining) | ask | Low-level epistemic-graph engine surface for the 'mining' domain. association-rule mining | 18 | `/engine/mining` |
+| [`engine_modalities`](#capability-engine_modalities) | write, ask | Low-level epistemic-graph engine surface for the 'modalities' domain. native | 16 | `/engine/modalities` |
+| [`engine_nodes`](#capability-engine_nodes) | write, ask | Low-level epistemic-graph engine surface for the 'nodes' domain. node CRUD, batch/union reads, | 22 | `/engine/nodes` |
+| [`engine_placement`](#capability-engine_placement) | manage, ask | Low-level epistemic-graph engine surface for the 'placement' domain. | 4 | `/engine/placement` |
+| [`engine_query`](#capability-engine_query) | ask | Low-level epistemic-graph engine surface for the 'query' domain. | 26 | `/engine/query` |
+| [`engine_rbac`](#capability-engine_rbac) | manage | Low-level epistemic-graph engine surface for the 'rbac' domain. | 5 | `/engine/rbac` |
+| [`engine_rdf`](#capability-engine_rdf) | write, ask | Low-level epistemic-graph engine surface for the 'rdf' domain. | 14 | `/engine/rdf` |
+| [`engine_reasoning`](#capability-engine_reasoning) | why | Low-level epistemic-graph engine surface for the 'reasoning' domain. forward-chaining OWL/RDFS | 1 | `/engine/reasoning` |
+| [`engine_resharding`](#capability-engine_resharding) | manage | Low-level epistemic-graph engine surface for the 'resharding' domain. | 7 | `/engine/resharding` |
+| [`engine_streaming`](#capability-engine_streaming) | act | Low-level epistemic-graph engine surface for the 'streaming' domain. | 13 | `/engine/streaming` |
+| [`engine_tenants`](#capability-engine_tenants) | manage | Low-level epistemic-graph engine surface for the 'tenants' domain. multi-tenant graph | 3 | `/engine/tenants` |
+| [`engine_timeseries`](#capability-engine_timeseries) | write, ask | Low-level epistemic-graph engine surface for the 'timeseries' domain. native TSDB | 10 | `/engine/timeseries` |
+| [`engine_txn`](#capability-engine_txn) | act | Low-level epistemic-graph engine surface for the 'txn' domain. server-side OCC ACID transactions. | 18 | `/engine/txn` |
+| [`engine_viz`](#capability-engine_viz) | act, ask | Low-level epistemic-graph engine surface for the 'viz' domain. | 2 | `/engine/viz` |
 | [`find`](#capability-find) | find | Discover capabilities, operations, fleet tools and the fleet catalog. | 1 | `/intent/find` |
-| [`graph_agents`](#capability-graph_agents) | act | Run graph-grounded agent collectives. | 5 | `/graph/agents` |
+| [`graph_agents`](#capability-graph_agents) | act | Execute graph-grounded agent collectives. | 5 | `/graph/agents` |
 | [`graph_analyze`](#capability-graph_analyze) | ask, why | Structural and operational KG analysis. | 8 | `/graph/analyze` |
 | [`graph_argument`](#capability-graph_argument) | why, write, ask | AIF (Argument Interchange Format) argument maps: I-nodes (claims) linked through S-nodes — RA | 4 | `/graph/argument` |
 | [`graph_ask`](#capability-graph_ask) | ask | ask the Knowledge Graph in plain English. | 1 | `/graph/ask` |
-| [`graph_audit`](#capability-graph_audit) | why, ask | Tamper-evident audit ledger (G23): checks the engine's hash-chained durable-mutation audit log | 3 | `/audit` |
+| [`graph_audit`](#capability-graph_audit) | why, ask | Tamper-evident audit ledger (G23): verifies the engine's hash-chained durable-mutation audit log | 3 | `/audit` |
 | [`graph_broker`](#capability-graph_broker) | act | the epistemic-graph engine message broker (AMQP-style exchanges + queues + streams), distinct from | 1 | `/graph/broker` |
 | [`graph_bus`](#capability-graph_bus) | act | the agent-to-agent communication bus: let this session talk to other Claude/LLM sessions (any | 1 | `/graph/bus` |
 | [`graph_candidate_claims`](#capability-graph_candidate_claims) | act, write | Track 4/5 of the universal-ingestion program: propose model-backed candidate claims from raw text, | 2 | `/graph/candidate-claims` |
@@ -59,7 +59,7 @@
 | [`graph_configure`](#capability-graph_configure) | manage | Manage backend configurations, system credentials, and tool registration within the unified agent | 38 | `/graph/configure` |
 | [`graph_context`](#capability-graph_context) | ask | store/fetch curated context for invoker→spawned-agent handoff, persisted in the epistemic-graph so | 4 | `/graph/context` |
 | [`graph_data_prep`](#capability-graph_data_prep) | ask, write | Governed Arrow data preparation over the NE-108 kernel. | 4 | `/data/prep` |
-| [`graph_document_tree`](#capability-graph_document_tree) | ask, write | Reasoning-tree (vectorless) document retrieval over a per-document section tree | 6 | `/graph/document-tree` |
+| [`graph_document_tree`](#capability-graph_document_tree) | ask, write | Reasoning-tree document retrieval uses a vectorless section tree per document | 6 | `/graph/document-tree` |
 | [`graph_domain_ops`](#capability-graph_domain_ops) | act | Run graph-native domain mutations. | 3 | `/graph/domain-ops` |
 | [`graph_durable`](#capability-graph_durable) | act, ask | The unified durable-execution plane (durable-execution-native.md, supersedes restate natively). | 7 | `/graph/durable` |
 | [`graph_engineering`](#capability-graph_engineering) | ask, write | GraphRAG-style Graph Engineering surface: entity-neighborhood local search, community-report | 3 | `/graph/engineering` |
@@ -88,11 +88,11 @@
 | [`graph_message`](#capability-graph_message) | act | bidirectional, cross-process, ordered message channel between an invoking agent and a spawned | 5 | `/graph/message` |
 | [`graph_observe`](#capability-graph_observe) | why, ask | Reason over the KG-native observability subgraph — traces, online-scores, assertion verdicts, | 4 | `/graph/observe` |
 | [`graph_ontology`](#capability-graph_ontology) | write, ask, manage | GraphSchema lifecycle control plane. load/update attach an explicit iri+version Turtle document | 5 | `/graph/ontology` |
-| [`graph_orchestrate`](#capability-graph_orchestrate) | act | Resolve an ingested skill/workflow for a task and run it on the local vLLM through the governed | 1 | `/graph/orchestrate` |
+| [`graph_orchestrate`](#capability-graph_orchestrate) | act | Resolve an ingested skill/workflow for a task and execute it on the local vLLM through the governed | 1 | `/graph/orchestrate` |
 | [`graph_pipeline`](#capability-graph_pipeline) | act, ask | a composable train→eval→serve→predict ML pipeline over a VERSIONED ':Model' artifact that | 1 | `/pipeline/train` |
-| [`graph_projection`](#capability-graph_projection) | ask | run the SAME query `graph_query` will and project the result into a stable node-link JSON shape: | 1 | `/graph/projection` |
+| [`graph_projection`](#capability-graph_projection) | ask | run the same query as `graph_query` and project the result into a stable node-link JSON shape: | 1 | `/graph/projection` |
 | [`graph_promql`](#capability-graph_promql) | ask | query the engine's observability metrics with PromQL. action='instant' (a single evaluation at | 2 | `/graph/promql` |
-| [`graph_query`](#capability-graph_query) | ask | Run a read-only Cypher, bounded UQL, SQL, SPARQL, or federated graph query and return the sole | 1 | `/graph/query` |
+| [`graph_query`](#capability-graph_query) | ask | Execute a read-only Cypher, bounded UQL, SQL, SPARQL, or federated graph query and return the sole | 1 | `/graph/query` |
 | [`graph_reach`](#capability-graph_reach) | act | reach the user over a messaging backend (Telegram, Slack, Discord, ...). | 5 | `/graph/reach` |
 | [`graph_runvcs`](#capability-graph_runvcs) | act | Agent-native run version-control (CONCEPT:AU-ORCH.runvcs.run-commit): fork, revert and review a | 11 | `/graph/runvcs` |
 | [`graph_sandbox`](#capability-graph_sandbox) | act | Inspect and control the native warm-fork sandbox runtime | 3 | `/graph/sandbox` |
@@ -100,7 +100,7 @@
 | [`graph_search`](#capability-graph_search) | ask | Search the Knowledge Graph using multiple strategies (hybrid, concept, analogy, memory, discover, | 1 | `/graph/search` |
 | [`graph_search_synthesis`](#capability-graph_search_synthesis) | ask | Synthesize a shortcut-resistant deep-search task from the evidence graph, or diagnose realized | 2 | `/graph/search-synthesis` |
 | [`graph_secret`](#capability-graph_secret) | manage | Manage secrets (CONCEPT:AU-OS.identity.encrypted-secret-store) in the durable, engine-encrypted | 4 | `/graph/secret` |
-| [`graph_sessions`](#capability-graph_sessions) | manage, ask | Manage durable sessions (action in 'list', 'get', 'remove', 'reply', 'cancel', 'health', | 7 | `/graph/sessions` |
+| [`graph_sessions`](#capability-graph_sessions) | manage, ask | Manage durable sessions (action in 'list', 'get', 'delete', 'reply', 'cancel', 'health', | 7 | `/graph/sessions` |
 | [`graph_share`](#capability-graph_share) | write, manage | Share a private node (CONCEPT:AU-KG.compute.data-is-private-its). | 7 | `/graph/share` |
 | [`graph_table`](#capability-graph_table) | ask, write | mirror data into native engine SQL tables (DataFusion + pg-wire) and manage them. | 6 | `/graph/table` |
 | [`graph_traces`](#capability-graph_traces) | ask, why | search or fetch distributed traces. action='search' (filter by 'service'/'operation'/free-form | 3 | `/graph/traces` |
@@ -109,18 +109,18 @@
 | [`graph_write`](#capability-graph_write) | write | Write nodes, relationships, or register external graphs to the Knowledge Graph. | 14 | `/graph/write` |
 | [`graph_writeback`](#capability-graph_writeback) | write | Backfeed KG-derived knowledge into an external system-of-record | 1 | `/graph/writeback` |
 | [`ingest_sessions`](#capability-ingest_sessions) | write | Ingest AI agent chat/session history into the usage store + KG | 3 | `/usage/ingest-sessions` |
-| [`manage`](#capability-manage) | manage | Configure and govern graph-os and fleet loading; previews first, then run with plan_ref. | 1 | `/intent/manage` |
+| [`manage`](#capability-manage) | manage | Configure and govern graph-os and fleet loading; previews first, then execute with plan_ref. | 1 | `/intent/manage` |
 | [`nl_query`](#capability-nl_query) | ask | ask the Knowledge Graph in plain English, planned by agent-utilities' OWN configured fleet LLM (the | 1 | `/graph/nl-query` |
 | [`object_edits`](#capability-object_edits) | write | Durable object-edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback): record a structured edit | 4 | `/object/edits` |
 | [`object_index`](#capability-object_index) | ask, find | Object Index Lifecycle / Object Data Funnel (CONCEPT:AU-KG.ontology.batch-incremental-sync-live): | 3 | `/object/index` |
 | [`object_permissioning`](#capability-object_permissioning) | manage | Fine-grained object permissioning (CONCEPT:AU-KG.ontology.redact-object-materialize-restricted): | 3 | `/object/permissioning` |
 | [`object_set`](#capability-object_set) | ask, write | Object Set Service (CONCEPT:AU-KG.ontology.link-type-pivot/2.38): | 10 | `/object/set` |
 | [`ontology_classification_claims`](#capability-ontology_classification_claims) | write, ask | Typed, provenance-bearing multi-category classification claims (U-47, | 11 | `/ontology/classification-claims` |
-| [`ontology_derive`](#capability-ontology_derive) | write | Compute derived (function/cypher/sparql/embedding-backed) properties live at read time | 5 | `/ontology/derive` |
+| [`ontology_derive`](#capability-ontology_derive) | write | Compute derived (function/cypher/sparql/embedding-backed) properties live at read time | 3 | `/ontology/derive` |
 | [`ontology_function`](#capability-ontology_function) | act, write | Typed, versioned ontology functions: list or invoke through the governed runtime | 2 | `/ontology/function` |
-| [`ontology_interface`](#capability-ontology_interface) | manage, ask | Ontology interfaces: resolve implementers (targeting), check conformance, or emit OWL | 8 | `/ontology/interface` |
+| [`ontology_interface`](#capability-ontology_interface) | manage, ask | Ontology interfaces: resolve implementers (targeting), validate conformance, or emit OWL | 8 | `/ontology/interface` |
 | [`ontology_leanix_sync`](#capability-ontology_leanix_sync) | write | Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerates | 1 | `/ontology/leanix-sync` |
-| [`ontology_link_materialize`](#capability-ontology_link_materialize) | write | Reify a multiple-to-multiple ontology link as a (junction_node, edge_a, edge_b) triple and write it | 1 | `/ontology/link-materialize` |
+| [`ontology_link_materialize`](#capability-ontology_link_materialize) | write | Reify an ontology link with multiple endpoints on each side as a (junction_node, edge_a, edge_b) | 1 | `/ontology/link-materialize` |
 | [`ontology_model_profile`](#capability-ontology_model_profile) | manage, ask | Model profiles as first-class graph resources | 4 | `/ontology/model-profiles` |
 | [`ontology_property_types`](#capability-ontology_property_types) | manage, ask | List the ontology property-type registry and resolve/validate a Palantir-style type ref | 4 | `/ontology/property-types` |
 | [`ontology_repository_provenance`](#capability-ontology_repository_provenance) | write | Git identity and history anchors (U-47, CONCEPT:AU-KG.ontology.repository-provenance-snapshot), | 4 | `/ontology/repository-provenance` |
@@ -133,10 +133,10 @@
 | [`source_drain`](#capability-source_drain) | write | Watch a chunked async drain started by source_sync(mode='full') on a LARGE corpus | 1 | `/source/drain` |
 | [`source_sync`](#capability-source_sync) | write | THE canonical connector→KG ingestion tool (CONCEPT:AU-KG.ingest.enterprise-source-extractor) — one | 1 | `/source/sync` |
 | [`spec_ticket`](#capability-spec_ticket) | write, ask | Link a KG SDD spec/feature to a Plane/Jira work item and make agents assignable | 1 | `/spec/ticket` |
-| [`tabular_query`](#capability-tabular_query) | ask | Run a read-only SQL projection through the governed tabular query service and return its typed | 1 | `/query/tabular` |
+| [`tabular_query`](#capability-tabular_query) | ask | Execute a read-only SQL projection through the governed tabular query service and return its typed | 1 | `/query/tabular` |
 | [`usage_query`](#capability-usage_query) | ask | Query usage/cost/observability analytics (CONCEPT:AU-ECO.mcp.usage-cost-observability-surface): | 12 | `/usage/query` |
 | [`why`](#capability-why) | why | Explain beliefs, decisions, provenance and changes. action='<tool>.<op>' (see action='describe'), | 1 | `/intent/why` |
-| [`write`](#capability-write) | write | Create or change graph data; previews first, then run with plan_ref. action='<tool>.<op>' (see | 1 | `/intent/write` |
+| [`write`](#capability-write) | write | Create or change graph data; previews first, then execute with plan_ref. action='<tool>.<op>' (see | 1 | `/intent/write` |
 
 ## Capabilities
 
@@ -144,7 +144,7 @@
 
 **act**
 
-Run work, an operation or a fleet tool. Previews first, then run with plan_ref. action='<tool>.<op>' (see action='describe'), or leave it empty to route `intent`.
+Run work, an operation or a fleet tool; previews first, then execute with plan_ref. action='<tool>.<op>' (see action='describe'), or leave it empty to route `intent`.
 
 - **Intent verbs:** act
 - **REST route:** `/intent/act`
@@ -164,11 +164,11 @@ Run work, an operation or a fleet tool. Previews first, then run with plan_ref. 
 - `intent` (string): Natural-language request, routed when action is empty.
 - `execute` (boolean): Run now; when false, return the resolved plan.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -199,11 +199,11 @@ The Agent Library of built agents (system prompt, tools, skills, model profile, 
 - `kind` (string): list filter: local | role | agent_graph.
 - `agent_json` (string): JSON agent record (action=save).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -231,11 +231,11 @@ Read or answer from the Knowledge Graph. action='<tool>.<op>' (see action='descr
 - `intent` (string): Natural-language request, routed when action is empty.
 - `execute` (boolean): Run now; when false, return the resolved plan.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -263,11 +263,11 @@ answer a DATA question over the Knowledge Graph with a DB-GPT-style, multi-step 
 - `max_corrections` (integer): Bounded self-correction retries after a failed query (0 disables).
 - `limit` (integer): Max result rows to return.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -298,11 +298,11 @@ Coordinate canonical OKF-CIS concept ids for linked worktrees on one host (CONCE
 - `ttl_seconds` (integer): Reservation TTL before it is reclaimable.
 - `repo` (string): Repo root whose ledger to use (defaults to agent-utilities).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -332,11 +332,11 @@ Document → ontology processing (CONCEPT:AU-KG.ingest.chunk-overlap-stage): ext
 - `overlap` (integer): Overlap characters between chunks.
 - `contextual` (boolean): Enable contextual-retrieval enrichment (CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment): situate each chunk within the document and embed context+chunk for better recall.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -344,7 +344,7 @@ Document → ontology processing (CONCEPT:AU-KG.ingest.chunk-overlap-stage): ext
 
 **engine admin**
 
-Low-level epistemic-graph engine surface for the 'admin' domain (ops/maintenance: online backup + restore (ADMIN)).
+Low-level epistemic-graph engine surface for the 'admin' domain. ops/maintenance: online backup + restore (ADMIN).
 
 - **Intent verbs:** manage
 - **REST route:** `/engine/admin`
@@ -368,11 +368,11 @@ Low-level epistemic-graph engine surface for the 'admin' domain (ops/maintenance
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -380,7 +380,7 @@ Low-level epistemic-graph engine surface for the 'admin' domain (ops/maintenance
 
 **engine analytics**
 
-Low-level epistemic-graph engine surface for the 'analytics' domain (centrality + (personalized) PageRank).
+Low-level epistemic-graph engine surface for the 'analytics' domain. centrality + (personalized) PageRank.
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/analytics`
@@ -403,11 +403,11 @@ Low-level epistemic-graph engine surface for the 'analytics' domain (centrality 
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -415,7 +415,7 @@ Low-level epistemic-graph engine surface for the 'analytics' domain (centrality 
 
 **engine blob**
 
-Low-level epistemic-graph engine surface for the 'blob' domain (streamed content-addressed media blobs).
+Low-level epistemic-graph engine surface for the 'blob' domain. streamed content-addressed media blobs.
 
 - **Intent verbs:** write
 - **REST route:** `/engine/blob`
@@ -444,11 +444,11 @@ Low-level epistemic-graph engine surface for the 'blob' domain (streamed content
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -456,7 +456,7 @@ Low-level epistemic-graph engine surface for the 'blob' domain (streamed content
 
 **engine broker**
 
-Low-level epistemic-graph engine surface for the 'broker' domain (native message broker: exchange/queue/stream admin + routed publish/consume).
+Low-level epistemic-graph engine surface for the 'broker' domain. native message broker: exchange/queue/stream admin + routed publish/consume.
 
 - **Intent verbs:** act, manage, ask
 - **REST route:** `/engine/broker`
@@ -496,11 +496,11 @@ Low-level epistemic-graph engine surface for the 'broker' domain (native message
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -508,7 +508,7 @@ Low-level epistemic-graph engine surface for the 'broker' domain (native message
 
 **engine channels**
 
-Low-level epistemic-graph engine surface for the 'channels' domain (dynamic agent communication channels).
+Low-level epistemic-graph engine surface for the 'channels' domain. dynamic agent communication channels.
 
 - **Intent verbs:** act
 - **REST route:** `/engine/channels`
@@ -534,11 +534,11 @@ Low-level epistemic-graph engine surface for the 'channels' domain (dynamic agen
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -546,7 +546,7 @@ Low-level epistemic-graph engine surface for the 'channels' domain (dynamic agen
 
 **engine consensus**
 
-Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust identity + multisig mutation).
+Low-level epistemic-graph engine surface for the 'consensus' domain. zero-trust identity + multisig mutation.
 
 - **Intent verbs:** act
 - **REST route:** `/engine/consensus`
@@ -569,11 +569,11 @@ Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust 
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -581,7 +581,7 @@ Low-level epistemic-graph engine surface for the 'consensus' domain (zero-trust 
 
 **engine datascience**
 
-Low-level epistemic-graph engine surface for the 'datascience' domain (estimators + primitives + training kernels).
+Low-level epistemic-graph engine surface for the 'datascience' domain. estimators + primitives + training kernels.
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/datascience`
@@ -614,11 +614,11 @@ Low-level epistemic-graph engine surface for the 'datascience' domain (estimator
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -626,7 +626,7 @@ Low-level epistemic-graph engine surface for the 'datascience' domain (estimator
 
 **engine edges**
 
-Low-level epistemic-graph engine surface for the 'edges' domain (edge CRUD, temporal invalidate/supersede, batch reads).
+Low-level epistemic-graph engine surface for the 'edges' domain. edge CRUD, temporal invalidate/supersede, batch reads.
 
 - **Intent verbs:** write
 - **REST route:** `/engine/edges`
@@ -654,11 +654,11 @@ Low-level epistemic-graph engine surface for the 'edges' domain (edge CRUD, temp
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -666,7 +666,7 @@ Low-level epistemic-graph engine surface for the 'edges' domain (edge CRUD, temp
 
 **engine finance**
 
-Low-level epistemic-graph engine surface for the 'finance' domain (quantitative finance (optimize/risk/regime/signals/HFT/derivatives)).
+Low-level epistemic-graph engine surface for the 'finance' domain. quantitative finance (optimize/risk/regime/signals/HFT/derivatives).
 
 - **Intent verbs:** ask, act
 - **REST route:** `/engine/finance`
@@ -745,11 +745,11 @@ Low-level epistemic-graph engine surface for the 'finance' domain (quantitative 
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -757,7 +757,7 @@ Low-level epistemic-graph engine surface for the 'finance' domain (quantitative 
 
 **engine graph**
 
-Low-level epistemic-graph engine surface for the 'graph' domain (graph algorithms, AST parse/index, semantic+embedding compute).
+Low-level epistemic-graph engine surface for the 'graph' domain. graph algorithms, AST parse/index, semantic+embedding compute.
 
 - **Intent verbs:** ask, write
 - **REST route:** `/engine/graph`
@@ -802,11 +802,11 @@ Low-level epistemic-graph engine surface for the 'graph' domain (graph algorithm
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -814,7 +814,7 @@ Low-level epistemic-graph engine surface for the 'graph' domain (graph algorithm
 
 **engine graphlearn**
 
-Low-level epistemic-graph engine surface for the 'graphlearn' domain (KAN graph-learning: fit/predict a learned per-feature edge-function link predictor).
+Low-level epistemic-graph engine surface for the 'graphlearn' domain.
 
 - **Intent verbs:** act, ask
 - **REST route:** `/engine/graphlearn`
@@ -834,11 +834,11 @@ Low-level epistemic-graph engine surface for the 'graphlearn' domain (KAN graph-
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -846,7 +846,7 @@ Low-level epistemic-graph engine surface for the 'graphlearn' domain (KAN graph-
 
 **engine ledger**
 
-Low-level epistemic-graph engine surface for the 'ledger' domain (audit ledger get/clear/apply).
+Low-level epistemic-graph engine surface for the 'ledger' domain. audit ledger get/clear/apply.
 
 - **Intent verbs:** write, act
 - **REST route:** `/engine/ledger`
@@ -868,11 +868,11 @@ Low-level epistemic-graph engine surface for the 'ledger' domain (audit ledger g
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -880,7 +880,7 @@ Low-level epistemic-graph engine surface for the 'ledger' domain (audit ledger g
 
 **engine lifecycle**
 
-Low-level epistemic-graph engine surface for the 'lifecycle' domain (prune/decay/evict, batch_update, context view, (de)serialize).
+Low-level epistemic-graph engine surface for the 'lifecycle' domain. prune/decay/evict, batch_update, context view, (de)serialize.
 
 - **Intent verbs:** manage, act
 - **REST route:** `/engine/lifecycle`
@@ -908,11 +908,11 @@ Low-level epistemic-graph engine surface for the 'lifecycle' domain (prune/decay
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -920,7 +920,7 @@ Low-level epistemic-graph engine surface for the 'lifecycle' domain (prune/decay
 
 **engine mining**
 
-Low-level epistemic-graph engine surface for the 'mining' domain (association-rule mining (Apriori/FP-Growth/Eclat: support/confidence/lift)).
+Low-level epistemic-graph engine surface for the 'mining' domain. association-rule mining (Apriori/FP-Growth/Eclat: support/confidence/lift).
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/mining`
@@ -956,11 +956,11 @@ Low-level epistemic-graph engine surface for the 'mining' domain (association-ru
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -968,7 +968,7 @@ Low-level epistemic-graph engine surface for the 'mining' domain (association-ru
 
 **engine modalities**
 
-Low-level epistemic-graph engine surface for the 'modalities' domain (native document/image/audio/video ingest, typed region/window query, lifecycle (cold/restore/remove/tombstone), and events (B-12)).
+Low-level epistemic-graph engine surface for the 'modalities' domain. native document/image/audio/video ingest, typed region/window query, lifecycle (cold/restore/delete/tombstone), and events (B-12).
 
 - **Intent verbs:** write, ask
 - **REST route:** `/engine/modalities`
@@ -1002,11 +1002,11 @@ Low-level epistemic-graph engine surface for the 'modalities' domain (native doc
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1014,7 +1014,7 @@ Low-level epistemic-graph engine surface for the 'modalities' domain (native doc
 
 **engine nodes**
 
-Low-level epistemic-graph engine surface for the 'nodes' domain (node CRUD, batch/union reads, degree/neighbour queries).
+Low-level epistemic-graph engine surface for the 'nodes' domain. node CRUD, batch/union reads, degree/neighbour queries.
 
 - **Intent verbs:** write, ask
 - **REST route:** `/engine/nodes`
@@ -1055,11 +1055,11 @@ Low-level epistemic-graph engine surface for the 'nodes' domain (node CRUD, batc
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1067,7 +1067,7 @@ Low-level epistemic-graph engine surface for the 'nodes' domain (node CRUD, batc
 
 **engine placement**
 
-Low-level epistemic-graph engine surface for the 'placement' domain (DIST-P2-1 raft PlacementCatalog: route (read) + assign/move/abort_move admin (raft/cluster only)).
+Low-level epistemic-graph engine surface for the 'placement' domain.
 
 - **Intent verbs:** manage, ask
 - **REST route:** `/engine/placement`
@@ -1089,11 +1089,11 @@ Low-level epistemic-graph engine surface for the 'placement' domain (DIST-P2-1 r
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1101,7 +1101,7 @@ Low-level epistemic-graph engine surface for the 'placement' domain (DIST-P2-1 r
 
 **engine query**
 
-Low-level epistemic-graph engine surface for the 'query' domain (SQL / Cypher / GraphQL / UQL / unified cross-modal query / federation).
+Low-level epistemic-graph engine surface for the 'query' domain.
 
 - **Intent verbs:** ask
 - **REST route:** `/engine/query`
@@ -1145,11 +1145,11 @@ Low-level epistemic-graph engine surface for the 'query' domain (SQL / Cypher / 
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1157,7 +1157,7 @@ Low-level epistemic-graph engine surface for the 'query' domain (SQL / Cypher / 
 
 **engine rbac**
 
-Low-level epistemic-graph engine surface for the 'rbac' domain (RBAC policy administration: roles + resource/action grants (ADMIN)).
+Low-level epistemic-graph engine surface for the 'rbac' domain.
 
 - **Intent verbs:** manage
 - **REST route:** `/engine/rbac`
@@ -1180,11 +1180,11 @@ Low-level epistemic-graph engine surface for the 'rbac' domain (RBAC policy admi
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1192,7 +1192,7 @@ Low-level epistemic-graph engine surface for the 'rbac' domain (RBAC policy admi
 
 **engine rdf**
 
-Low-level epistemic-graph engine surface for the 'rdf' domain (RDF triples + SPARQL + OWL reasoning).
+Low-level epistemic-graph engine surface for the 'rdf' domain.
 
 - **Intent verbs:** write, ask
 - **REST route:** `/engine/rdf`
@@ -1224,11 +1224,11 @@ Low-level epistemic-graph engine surface for the 'rdf' domain (RDF triples + SPA
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1236,7 +1236,7 @@ Low-level epistemic-graph engine surface for the 'rdf' domain (RDF triples + SPA
 
 **engine reasoning**
 
-Low-level epistemic-graph engine surface for the 'reasoning' domain (forward-chaining OWL/RDFS Datalog closure).
+Low-level epistemic-graph engine surface for the 'reasoning' domain. forward-chaining OWL/RDFS Datalog closure.
 
 - **Intent verbs:** why
 - **REST route:** `/engine/reasoning`
@@ -1255,11 +1255,11 @@ Low-level epistemic-graph engine surface for the 'reasoning' domain (forward-cha
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1267,7 +1267,7 @@ Low-level epistemic-graph engine surface for the 'reasoning' domain (forward-cha
 
 **engine resharding**
 
-Low-level epistemic-graph engine surface for the 'resharding' domain (M3 catalog/reshard/rebalance admin (redb)).
+Low-level epistemic-graph engine surface for the 'resharding' domain.
 
 - **Intent verbs:** manage
 - **REST route:** `/engine/resharding`
@@ -1292,11 +1292,11 @@ Low-level epistemic-graph engine surface for the 'resharding' domain (M3 catalog
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1304,7 +1304,7 @@ Low-level epistemic-graph engine surface for the 'resharding' domain (M3 catalog
 
 **engine streaming**
 
-Low-level epistemic-graph engine surface for the 'streaming' domain (CDC / continuous queries / watch / triggers).
+Low-level epistemic-graph engine surface for the 'streaming' domain.
 
 - **Intent verbs:** act
 - **REST route:** `/engine/streaming`
@@ -1335,11 +1335,11 @@ Low-level epistemic-graph engine surface for the 'streaming' domain (CDC / conti
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1347,7 +1347,7 @@ Low-level epistemic-graph engine surface for the 'streaming' domain (CDC / conti
 
 **engine tenants**
 
-Low-level epistemic-graph engine surface for the 'tenants' domain (multi-tenant graph create/remove/list).
+Low-level epistemic-graph engine surface for the 'tenants' domain. multi-tenant graph create/delete/list.
 
 - **Intent verbs:** manage
 - **REST route:** `/engine/tenants`
@@ -1368,11 +1368,11 @@ Low-level epistemic-graph engine surface for the 'tenants' domain (multi-tenant 
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1380,7 +1380,7 @@ Low-level epistemic-graph engine surface for the 'tenants' domain (multi-tenant 
 
 **engine timeseries**
 
-Low-level epistemic-graph engine surface for the 'timeseries' domain (native TSDB append/range/window/asof/gapfill).
+Low-level epistemic-graph engine surface for the 'timeseries' domain. native TSDB append/range/window/asof/gapfill.
 
 - **Intent verbs:** write, ask
 - **REST route:** `/engine/timeseries`
@@ -1408,11 +1408,11 @@ Low-level epistemic-graph engine surface for the 'timeseries' domain (native TSD
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1420,7 +1420,7 @@ Low-level epistemic-graph engine surface for the 'timeseries' domain (native TSD
 
 **engine txn**
 
-Low-level epistemic-graph engine surface for the 'txn' domain (server-side OCC ACID transactions).
+Low-level epistemic-graph engine surface for the 'txn' domain. server-side OCC ACID transactions.
 
 - **Intent verbs:** act
 - **REST route:** `/engine/txn`
@@ -1457,11 +1457,11 @@ Low-level epistemic-graph engine surface for the 'txn' domain (server-side OCC A
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1469,7 +1469,7 @@ Low-level epistemic-graph engine surface for the 'txn' domain (server-side OCC A
 
 **engine viz**
 
-Low-level epistemic-graph engine surface for the 'viz' domain (D-VZ-1 native visualization: render/capability_matrix over the eg-viz LOD ColumnStore/export pipeline).
+Low-level epistemic-graph engine surface for the 'viz' domain.
 
 - **Intent verbs:** act, ask
 - **REST route:** `/engine/viz`
@@ -1489,11 +1489,11 @@ Low-level epistemic-graph engine surface for the 'viz' domain (D-VZ-1 native vis
 - `params_json` (string): JSON object of keyword arguments for the method.
 - `graph` (string): Target graph name (empty ⇒ the deployment default graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1521,11 +1521,11 @@ Discover capabilities, operations, fleet tools and the fleet catalog.
 - `intent` (string): Natural-language request, routed when action is empty.
 - `execute` (boolean): Run now; when false, return the resolved plan.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'FindCycle', 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'FindCycle', 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1533,7 +1533,7 @@ Discover capabilities, operations, fleet tools and the fleet catalog.
 
 **graph agents**
 
-Run graph-grounded agent collectives.
+Execute graph-grounded agent collectives.
 
 - **Intent verbs:** act
 - **REST route:** `/graph/agents`
@@ -1567,11 +1567,11 @@ Run graph-grounded agent collectives.
 - `beam_width` (integer): reason(tot_bfs|tot_dfs) only: frontier survivors kept per expansion.
 - `max_depth` (integer): reason(tot_bfs|tot_dfs) only: max thought-chain depth before giving up.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1608,11 +1608,11 @@ Structural and operational KG analysis.
 - `depth` (integer): Traversal depth.
 - `target` (string): Analysis target.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1649,11 +1649,11 @@ AIF (Argument Interchange Format) argument maps: I-nodes (claims) linked through
 - `scheme_id` (string): Optional explicit scheme id (add_scheme); defaults to a slug of scheme_name.
 - `graph` (string): Target graph name for evaluate's engine call (empty = deployment default).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1682,11 +1682,11 @@ ask the Knowledge Graph in plain English.
 - `limit` (integer): Max result rows to return.
 - `include_epistemic` (boolean): CONCEPT:AU-KB-CURRENCY — opt-in. Only takes effect when the generated (or forced) query resolves to the 'cypher' dialect (sql/sparql have no epistemic-envelope surface, so this is a silent no-op for those). When true and honored, `results` holds per-row epistemic envelopes (confidence, bitemporal valid/tx time, evidence provenance, policy labels) instead of plain rows, and `citations` degrades to an empty list.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1694,7 +1694,7 @@ ask the Knowledge Graph in plain English.
 
 **graph audit**
 
-Tamper-evident audit ledger (G23): checks the engine's hash-chained durable-mutation audit log (Rust `epistemic-graph/src/audit.rs`, SHA-256 per (graph, seq)) and reconstructs 'what happened to entity X' from the KG's own :ToolCall provenance.
+Tamper-evident audit ledger (G23): verifies the engine's hash-chained durable-mutation audit log (Rust `epistemic-graph/src/audit.rs`, SHA-256 per (graph, seq)) and reconstructs 'what happened to entity X' from the KG's own :ToolCall provenance.
 
 - **Intent verbs:** why, ask
 - **REST route:** `/audit`
@@ -1711,17 +1711,17 @@ Tamper-evident audit ledger (G23): checks the engine's hash-chained durable-muta
 
 **Typed input:**
 
-- `action` (string): check | for_target | lineage
+- `action` (string): verify | for_target | lineage
 - `target_id` (string): Entity id to reverse-index tool-call provenance for (required for for_target).
 - `fragment_id` (string): Cited fragment id to resolve lineage for (required for lineage).
 - `claim` (string): The claim/fact text this lineage is for (lineage only, carried through verbatim).
 - `content_hash` (string): The content hash the citation was made against (lineage only, sharpens moved/stale detection).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1753,11 +1753,11 @@ the epistemic-graph engine message broker (AMQP-style exchanges + queues + strea
 - `params_json` (string): JSON object of extra kwargs, e.g. {"max_messages":10,"ack":true,"durable":true}. Merged over the typed fields.
 - `graph` (string): Target graph (empty ⇒ deployment default).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'BrokerAck', 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'BrokerAck', 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1801,11 +1801,11 @@ the agent-to-agent communication bus: let this session talk to other Claude/LLM 
 - `origin` (string): Origin hub id (federate_in).
 - `scope` (string): Marking scope for federation: commons|org|private (federate).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1813,7 +1813,7 @@ the agent-to-agent communication bus: let this session talk to other Claude/LLM 
 
 **graph candidate claims**
 
-Track 4/5 of the universal-ingestion program: propose model-backed candidate claims from raw text, and/or resolve entity-identity candidates across records — NEITHER action ever writes a fact or an identity assertion (structurally no write authority. See the module docstring). 'propose' (text, source_id, fragments_json, rounds, dedup) runs CandidateClaimExtractor.propose — a schema-constrained extraction pass citing EXACT evidence spans against the provided fragments, with an honest (never fabricated) model_confidence and a review_bucket (accepted|needs_review|rejected|quarantined). 'resolve_identities' (records_json, min_confidence, persist) runs resolve_identity_candidates — compares every record pair and returns AMBIGUITY-PRESERVING candidates (never a merge); persist=true also writes each as a POSSIBLE_SAME_AS hint edge (write_candidate), the one ungated write this pipeline makes.
+Track 4/5 of the universal-ingestion program: propose model-backed candidate claims from raw text, and/or resolve entity-identity candidates across records — NEITHER action ever writes a fact or an identity assertion (structurally no write authority; see the module docstring). 'propose' (text, source_id, fragments_json, rounds, dedup) runs CandidateClaimExtractor.propose — a schema-constrained extraction pass citing EXACT evidence spans against the supplied fragments, with an honest (never fabricated) model_confidence and a review_bucket (accepted|needs_review|rejected|quarantined). 'resolve_identities' (records_json, min_confidence, persist) runs resolve_identity_candidates — compares every record pair and returns AMBIGUITY-PRESERVING candidates (never a merge); persist=true also writes each as a POSSIBLE_SAME_AS hint edge (write_candidate), the one ungated write this pipeline makes.
 
 - **Intent verbs:** act, write
 - **REST route:** `/graph/candidate-claims`
@@ -1839,11 +1839,11 @@ Track 4/5 of the universal-ingestion program: propose model-backed candidate cla
 - `min_confidence` (number): 'resolve_identities' only: floor below which a pair is not flagged as a candidate.
 - `persist` (boolean): 'resolve_identities' only: also persist each returned candidate as a POSSIBLE_SAME_AS edge (write_candidate) — never a merge, the one ungated write this module's sibling performs.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1867,18 +1867,18 @@ one capability-shaped call across every KG modality (graphs, sql, kv, vector, on
 
 **Typed input:**
 
-- `action` (string): 'list' (default) returns modality and provider catalogues; 'preview_sync' validates one source_sync request without running it.
+- `action` (string): 'list' (default) returns modality and provider catalogues; 'preview_sync' validates one source_sync request without executing it.
 - `source` (string): For preview_sync: exactly one neutral source identifier.
 - `mode` (string): For preview_sync: 'delta', 'full', or 'reconcile'.
 - `ids_json` (string): For preview_sync: JSON list of bounded source record ids.
 - `connection` (string): For preview_sync: one neutral named backend connection.
 - `graph` (string): For preview_sync: one neutral physical graph name.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1886,7 +1886,7 @@ one capability-shaped call across every KG modality (graphs, sql, kv, vector, on
 
 **graph claims**
 
-Drive the X-3 epistemic mining flywheel's governed claim lifecycle (CONCEPT:AU-KG.evolution.mining-flywheel) directly: proposed -> validated -> accepted -> deprecated -> retracted (any pre-terminal state may also be retracted directly. RETRACTED is TERMINAL and STICKY — 'propose' refuses to reopen a retracted claim).
+Drive the X-3 epistemic mining flywheel's governed claim lifecycle (CONCEPT:AU-KG.evolution.mining-flywheel) directly: proposed -> validated -> accepted -> deprecated -> retracted (any pre-terminal state may also be retracted directly; RETRACTED is TERMINAL and STICKY — 'propose' refuses to reopen a retracted claim).
 
 - **Intent verbs:** manage, act
 - **REST route:** `/graph/claims`
@@ -1919,11 +1919,11 @@ Drive the X-3 epistemic mining flywheel's governed claim lifecycle (CONCEPT:AU-K
 - `confidence` (number): 'evaluate' only: the candidate claim's confidence.
 - `envelope_json` (string): 'evaluate' only: JSON ChangeEnvelope.as_dict()-shaped payload — the write this claim proposes if later accepted.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1956,18 +1956,18 @@ Understand a CODEBASE via the ingested code graph — query this before grep.
 
 **Typed input:**
 
-- `action` (string): code_context | cross_repo_usages | call_graph | similar_code | routes | change_coupling | code_evolution | blast_radius | code_metrics | arch_report | adr
+- `action` (string): `code_context | cross_repo_usages | call_graph | similar_code | routes | change_coupling | code_evolution | blast_radius | code_metrics | arch_report | adr`
 - `query` (string): Question / area / symbol name / repo path.
 - `top_k` (integer): Result count.
 - `node_id` (string): Symbol/:Code node id (call_graph, similar_code, blast_radius).
 - `depth` (integer): Traversal depth (blast_radius).
 - `target` (string): how|usage|impact (code_context) or callees|callers|inherits (call_graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -1999,11 +1999,11 @@ Navigate the resolved code graph (CONCEPT:AU-KG.backend.declared-columns-so-sche
 - `depth` (integer): Max hops for trace_call_graph / impact_of_change (1-10).
 - `limit` (integer): Max rows to return.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2034,11 +2034,11 @@ Compliance posture rollup + redacted bulk export — an aggregation layer over p
 - `as_of` (string): Optional ISO-8601 instant — bitemporal cutoff for the cypher id selection (export action).
 - `limit` (integer): Max nodes exported in one call (export action).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2071,11 +2071,11 @@ Inspect and govern this deployment's AgentConfig (CONCEPT:AU-OS.config.two-surfa
 - `reason` (string): Why this change is happening (audit trail, 'set').
 - `contains` (string): Substring filter for a keyless 'describe'.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2135,15 +2135,15 @@ Manage backend configurations, system credentials, and tool registration within 
 
 **Typed input:**
 
-- `action` (string): Configuration operation. Core actions: set_secret, vault_sync, frontend_contributions, register_mcp, install_hooks, uninstall_hooks, harness_fence, schema_pack, schema_candidates, add_connection, remove_connection, list_connections, mirror_status, reconcile, generate_config, config_doctor, config_reference, get_config, list_config, system_doctor, health, preflight, and doctor (hook-installer self-check; distinct from config_doctor/system_doctor). set_role_routing persists a role's model registry routing entry (config_value is the JSON RoleSpec payload). Universal external-source lifecycle actions are discover_connection_schema, propose_connection_mapping, approve_connection_mapping, connection_mapping_status, external_graph_doctor, profile_connection, and ingest_connection. Durable connection declarations accept neutral aliases and runtime secret references only; endpoint, credential, identity, query, TLS material, and local-path literals are rejected. GraphQL sources use a read-only runtime adapter; their connection, mapping, auth, TLS, and variables documents remain separate refs, and every ingest rechecks the approved schema and mapping-policy digests. push_to_stardog, pull_from_stardog, stardog_sparql, stardog_export_graph, stardog_import_graph, setup_databases, and check_databases were retired with the legacy SPARQL backend and database-setup path; each name stays reachable and answers with a typed unavailable error.
+- `action` (string): Configuration operation. Core action identifiers: ` set_secret, vault_sync, frontend_contributions, register_mcp, install_hooks, uninstall_hooks, harness_fence, schema_pack, schema_candidates, add_connection, remove_connection, list_connections, mirror_status, reconcile, generate_config, config_doctor, config_reference, get_config, list_config, system_doctor, health, preflight, doctor` (hook-installer self-test; distinct from config_doctor/system_doctor). set_role_routing persists a role's model registry routing entry (config_value is the JSON RoleSpec payload). Universal external-source lifecycle actions are discover_connection_schema, propose_connection_mapping, approve_connection_mapping, connection_mapping_status, external_graph_doctor, profile_connection, and ingest_connection. Durable connection declarations accept neutral aliases and runtime secret references only; endpoint, credential, identity, query, TLS material, and local-path literals are rejected. GraphQL sources use a read-only runtime adapter; their connection, mapping, auth, TLS, and variables documents remain separate refs, and every ingest validates the approved schema and mapping-policy digests. Retired actions: `push_to_stardog`, `pull_from_stardog`, `stardog_sparql`, `stardog_export_graph`, `stardog_import_graph`, `setup_databases`, and `verify_databases`. The legacy SPARQL backend and database-setup path retired these actions. Each name stays reachable and returns a typed unavailable error.
 - `config_key` (string): The key or ID of the configuration/secret (for 'schema_pack', the pack name e.g. 'research-state'; for connection actions, the connection name).
 - `config_value` (string): JSON string containing the payload or secret value.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2176,11 +2176,11 @@ store/fetch curated context for invoker→spawned-agent handoff, persisted in th
 - `key` (string): Optional sub-key within the session.
 - `ttl_s` (integer): Optional time-to-live in seconds (0 = persistent).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2209,11 +2209,11 @@ Governed Arrow data preparation over the NE-108 kernel.
 - `action` (string): profile_dataset | clean_dataset | validate_prepared | commit_prepared
 - `params_json` (string): Bounded JSON object carrying the typed plan, immutable refs, artifact_ref or bounded scalar records, and resource budget.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2221,7 +2221,7 @@ Governed Arrow data preparation over the NE-108 kernel.
 
 **graph document tree**
 
-Reasoning-tree (vectorless) document retrieval over a per-document section tree (CONCEPT:AU-KG.retrieval.section-tree/tree-navigation. Distills PageIndex). action: 'build' (build + optionally persist the section tree from text or a stored document), 'structure' (return the text-free table-of-contents map = get_document_structure), 'content' (fetch section bodies for cited char ranges like '96..208,300..420' = get_page_content), 'fetch' (walk the tree by relevance and return sections with cited start..end ranges), 'fragments' (the addressable evidence spine — every citable Fragment of an artifact/document with its stable address + content hash; CONCEPT:AU-KG.ingest.stable-fragment-address), 'cite' (resolve a stored citation against the current artifact and report current | stale | moved | lost).
+Reasoning-tree document retrieval uses a vectorless section tree per document (CONCEPT:AU-KG.retrieval.section-tree/tree-navigation; distills PageIndex). `build` creates the tree from text or a stored document, with optional persistence. `structure` returns its text-free table of contents through `get_document_structure`. `content` fetches section bodies for cited character ranges through `get_page_content`, such as `96..208,300..420`. `retrieve` follows relevance and returns sections with cited start/end ranges. `fragments` returns each citable Fragment of an artifact/document with its stable address and content hash (CONCEPT:AU-KG.ingest.stable-fragment-address). `cite` resolves a stored citation against the current artifact, reporting `current`, `stale`, `moved`, or `lost`.
 
 - **Intent verbs:** ask, write
 - **REST route:** `/graph/document-tree`
@@ -2241,26 +2241,26 @@ Reasoning-tree (vectorless) document retrieval over a per-document section tree 
 
 **Typed input:**
 
-- `action` (string, required): build | structure | content | fetch | fragments | cite
-- `document_id` (string): Target Document id (structure/content, and build/fetch when loading from the graph).
-- `text` (string): action=build/fetch — inline document text (markdown) to build the tree from, instead of loading a stored document.
-- `query` (string): action=fetch — the natural-language query to navigate the tree with.
+- `action` (string, required): `build | structure | content | retrieve | fragments | cite`
+- `document_id` (string): Target Document id (`structure/content`, and `build/retrieve` when loading from the graph).
+- `text` (string): `action=build/retrieve` — inline document text (markdown) to build the tree from, instead of loading a stored document.
+- `query` (string): `action=retrieve` — the natural-language query to navigate the tree with.
 - `ranges` (string): action=content — char ranges to fetch, e.g. '96..208,300..420'.
-- `top_k` (integer): action=fetch — max sections to return.
+- `top_k` (integer): `action=retrieve` — max sections to return.
 - `persist` (boolean): action=build — write the Section nodes/edges to the graph (requires document_id).
 - `thin` (boolean): action=build — collapse tiny sections into their parent (token-budget thinning).
 - `summarize` (boolean): action=build — compute per-node summaries for a text-free structure map.
-- `use_llm` (boolean): action=fetch — try LLM tree navigation before the lexical walk.
+- `use_llm` (boolean): `action=retrieve` — try LLM tree navigation before the lexical walk.
 - `artifact_id` (string): action=fragments/cite — the source Artifact to read the evidence spine of (alternative to document_id).
 - `fragment_id` (string): action=cite — the stable fragment address the citation stored.
 - `content_hash` (string): action=cite — the 'sha256:<hex>' content hash the citation stored, used to detect staleness and to relocate a moved fragment.
 - `kinds` (string): action=fragments — comma-separated fragment kinds to keep (heading,paragraph,table,table_row,list_item,code_block,quote).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2298,11 +2298,11 @@ Run graph-native domain mutations.
 - `learning_rate` (number):
 - `discount_factor` (number):
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2341,11 +2341,11 @@ The unified durable-execution plane (durable-execution-native.md, supersedes res
 - `status` (string): 'status' only: filter by durable_status.
 - `limit` (integer): 'status' only: max rows.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2376,18 +2376,18 @@ GraphRAG-style Graph Engineering surface: entity-neighborhood local search, comm
 - `depth` (integer): local_search neighborhood hops (bounded).
 - `top_k` (integer): local_search result cap.
 - `level` (integer): global_search community-report level: 0 = per-community reports, 1 = the single global rollup report.
-- `max_communities` (integer): global_search MAP-step fan-out bound, and build_community_reports' max communities to summarize (there default 50 when left at 8 has no special meaning -- pass explicitly for build_community_reports if the operator want a different cap).
+- `max_communities` (integer): global_search MAP-step fan-out bound. Also limits communities summarized by build_community_reports. Both actions default to 8; pass a different cap explicitly.
 - `token_budget` (integer): ContextCompiler token budget. 0 (default) uses each action's own default (2000 for local_search, 4000 for global_search).
 - `resolution` (number): build_community_reports: Louvain resolution parameter.
 - `min_size` (integer): build_community_reports: minimum community size to summarize.
 - `embed` (boolean): build_community_reports: embed each report's theme+summary so global_search can rank it.
 - `synthesize_answer` (boolean): local_search: render the grounded-answer canonical prompt over the assembled bundle (best-effort).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2395,7 +2395,7 @@ GraphRAG-style Graph Engineering surface: entity-neighborhood local search, comm
 
 **graph epistemic**
 
-Purpose-named epistemic-answer surface over the engine's belief/provenance primitives (CONCEPT:AU-KB-CURRENCY) — 'why do this repository believe this', 'why NOT', 'what will change my mind', 'what changed between two points in time', 'resolve this contradiction'.
+Purpose-named epistemic-answer surface over the engine's belief/provenance primitives (CONCEPT:AU-KB-CURRENCY) — explain belief, missing belief, invalidating evidence, changes over time, and contradiction resolution.
 
 - **Intent verbs:** why, ask
 - **REST route:** `/epistemic`
@@ -2414,8 +2414,8 @@ Purpose-named epistemic-answer surface over the engine's belief/provenance primi
 
 **Typed input:**
 
-- `action` (string): status | why | why_not | what_will_invalidate | what_changed | resolve_conflict
-- `node_id` (string): Claim/node id (status, why, why_not, what_will_invalidate).
+- `action` (string): `status | why | why_not | what_would_invalidate | what_changed | resolve_conflict`
+- `node_id` (string): Claim/node id (`status`, `why`, `why_not`, `what_would_invalidate`).
 - `node_ids` (string): JSON array of contradicting node ids (resolve_conflict).
 - `disclosure_level` (string): Full | Skeleton | ExistenceOnly — policy-aware redaction (why). Empty = engine default (full disclosure).
 - `tx_from` (integer): Lower transaction-time bound (what_changed).
@@ -2423,11 +2423,11 @@ Purpose-named epistemic-answer surface over the engine's belief/provenance primi
 - `semantics` (string): Argumentation semantics for resolve_conflict (e.g. 'grounded').
 - `graph` (string): Target graph name (empty = deployment default).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2461,11 +2461,11 @@ Unified ETL pipeline between systems over the canonical KG hub (CONCEPT:AU-KG.on
 - `dry_run` (boolean): Write-back dry-run (fail-closed default).
 - `limit` (integer): Max rows for action='lineage'.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2505,18 +2505,18 @@ Evaluate agents/harnesses and reason over learned world models.
 
 **Typed input:**
 
-- `action` (string): evaluate | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | assimilation_benchmark | evolve_model | evolve_code | forecast | causal | invariant | quant_crypto | quant_microstructure | quant_regime | quant_insider
+- `action` (string): `evaluate | evaluate_harness | guard_corpus | harness_gate | check_constraints | specialize | world_model_rollout | latent_efficiency_benchmark | assimilation_benchmark | evolve_model | evolve_code | forecast | causal | invariant | quant_crypto | quant_microstructure | quant_regime | quant_insider`
 - `query` (string): Subject of the evaluation (JSON / id / start state).
 - `top_k` (integer): Steps / result count.
 - `node_id` (string): Optional node id.
 - `depth` (integer): Optional depth.
 - `target` (string): Optional target.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2554,11 +2554,11 @@ Improve the graph and its executable knowledge.
 - `force` (boolean): Re-run assimilation even when its watermark is unchanged.
 - `draft` (boolean): Render reviewable skill drafts while distilling.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2566,7 +2566,7 @@ Improve the graph and its executable knowledge.
 
 **graph explain**
 
-The UNIVERSAL context plane (CONCEPT:AU-KG.retrieval.route-question-its-domain): route a question to its domain provider and return ONE grounded, cited answer. action='explain' with target='domain:intent' (e.g. 'ops:why', 'code:usage', 'deploy:status', 'entity:health') — or a bare intent with the domain inferred, or target='domains' to list providers. action='context' returns a synthesized context bundle. Action='executable_rag' runs the grounded multi-hop retriever.
+The UNIVERSAL context plane (CONCEPT:AU-KG.retrieval.route-question-its-domain): route a question to its domain provider and return ONE grounded, cited answer. action='explain' with target='domain:intent' (e.g. 'ops:why', 'code:usage', 'deploy:status', 'entity:health') — or a bare intent with the domain inferred, or target='domains' to list providers. action='context' returns a synthesized context bundle; action='executable_rag' runs the grounded multi-hop retriever.
 
 - **Intent verbs:** why
 - **REST route:** `/graph/explain`
@@ -2591,11 +2591,11 @@ The UNIVERSAL context plane (CONCEPT:AU-KG.retrieval.route-question-its-domain):
 - `depth` (integer): Optional depth.
 - `target` (string): 'domain:intent' | bare intent | 'domains'.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2624,11 +2624,11 @@ federated search fanned across registered external graph references.
 - `params_json` (string): JSON object of extra engine kwargs.
 - `graph` (string): Target graph (empty ⇒ deployment default).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2659,11 +2659,11 @@ Record a human correction so the brain learns: correction_type 'outcome' adjusts
 - `rule_kind` (string): For rule corrections: forbid | prefer | demote.
 - `actor_id` (string): Who issued the correction.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2689,16 +2689,16 @@ Manage the unified RSS/Atom feed registry (CONCEPT:AU-KG.ingest.rss-feed-connect
 
 **Typed input:**
 
-- `action` (string): list|add|remove|sync
-- `url` (string): Feed URL (single add/remove).
-- `urls` (string): BULK add/remove: multiple feed URLs in ONE call — a JSON array ('["https://a/feed","https://b/rss"]') or a comma/newline-separated string. Combined with `url` and deduped.
+- `action` (string): `list|add|remove|sync`
+- `url` (string): Feed URL (single `add/remove`).
+- `urls` (string): BULK `add/remove`: feed URLs in ONE call — a JSON array ('["https://a/feed","https://b/rss"]') or a comma/newline-separated string. Combined with `url` and deduped.
 - `mode` (string): delta|full (sync).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2721,7 +2721,7 @@ warm-fork fan-out over the ORCH-1.86..93 warm-fork primitive (LMCache KV / copy-
 
 **Typed input:**
 
-- `code` (string): A single code snippet run on each of 'n' branches (ignored when 'branches_json' is provided).
+- `code` (string): A single code snippet run on each of 'n' branches (ignored when 'branches_json' is set).
 - `n` (integer): Fan-out count when using 'code' (branches to fork).
 - `branches_json` (string): JSON list of per-branch code snippets; overrides code/n.
 - `vars_json` (string): JSON object seeding the namespace forked into every branch.
@@ -2729,11 +2729,11 @@ warm-fork fan-out over the ORCH-1.86..93 warm-fork primitive (LMCache KV / copy-
 - `context_query` (string): Optional: fetch an engine cross-modal candidate set (vector+graph+text) for this query ONCE and fork it into every branch (reused, no recompute).
 - `candidate_var` (string): Namespace name the cross-modal candidate set is bound to in each branch (only used when context_query is set).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'Fork', 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'Fork', 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2760,11 +2760,11 @@ the engine's GIS surface.
 - `params_json` (string): JSON object of kwargs for the GIS method (coordinates, profile, tile z/x/y, task name, ...).
 - `graph` (string): Target graph (empty ⇒ deployment default).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2795,11 +2795,11 @@ Orchestrate background/autonomous loops (action in 'create', 'list', 'iterations
 - `goal` (string): Goal description/instruction for 'create' action
 - `max_iterations` (integer): Max iterations for the autonomous loop
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2828,12 +2828,12 @@ Govern orchestration actions.
 
 **Typed input:**
 
-- `action` (string): grant_approval | submit_risk_veto | check_action | ownership_report | ownership_apply | claim_ownership | policy_status
+- `action` (string): grant_approval | submit_risk_veto | verify_action | ownership_report | ownership_apply | claim_ownership | policy_status
 - `approval_id` (string): Pending action_approval:* id (grant_approval).
 - `decision` (string): approved | denied (grant_approval).
-- `target_id` (string): Existing target id for a risk veto or policy check.
+- `target_id` (string): Existing target id for a risk veto or policy validation.
 - `reason` (string): Risk-veto or policy reason.
-- `kind` (string): ActionPolicy action kind (check_action).
+- `kind` (string): ActionPolicy action kind (verify_action).
 - `params_json` (string): JSON object of ActionPolicy parameters.
 - `source` (string): Policy request source.
 - `actor_id` (string): Optional policy actor id.
@@ -2843,11 +2843,11 @@ Govern orchestration actions.
 - `shared_scope` (string): claim_ownership: '_shared_scope' to stamp alongside the new owner — 'private' | 'org' | 'commons'. Defaults to 'org'.
 - `apply` (boolean): claim_ownership only: false (DEFAULT) = dry-run preview, grouped by node_type, mutates nothing. true = actually claim — required explicitly, never implied.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2886,11 +2886,11 @@ Incident Brain (CONCEPT:AU-KG.enrichment.cross-layer-incident-correlation): brow
 - `reason` (string): Why this transition is happening — the audit trail (ack/resolve).
 - `actor_id` (string): Optional caller identity stamped onto the transition (ack/resolve).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -2959,21 +2959,21 @@ Smart ingestion for codebases, documents, directories, and conversation logs.
 - `target_path` (string): Path or JSON list of paths to ingest.
 - `max_depth` (integer): Maximum directory depth for codebase ingestion.
 - `agent_id` (string): ID of the agent performing the ingestion.
-- `action` (string): Action to perform (ingest, ingest_url, backfill_platform_history, archivebox_sync, cdc_catchup, opensearch_reindex, skill_workflows, fact_extract, sync_second_brain, classify_topics, enrich_pending_documents, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). For backfill_platform_history, pass corpus_name=<recoverable platform> and target_path=<channel/room id>; it re-fetches retained history using the platform's existing credential and records idempotent backfilled InboundMessage nodes. 'enrich_pending_documents' sweeps :Document nodes a connector wrote via the native_ingest primitive (e.g. searxng-mcp results) from outside the hub process — raw text only, flagged needs_enrichment=true — and runs each through the SAME DocumentProcessor + central _enrich_text seam a direct ingest gets (chunk+contextual-enrich+concepts+facts+WorldView topic classification), clearing the flag. 'classify_topics' runs the WorldView subject/topic classifier ad hoc (CONCEPT:AU-KG.enrichment.topic-classification-topology): description=raw text (or target_path=file, or target_path=an existing Document node id to attach edges to) → classifies onto the canonical WorldView taxonomy (ontology_worldview.ttl) and mints/links the :Topic hierarchy (BROADER/NARROWER) + HAS_TOPIC/CLASSIFIED_AS edges with confidence; corpus_name=optional title. This is the SAME core every document ingestion runs by default — use this action to classify a document that already exists in the graph without re-ingesting it, or to preview a classification. 'ingest_url' content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): target_path=URL → fetch via the unified resolver (ArchiveBox→crawl4ai→requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page→paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'cdc_catchup' (CONCEPT:AU-KG.ingest.debezium-changeenvelope, CA-21) runs one bounded on-demand catch-up poll of the Debezium `cdc.<db>.<schema>.<table>` consumer — drains whatever is currently available (up to a batch cap), maps each row through debezium_envelope.map_debezium_event, and commits through the same ingest_envelope atomic boundary every other connector uses; returns counts (succeeded/skipped/quarantined/failed) and the last committed LSN watermark; never blocks waiting for more messages. 'opensearch_reindex' (CONCEPT:AU-KG.retrieval.opensearch-cdc-indexer, CA-24, DEC-CA-09) rebuilds the OpenSearch search-tier index for one eg graph/tenant by replaying eg.cdc.<graph> from offset 0 (or base_path=from_seq) into a freshly-dropped index (the P3 recovery mechanism — a full rebuild is always a valid recovery path, not an exceptional one): corpus_name=eg graph/tenant id (required), target_path=optional object_type to scope the rebuild to one index (default: every index this tenant owns). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape run_workflow reads, so graph_orchestrate run_workflow can discover and fire them; ALSO sweeps the sibling atomic-skill corpus (skill_type: skill) into a CallableResource(AGENT_SKILL) each via the same reused ingest_runnable_skill primitive, so both legs of the corpus are classified by this one call; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately — the full corpus takes ~150s, over the call ceiling — poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'sync_second_brain' (CONCEPT:AU-KG.enrichment.second-brain-note-sync) is the one-call personal-notes sync: target_path=notes directory or file (a markdown folder, an Obsidian vault, or a synced Nextcloud/Paperless export — see the `second-brain-sync` skill), corpus_name=corpus name, base_path=optional 'since' cursor (epoch seconds or an ISO-8601 timestamp) to only process notes changed since then. Per note: runs 'fact_extract' (evidence-spanned facts), extracts entities/claims and PROPOSES each new claim into the governed ClaimFlywheel lifecycle (graph_claims reads the same state — never silently accepted), then scans each new claim against existing graph content and persists any contradiction as a propose-only :BeliefRevisionProposal (the same node loop_controller's belief-revision pass writes, so existing review tooling picks it up with no new UI). Content-hash idempotent: re-running over an unchanged corpus mints zero new facts/claims/proposals. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:AU-KG.research.skill-graph-distillation): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) — always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, priority_bucket=0..3 — no named priority aliases are accepted). Research evolution (CONCEPT:AU-KG.ingest.batch-research-cohort): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:AU-OS.observability.per-lane-latency-metrics) returns per-lane/stage latency percentiles + token/cost + the parallelism factor.
-- `job_id` (string): ID of the job to check status for.
+- `action` (string): Action to perform (ingest, ingest_url, backfill_platform_history, archivebox_sync, cdc_catchup, opensearch_reindex, skill_workflows, fact_extract, sync_second_brain, classify_topics, enrich_pending_documents, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). For backfill_platform_history, pass corpus_name=<recoverable platform> and target_path=<channel/room id>; it re-fetches retained history using the platform's existing credential and records idempotent backfilled InboundMessage nodes. 'enrich_pending_documents' sweeps :Document nodes a connector wrote via the native_ingest primitive (e.g. searxng-mcp results) from outside the hub process — raw text only, flagged needs_enrichment=true — and runs each through the SAME DocumentProcessor + central _enrich_text seam a direct ingest gets (chunk+contextual-enrich+concepts+facts+WorldView topic classification), clearing the flag. 'classify_topics' runs the WorldView subject/topic classifier ad hoc (CONCEPT:AU-KG.enrichment.topic-classification-topology): description=raw text (or target_path=file, or target_path=an existing Document node id to attach edges to) → classifies onto the canonical WorldView taxonomy (ontology_worldview.ttl) and mints/links the :Topic hierarchy (BROADER/NARROWER) + HAS_TOPIC/CLASSIFIED_AS edges with confidence; corpus_name=optional title. This is the SAME core every document ingestion runs by default — use this action to classify a document that already exists in the graph without re-ingesting it, or to preview a classification. 'ingest_url' content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): target_path=URL → fetch via the unified resolver (ArchiveBox→crawl4ai→requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page→paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'cdc_catchup' (CONCEPT:AU-KG.ingest.debezium-changeenvelope, CA-21) runs one bounded on-demand catch-up poll of the Debezium `cdc.<db>.<schema>.<table>` consumer — drains whatever is currently available (up to a batch cap), maps each row through debezium_envelope.map_debezium_event, and commits through the same ingest_envelope atomic boundary every other connector uses; returns counts (succeeded/skipped/quarantined/failed) and the last committed LSN watermark; never blocks waiting for more messages. 'opensearch_reindex' (CONCEPT:AU-KG.retrieval.opensearch-cdc-indexer, CA-24, DEC-CA-09) rebuilds the OpenSearch search-tier index for one eg graph/tenant by replaying eg.cdc.<graph> from offset 0 (or base_path=from_seq) into a freshly-dropped index (the P3 recovery mechanism — a full rebuild is always a valid recovery path, not an exceptional one): corpus_name=eg graph/tenant id (required), target_path=optional object_type to scope the rebuild to one index (default: every index this tenant owns). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so graph_orchestrate execute_workflow can discover and fire them; ALSO sweeps the sibling atomic-skill corpus (skill_type: skill) into a CallableResource(AGENT_SKILL) each via the same reused ingest_runnable_skill primitive, so both legs of the corpus are classified by this one call; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately — the full corpus takes ~150s, over the call ceiling — poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'sync_second_brain' (CONCEPT:AU-KG.enrichment.second-brain-note-sync) is the one-call personal-notes sync: target_path=notes directory or file (a markdown folder, an Obsidian vault, or a synced Nextcloud/Paperless export — see the `second-brain-sync` skill), corpus_name=corpus name, base_path=optional 'since' cursor (epoch seconds or an ISO-8601 timestamp) to only process notes changed since then. Per note: runs 'fact_extract' (evidence-spanned facts), extracts entities/claims and PROPOSES each new claim into the governed ClaimFlywheel lifecycle (graph_claims reads the same state — never silently accepted), then scans each new claim against existing graph content and persists any contradiction as a propose-only :BeliefRevisionProposal (the same node loop_controller's belief-revision pass writes, so existing review tooling picks it up with no new UI). Content-hash idempotent: re-running over an unchanged corpus mints zero new facts/claims/proposals. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:AU-KG.research.skill-graph-distillation): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) — always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, priority_bucket=0..3 — no named priority aliases are accepted). Research evolution (CONCEPT:AU-KG.ingest.batch-research-cohort): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:AU-OS.observability.per-lane-latency-metrics) returns per-lane/stage latency percentiles + token/cost + the parallelism factor.
+- `job_id` (string): ID of the job whose status to read.
 - `priority_bucket` (integer): Integer WorkItem claim bucket used by prioritize.
 - `corpus_name` (string): Name of the corpus to add/update.
 - `base_path` (string): Base path for the corpus.
 - `description` (string): Description of the corpus.
 - `content_type` (string): Internal override only — leave empty. The content type (codebase, document, config, prompt, skill, mcp_server, kb, conversation, policy) is auto-detected from the path, and heavy types (codebase/document) always run on the async job queue. Only set this to force a specific category for an ambiguous path.
 - `connection` (string): CONCEPT:AU-KG.backend.multi-connection-registry — for action='ingest' codebase/document jobs: named BACKEND connection to submit to (default = primary). Selects WHICH BACKEND, never which physical graph — see `graph`. Fan-out ('all'/a list) is rejected: an ingest job always targets exactly one backend, never a union.
-- `graph` (string): CONCEPT:AU-KG.backend.explicit-graph-selection — for action='ingest' codebase/document jobs: explicit physical engine graph to ingest INTO (one of the names `engine_tenants(action='list')` returns), independent of `connection`. Empty = the caller's own bound graph (unchanged default behavior). An unknown graph, or a `connection` with no physical-graph concept, is a typed error — never a silent fallback or fan-out. The submitted job stays bound to this exact graph through async claim/run (persisted on the WorkItem), so it can never drift to a default/registry-wide graph.
+- `graph` (string): CONCEPT:AU-KG.backend.explicit-graph-selection — for action='ingest' codebase/document jobs: explicit physical engine graph to ingest INTO (one of the names `engine_tenants(action='list')` returns), independent of `connection`. Empty = the caller's own bound graph (unchanged default behavior). An unknown graph, or a `connection` with no physical-graph concept, is a typed error — never a silent fallback or fan-out. The submitted job stays bound to this exact graph through async claim/execute (persisted on the WorkItem), so it can never drift to a default/registry-wide graph.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3011,11 +3011,11 @@ Submit and inspect durable orchestration WorkItems.
 - `limit` (integer): 'dead_letter' only: max rows.
 - `reason` (string): 'drain' only: why this item is being drained.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3058,8 +3058,8 @@ checkpoint a KV-cache at a point of ideal understanding, then initialise a new a
 - `point` (string): create: label for the checkpointed point.
 - `provenance_json` (string): create: free-form provenance JSON object.
 - `checkpoint_id` (string): instantiate_agent/restore_conversation: the checkpoint to load.
-- `requesting_tenant` (string): instantiate_agent/restore_conversation: the caller's tenant (checked against the checkpoint's stored tenant, fail-closed).
-- `current_policy_version` (string): instantiate_agent/restore_conversation: current policy version to validate against (empty ⇒ skip the staleness check).
+- `requesting_tenant` (string): instantiate_agent/restore_conversation: the caller's tenant (validated against the checkpoint's stored tenant, fail-closed).
+- `current_policy_version` (string): instantiate_agent/restore_conversation: current policy version to validate against (empty ⇒ skip staleness validation).
 - `new_run_id` (string): instantiate_agent: the new run's id.
 - `conversation_id` (string): restore_conversation: the conversation to reset.
 - `allow_cold_start` (boolean): restore_conversation: on an invalid/foreign/stale checkpoint, return an explicit traced cold-start result instead of raising.
@@ -3067,15 +3067,15 @@ checkpoint a KV-cache at a point of ideal understanding, then initialise a new a
 - `evidence_bundle_json` (string): recommend/checkpoint_now: an EvidenceBundle as JSON (as returned by graph_ask/graph_query). Its claims/evidence_spans/contradictions populate the grounding and contradiction axes directly, so a caller need not transcribe the counts. Explicit observation_json fields always win over anything derived here.
 - `context_bundle_json` (string): recommend/checkpoint_now: a ContextBundle as JSON. Its items/dropped_redundant/citations populate the retrieval-saturation (novelty) axis. Same precedence rule as evidence_bundle_json.
 - `sources_json` (string): checkpoint_now: the sources that contributed to this context, as a JSON list of either ref strings (resolved to their governance labels) or fully-labelled objects (source_id/classification/residency_regions/retention_days/markings). Usually unnecessary: citations carried on context_bundle_json already name them. An EMPTY source set refuses durable persistence — an unprovenanced checkpoint cannot be shown to permit data-at-rest.
-- `trigger` (string): checkpoint_now/promote: which path took this checkpoint — 'user', 'agent' or 'system'. PROVENANCE ONLY. It is recorded on the audit record and never read by the eligibility decision, which derives authority from the operator's checked session instead.
+- `trigger` (string): checkpoint_now/promote: which path took this checkpoint — 'user', 'agent' or 'system'. PROVENANCE ONLY. The audit record stores this value. The eligibility decision derives authority from the validated caller session instead. The trigger does not grant authority.
 - `persist` (boolean): checkpoint_now: also attempt durable (cross-session) persistence. Always subject to the eligibility gate; a refusal still leaves the RAM checkpoint in place.
 - `graph` (string): Target graph (default engine graph).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3106,11 +3106,11 @@ the engine's shared, content-addressed KV-cache over the EG-187 HTTP surface, dr
 - `key` (string): Opaque block key (get/put/contains/exists).
 - `value_b64` (string): Base64-encoded block bytes to store (put).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3138,11 +3138,11 @@ a pure-Rust KAN (Kolmogorov-Arnold) link-predictor over the resident graph, whos
 - `params_json` (string): JSON object of graph-learning kwargs, e.g. {"node_label":"Person","direction":"any","degree":4,"epochs":200,"writeback":true} (fit); {"model":{...},"node_label":"Person","top_k":20,"writeback":true} or {"model":{...},"node_label":"Person","candidate_pairs":[["a","b"],["c","d"]]} (predict).
 - `graph` (string): Target graph (empty ⇒ deployment default).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3174,11 +3174,11 @@ query the engine's log stream. action='query' (default): filter by 'stream'/free
 - `params_json` (string): JSON object of extra engine kwargs.
 - `graph` (string): Target graph (empty ⇒ deployment default).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3213,7 +3213,7 @@ The single entrypoint for long-running objectives (CONCEPT:AU-KG.research.these-
 
 **Typed input:**
 
-- `action` (string): submit|list|run|drive|cancel|prioritize|state|specs|review|placement_control|gaps|submit_gap|gap
+- `action` (string): submit|list|run|drive|cancel|prioritize|state|specs|review|gaps|submit_gap|gap
 - `objective` (string): Objective text (submit).
 - `kind` (string): research|develop|skill (submit).
 - `loop_id` (string): Loop id (submit/cancel).
@@ -3227,15 +3227,13 @@ The single entrypoint for long-running objectives (CONCEPT:AU-KG.research.these-
 - `decision` (string): approve|edit|reject — spec-review decision (review action).
 - `status` (string): Filter SpecProposals by status (specs action): pending_review|approved|developing|published|reverted|rejected.
 - `mine_discovery` (any): 'run' only: gate the discovery-flywheel mining stage (CONCEPT:AU-KG.evolution.mining-flywheel). None (default) falls back to config.kg_loop_mine_discovery (default True); explicit true/false overrides.
-- `placement_scan_limit` (integer): 'placement_control' only: provenance row-scan cap for the placement mining pass.
-- `placement_canary_tolerance` (number): 'placement_control' only: fraction the canary metric may regress by and still be promoted (SLO noise tolerance).
 - `data_json` (string): 'submit_gap' only: JSON object {source, signature, statement, domain, severity, concept_ids}. source/signature/statement are required; severity (0..1, default 0.5) maps to the shared priority_bucket.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3267,11 +3265,11 @@ Delegate a media artifact (PDF, JPEG, audio, video) to a governed fleet sidecar 
 - `source` (string): Provenance source tag.
 - `provider` (string): Optional non-default sidecar capability key (see sidecar_contract.SIDECAR_CAPABILITIES), e.g. 'pdf_documents' to route PDF ingest through paperless-ngx-mcp instead of the default stirlingpdf-mcp.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3300,11 +3298,11 @@ the engine's EG-318 memory surface: episodic→semantic memory, the spatial scen
 - `params_json` (string): JSON object of kwargs for the memory method, e.g. {"node_ids":["n1","n2"]}, {"object_id":"o1","transform":[...]}, {"trajectory_id":"t1","step":{"state":...,"action":...,"reward":1.0}}, or {"trajectory_id":"t1","gamma":0.99}.
 - `graph` (string): Target graph (empty ⇒ deployment default).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3340,11 +3338,11 @@ bidirectional, cross-process, ordered message channel between an invoking agent 
 - `since` (integer): Cursor: messages already consumed (receive).
 - `durable` (boolean): When True (send), also persist the message as a graph AgentMessage node so it survives engine restart and is replayable via action='history'.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3374,11 +3372,11 @@ Reason over the KG-native observability subgraph — traces, online-scores, asse
 - `query` (string): Agent/capability filter (trace_rootcause) or a detail_ref (error_detail).
 - `top_k` (integer): Max rows/clusters.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3386,7 +3384,7 @@ Reason over the KG-native observability subgraph — traces, online-scores, asse
 
 **graph ontology**
 
-GraphSchema lifecycle control plane. load/update attach an explicit iri+version Turtle document through EG. List/get return generated GraphSchema metadata; remove detaches the exact source.
+GraphSchema lifecycle control plane. load/update attach an explicit iri+version Turtle document through EG. list/get return generated GraphSchema metadata. delete detaches the exact source.
 
 - **Intent verbs:** write, ask, manage
 - **REST route:** `/graph/ontology`
@@ -3405,17 +3403,17 @@ GraphSchema lifecycle control plane. load/update attach an explicit iri+version 
 
 **Typed input:**
 
-- `action` (string): load | list | get | update | remove
+- `action` (string): load | list | get | update | delete
 - `source` (string): For load/update: a UTF-8 Turtle file path or raw Turtle text.
 - `source_type` (string): How to read `source`: 'file' | 'text' | 'auto' (sniff).
-- `iri` (string): Required stable ontology IRI for load/get/update/remove.
-- `version` (string): Required stable version for load/get/update/remove.
+- `iri` (string): Required stable ontology IRI for load/get/update/delete.
+- `version` (string): Required stable version for load/get/update/delete.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3423,7 +3421,7 @@ GraphSchema lifecycle control plane. load/update attach an explicit iri+version 
 
 **graph orchestrate**
 
-Resolve an ingested skill/workflow for a task and run it on the local vLLM through the governed graph-os delegation runtime.
+Resolve an ingested skill/workflow for a task and execute it on the local vLLM through the governed graph-os delegation runtime.
 
 - **Intent verbs:** act
 - **REST route:** `/graph/orchestrate`
@@ -3451,16 +3449,16 @@ Resolve an ingested skill/workflow for a task and run it on the local vLLM throu
 - `required_tools` (any): Tools that must each have recorded ToolCall provenance before the run can succeed. Must be a subset of allowed_tools.
 - `cred_ref` (string): Reference to an ephemeral credential in the secrets backend.
 - `open_channel` (boolean): Open a native bidirectional message channel for this run.
-- `reasoning_effort` (string): CONCEPT:AU-ORCH.execution.delegation-reasoning-off — reasoning is an OPT-IN capability (like RLM). A delegated agent runs with chain-of-thought OFF by default (deterministic tool loops don't need it and it stacks ~18x per-turn latency). Set an effort ('low'/'medium'/'high') to turn reasoning ON for an execution that genuinely needs deliberation (action='run_agent'). Empty = off / inherit the model's setting.
+- `reasoning_effort` (string): CONCEPT:AU-ORCH.execution.delegation-reasoning-off — reasoning is an OPT-IN capability (like RLM). A delegated agent runs with chain-of-thought OFF by default (deterministic tool loops don't need it and it stacks ~18x per-turn latency). Set an effort ('low'/'medium'/'high') to turn reasoning ON for an execution that genuinely needs deliberation (action='execute_agent'). Empty = off / inherit the model's setting.
 - `model_class` (string): Required configured model class: economy | standard.
 - `response_format` (string): Response contract: text for ordinary prose or json for one Pydantic-validated JSON object.
 - `grounding` (string): CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract — required (the default) fails this run closed if the mandatory evidence compilation times out, errors, or the retrieval-quality gate rejects every candidate, rather than silently answering ungrounded. best_effort/none explicitly opt into degraded operation, marked in the model messages, the RunTrace, and the OTel span, and never counted as a plain success.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3487,11 +3485,11 @@ a composable train→eval→serve→predict ML pipeline over a VERSIONED ':Model
 - `params_json` (string): JSON object of pipeline kwargs, e.g. {"name":"community","spec":{"features":[{"step":"embedding","method":"fastrp","dim":32}],"split":{"test_ratio":0.3},"label_property":"label","model":{"family":"classify","algorithm":"logistic"}},"source":{"node_label":"Person"}} (train); {"name":"community","version":1} (serve); {"name":"community","version":0,"source":{"node_label":"Person"},"writeback":true} (predict); {"name":"community","version_a":1,"version_b":2} (compare).
 - `graph` (string): Target graph (empty ⇒ deployment default).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3499,7 +3497,7 @@ a composable train→eval→serve→predict ML pipeline over a VERSIONED ':Model
 
 **graph projection**
 
-run the SAME query `graph_query` will and project the result into a stable node-link JSON shape: {nodes:[{id,label,properties}], links:[{source,target,label,properties}]} — the D3/force-graph convention every 2D/3D graph renderer already speaks.
+run the same query as `graph_query` and project the result into a stable node-link JSON shape: {nodes:[{id,label,properties}], links:[{source,target,label,properties}]} — the D3/force-graph convention every 2D/3D graph renderer already speaks.
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/projection`
@@ -3516,11 +3514,11 @@ run the SAME query `graph_query` will and project the result into a stable node-
 
 - `request_json` (string, required): JSON object: {query (required), params, scope, reference_id, as_of, connection, graph} — same fields/semantics as graph_query's individual arguments.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3553,11 +3551,11 @@ query the engine's observability metrics with PromQL. action='instant' (a single
 - `params_json` (string): JSON object of extra engine kwargs.
 - `graph` (string): Target graph (empty ⇒ deployment default).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3565,7 +3563,7 @@ query the engine's observability metrics with PromQL. action='instant' (a single
 
 **graph query**
 
-Run a read-only Cypher, bounded UQL, SQL, SPARQL, or federated graph query and return the sole typed EvidenceBundle response.
+Execute a read-only Cypher, bounded UQL, SQL, SPARQL, or federated graph query and return the sole typed EvidenceBundle response.
 
 - **Intent verbs:** ask
 - **REST route:** `/graph/query`
@@ -3589,11 +3587,11 @@ Run a read-only Cypher, bounded UQL, SQL, SPARQL, or federated graph query and r
 - `graph` (string): CONCEPT:AU-KG.backend.explicit-graph-selection — explicit physical engine graph (see `engine_tenants(action='list')`), independent of `connection`. Empty = the caller's own bound graph. Fail-closed: an unknown graph or a `connection`/fan-out that has no physical-graph concept is a typed error, never a silent default/union. Echoed back in the response alongside `connection`.
 - `include_epistemic` (boolean): Resolve per-row epistemic data before building the bundle.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'CypherQuery', 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'CypherQuery', 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3629,11 +3627,11 @@ reach the user over a messaging backend (Telegram, Slack, Discord, ...).
 - `reply_to_id` (string): Optional message id to reply to (send).
 - `reason` (string): Why this message is being sent (audit trail).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3641,7 +3639,7 @@ reach the user over a messaging backend (Telegram, Slack, Discord, ...).
 
 **graph runvcs**
 
-Agent-native run version-control (CONCEPT:AU-ORCH.runvcs.run-commit): fork, revert and review a LIVE agent run as content-addressed commits that bind its conversation + filesystem + process/event frontier into ONE exact world. action in 'list' (live run sessions), 'status' (a run's event/commit/message counts + log digest), 'commit' (snapshot messages+fs+events into one RunCommit — pass label), 'revert' (restore a run's files+process+messages to a commit — pass commit_id), 'fork' (branch a NEW run from a commit into a fresh workspace, parent untouched — pass commit_id), 'discard' (drop the uncommitted event delta), 'replay' (deterministically replay the CURRENT live run's event log — a recorded exchange stands in for the model — and check reproduction).
+Agent-native run version-control (CONCEPT:AU-ORCH.runvcs.run-commit): fork, revert and review a LIVE agent run as content-addressed commits that bind its conversation + filesystem + process/event frontier into ONE exact world. action in 'list' (live run sessions), 'status' (a run's event/commit/message counts + log digest), 'commit' (snapshot messages+fs+events into one RunCommit — pass label), 'revert' (restore a run's files+process+messages to a commit — pass commit_id), 'fork' (branch a NEW run from a commit into a fresh workspace, parent untouched — pass commit_id), 'discard' (drop the uncommitted event delta), 'replay' (deterministically replay the CURRENT live run's event log — a recorded exchange stands in for the model — and verify reproduction).
 
 - **Intent verbs:** act
 - **REST route:** `/graph/runvcs`
@@ -3685,11 +3683,11 @@ Agent-native run version-control (CONCEPT:AU-ORCH.runvcs.run-commit): fork, reve
 - `policy_overrides` (string): JSON policy ruleset {version, defaults, rules} for twin_counterfactual — recompute every recorded decision under this swapped policy version and diff against what was originally decided.
 - `model_responses` (string): JSON {request: alternate_response} for twin_counterfactual — substitute an alternate model/prompt response for a recorded model exchange and surface the resulting stream divergence.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3717,11 +3715,11 @@ Inspect and control the native warm-fork sandbox runtime (CONCEPT:AU-ORCH.sandbo
 - `action` (string): status|reap|warm
 - `rung` (string): Approved confined warm-fork rung to warm.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3754,11 +3752,11 @@ Inspect and control the unified scheduler (CONCEPT:AU-OS.state.unified-schedulin
 - `priority` (integer): Integer claim bucket 0-3 (prioritize).
 - `interval_s` (number): New interval seconds (set_interval).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3805,11 +3803,11 @@ Search the Knowledge Graph using multiple strategies (hybrid, concept, analogy, 
 - `graph` (string): CONCEPT:AU-KG.backend.explicit-graph-selection — explicit physical engine graph, independent of `connection`. Empty = the caller's own bound graph. Requires exactly one resolved `connection`; fails closed (typed error, never a silent default/union) on an unknown graph or a fan-out/unsupported-connection combination. Echoed in the response.
 - `token_budget` (integer): mode='compiled' only: token budget the assembled bundle must fit inside (CONCEPT:AU-KG.retrieval.context-compiler). 0 uses the compiler's default budget.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'SemanticSearch', 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'SemanticSearch', 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3842,11 +3840,11 @@ Synthesize a shortcut-resistant deep-search task from the evidence graph, or dia
 - `root_popularity` (number): action=synthesize — 0..1 familiarity of the answer entity (high → prior-binding risk).
 - `trajectories` (string): action=diagnose — JSON list of trajectories: [{"steps":[{"kind","observation","model_text"}],"answer_aliases":[...]}].
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3854,7 +3852,7 @@ Synthesize a shortcut-resistant deep-search task from the evidence graph, or dia
 
 **graph secret**
 
-Manage secrets (CONCEPT:AU-OS.identity.encrypted-secret-store) in the durable, engine-encrypted __secrets__ store (secret VALUES are sealed by the engine's encryption-at-rest. Key NAMES + metadata stay queryable).
+Manage secrets (CONCEPT:AU-OS.identity.encrypted-secret-store) in the durable, engine-encrypted __secrets__ store (secret VALUES are sealed by the engine's encryption-at-rest; key NAMES + metadata stay queryable).
 
 - **Intent verbs:** manage
 - **REST route:** `/graph/secret`
@@ -3872,17 +3870,17 @@ Manage secrets (CONCEPT:AU-OS.identity.encrypted-secret-store) in the durable, e
 
 **Typed input:**
 
-- `action` (string): set | get | list | remove
-- `key` (string): Secret key (set/get/remove).
+- `action` (string): set | get | list | delete
+- `key` (string): Secret key (set/get/delete).
 - `value` (string): Secret value (set).
 - `metadata` (any): Optional non-secret metadata (set).
 - `reason` (string): Why this mutation is happening (audit trail).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3890,7 +3888,7 @@ Manage secrets (CONCEPT:AU-OS.identity.encrypted-secret-store) in the durable, e
 
 **graph sessions**
 
-Manage durable sessions (action in 'list', 'get', 'remove', 'reply', 'cancel', 'health', 'topology').
+Manage durable sessions (action in 'list', 'get', 'delete', 'reply', 'cancel', 'health', 'topology').
 
 - **Intent verbs:** manage, ask
 - **REST route:** `/graph/sessions`
@@ -3911,18 +3909,18 @@ Manage durable sessions (action in 'list', 'get', 'remove', 'reply', 'cancel', '
 
 **Typed input:**
 
-- `action` (string, required): Action: 'list', 'get', 'remove', 'reply', 'cancel', 'health', 'topology'
+- `action` (string, required): Action: 'list', 'get', 'delete', 'reply', 'cancel', 'health', 'topology'
 - `session_id` (string): Target session ID
 - `user_reply` (string): Reply content for 'reply' action
 - `limit` (integer): Page size for 'topology'.
 - `offset` (integer): Page offset for 'topology'.
 - `status` (string): Optional session status filter for 'topology'.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3957,11 +3955,11 @@ Share a private node (CONCEPT:AU-KG.compute.data-is-private-its).
 - `tenant_id` (string): Tenant whose parent is being set/cleared/read (action='set_parent'|'clear_parent'|'hierarchy'). Defaults to the ambient actor's tenant for 'hierarchy'.
 - `parent_tenant_id` (string): Parent tenant to record (action='set_parent'). Refused on a cycle or past MAX_TENANT_DEPTH.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -3999,11 +3997,11 @@ mirror data into native engine SQL tables (DataFusion + pg-wire) and manage them
 - `limit` (integer): Max rows to mirror (action='ingest').
 - `replace` (boolean): Drop+recreate the table first (ingest/rows).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4037,11 +4035,11 @@ search or fetch distributed traces. action='search' (filter by 'service'/'operat
 - `params_json` (string): JSON object of extra engine kwargs.
 - `graph` (string): Target graph (empty ⇒ deployment default).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4049,7 +4047,7 @@ search or fetch distributed traces. action='search' (filter by 'service'/'operat
 
 **graph viz**
 
-GOC-88/D-VZ-1 V5: render native charts through the engine's LOD ColumnStore/export pipeline (Method::Viz) — no matplotlib, no per-view chart code. action='plot_from_query' (the common path: 'query' [+'mark','x_field','y_field',+'color_field',+'size_field',+'title'] — runs the SQL query against the connected graph and renders the result. Answers {'unavailable': true} rather than an empty chart when the query returns no usable rows), 'export_chart' ('spec_json' + 'dataset_json' — an already-built ViewSpec/VizDatasetSource pair, thin pass-through), 'describe_chart' ('view_result_json' [+'spec_json'] — a plain-language, LLM-facing summary of what was actually drawn: mark, LOD tier, exact-vs-approximated, row count — no engine call), or 'capability_matrix' (which mark x surface pairs are real today). 'format' is png|svg|pdf; 'width_px'/'height_px' bound the canvas; 'max_primitives'/'max_bytes' bound the render budget — LOD selection is bounded by these, never by row count.
+GOC-88/D-VZ-1 V5: render native charts through the engine's LOD ColumnStore/export pipeline (Method::Viz).
 
 - **Intent verbs:** act, ask
 - **REST route:** `/graph/viz`
@@ -4083,15 +4081,15 @@ GOC-88/D-VZ-1 V5: render native charts through the engine's LOD ColumnStore/expo
 - `height_px` (integer): Canvas height in pixels.
 - `max_primitives` (integer): Frame primitive budget (bounds LOD tier).
 - `max_bytes` (integer): Frame byte budget (bounds LOD tier).
-- `row_limit` (integer): Max query rows fed inline into the render (action='plot_from_query'); the query itself should aggregate/LIMIT for anything larger — this is a safety cap on the wire payload, not the render budget (that's max_primitives/max_bytes, honored server-side in either case of row_limit).
+- `row_limit` (integer): Maximum query rows sent inline for `plot_from_query`. Larger queries should aggregate or use LIMIT. This cap bounds the wire payload. The server enforces the separate `max_primitives`/`max_bytes` render budget for every `row_limit`.
 - `dataset_ref` (string): Dataset id for the render.
 - `graph` (string): Target graph (empty ⇒ deployment default).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4121,7 +4119,7 @@ Manage governed WorkflowDefinitions.
 
 **Typed input:**
 
-- `action` (string): compile | compile_process | list | run | run_dynamic | dispatch | status | export
+- `action` (string): compile | compile_process | list | execute | execute_dynamic | dispatch | status | export
 - `workflow` (string): Workflow name, process id, or run/session id.
 - `task` (string): Compilation description or workflow input task.
 - `name` (string): Optional compiled workflow name.
@@ -4132,14 +4130,14 @@ Manage governed WorkflowDefinitions.
 - `max_concurrency` (integer):
 - `budget_tokens` (any):
 - `model_class` (string): economy | standard
-- `dynamic_fallback` (string): run_dynamic only: error | stored_dag. Fallback applies only when the optional upstream runtime is unavailable.
-- `workflow_run_id` (string): run_dynamic only: RESUME a stopped run. Pass the workflow_run_id a previous run_dynamic reported to replay its already-completed steps instead of re-dispatching them (the response reports 'resumed' and 'replayed_step_ids'). Leave empty to start a brand-new run.
+- `dynamic_fallback` (string): execute_dynamic only: error | stored_dag. Fallback applies only when the optional upstream runtime is unavailable.
+- `workflow_run_id` (string): execute_dynamic only: RESUME a stopped run. Pass the workflow_run_id a previous execute_dynamic reported to replay its already-completed steps instead of re-dispatching them (the response reports 'resumed' and 'replayed_step_ids'). Leave empty to start a brand-new run.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4176,7 +4174,7 @@ Write nodes, relationships, or register external graphs to the Knowledge Graph.
 
 **Typed input:**
 
-- `action` (string, required): Action to perform (add_node, add_edge, remove_node, remove_edge, register_external_graph, bulk_ingest, compare_and_set, store_memory, recall_memory, recall_media, log_chat, submit_sdd, register_execution, check_loop). Use 'compare_and_set' for an ATOMIC conditional update — optimistic concurrency / safe concurrent graph-shaping: it applies 'updates' only if every field in 'conditions' still equals the node's current value (missing field reads as null), so two agents mutating the same node never lose each other's write (conditional state transitions, atomic reservations).
+- `action` (string, required): Action identifiers: `add_node, add_edge, delete_node, delete_edge, register_external_graph, bulk_ingest, compare_and_set, store_memory, recall_memory, recall_media, log_chat, submit_sdd, register_execution, check_loop`. Use 'compare_and_set' for an ATOMIC conditional update — optimistic concurrency / safe concurrent graph-shaping: it applies 'updates' only if every field in 'conditions' still equals the node's current value (missing field reads as null), so two agents mutating the same node never lose each other's write (conditional state transitions, atomic reservations).
 - `node_id` (string): The unique identifier for the node.
 - `node_type` (string): The type or label of the node.
 - `properties` (string): JSON-encoded dictionary of properties.
@@ -4191,15 +4189,15 @@ Write nodes, relationships, or register external graphs to the Knowledge Graph.
 - `evidence` (string): For action='bulk_ingest': JSON list of evidence records ({'object_id','modality','locus','content_digest'}) attached to the FIRST node in 'nodes' (CONCEPT:AU-KG.ingest.envelope-atomic-transaction). Non-empty routes the batch onto ApplyChangeEnvelopes (the only primitive carrying evidence/policy/lineage) instead of the lighter BatchUpdate.
 - `upsert` (boolean): For action='bulk_ingest' on the BatchUpdate (light) path: real engine insert-or-merge semantics (CONCEPT:AU-KG.ingest.envelope-atomic-transaction). True (default) MERGEs onto an existing id — idempotent re-application, matching every prior add_node-loop caller's behavior. False INSERTs (a repeated edge becomes an additional parallel edge rather than replacing the prior one).
 - `connection` (string): CONCEPT:AU-KG.backend.multi-connection-registry — named BACKEND connection to write to (default = primary). Use a registered connection name, or 'all' (or a comma-separated list) to mirror the SAME write to multiple backends. Fan-out requires an explicit multi-connection value; the default and a single named connection stay single-write. Selects WHICH BACKEND, never which physical graph — see `graph`.
-- `graph` (string): CONCEPT:AU-KG.backend.explicit-graph-selection — explicit physical engine graph to write to (one of the names `engine_tenants(action='list')`/the engine's own ListGraphs returns), independent of `connection`. Empty = the caller's own bound graph (unchanged default behavior). Requires exactly one resolved `connection` (the default one) — never combinable with `connection='all'`/a list. Authorization-checked by the engine's own RBAC/RLS on every call; an unknown graph, or a `connection` with no physical-graph concept, is a typed error — never a silent fallback to a default graph and never a union across graphs. Echoed back (as `connection`/`graph`) in the compare_and_set/recall_media JSON responses and appended to the plain-text outcome of the other write actions.
+- `graph` (string): CONCEPT:AU-KG.backend.explicit-graph-selection — explicit physical engine graph to write to (one of the names `engine_tenants(action='list')`/the engine's own ListGraphs returns), independent of `connection`. Empty = the caller's own bound graph (unchanged default behavior). Requires exactly one resolved `connection` (the default one) — never combinable with `connection='all'`/a list. Authorization-validated by the engine's own RBAC/RLS on every call; an unknown graph, or a `connection` with no physical-graph concept, is a typed error — never a silent fallback to a default graph and never a union across graphs. Echoed back (as `connection`/`graph`) in the compare_and_set/recall_media JSON responses and appended to the plain-text outcome of the other write actions.
 - `conditions` (object): For action='compare_and_set': field→expected-value the node must currently match for the update to apply (a missing field reads as null). e.g. {'status': 'pending'}.
 - `updates` (object): For action='compare_and_set': field→new-value to merge into the node ONLY when every condition matches. e.g. {'status': 'claimed', 'owner': 'agent-7'}.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4235,11 +4233,11 @@ Backfeed KG-derived knowledge into an external system-of-record (CONCEPT:EG-KG.s
 - `findings` (boolean): If true, file the KG's risk findings (TRM TechnologyRisk: EOL/vuln) as issues in the target tracker (gitlab/github/plane). Pass project context via creations_json[0] or the route.
 - `dry_run` (boolean): Preview proposed writes without mutating the system-of-record (default). Set false to apply.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4269,11 +4267,11 @@ Ingest AI agent chat/session history into the usage store + KG (CONCEPT:AU-ECO.m
 - `target_path` (string): For action=paths: JSON list or comma paths.
 - `tenant_id` (string): Tenant scope for the rows.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4281,7 +4279,7 @@ Ingest AI agent chat/session history into the usage store + KG (CONCEPT:AU-ECO.m
 
 **manage**
 
-Configure and govern graph-os and fleet loading. Previews first, then run with plan_ref. action='<tool>.<op>' (see action='describe'), or leave it empty to route `intent`.
+Configure and govern graph-os and fleet loading; previews first, then execute with plan_ref. action='<tool>.<op>' (see action='describe'), or leave it empty to route `intent`.
 
 - **Intent verbs:** manage
 - **REST route:** `/intent/manage`
@@ -4301,11 +4299,11 @@ Configure and govern graph-os and fleet loading. Previews first, then run with p
 - `intent` (string): Natural-language request, routed when action is empty.
 - `execute` (boolean): Run now; when false, return the resolved plan.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4334,11 +4332,11 @@ ask the Knowledge Graph in plain English, planned by agent-utilities' OWN config
 - `execute` (boolean): When false, return only the generated query (preview/dry-run).
 - `limit` (integer): Max result rows to return.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'NlQuery', 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': 'NlQuery', 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4346,7 +4344,7 @@ ask the Knowledge Graph in plain English, planned by agent-utilities' OWN config
 
 **object edits**
 
-Durable object-edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback): record a structured edit (property_set/link_add/link_remove/object_create/object_remove), revert an edit, or read per-object history / as_of snapshot.
+Durable object-edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback): record a structured edit (`property_set/link_add/link_remove/object_create/object_delete`), revert an edit, or read per-object history / as_of snapshot.
 
 - **Intent verbs:** write
 - **REST route:** `/object/edits`
@@ -4366,20 +4364,20 @@ Durable object-edit ledger (CONCEPT:AU-KG.ontology.edit-ledger-writeback): recor
 
 - `action` (string): 'record' an edit | 'revert' an edit by id | 'history' per object | 'as_of' snapshot.
 - `object_id` (string): Target object id (record/history/as_of).
-- `edit_type` (string): property_set|link_add|link_remove|object_create|object_remove (for action='record').
+- `edit_type` (string): `property_set|link_add|link_remove|object_create|object_delete` (for action='record').
 - `properties_json` (string): JSON property map (record property_set/object_create).
-- `link_target` (string): Link target id (record link_add/link_remove).
-- `link_label` (string): Link label (record link_add/link_remove).
+- `link_target` (string): Link target id (record `link_add/link_remove`).
+- `link_label` (string): Link label (record `link_add/link_remove`).
 - `edit_id` (string): Edit id (action='revert').
 - `ts` (number): Unix timestamp (action='as_of').
 - `actor` (string): Acting principal recorded on the edit.
 - `expect` (object): For action='record' edit_type='property_set': field→expected current value the object must still match for the set to apply (missing field reads as null). When non-empty the set goes through an atomic compare-and-set (CONCEPT:AU-KG.ontology.optimistic-concurrency-object-property): the edit is recorded ONLY if it wins; an unapplied set returns {'applied': false} and records nothing. Empty (default) = unconditional set, identical to prior behavior. e.g. {'status': 'pending'}.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4407,11 +4405,11 @@ Object Index Lifecycle / Object Data Funnel (CONCEPT:AU-KG.ontology.batch-increm
 - `action` (string): 'sync' (batch rebuild) | 'reindex' (reconcile stale) | 'status' (live/tombstone counts).
 - `nodes_json` (string): JSON list of source node mappings (sync/reindex).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4443,11 +4441,11 @@ Fine-grained object permissioning (CONCEPT:AU-KG.ontology.redact-object-material
 - `marking` (string): Marking name (action='mark').
 - `mask` (boolean): Mask withheld properties instead of dropping them.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4493,11 +4491,11 @@ Object Set Service (CONCEPT:AU-KG.ontology.link-type-pivot/2.38): search/filter/
 - `source_id` (string): Source object id (action='path').
 - `target_id` (string): Target object id (action='path').
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4549,11 +4547,11 @@ Typed, provenance-bearing multi-category classification claims (U-47, CONCEPT:AU
 - `confidence` (number): For propose_identity: 0.0-1.0, or omit (-1.0 sentinel) for an explicit abstain.
 - `tenant` (string): For record/propose_identity.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4566,7 +4564,7 @@ Compute derived (function/cypher/sparql/embedding-backed) properties live at rea
 - **Intent verbs:** write
 - **REST route:** `/ontology/derive`
 - **MCP tags:** granular, graph-os, ontology
-- **Side effects:** 1/5 actions matched an EG ledger Method; any_mutates=False; durability=['None']; txn=['Snapshot']
+- **Side effects:** 0/3 actions matched an EG ledger Method; any_mutates=False; durability=[]; txn=[]
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
 
@@ -4574,23 +4572,20 @@ Compute derived (function/cypher/sparql/embedding-backed) properties live at rea
 
 - `compute` → (no EG ledger match)
 - `compute_all` → (no EG ledger match)
-- `discover_extensions` → EG `Discover` (confidence 1.0)
-- `generate` → (no EG ledger match)
 - `list` → (no EG ledger match)
 
 **Typed input:**
 
-- `action` (string): 'list' declarations, 'compute' one property, 'compute_all', 'discover_extensions' (propose ontology .ttl extensions from a text sample, CONCEPT:AU-KG.ontology.do-not-auto-merge), or 'generate' (from-scratch: propose a COMPLETE standalone Interface/LinkType ontology from a text sample against an EMPTY base — same schema-discovery LLM path, never a diff vs the live ontology, always a human-reviewed proposal).
+- `action` (string): 'list' declarations, 'compute' one property, or 'compute_all'. (Schema-discovery/standalone-generation proposals moved behind EG pack compilation, AU-SEMANTIC-R021.2 — no longer served from this tool.)
 - `object_json` (string): JSON object dict the property is computed for.
 - `name` (string): Derived-property name for action='compute'.
-- `object_type` (string): Optional object type for declaration resolution; the content/source type for action='discover_extensions'/'generate' (a domain hint, e.g. 'clinical_trial').
-- `sample_text` (string): Representative document/business-scenario text for action='discover_extensions'/'generate'.
+- `object_type` (string): Optional object type for declaration resolution.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4620,11 +4615,11 @@ Typed, versioned ontology functions: list or invoke through the governed runtime
 - `version` (string): Optional pinned semver version.
 - `actor` (string): Invoking actor id (recorded in the audit entry).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4632,7 +4627,7 @@ Typed, versioned ontology functions: list or invoke through the governed runtime
 
 **ontology interface**
 
-Ontology interfaces: resolve implementers (targeting), check conformance, or emit OWL (CONCEPT:AU-KG.ontology.conformance-check).
+Ontology interfaces: resolve implementers (targeting), validate conformance, or emit OWL (CONCEPT:AU-KG.ontology.conformance-check).
 
 - **Intent verbs:** manage, ask
 - **REST route:** `/ontology/interface`
@@ -4654,7 +4649,7 @@ Ontology interfaces: resolve implementers (targeting), check conformance, or emi
 
 **Typed input:**
 
-- `action` (string): 'list' interfaces, 'implementers' (resolve an interface/type to concrete types), 'conforms' (check an object), 'owl', 'graph' (schema as a node/edge diagram), 'summary' (schema as Markdown), 'lint' (naming-style + typo check), or 'explain_routing_eligibility' (X-4 WHY-eligible routing explanation).
+- `action` (string): 'list' interfaces, 'implementers' (resolve an interface/type to concrete types), 'conforms' (validate an object), 'owl', 'graph' (schema as a node/edge diagram), 'summary' (schema as Markdown), 'lint' (naming-style + typo validation), or 'explain_routing_eligibility' (X-4 WHY-eligible routing explanation).
 - `name` (string): Interface or concrete type name.
 - `object_json` (string): JSON object dict for action='conforms'.
 - `registry` (string): Which interface registry: 'structural' (built-in shapes) or 'enterprise' (enterprise-standard contracts, CONCEPT:AU-KG.ontology.populated-at-import-real-3).
@@ -4663,11 +4658,11 @@ Ontology interfaces: resolve implementers (targeting), check conformance, or emi
 - `tenant` (string): Required tenant scope, if any (action='explain_routing_eligibility').
 - `policy_tags` (string): Comma-separated required policy tags, if any (action='explain_routing_eligibility').
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4692,11 +4687,11 @@ Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerate
 
 - `dry_run` (boolean): Preview the generated ontology without writing (default). Set false to apply.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4704,7 +4699,7 @@ Discover the live LeanIX metamodel and mirror it natively as OWL/RDF: regenerate
 
 **ontology link materialize**
 
-Reify a multiple-to-multiple ontology link as a (junction_node, edge_a, edge_b) triple and write it (CONCEPT:AU-KG.domains.trade-journal-bias-auditor).
+Reify an ontology link with multiple endpoints on each side as a (junction_node, edge_a, edge_b) triple and write it (CONCEPT:AU-KG.domains.trade-journal-bias-auditor).
 
 - **Intent verbs:** write
 - **REST route:** `/ontology/link-materialize`
@@ -4725,11 +4720,11 @@ Reify a multiple-to-multiple ontology link as a (junction_node, edge_a, edge_b) 
 - `target_id` (string): Target endpoint node id.
 - `properties` (string): JSON-encoded junction (link) properties.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4758,11 +4753,11 @@ Model profiles as first-class graph resources (CONCEPT:AU-KG.ontology.model-prof
 - `action` (string): 'list' | 'sync' | 'get' | 'owl'.
 - `model_id` (string): Registry model id for action='get'.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4792,11 +4787,11 @@ List the ontology property-type registry and resolve/validate a Palantir-style t
 - `type_ref` (string): A type ref, e.g. 'array<string>' or 'vector<768>'.
 - `value` (string): JSON-encoded value for action='validate'.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4832,11 +4827,11 @@ Git identity and history anchors (U-47, CONCEPT:AU-KG.ontology.repository-proven
 - `occurred_at` (string): For change_event: ISO-8601 timestamp; defaults to now.
 - `subject_id` (string): For change_event: the file/entity this event concerns.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4844,7 +4839,7 @@ Git identity and history anchors (U-47, CONCEPT:AU-KG.ontology.repository-proven
 
 **ontology sampling profile**
 
-Task-aware LLM sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection/KG-2.94): list/describe the per-task-class profiles, 'resolve' the profile that will be picked for a prompt/role,
+Task-aware LLM sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection/KG-2.94): list/describe the per-task-class profiles, 'resolve' the profile selected for a prompt/role, 'set' a
 
 - **Intent verbs:** manage, ask
 - **REST route:** `/ontology/sampling-profiles`
@@ -4870,11 +4865,11 @@ Task-aware LLM sampling profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selec
 - `role` (string): Functional role for action='resolve'.
 - `profile_json` (string): JSON SamplingProfile dict for action='set'.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4904,11 +4899,11 @@ List/describe constrained ontology value types and validate or coerce a value (C
 - `name` (string): The value-type name, e.g. 'EmailAddress'.
 - `value` (string): JSON-encoded value for validate/coerce.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4920,7 +4915,7 @@ The Ultimate Quant System Tool.
 
 - **Intent verbs:** ask, act
 - **REST route:** `/quant`
-- **MCP tags:** gated, granular, ontology
+- **MCP tags:** granular, ontology
 - **Side effects:** 1/14 actions matched an EG ledger Method; any_mutates=False; durability=['None']; txn=['None']
 - **Cost/Latency:** unmeasured for this capability (no benchmark source)
 - **Reliability:** (unmeasured — no live engine reward reachable at generation time)
@@ -4958,11 +4953,11 @@ The Ultimate Quant System Tool.
 - `portfolio_id` (string):
 - `rounds` (integer):
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -4985,8 +4980,8 @@ Agent-Native Research Artifacts over the one ontology-driven KG (CONCEPT:AU-KG.r
 
 **Typed input:**
 
-- `action` (string): reason|compile|review|seal|capture|get|list|ask
-- `topic` (string): Topic to ask into (ask).
+- `action` (string): `reason|compile|review|seal|capture|get|list|inquire`
+- `topic` (string): Topic to investigate (`inquire`).
 - `article_id` (string): Paper/article id (compile/review/get).
 - `query` (string): Topic for 'reason' (reasoning is ecosystem-wide).
 - `level` (string): Seal level: L1|L2|L3 (review).
@@ -4996,13 +4991,13 @@ Agent-Native Research Artifacts over the one ontology-driven KG (CONCEPT:AU-KG.r
 - `event_type` (string): Force event type (capture).
 - `target_codebase` (string): Codebase to ground claims against (compile).
 - `limit` (integer): Max rows (list).
-- `materialize` (boolean): Persist inquiry nodes (ask).
+- `materialize` (boolean): Persist inquiry nodes (`inquire`).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -5028,11 +5023,11 @@ Classify a skill (skill_id from /api/enhanced/tools' skills[]/skill_workflows[]/
 - `skill_id` (string, required): The skill's catalog id (skills[].id from /api/enhanced/tools).
 - `skill_type` (string, required): skill | workflow | graph.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -5063,11 +5058,11 @@ Document-source connectors (CONCEPT:AU-ECO.connector.document-source-framework�
 - `contextual` (boolean): Enable contextual-retrieval enrichment (CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment).
 - `incremental` (boolean): Use the connector's resumable poll (CONCEPT:AU-ECO.connector.incremental-poll-watermark) vs a full load.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -5093,11 +5088,11 @@ Watch a chunked async drain started by source_sync(mode='full') on a LARGE corpu
 - `action` (string): 'status' (progress for a drain_id) or 'list' (registered chunked sources).
 - `drain_id` (string): The drain handle returned by source_sync(mode='full') (for action='status').
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -5105,7 +5100,7 @@ Watch a chunked async drain started by source_sync(mode='full') on a LARGE corpu
 
 **source sync**
 
-THE canonical connector→KG ingestion tool (CONCEPT:AU-KG.ingest.enterprise-source-extractor) — one entrypoint for every external source. source='leanix'|'camunda'|'servicenow'|'gitlab'|… (any registered hydration/materialize source), OR source='all' to sweep EVERY configured connector in one pass (the fleet-wide background-ingest sweep). mode='delta' (only changes since the watermark, default), 'full' (re-mirror all), or 'reconcile' (tombstone records removed upstream).
+THE canonical connector→KG ingestion tool (CONCEPT:AU-KG.ingest.enterprise-source-extractor) — one entrypoint for every external source. source='leanix'|'camunda'|'servicenow'|'gitlab'|… (any registered hydration/materialize source), OR source='all' to sweep EVERY configured connector in one pass (the fleet-wide background-ingest sweep). mode='delta' (only changes since the watermark, default), 'full' (re-mirror all), or 'reconcile' (tombstone records deleted upstream).
 
 - **Intent verbs:** write
 - **REST route:** `/source/sync`
@@ -5126,11 +5121,11 @@ THE canonical connector→KG ingestion tool (CONCEPT:AU-KG.ingest.enterprise-sou
 - `connection` (string): CONCEPT:AU-KG.backend.multi-connection-registry — named BACKEND connection to sync into (default = primary). Selects WHICH BACKEND, never which physical graph — see `graph`. Fan-out ('all'/a list) is rejected: a source sync always targets exactly one backend, never a union — distinct from `source='all'`, which fans out across CONNECTORS, not backends/graphs.
 - `graph` (string): CONCEPT:AU-KG.backend.explicit-graph-selection — explicit physical engine graph to sync THIS source into (one of the names `engine_tenants(action='list')` returns), independent of `connection`. U-37: gives each source its OWN isolated physical graph and watermark/checkpoint (the native ChangeEnvelope cursor is scoped to whatever graph this call narrows onto), so unbounded multi-source imports never share one bulk watermark across sources with different trust/change-detection boundaries. Empty = the caller's own bound graph (unchanged default behavior). An unknown graph, or a `connection` with no physical-graph concept, is a typed error — never a silent fallback or fan-out.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -5164,11 +5159,11 @@ Link a KG SDD spec/feature to a Plane/Jira work item and make agents assignable 
 - `user` (string): For action='pull': user whose items to read.
 - `dry_run` (boolean): Preview without writing (default).
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -5176,7 +5171,7 @@ Link a KG SDD spec/feature to a Plane/Jira work item and make agents assignable 
 
 **tabular query**
 
-Run a read-only SQL projection through the governed tabular query service and return its typed evidence bundle.
+Execute a read-only SQL projection through the governed tabular query service and return its typed evidence bundle.
 
 - **Intent verbs:** ask
 - **REST route:** `/query/tabular`
@@ -5193,11 +5188,11 @@ Run a read-only SQL projection through the governed tabular query service and re
 
 - `sql` (string, required): A non-empty read-only SQL statement.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -5243,11 +5238,11 @@ Query usage/cost/observability analytics (CONCEPT:AU-ECO.mcp.usage-cost-observab
 - `query` (string): For action=search (FTS).
 - `limit` (integer): Row cap for list actions.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -5275,11 +5270,11 @@ Explain beliefs, decisions, provenance and changes. action='<tool>.<op>' (see ac
 - `intent` (string): Natural-language request, routed when action is empty.
 - `execute` (boolean): Run now; when false, return the resolved plan.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---
 
@@ -5287,7 +5282,7 @@ Explain beliefs, decisions, provenance and changes. action='<tool>.<op>' (see ac
 
 **write**
 
-Create or change graph data. Previews first, then run with plan_ref. action='<tool>.<op>' (see action='describe'), or leave it empty to route `intent`.
+Create or change graph data; previews first, then execute with plan_ref. action='<tool>.<op>' (see action='describe'), or leave it empty to route `intent`.
 
 - **Intent verbs:** write
 - **REST route:** `/intent/write`
@@ -5307,10 +5302,10 @@ Create or change graph data. Previews first, then run with plan_ref. action='<to
 - `intent` (string): Natural-language request, routed when action is empty.
 - `execute` (boolean): Run now; when false, return the resolved plan.
 
-**Eligibility predicates:** eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)
+**Eligibility predicates:** `eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)`
 
 **Calibrated outcomes:** (empty — no live bandit reward reachable at generation time)
 
-*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-08T20:38:47Z'}*
+*Provenance: {'generator_version': '1.0.0', 'source_repo_au': 'agent-utilities', 'source_module_au': 'agent_utilities.mcp.kg_server', 'source_method_eg': None, 'eg_ledger_path': 'repo://epistemic-graph/docs/capabilities.generated.md', 'eg_ledger_available': True, 'generated_at': '2026-10-17T01:51:30Z'}*
 
 ---

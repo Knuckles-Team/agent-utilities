@@ -581,6 +581,21 @@ def test_derived_toggle_undocumented(tmp_path: Path) -> None:
     assert "DEMO_REPORTSTOOL" in _types(report, "UNDOCUMENTED")
 
 
+def test_surface_helpers_do_not_mint_domain_toggles(tmp_path: Path) -> None:
+    """Shared dispatch helpers have no environment toggle of their own."""
+    root = _make_pkg(tmp_path, env_example="", mcp_config={}, code="")
+    (root / "demo_agent" / "tools.py").write_text(
+        "def register_backing_tools(backing): pass\n"
+        "def register_connector_intent_tools(mcp): pass\n"
+        "def register_demo_reports_tools(mcp): pass\n",
+        encoding="utf-8",
+    )
+    undocumented = _types(drift.analyze(root), "UNDOCUMENTED")
+    assert "BACKINGTOOL" not in undocumented
+    assert "CONNECTOR_INTENTTOOL" not in undocumented
+    assert "DEMO_REPORTSTOOL" in undocumented
+
+
 def test_setting_passthrough_helper_reads_not_dead(tmp_path: Path) -> None:
     """A local ``_any_setting(*keys)``/``_all_settings(*keys)``-shaped helper
     (agent_utilities/knowledge_graph/core/hydration.py's real pattern) that

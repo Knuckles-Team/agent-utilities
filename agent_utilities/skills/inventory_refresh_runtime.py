@@ -15,13 +15,13 @@ refusal model. The Codex discovery path remains AU-DEV-R003.3+; see
 
 from __future__ import annotations
 
-from agent_utilities.core.providers import SKILL_PROVIDER_GROUP, provider_registrations
 from agent_utilities.core.provider_materialization import (
     EmptyProviderAssets,
     ProviderAssetError,
     build_asset_manifest,
     read_managed_provider_marker,
 )
+from agent_utilities.core.providers import SKILL_PROVIDER_GROUP, provider_registrations
 from agent_utilities.core.unified_install import install_unified, unified_skills_dir
 from agent_utilities.skills.inventory_refresh_model import SkillInventoryRefreshEntry
 

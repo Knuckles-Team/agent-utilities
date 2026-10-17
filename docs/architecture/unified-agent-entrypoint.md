@@ -1,4 +1,4 @@
-# Unified Agent Entrypoint — one seam into the graph agents (verified)
+# Unified Agent Entrypoint — one seam into the graph agents (validated)
 
 > **Status:** **verified as-built (2026-06-28).** This is the *verification + routing map*
 > companion to the north-star [`entrypoint-unification.md`](entrypoint-unification.md): it

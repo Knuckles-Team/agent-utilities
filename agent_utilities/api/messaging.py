@@ -1,6 +1,6 @@
 """Public port over AU's retained action-policy decision point.
 
-CONCEPT:AU-ECO.boundary.public-api-widening — AU-BOUNDARY-R013
+CONCEPT:AU-OS.governance.action-policy-decision-point — AU-BOUNDARY-R013
 
 ``graph-os`` and other out-of-process callers must reach Agent Utilities only
 through ``agent_utilities.api`` (AU-BOUNDARY-R013); they may not import

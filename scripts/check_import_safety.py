@@ -59,6 +59,8 @@ POSIX_ONLY_STDLIB_MODULES = ("fcntl", "termios", "pwd", "resource", "grp")
 
 def install_windows_simulation(
     blocked: tuple[str, ...] = POSIX_ONLY_STDLIB_MODULES,
+    *,
+    excluded: tuple[str, ...] = (),
 ) -> None:
     """Make POSIX-only stdlib modules unimportable, as they are on Windows.
 
@@ -94,12 +96,20 @@ def install_windows_simulation(
     to catch: a module with NO guard at all still fails identically under
     this shim and on real Windows.
     """
+    # Existing walk exclusions also identify import origins outside simulation.
+    # Only the immediate importer is exempt; its nonexcluded dependencies are not.
+    # Even an unguarded import in an excluded module uses the real platform.
+    # This is not Windows qualification: native Windows remains authoritative.
     blocked_set = set(blocked)
     real_import = builtins.__import__
 
     def _blocking_import(name, globals=None, locals=None, fromlist=(), level=0):  # noqa: A002
         top = name.split(".", 1)[0]
-        if top in blocked_set:
+        origin = globals.get("__name__") if isinstance(globals, dict) else None
+        origin_excluded = isinstance(origin, str) and any(
+            origin == prefix or origin.startswith(prefix + ".") for prefix in excluded
+        )
+        if top in blocked_set and not origin_excluded:
             raise ModuleNotFoundError(
                 f"No module named {top!r} (simulated: POSIX-only, unavailable on Windows)"
             )
@@ -205,7 +215,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.simulate_windows:
-        install_windows_simulation()
+        install_windows_simulation(excluded=tuple(args.exclude))
 
     try:
         module_names, walk_failures = discover_modules(args.package)

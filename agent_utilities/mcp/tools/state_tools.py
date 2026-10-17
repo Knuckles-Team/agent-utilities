@@ -1636,14 +1636,14 @@ def register_state_tools(mcp):
         tags=["graph-os", "feeds"],
     )
     async def graph_feeds(
-        action: str = Field(default="list", description="list|add|remove|sync"),
-        url: str = Field(default="", description="Feed URL (single add/remove)."),
+        action: str = Field(default="list", description="`list|add|remove|sync`"),
+        url: str = Field(default="", description="Feed URL (single `add/remove`)."),
         urls: str = Field(
             default="",
             description=(
-                "BULK add/remove: many feed URLs in ONE call — a JSON array "
-                '(\'["https://a/feed","https://b/rss"]\') or a comma/newline-'
-                "separated string. Combined with `url` and deduped."
+                "BULK `add/remove`: feed URLs in ONE call — a JSON array "
+                '(\'["https://a/feed","https://b/rss"]\') or a comma/newline-separated string. '
+                "Combined with `url` and deduped."
             ),
         ),
         mode: str = Field(default="delta", description="delta|full (sync)."),
@@ -1684,9 +1684,9 @@ def register_state_tools(mcp):
     async def research_artifact(
         action: str = Field(
             default="reason",
-            description="reason|compile|review|seal|capture|get|list|inquire",
+            description="`reason|compile|review|seal|capture|get|list|inquire`",
         ),
-        topic: str = Field(default="", description="Topic to inquire into (inquire)."),
+        topic: str = Field(default="", description="Topic to investigate (`inquire`)."),
         article_id: str = Field(
             default="", description="Paper/article id (compile/review/get)."
         ),
@@ -1706,7 +1706,7 @@ def register_state_tools(mcp):
         ),
         limit: int = Field(default=50, description="Max rows (list)."),
         materialize: bool = Field(
-            default=True, description="Persist inquiry nodes (inquire)."
+            default=True, description="Persist inquiry nodes (`inquire`)."
         ),
     ) -> str:
         """Run an ARA action over the one ontology-driven KG (single SoT)."""

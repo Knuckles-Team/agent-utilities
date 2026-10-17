@@ -150,8 +150,7 @@ def render_examples(root: Path) -> str:
         "CIDR policy through the operator-owned deployment profile. The generator",
         "does not emit an unauthenticated non-loopback listener.",
         "",
-        "_Auto-generated from the code-read env surface (package vars)"
-        " — do not edit._",
+        "_Auto-generated from the code-read env surface (package vars) — do not edit._",
         END,
     ]
     return "\n".join(lines)

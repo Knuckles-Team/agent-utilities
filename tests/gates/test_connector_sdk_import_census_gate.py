@@ -15,14 +15,14 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "scripts" / "security"))
 
-from check_connector_sdk_import_census import census  # noqa: E402
-
 import os as _os
+
+from check_connector_sdk_import_census import census  # noqa: E402
 
 FLEET_ROOT = Path(
     _os.environ.get(
         "AGENT_FLEET_ROOT",
-        "/home/apps/workspace/agent-packages/agents",
+        str(_REPO_ROOT.parent / "agents"),
     )
 )
 
@@ -62,7 +62,9 @@ def test_no_arg_invocation_checks_both_ranges_instead_of_erroring() -> None:
     succeed by censusing BOTH the F-J and T-Z ranges -- strictly more
     coverage than either range alone, not a weaker/exempted check.
     """
-    script = _REPO_ROOT / "scripts" / "security" / "check_connector_sdk_import_census.py"
+    script = (
+        _REPO_ROOT / "scripts" / "security" / "check_connector_sdk_import_census.py"
+    )
     completed = subprocess.run(
         [sys.executable, str(script), "--fleet-root", str(FLEET_ROOT)],
         capture_output=True,

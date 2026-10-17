@@ -874,7 +874,7 @@ class Orchestrator:
         target: dict[str, Any],
         task: str,
         max_steps: int,
-        grounding: GroundingPolicy,
+        grounding: GroundingPolicy | None,
     ) -> dict[str, Any]:
         from agent_utilities.knowledge_graph.core.workflow_gate import (
             gate_workflow_execution,

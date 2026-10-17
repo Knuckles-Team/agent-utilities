@@ -102,9 +102,7 @@ BASELINES: dict[str, Planner] = {
         "FanOutJoin", min(5, budget), task.subtasks
     ),
     # A 3-member council for every query.
-    "council-3": lambda task, budget: _answer(
-        "Council", min(3, budget), task.subtasks
-    ),
+    "council-3": lambda task, budget: _answer("Council", min(3, budget), task.subtasks),
     "au-tree": au_family_tree,
 }
 

@@ -95,10 +95,10 @@ def register_graph_engineering_tools(mcp: Any) -> None:
         ),
         max_communities: int = Field(
             default=8,
-            description="global_search MAP-step fan-out bound, and "
-            "build_community_reports' max communities to summarize (there "
-            "default 50 when left at 8 has no special meaning -- pass "
-            "explicitly for build_community_reports if you want a different cap).",
+            description=(
+                "global_search MAP-step fan-out bound. Also limits communities summarized by "
+                "build_community_reports. Both actions default to 8; pass a different cap explicitly."
+            ),
         ),
         token_budget: int = Field(
             default=0,
