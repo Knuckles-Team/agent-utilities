@@ -157,7 +157,7 @@ def _json(model: Any) -> Any:
 
 @dataclass(frozen=True, slots=True)
 class LayerClients:
-    """The L0/L1/L2/L3/L5 clients for one verified session."""
+    """The knowledge, component, agent, graph, and run clients for one session."""
 
     knowledge: KnowledgeClient
     components: ComponentClient

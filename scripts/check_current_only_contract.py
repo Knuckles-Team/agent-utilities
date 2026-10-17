@@ -372,24 +372,12 @@ PATH_RETIRED_IDENTIFIERS: tuple[tuple[str, str], ...] = (
         "from agent_utilities.core.config import " + "setting",
     ),
     (
-        "agent_utilities/tools/dynamic_tool_orchestrator.py",
-        "defaults to returning " + "all tools",
-    ),
-    (
-        "agent_utilities/tools/dynamic_tool_orchestrator.py",
-        "# Fallback: if zero matches " + "found",
-    ),
-    (
         "docs/guides/dynamic-tool-selection.md",
         "falls back to exposing the " + "complete set",
     ),
     (
         "docs/examples/graph-os-mcp-examples.md",
         "exhaustive examples of every possible tool " + "configuration",
-    ),
-    (
-        "agent_utilities/mcp/multiplexer.py",
-        "stdio_client(" + "server_params)",
     ),
     (
         "agent_utilities/tools/developer_tools.py",
@@ -456,30 +444,6 @@ PATH_REQUIRED_IDENTIFIERS: tuple[tuple[str, str], ...] = (
     (
         "agent_utilities/base_utilities.py",
         "from agent_utilities.core._env import setting",
-    ),
-    (
-        "agent_utilities/mcp/server_factory.py",
-        "if query_filter and not reject_all:",
-    ),
-    (
-        "agent_utilities/tools/dynamic_tool_orchestrator.py",
-        "No match or query failure returns no tools.",
-    ),
-    (
-        "agent_utilities/mcp/multiplexer.py",
-        "stdio_client(server_params, errlog=child_error_sink)",
-    ),
-    (
-        "tests/unit/mcp/test_dynamic_tool_selection.py",
-        "def test_dynamic_visibility_transform_kg_no_match_fails_closed(",
-    ),
-    (
-        "tests/unit/mcp/test_dynamic_tool_selection.py",
-        "def test_dynamic_visibility_transform_without_active_graph_fails_closed(",
-    ),
-    (
-        "tests/unit/mcp/test_dynamic_tool_selection.py",
-        "def test_dynamic_visibility_transform_kg_error_fails_closed(",
     ),
 )
 RAW_ROUTE_FRAGMENTS: tuple[str, ...] = (

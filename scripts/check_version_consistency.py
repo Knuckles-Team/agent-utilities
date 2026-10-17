@@ -34,10 +34,6 @@ VERSION_CONSUMERS = (
     "agent_utilities/api_utilities.py",
     "agent_utilities/base_utilities.py",
     "agent_utilities/core/embedding_utilities.py",
-    "agent_utilities/gateway/__init__.py",
-    "agent_utilities/mcp/harness_server.py",
-    "agent_utilities/mcp/kg_server.py",
-    "agent_utilities/mcp/server_factory.py",
     "agent_utilities/tools/tool_registry.py",
 )
 SEMVER = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
@@ -219,8 +215,6 @@ def validate(root: Path = ROOT) -> list[str]:
             "FastMCP(",
             "version=version,",
         ),
-        "agent_utilities/mcp/kg_server.py": ("version=__version__",),
-        "agent_utilities/mcp/harness_server.py": ("version=__version__",),
     }
     for relative_path, markers in server_markers.items():
         try:

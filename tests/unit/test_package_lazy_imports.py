@@ -21,7 +21,7 @@ import importlib
 
 import agent_utilities
 
-_EXPECTED_LAZY_MODULE_COUNT = 41
+_EXPECTED_LAZY_MODULE_COUNT = 40
 _EXPECTED_LAZY_EXPORT_COUNT = 117
 
 
@@ -57,7 +57,7 @@ def _expected_dispatch() -> list[tuple[str, tuple[str, str]]]:
 def _assert_registry_shape(targets: list[tuple[str, list[str]]]) -> None:
     module_names = [module_name for module_name, _ in targets]
     assert len(targets) == _EXPECTED_LAZY_MODULE_COUNT, (
-        "sanity check: expected the complete 41-module lazy-import surface; "
+        "sanity check: expected the complete 40-module lazy-import surface; "
         f"found {len(targets)} registry entries"
     )
     assert len(set(module_names)) == _EXPECTED_LAZY_MODULE_COUNT, (

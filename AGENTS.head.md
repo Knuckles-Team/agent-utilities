@@ -226,9 +226,8 @@ use.
 
 Never use `git stash`: the stash reference is shared by every linked worktree.
 Use a small scratch commit or `agent-utilities lane park` when work must be
-parked. Never stage with `git add -A` or `git add .`; inspect status and the full
-diff, then stage an explicit reviewed path list. Re-read the staged name list
-and patch before committing.
+parked. Never stage with `git add -A` or `git add .`; stage an explicit
+reviewed path list and re-read the staged patch before committing.
 
 Use lane-private build, test, cache, and scratch paths reported by `lane env`.
 Take the declared lease before changing shared locks, generated global views,
