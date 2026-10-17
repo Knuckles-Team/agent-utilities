@@ -160,3 +160,19 @@ def test_docker_workspace_host_directory_is_owner_only():
         assert stat.S_IMODE(ws.root.stat().st_mode) == 0o700
     finally:
         shutil.rmtree(ws.root)
+
+
+@pytest.mark.parametrize(
+    ("script", "timeout", "expected"),
+    [
+        ("echo out; echo err >&2", 5.0, (0, "out\n", "err\n")),
+        ("exit 3", 5.0, (3, "", "")),
+        ("sleep 5", 0.1, (124, "", "command timed out after 0.1s")),
+    ],
+)
+async def test_run_shell_process_returns_exit_code_and_output(
+    script, timeout, expected
+):
+    from agent_utilities.runtime.workspace import run_shell_process
+
+    assert await run_shell_process(["bash", "-c", script], timeout) == expected

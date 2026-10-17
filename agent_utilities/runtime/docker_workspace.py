@@ -28,6 +28,8 @@ import time
 import uuid
 from pathlib import Path
 
+from .workspace import run_shell_process
+
 
 class DockerWorkspace:
     name = "docker"
@@ -133,27 +135,12 @@ class DockerWorkspace:
         for k, v in env.items():
             env_flags += ["-e", f"{k}={v}"]
         argv = [runtime, "exec", *env_flags, self.container, "bash", "-c", script]
-        proc = await asyncio.create_subprocess_exec(
-            *argv,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
         try:
-            out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except TimeoutError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            await proc.wait()
-            return 124, "", f"command timed out after {timeout}s"
+            return await run_shell_process(argv, timeout)
         finally:
             if self.run_id in self._REGISTRY:
                 name, rt, _ = self._REGISTRY[self.run_id]
                 self._REGISTRY[self.run_id] = (name, rt, time.time())
-        return (
-            proc.returncode or 0,
-            out.decode(errors="replace"),
-            err.decode(errors="replace"),
-        )
 
     async def stop(self) -> None:
         runtime = self._runtime or "docker"

@@ -17,6 +17,8 @@ typed observation and is stamped with ``run_id``/``step``/``ts``/``actor``), the
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -64,6 +66,38 @@ class WorkspaceBackend(Protocol):
     async def stop(self) -> None: ...
 
     def exposed_url(self, port: int) -> str: ...
+
+
+async def run_shell_process(
+    argv: list[str],
+    timeout: float,
+    *,
+    cwd: str | None = None,
+    env: dict[str, str] | None = None,
+) -> tuple[int, str, str]:
+    """Run ``argv`` and return ``(exit_code, stdout, stderr)`` for ``exec_shell``.
+
+    A run that exceeds ``timeout`` seconds is killed and returns exit code 124.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        *argv,
+        cwd=cwd,
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+        return 124, "", f"command timed out after {timeout}s"
+    return (
+        proc.returncode or 0,
+        out.decode(errors="replace"),
+        err.decode(errors="replace"),
+    )
 
 
 class DevWorkspace:
