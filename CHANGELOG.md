@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **Cut to the in-run harness.** Every module outside the harness keep set is deleted:
+  harness evolution, evaluation and benchmarks, tracing backends, graph, knowledge_graph,
+  orchestration, decide, models, security, messaging, protocols, observability, tools and
+  the rest, with their tests, scripts, docs, deploy assets, entry points, extras and
+  dependencies. Their capabilities move to epistemic-graph, graph-os and
+  agent-connector-sdk. The base install now depends only on `pydantic` and `platformdirs`.
+
+### Changed
+- `runtime.provenance.ProvenanceMirror` is the null `ProvenanceSink`; the host supplies the
+  sink that records workspace events.
+- `runtime.computer_use_tier` keeps only the driver protocol and the null driver.
+
 ## [3.0.0] - 2026-10-16 — Agent harness only
 
 ### Removed

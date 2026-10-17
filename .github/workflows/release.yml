@@ -1,57 +1,8 @@
 name: Release
 
-# ─────────────────────────────────────────────────────────────────────────
-# THE TWO-WORKFLOW MODEL (read this before adding a check to either file)
-#
-# This repo ships exactly two GitHub Actions workflows:
-#
-#   release.yml (THIS FILE)  — the ONLY workflow that can block a release.
-#     Five release-critical jobs, wired strictly `needs:` so a failure names
-#     its stage at a glance: clone-scanners + gates + engine-release-order ->
-#     build -> numeric-runtime-gate -> publish-pypi -> publish-docker. The
-#     scanner job provisions the pinned native clone gates against an
-#     immutable PR/push SHA range; it is part of the release contract, not a
-#     report-only check. `engine-release-order` runs independently of
-#     `gates` (no `needs:` between them) specifically so a red cross-repo
-#     release-order check never prevents `gates`' test suite from running
-#     and giving a pull request real test evidence; only `build` (and
-#     therefore everything downstream of it) `needs` this job, so building,
-#     the numeric-runtime gate, and every publish job stay unreachable while
-#     the engine release is not resolvable. "Release-critical" is
-#     deliberately narrow: secret-history scanning, the test suite, clone
-#     gates, the cross-repo release-order check, and wheel build +
-#     reproducibility + release-contract + wheel-privacy checks. NOTHING
-#     else may block publishing — if you are tempted to add a step here, it
-#     almost certainly belongs in advisory.yml instead.
-#
-#   advisory.yml — everything else. Concept governance, docs/nav/link
-#     consistency, the liveness ratchet, coupling, event-loop-blocking,
-#     swallowed-errors, gate meta-tests, CI-parity forwarders, SBOM/license
-#     policy, CodeQL, tenant/identity contract scripts, and Pages. Every
-#     step there runs with `continue-on-error: true` so debt is visible
-#     (red step, annotation, job summary) but never blocks a release.
-#
-# WHY: this replaced a `pipeline.yml` that triggered on `workflow_run` of a
-# separate `Guardrails` workflow with `if: conclusion == 'success'`. Any red
-# guardrail anywhere — including pre-existing debt with zero relationship to
-# packaging — silently skipped the release with no signal ("all skipped").
-# release.yml now triggers directly on pushes to `main` and to `v*` release
-# tags. Main pushes and pull requests keep their validation/build semantics;
-# only a valid release-tag push can enter the protected publish jobs. It is
-# never triggered via `workflow_run`, and nothing here uses that indirection.
-#
-# CROSS-REPO ORDERING: epistemic-graph must publish to PyPI before
-# agent-utilities can, because agent-utilities pins a floor on it (see
-# pyproject.toml). The `engine-release-order` job below verifies that floor
-# is actually resolvable on PyPI (scripts/release/check_eg_pypi_resolvable.py)
-# and fails with a clear message naming the missing version, rather than
-# letting a normal `pip`/`uv` resolver die deep inside a backtrace. It used
-# to be a step inside `gates`, which meant a red release-order check also
-# skipped `gates`' own test suite -- leaving a pull request with zero test
-# evidence. Moving it to its own job, needed only by `build`, keeps the same
-# ordering guarantee (nothing can build or publish while it is red) while
-# letting `gates` always reach the test suite.
-# ─────────────────────────────────────────────────────────────────────────
+# One workflow: spec gates and the harness gates (ruff, format, mypy, tests)
+# on every pull request and main push; build on every run; publish to PyPI
+# and create the GitHub release only from an exact vX.Y.Z tag push.
 
 on:
   push:
@@ -60,185 +11,15 @@ on:
     tags:
       - 'v*'
   pull_request:
-    paths:
-      - 'agent_utilities/**'
-      - 'scripts/**'
-      - 'tests/**'
-      - 'pyproject.toml'
-      - 'uv.lock'
-      - 'MANIFEST.in'
-      - 'build_backend.py'
-      - '.github/workflows/release.yml'
-      - 'docs/**'
-      - '**/*.md'
-      - '**/*.json'
-      - '**/*.toml'
-      - '**/*.yaml'
-      - '**/*.yml'
 
 concurrency:
   group: release-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
-  # ── STAGE 0: source-checkout clone gates. ───────────────────────────────
-  # This job deliberately installs the exact native tools on an ephemeral
-  # runner. The pre-commit hooks never download dependencies; this CI lane is
-  # the reproducible provisioning boundary and is required by `build` below.
-  clone-scanners:
-    name: pinned clone scanners
-    runs-on: ubuntu-24.04
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
-    steps:
-      # A pull_request's default checkout is a synthetic merge commit. Pin the
-      # checkout to the immutable contributor SHA so the wrapper's HEAD and
-      # the range resolved below describe the same candidate.
-      - &release-checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
-      - &sdk-checkout
-        name: Checkout pinned Agent Connector SDK source
-        uses: ./.github/actions/checkout-agent-connector-sdk
-
-      - &release-python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.12'
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '22'
-
-      - &release-uv
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          version: '0.12.21'
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      - name: Sync source-checkout wrapper environment
-        run: |
-          set -euo pipefail
-          uv sync --frozen \
-            --no-install-package epistemic-graph \
-            --no-install-package langfuse-agent
-          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
-
-      - name: Resolve immutable clone-gate range
-        id: clone-range
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PUSH_BEFORE_SHA: ${{ github.event.before }}
-          WORKFLOW_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          zero=0000000000000000000000000000000000000000
-          sha_re='^[0-9a-f]{40}$'
-
-          if [[ "$EVENT_NAME" == pull_request ]]; then
-            base="$PR_BASE_SHA"
-            head="$PR_HEAD_SHA"
-          elif [[ "$EVENT_NAME" == push ]]; then
-            base="$PUSH_BEFORE_SHA"
-            head="$WORKFLOW_SHA"
-          else
-            echo "::error::unsupported event for immutable clone range: $EVENT_NAME"
-            exit 1
-          fi
-
-          if [[ ! "$head" =~ $sha_re ]] || ! git cat-file -e "$head^{commit}"; then
-            echo "::error::head is not a full commit SHA present in the checkout: $head"
-            exit 1
-          fi
-          if [[ "$(git rev-parse HEAD)" != "$head" ]]; then
-            echo "::error::checkout HEAD does not match the immutable candidate SHA"
-            exit 1
-          fi
-
-          if [[ -z "$base" || "$base" == "$zero" ]]; then
-            base="$(git rev-parse --verify "$head^" 2>/dev/null || git rev-list --max-parents=0 "$head")"
-          fi
-          if [[ ! "$base" =~ $sha_re ]] || ! git cat-file -e "$base^{commit}"; then
-            echo "::error::base is not a full commit SHA present in the checkout: $base"
-            exit 1
-          fi
-
-          {
-            echo "base_sha=$base"
-            echo "head_sha=$head"
-          } >> "$GITHUB_OUTPUT"
-
-      # Versions come from [tool.agent_utilities.clone_scanners] in
-      # pyproject.toml; the same script provisions a local checkout.
-      - name: Install exact clone scanner toolchain
-        shell: bash
-        run: |
-          set -euo pipefail
-          rustup toolchain install 1.95.0 --profile minimal
-          rustup default 1.95.0
-          SCANNER_ROOT="$RUNNER_TEMP/scanners" bash scripts/install_scanners.sh
-
-      - name: Dupehound changed-function gate
-        env:
-          CX_DUP_BASE_REF: ${{ steps.clone-range.outputs.base_sha }}
-          CX_DUP_HEAD_REF: ${{ steps.clone-range.outputs.head_sha }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$CX_DUP_HEAD_REF"
-          python3 scripts/check_dupehound.py --base-ref "$CX_DUP_BASE_REF"
-
-      - name: jscpd changed-block gate
-        env:
-          CX_DUP_BASE_REF: ${{ steps.clone-range.outputs.base_sha }}
-          CX_DUP_HEAD_REF: ${{ steps.clone-range.outputs.head_sha }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$CX_DUP_HEAD_REF"
-          python3 scripts/check_duplication.py enforce --base-ref "$CX_DUP_BASE_REF"
-
-      - name: jscpd full-tree census (advisory evidence)
-        run: python3 scripts/check_duplication.py census
-
-  # ── STAGE 0.5: cross-repo release-order gate, on its own so a red result
-  # here never also hides `gates`' test suite. Stdlib-only: checkout plus one
-  # script, nothing else -- verifies the epistemic-graph floor this repo
-  # declares is actually resolvable on PyPI before any CI time is spent
-  # building. eg must publish before au; this turns that deadlock into one
-  # clear line instead of a pip/uv resolver backtrace (Deploy-Pages' prior
-  # failure mode). Deliberately has no `needs:` on `gates`/`clone-scanners`
-  # and nothing needs it except `build`, so a red run here still lets `gates`
-  # produce test evidence while leaving build/publish unreachable.
-  #
-  # ADVISORY since 2026-10-08: the engine wheel exceeds the PyPI size limit,
-  # so PyPI cannot carry it yet. The check still runs and reports, but
-  # `continue-on-error` keeps a red result from blocking `build`. CI installs
-  # the engine from the epistemic-graph `engine-main` GitHub prerelease.
-  engine-release-order:
-    name: epistemic-graph release is resolvable on PyPI
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Verify required epistemic-graph release is resolvable on PyPI
-        run: python3 scripts/release/check_eg_pypi_resolvable.py
-
-  # Spec-status lifecycle gates (SPEC-STATUS-LIFECYCLE.md). Deliberately not in
-  # any `needs:` and not a required check: advisory until the generator and
-  # gates are proven stable across the fleet.
   spec-gates:
     name: spec gates
     runs-on: ubuntu-latest
@@ -248,574 +29,93 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-
       - name: spec-status
         run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-status
-
       - name: spec-decomposition
         run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-decomposition
-
       - name: spec-trailers
         if: github.event_name == 'pull_request'
         run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-trailers --base-ref "origin/${{ github.base_ref }}"
 
-  # ── STAGE 1: release-critical checks only. Nothing else may live here. ──
   gates:
     name: gates
-    # Homelab self-hosted runner for same-repo push/PR traffic; a fork PR's
-    # head repo never matches `github.repository`, so it always lands on
-    # the GitHub-hosted runner instead (graph-os PR #125 pattern).
-    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
-    # Exposes the PR test-scope verdict (NONE|FULL|<newline-separated test
-    # paths>) so the `full-suite` job below can decide, at the job level
-    # (not a step's `timeout-minutes`, which cannot read another step's
-    # output), whether a FULL-scope PR needs its own, longer-budget run.
-    outputs:
-      scope: ${{ steps.pr-test-scope.outputs.scope }}
-    steps:
-      - &gates-checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - *sdk-checkout
-
-      # Homelab self-hosted runners have no AVX2; actions/setup-python's
-      # python-build-standalone distribution requires it and fails with
-      # "CPU ISA level is lower than required" (exit 127). uv-managed Python
-      # builds have no such requirement, so uv is the python provider here
-      # too -- one step both installs python (so `python`/`python3` resolve
-      # for later steps, same as actions/setup-python did) and sets up uv.
-      - &gates-uv-setup
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          version: '0.12.21'
-          python-version: '3.12'
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-
-      # tests/unit/scripts/test_source_freeze_gate.py drives the reviewed `rg`
-      # read tool; the gate fails closed (reviewed-tool-unavailable) without it.
-      - name: Install ripgrep
-        run: |
-          if ! command -v rg >/dev/null 2>&1; then
-            SUDO=""; [ "$(id -u)" -eq 0 ] || SUDO="sudo"
-            $SUDO apt-get update -qq
-            $SUDO apt-get install -y -qq ripgrep
-          fi
-
-      # ---- Secret-history scan (D-CIP-13). Stdlib-only; no environment sync
-      # needed yet. Scans the patch text actually introduced by this push/PR
-      # against origin/main (or the merge-base for a PR) for credential-shaped
-      # content. Was previously wired ONLY as a local pre-push pre-commit
-      # hook ("CI parity" in name only) with no CI enforcement at all.
-      - name: Secret-history scan (D-CIP-13)
-        run: |
-          set -euo pipefail
-          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
-          if [ -z "${BASE:-}" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
-            if git rev-parse --verify --quiet HEAD~1 >/dev/null; then
-              BASE="HEAD~1"
-            else
-              BASE="$(git rev-list --max-parents=0 HEAD)"
-            fi
-          fi
-          echo "Scanning ${BASE}..HEAD for credential-shaped content"
-          python3 scripts/security/check_secret_history.py --base "$BASE"
-
-      # Static source-contract lane. D-CIP-4/D-CIP-9 precedent: no runtime
-      # engine needed for source-level checks or the test suite (tests
-      # requiring the real engine carry the `engine` marker and skip cleanly
-      # when no prebuilt binary is present). `--extra test` is the fix for
-      # the CI/local drift that produced "async def functions are not
-      # natively supported" on 36 tests: the `guardrails` dependency-group
-      # alone never pulled in pytest-asyncio/pytest-env/pytest-timeout (they
-      # live in the `test` extra), so CI silently ran a plainer pytest than
-      # the one every local invocation used (`asyncio_mode = auto` in
-      # pytest.ini requires pytest-asyncio to be installed to take effect).
-      - &gates-sync-test-env
-        name: Sync test environment (engine wheel installed next)
-        run: |
-          uv sync --frozen --extra test --extra neo4j --group guardrails \
-            --no-install-package epistemic-graph \
-            --no-install-package langfuse-agent
-          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
-
-      # The engine and its server come from PyPI (both are published there since
-      # epistemic-graph 2.27.1; the server ships as `epistemic-graph-server`, the
-      # `[server]` extra). Test-environment only: agent-utilities itself depends
-      # on `epistemic-graph[full]`. A missing or non-importable engine, or a
-      # missing server executable, fails the job loudly -- engine-backed tests
-      # may not silently skip (AU #188).
-      - &gates-install-engine-wheel
-        name: Install the epistemic-graph engine and server (PyPI)
-        run: |
-          set -euo pipefail
-          if ! uv pip install --python .venv/bin/python 'epistemic-graph[full,server]>=2.27.1,<3.0.0'; then
-            echo "::error title=Engine unavailable::epistemic-graph[full,server] did not install from PyPI. The engine is required -- engine-backed tests may not silently skip (AU #188)."
-            exit 1
-          fi
-          if ! .venv/bin/python -c "import epistemic_graph, importlib.metadata as m; print('epistemic-graph', m.version('epistemic-graph'), 'server', m.version('epistemic-graph-server'))"; then
-            echo "::error title=Engine not importable::epistemic_graph installed but does not import. The engine is required -- engine-backed tests may not silently skip (AU #188)."
-            exit 1
-          fi
-          if [ ! -x .venv/bin/epistemic-graph-server ]; then
-            echo "::error title=Engine server missing::epistemic-graph-server is not installed in the test environment."
-            exit 1
-          fi
-          echo "Engine: $(.venv/bin/python -c "import importlib.metadata as m; print(m.version('epistemic-graph'))") from PyPI" >> "$GITHUB_STEP_SUMMARY"
-
-      # ---- THE test suite. pytest.ini's testpaths covers the whole `tests/`
-      # tree (gates, scale, unit, integration, security, retrieval, ...) in
-      # ONE run, which is what previously ran as ~6 separately-invoked
-      # subsets scattered across guardrails.yml/security.yml/pipeline.yml
-      # (gate meta-tests, prod-profile guard, exact-local-release-contract,
-      # CI-bootstrap contract, parser fuzzing, auth negative paths, tenant
-      # isolation, ...). Consolidating onto pytest.ini's own testpaths is
-      # what makes the async-drift fix (above) apply uniformly instead of
-      # needing to be replicated at N call sites.
-      #
-      # `-n auto` (pytest-xdist, already a declared dependency) is the
-      # dominant lever on the suite's 36-47min serial wall-clock: this job
-      # already runs with no real engine installed above, so it is pure
-      # per-worker-process Python test execution with no shared engine
-      # binary/socket contention.
-      #
-      # `--dist loadfile` here (not `loadgroup`) is deliberate, and matches
-      # pytest.ini's addopts exactly -- CLI args win over addopts (pytest's
-      # own precedence), so a prior version of this line that passed
-      # `--dist loadgroup` silently overrode pytest.ini's `loadfile` and made
-      # CI run under a DIFFERENT distribution than every local/pre-push run.
-      # That is precisely the class of bug pytest.ini's own comment warns
-      # about: order-dependent module state turning into flakes once tests
-      # are split across workers.
-      #
-      # Why loadfile is the correct mode, not loadgroup: `loadgroup` is a
-      # superset of `load` (dynamic item-level balancing) that ADDITIONALLY
-      # colocates tests explicitly marked `@pytest.mark.xdist_group` -- but
-      # as of this fix only ONE file in the whole 17k+-test suite
-      # (tests/integration/protocols/test_a2a_epistemic_live.py) carries that
-      # mark. Every other file's order-dependent module state (e.g. the
-      # process-wide intent-surface-resolution-cache in tests/conftest.py)
-      # had NO protection under `loadgroup` -- `load`'s item-level balancing
-      # is free to split a file's tests across workers and interleave them
-      # with unrelated tests, which is exactly what pytest.ini's `loadfile`
-      # comment says must not happen. `loadfile` keeps every test in a file
-      # on one worker, in collection order, for the WHOLE suite -- a strictly
-      # stronger, already-proven-green guarantee (it's what every local and
-      # pre-push run has used) -- and it does so without needing per-test
-      # `xdist_group` marks: a module-scoped fixture (e.g. the real-engine
-      # binary in test_a2a_epistemic_live.py, the original reason
-      # `loadgroup` was chosen) only pays its startup cost once per worker
-      # under `loadfile` too, since all of that file's tests already land on
-      # the same worker. The `xdist_group` mark on that file is therefore
-      # redundant under `loadfile` (inert, harmless to leave in place) rather
-      # than load-bearing.
-      # Operator decision (2026-10-09): PR gates run a diff-scoped test
-      # subset so a PR turns around in minutes; push to main / a release tag
-      # still runs the full suite unchanged below. Mirrors graph-os PR #125's
-      # pr-test-scope pattern (pipelines #32).
-      - name: Resolve pull-request test scope
-        if: github.event_name == 'pull_request'
-        id: pr-test-scope
-        env:
-          BASE_REF: ${{ github.event.pull_request.base.sha }}
-        run: |
-          set -euo pipefail
-          uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' \
-            pipelines-hook pr-test-scope --base-ref "$BASE_REF" \
-            --src-root agent_utilities --tests-root tests > "$RUNNER_TEMP/pr-test-scope.txt"
-          cat "$RUNNER_TEMP/pr-test-scope.txt"
-          {
-            echo "scope<<PR_TEST_SCOPE_EOF"
-            cat "$RUNNER_TEMP/pr-test-scope.txt"
-            echo "PR_TEST_SCOPE_EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Full test suite (push to main / release tag)
-        if: github.event_name != 'pull_request'
-        run: python3 -m pytest -q -n auto --dist loadfile
-
-      # FULL scope is deliberately NOT run here: a step's `timeout-minutes`
-      # cannot read another step's output, so keeping this fast path fast
-      # means FULL must skip it entirely and get its own budget. The
-      # `full-suite` job below (`if: needs.gates.outputs.scope == 'FULL'`)
-      # runs the full suite with a 30-minute timeout instead.
-      - name: Test suite -- pull request fast subset
-        if: github.event_name == 'pull_request' && steps.pr-test-scope.outputs.scope != 'FULL'
-        env:
-          SCOPE: ${{ steps.pr-test-scope.outputs.scope }}
-        run: |
-          set -euo pipefail
-          if [ "$SCOPE" = "NONE" ]; then
-            echo "pr-test-scope: no agent_utilities/tests change in this diff; skipping pytest"
-          else
-            echo "pr-test-scope: running only the tests this diff affects:"
-            echo "$SCOPE"
-            mapfile -t affected_tests <<< "$SCOPE"
-            python3 -m pytest -q -n auto --dist loadfile "${affected_tests[@]}"
-          fi
-
-  # ── STAGE 1.5: FULL-scope PRs (conftest/pyproject/lockfile/unmapped source
-  # changes) get their own job with a real budget instead of sharing `gates`'
-  # 10-minute PR timeout, which the ~21k-test suite cannot meet even under
-  # `-n auto` (AU #192). The 30-minute budget was exceeded by a healthy full
-  # suite run (job timeout kill on PR #283, 2026-10-14), so this matches the
-  # 45-minute PR budget the fleet settled on for this suite class (EG #551).
-  # `gates` itself never runs the full suite for a PR
-  # (see the fast-subset step's `if` above); this job picks up exactly the
-  # cases that step skipped. On push to main / a release tag this job never
-  # runs at all -- `gates` already runs the full suite unconditionally there.
-  full-suite:
-    name: full suite (PR, FULL scope)
-    needs: gates
-    if: github.event_name == 'pull_request' && needs.gates.outputs.scope == 'FULL'
-    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
-    timeout-minutes: 45
-    steps:
-      - *gates-checkout
-      - *sdk-checkout
-      - *gates-uv-setup
-      - *gates-sync-test-env
-      - *gates-install-engine-wheel
-      - name: Full test suite (PR, FULL scope)
-        run: python3 -m pytest -q -n auto --dist loadfile
-
-  # ── STAGE 2: build the release wheel. Needs: gates + clone-scanners +
-  # engine-release-order. ──────────────────────────────────────────────────
-  # This is release-critical item #3: wheel build + reproducibility +
-  # release-contract + wheel-privacy checks, ALL against the exact candidate
-  # that would publish. Unchanged from the former pipeline.yml `build-wheel`
-  # job except: triggered by `needs: gates` instead of `workflow_run`, and
-  # `HEAD_SHA`/`ref:` now read directly off this push (github.sha) instead
-  # of a foreign workflow_run event. `engine-release-order` is in this list
-  # (not `gates`') so building stays unreachable while the epistemic-graph
-  # floor is not resolvable on PyPI, even though that check no longer lives
-  # inside `gates` itself.
-  build:
-    name: build
-    needs: [gates, clone-scanners, engine-release-order]
-    # Homelab self-hosted runner for same-repo push/PR traffic; a fork PR's
-    # head repo never matches `github.repository`, so it always lands on
-    # the GitHub-hosted runner instead (graph-os PR #125 pattern).
-    runs-on: ${{ (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted", "homelab"]') || 'ubuntu-latest' }}
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
-    env:
-      SOURCE_DATE_EPOCH: "0"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - *sdk-checkout
-
-      # Homelab self-hosted runners have no AVX2; actions/setup-python's
-      # python-build-standalone distribution requires it and fails with
-      # "CPU ISA level is lower than required" (exit 127). uv-managed Python
-      # builds have no such requirement, so uv is the python provider here
-      # too -- one step both installs python (so `python`/`python3` resolve
-      # for later steps, same as actions/setup-python did) and sets up uv.
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
-          version: '0.12.21'
           python-version: '3.12'
           enable-cache: true
           cache-dependency-glob: uv.lock
+      - name: Install
+        run: uv sync --locked --group dev
+      - name: ruff check
+        run: uv run --no-sync ruff check .
+      - name: ruff format
+        run: uv run --no-sync ruff format --check .
+      - name: mypy
+        run: uv run --no-sync mypy agent_utilities
+      - name: tests
+        run: uv run --no-sync pytest -q -p randomly
 
-      # A wheel build does not import its runtime engine. This installs
-      # exactly this wheel's declared epistemic-graph[full] dependency
-      # metadata, not the engine itself.
-      - name: Sync immutable wheel-build environment (no runtime engine)
-        run: |
-          uv sync --frozen --group guardrails --group build \
-            --no-install-package epistemic-graph \
-            --no-install-package langfuse-agent
-      - name: Build primary wheel from the validated source revision
-        run: uv build --wheel --no-build-isolation --out-dir dist-primary
-      - name: Build reproduction wheel from the same source revision
-        run: uv build --wheel --no-build-isolation --out-dir dist-reproduction
-      - name: Validate both packaged release candidates
-        run: |
-          uv run --no-sync python -m pytest tests/gates/test_exact_local_release_contract.py -q -p no:cacheprovider -o addopts=""
-          uv run --no-sync python scripts/release/check_release_wheel.py dist-primary/agent_utilities-*.whl
-          uv run --no-sync python scripts/release/check_release_wheel.py dist-reproduction/agent_utilities-*.whl
-          uv run --no-sync python scripts/check_wheel_privacy.py dist-primary/agent_utilities-*.whl
-          uv run --no-sync python scripts/check_wheel_privacy.py dist-reproduction/agent_utilities-*.whl
-      - name: Require byte-identical wheels and stage the sole candidate
-        run: |
-          python -c "from hashlib import sha256; from pathlib import Path; primary=sorted(Path('dist-primary').glob('agent_utilities-*.whl')); reproduction=sorted(Path('dist-reproduction').glob('agent_utilities-*.whl')); assert len(primary)==len(reproduction)==1, 'release wheel cardinality mismatch'; assert primary[0].name==reproduction[0].name, 'release wheel filename mismatch'; assert sha256(primary[0].read_bytes()).digest()==sha256(reproduction[0].read_bytes()).digest(), 'release wheel digest mismatch'; print('release_wheel_reproducibility=passed')"
-          mkdir dist
-          cp dist-primary/agent_utilities-*.whl dist/
-      - name: Upload the sole publish candidate
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: agent-utilities-wheel
-          path: dist/agent_utilities-*.whl
-          if-no-files-found: error
-          retention-days: 7
-
-  # ── STAGE 3: install-and-smoke the exact built wheel on every supported
-  # OS before it is allowed to publish. Needs: build. Unchanged from the
-  # former pipeline.yml `numeric-runtime-gate` job except the checkout no
-  # longer pins a workflow_run head_sha (this job already runs against the
-  # commit that triggered it).
-  numeric-runtime-gate:
-    name: numeric runtime (${{ matrix.os }})
-    needs: build
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+  build:
+    name: build
+    needs: [spec-gates, gates]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - *release-checkout
-      - *release-python
-      - *release-uv
-      - name: Download the sole publish candidate
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          name: agent-utilities-wheel
-          path: dist
-      - name: Install exact Agent Utilities wheel with declared full engine
-        run: python -c "from pathlib import Path; import subprocess; subprocess.check_call(['uv', 'pip', 'install', '--system', str(next(Path('dist').glob('agent_utilities-*.whl')))])"
-      - name: Smoke installed numeric runtime outside the checkout
-        working-directory: ${{ runner.temp }}
-        run: python "${{ github.workspace }}/scripts/check_numeric_runtime.py"
-      - name: Smoke installed Langfuse privacy support outside the checkout
-        working-directory: ${{ runner.temp }}
-        run: python -c "import agent_utilities.observability.langfuse_trust; import agent_utilities.security.persistence_privacy"
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: '3.12'
+      - name: Build wheel and sdist
+        run: uv build --out-dir dist
+      - name: Import the built wheel in a clean environment
+        run: |
+          uv venv /tmp/wheel-check
+          uv pip install --python /tmp/wheel-check dist/agent_utilities-*.whl
+          /tmp/wheel-check/bin/python -c "import agent_utilities, agent_utilities.harness, agent_utilities.runtime, agent_utilities.host_ports"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-utilities-dist
+          path: dist/
 
-  # ── STAGE 4: publish to PyPI. Needs: numeric-runtime-gate (which needs:
-  # build, which needs: gates) — publishing is unreachable if any earlier
-  # stage failed. D-ORC-10 combines the protected environment with an exact
-  # vX.Y.Z tag/version/commit identity check on the tagged commit.
   publish-pypi:
-    needs: numeric-runtime-gate
-    # Main pushes and pull requests still run every validation/build/runtime
-    # gate above. Publishing is reachable only from an explicit release-tag
-    # push; the exact semver/tag/commit checks below remain the fail-closed
-    # boundary before the protected environment is used.
+    name: publish to PyPI
+    needs: build
     if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     runs-on: ubuntu-latest
-    # D-ORC-10: publishing is irreversible (PyPI versions can be yanked but never
-    # reused) so it must never be a side effect of an ordinary green push to main.
-    # Gate 1 (native): `environment:` enables GitHub's required-reviewers /
-    # wait-timer protection rules. Configure them once in
-    # Settings > Environments > pypi-publish; until an admin does, this line
-    # alone does not block anything, which is why gate 2 exists.
-    # Gate 2 (structural, no external config needed): refuse to publish unless
-    # the exact commit that passed the gates+build+numeric-runtime-gate chain
-    # is also pointed at by the exact `vX.Y.Z` tag whose wheel version matches.
     environment: pypi-publish
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
           persist-credentials: false
-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          python-version: '3.12'
-
-      - name: Download the sole publish candidate
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: agent-utilities-wheel
+          name: agent-utilities-dist
           path: dist
-
-      - name: Require exact release tag, source version, and wheel version
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: Require tag, source and wheel versions to match
         env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
-          REF_TYPE: ${{ github.ref_type }}
-          REF: ${{ github.ref }}
           TAG_NAME: ${{ github.ref_name }}
-          HEAD_SHA: ${{ github.sha }}
-          REPOSITORY: ${{ github.repository }}
         shell: bash
         run: |
           set -euo pipefail
-          semver_re='^v[0-9]+\.[0-9]+\.[0-9]+$'
-          if [[ "$EVENT_NAME" != "push" || "$REF_TYPE" != "tag" \
-            || "$REF" != refs/tags/* || ! "$TAG_NAME" =~ $semver_re ]]; then
-            echo "::error::D-ORC-10 release gate: publish requires a push of an exact vX.Y.Z tag; got event=$EVENT_NAME ref_type=$REF_TYPE ref=$REF"
-            exit 1
-          fi
-
-          tag_ref_json="$(gh api "repos/${REPOSITORY}/git/ref/tags/${TAG_NAME}")"
-          tag_object_type="$(jq -er '.object.type' <<<"$tag_ref_json")"
-          tag_object_sha="$(jq -er '.object.sha' <<<"$tag_ref_json")"
-          case "$tag_object_type" in
-            commit)
-              tag_commit="$tag_object_sha"
-              ;;
-            tag)
-              tag_commit="$(gh api "repos/${REPOSITORY}/git/tags/${tag_object_sha}" \
-                | jq -er 'select(.object.type == "commit") | .object.sha')"
-              ;;
-            *)
-              echo "::error::D-ORC-10 release gate: tag ref resolved to unsupported object type $tag_object_type"
-              exit 1
-              ;;
-          esac
-          if [[ "$tag_commit" != "$HEAD_SHA" ]]; then
-            echo "::error::D-ORC-10 release gate: tag $TAG_NAME resolves to $tag_commit, but the validated commit is $HEAD_SHA"
-            exit 1
-          fi
-          checkout_commit="$(git rev-parse --verify "${TAG_NAME}^{commit}")"
-          if [[ "$checkout_commit" != "$HEAD_SHA" ]]; then
-            echo "::error::D-ORC-10 release gate: checkout tag $TAG_NAME resolves to $checkout_commit, not $HEAD_SHA"
-            exit 1
-          fi
-
-          source_version="$(python3 - <<'PY'
-          import ast
-          from pathlib import Path
-
-          module = ast.parse(
-              Path("agent_utilities/_version.py").read_text(encoding="utf-8")
-          )
-          for node in module.body:
-              if not isinstance(node, ast.Assign):
-                  continue
-              if not any(
-                  isinstance(target, ast.Name) and target.id == "__version__"
-                  for target in node.targets
-              ):
-                  continue
-              if isinstance(node.value, ast.Constant) and isinstance(
-                  node.value.value, str
-              ):
-                  print(node.value.value)
-                  break
-          else:
-              raise SystemExit("agent_utilities/_version.py has no string __version__")
-          PY
-          )"
-
-          mapfile -t wheels < <(
-            find dist -maxdepth 1 -type f -name 'agent_utilities-*.whl' -print | sort
-          )
-          if (( ${#wheels[@]} != 1 )); then
-            echo "::error::release identity gate: expected exactly one wheel, found ${#wheels[@]}"
-            exit 1
-          fi
-          wheel_path="${wheels[0]}"
-          wheel_version="$(python3 - "$wheel_path" <<'PY'
-          import sys
-          from email.parser import Parser
-          from pathlib import Path
-          from zipfile import ZipFile
-
-          wheel = Path(sys.argv[1])
-          with ZipFile(wheel) as archive:
-              metadata_files = [
-                  name for name in archive.namelist()
-                  if name.endswith(".dist-info/METADATA")
-              ]
-              if len(metadata_files) != 1:
-                  raise SystemExit(
-                      f"expected one wheel METADATA file, found {metadata_files!r}"
-                  )
-              metadata = Parser().parsestr(
-                  archive.read(metadata_files[0]).decode("utf-8")
-              )
-          if metadata.get("Name") != "agent-utilities":
-              raise SystemExit(f"wheel name is not agent-utilities: {metadata.get('Name')!r}")
-          version = metadata.get("Version")
-          if not version:
-              raise SystemExit("wheel metadata has no Version")
-          print(version)
-          PY
-          )"
-
-          tag_version="${TAG_NAME#v}"
-          if [[ "$tag_version" != "$source_version" \
-            || "$tag_version" != "$wheel_version" ]]; then
-            echo "::error::release identity gate: tag=$TAG_NAME source=$source_version wheel=$wheel_version"
-            exit 1
-          fi
-          echo "release identity verified: tag=$TAG_NAME version=$tag_version commit=$HEAD_SHA wheel=$(basename "$wheel_path")"
-
-      - name: Checkout centralized publication contract
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: Knuckles-Team/pipelines
-          ref: main
-          path: .pipeline-contract
-          persist-credentials: false
-
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          version: '0.12.21'
-      - name: Publish and verify exact validated wheel bytes
+          [[ "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not an exact vX.Y.Z tag: $TAG_NAME"; exit 1; }
+          source_version="$(python3 -c "import ast,pathlib;m=ast.parse(pathlib.Path('agent_utilities/_version.py').read_text());print(next(n.value.value for n in m.body if isinstance(n,ast.Assign)))")"
+          ls "dist/agent_utilities-${TAG_NAME#v}-"*.whl >/dev/null
+          [[ "${TAG_NAME#v}" == "$source_version" ]] || { echo "::error::tag $TAG_NAME != source $source_version"; exit 1; }
+      - name: Publish
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-          EXPECTED_TAG: ${{ github.ref_name }}
-          SOURCE_COMMIT: ${{ github.sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          # pipelines is referenced at main; freeze the commit checked out for this run.
-          PIPELINES_CONTRACT_COMMIT="$(git -C .pipeline-contract rev-parse HEAD)"
-          export PIPELINES_CONTRACT_COMMIT
-          python -I scripts/release/publish_validated_wheel.py \
-            --version "${EXPECTED_TAG#v}" \
-            --manifest "$RUNNER_TEMP/au-publication.json"
+        run: uv publish dist/*
 
-  # BUG-072: the docker publish needs its OWN approval gate, not an inherited one.
-  #
-  # The previous design had `publish-docker` declare no `environment:` and rely on
-  # `needs: publish-pypi`, justified by the claim that the protection rule lives in
-  # the called `container_pipeline.yml`. That claim is FALSE, verified twice: the
-  # file is 154 lines with no `environment:` key, and `git log --all -S"environment:"`
-  # shows the string has never existed in its history on any branch. So the gate on
-  # an effectively irreversible action -- a pulled `:latest` cannot be un-pulled --
-  # was guarding nothing.
-  #
-  # `needs:` alone only proves ORDERING, not that a reviewer approved *this* step:
-  # a single pypi-publish approval was silently authorizing the container push too.
-  #
-  # The constraint that produced the original mistake is real: a job using `uses:`
-  # accepts only name/uses/with/secrets/needs/if/permissions/strategy/concurrency,
-  # and adding `environment:` there makes the parser treat it as a normal job,
-  # failing with "Unexpected value 'uses'" and taking the WHOLE file down.
-  # A plain wrapper job sidesteps that -- it can legitimately declare `environment:`
-  # -- and `publish-docker` then gates on it.
-  #
-  # NOTE: the `docker-publish` environment must have required reviewers configured
-  # in Settings -> Environments. Until it does, the key exists but enforces nothing.
-  # That caveat applied to the pre-existing `pypi-publish` gate too.
-  docker-publish-approval:
-    needs: publish-pypi
-    runs-on: ubuntu-latest
-    environment: docker-publish
-    steps:
-      - name: Approval checkpoint for an irreversible container publish
-        run: echo "docker-publish environment approved; proceeding to container publish"
-
-  publish-docker:
-    needs: docker-publish-approval
-    # pipelines is always referenced at `@main`, never SHA-pinned; SC-GHA-001
-    # exempts exactly the first-party Knuckles-Team/pipelines reusable workflows.
-    uses: Knuckles-Team/pipelines/.github/workflows/container_pipeline.yml@main
-    permissions:
-      contents: read
-    secrets:
-      DOCKER_REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
-      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-      DOCKER_REPOSITORY: ${{ secrets.DOCKER_REPOSITORY }}
-
-  # GitHub release page, created only AFTER the wheel is verifiably on PyPI
-  # (needs: publish-pypi). Tag pushes only; marked latest; links the PyPI
-  # project version and carries the pip install line. Idempotent on re-runs.
   github-release:
     name: GitHub release (links PyPI)
     needs: publish-pypi
@@ -833,15 +133,7 @@ jobs:
         run: |
           set -euo pipefail
           version="${TAG#v}"
-          {
-            echo "## agent-utilities ${version}"
-            echo
-            echo "Published to PyPI: https://pypi.org/project/agent-utilities/${version}/"
-            echo
-            echo '```bash'
-            echo "pip install agent-utilities==${version}"
-            echo '```'
-          } > "$RUNNER_TEMP/notes.md"
+          printf '## agent-utilities %s\n\nPublished to PyPI: https://pypi.org/project/agent-utilities/%s/\n' "$version" "$version" > "$RUNNER_TEMP/notes.md"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --latest --notes-file "$RUNNER_TEMP/notes.md"
           else

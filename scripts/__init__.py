@@ -1,1 +1,0 @@
-"""Installed operational command packages."""

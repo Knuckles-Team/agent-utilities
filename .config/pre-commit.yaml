@@ -2,12 +2,10 @@
 # (https://github.com/Knuckles-Team/pipelines/blob/main/reference/precommit-standard.md,
 # templates/pre-commit.yaml). Install with
 #   pre-commit install --config .config/pre-commit.yaml
-# Only fast checks on the change live here. Every other gate is CI-only and
-# lives in .config/ci-gates.yaml, which advisory.yml runs; release.yml runs the
-# clone scanners, secret-history scan, spec gates, wheel checks and test suite.
+# Only fast checks on the change live here; release.yml runs the spec gates,
+# mypy, the test suite and the wheel build.
 default_install_hook_types: [pre-commit, pre-push]
 default_stages: [pre-commit]
-exclude: ^scripts/
 repos:
 # --- pre-commit: hygiene on staged files ------------------------------------
 - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -15,11 +13,10 @@ repos:
   hooks:
   - id: trailing-whitespace
   - id: end-of-file-fixer
-    exclude: \.ttl$ # turtle files are normalised by turtle-format (ci-gates.yaml)
   - id: check-merge-conflict
   - id: check-added-large-files
     args: [--maxkb=2000]
-    exclude: ^uv\.lock$|.*\.db$|.*\.bak$|.*\.sqlite$
+    exclude: ^uv\.lock$
   - id: check-yaml
     args: [--unsafe]
   - id: check-toml
@@ -31,10 +28,7 @@ repos:
   hooks:
   - id: ruff-format
     args: [--check]
-    exclude: ^(tests/|test/|scripts/|script/)
   - id: ruff-check
-    args: [--ignore=E402]
-    exclude: ^(tests/|test/|scripts/|script/)
 # --- shared push gates ------------------------------------------------------
 - repo: https://github.com/Knuckles-Team/pipelines
   rev: main
@@ -42,26 +36,3 @@ repos:
   - id: spec-trailers
     stages: [pre-push]
     args: [--base-ref, origin/main]
-  - id: fast-tests
-    stages: [pre-push]
-    args: [--src-root, agent_utilities]
-- repo: local
-  hooks:
-  # Reason for the local id (instead of the shared uv-lock-check): the lock
-  # resolves sibling path sources, which scripts/uv_workspace.py materialises
-  # before running `uv lock --locked` (verify only, never rewrites).
-  - id: uv-lock
-    name: uv lock consistency (no install, no rewrite)
-    entry: scripts/hook_python.sh scripts/uv_workspace.py lock --locked
-    language: system
-    pass_filenames: false
-    files: ^(pyproject\.toml|uv\.lock)$
-    stages: [pre-push]
-  # Stated exception to the standard: guards the local canonical checkout
-  # (lane rules), which CI cannot see. 1.7 s.
-  - id: lane-guard
-    name: Lane guard - canonical checkout is read-only; generated views stay generated
-    entry: scripts/hook_python.sh scripts/check_lane_guard.py
-    language: system
-    pass_filenames: false
-    always_run: true
