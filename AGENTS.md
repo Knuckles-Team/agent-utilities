@@ -42,3 +42,7 @@ harness needs a capability another owner provides, it reaches it through a
 `release.yml` runs the spec gates, `ruff check`, `ruff format --check`, `mypy
 agent_utilities`, and the test suite, then builds the wheel. Publishing happens
 only from an exact `vX.Y.Z` tag push.
+
+Install the local hooks with `pre-commit install --config .config/pre-commit.yaml
+--hook-type pre-commit --hook-type pre-push`. A hook script left by an older checkout
+that calls `scripts/hook_python.sh` is stale; reinstall with that command.

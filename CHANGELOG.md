@@ -7,22 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-17 — Agent harness only
+
 ### Removed
 - **Cut to the in-run harness.** Every module outside the harness keep set is deleted:
   harness evolution, evaluation and benchmarks, tracing backends, graph, knowledge_graph,
   orchestration, decide, models, security, messaging, protocols, observability, tools and
   the rest, with their tests, scripts, docs, deploy assets, entry points, extras and
   dependencies. Their capabilities move to epistemic-graph, graph-os and
-  agent-connector-sdk. The base install now depends only on `pydantic` and `platformdirs`.
-
-### Changed
-- `runtime.provenance.ProvenanceMirror` is the null `ProvenanceSink`; the host supplies the
-  sink that records workspace events.
-- `runtime.computer_use_tier` keeps only the driver protocol and the null driver.
-
-## [3.0.0] - 2026-10-16 — Agent harness only
-
-### Removed
+  agent-connector-sdk. The base install depends only on `pydantic`, `platformdirs`,
+  `pydantic-ai-slim`, `pydantic-graph` and `pydantic-ai-harness`; the lean agent run
+  loop (`agent_utilities.graph.execute_graph`, `AgentRunExecutor`) runs over `host_ports`.
 - **Nine `graph-os`-owned pre-bundled skills (13 → 4, CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage).**
   Deleted `agent_utilities/skills/{agent-utilities-source-integration,autonomous-contribution,
   graph-engine-and-modalities,graph-ingestion-and-integration,graph-modeling-and-mutation,
@@ -55,6 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `STRUCTURAL_PHASES`, so it could never run. Deleted along with its dead
   `PipelineConfig.enable_workspace_sync`/`.kb_auto_ingest_cloned_repos` fields and
   the `ENABLE_KG_WORKSPACE_SYNC` env var.
+
+### Changed
+- `runtime.provenance.ProvenanceMirror` is the null `ProvenanceSink`; the host supplies the
+  sink that records workspace events.
+- `runtime.computer_use_tier` keeps only the driver protocol and the null driver.
 
 ## [2.5.0] - 2026-08-14 — Fleet-wide phased minor bump
 
