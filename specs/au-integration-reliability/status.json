@@ -36,6 +36,7 @@
       "title": "Clustered mode deliberately refuses local-only agent writes",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "27f6dd83eb8f",
         "34481f825411",
         "42f6dada3749",
         "daa321626142"

@@ -61,7 +61,11 @@
     "AU-HARNESS-R014.7",
     "AU-HARNESS-R014.8",
     "AU-HARNESS-R014.9",
+    "AU-HARNESS-R014.9.1",
+    "AU-HARNESS-R014.9.2",
     "AU-HARNESS-R014.10",
+    "AU-HARNESS-R014.10.1",
+    "AU-HARNESS-R014.10.2",
     "AU-HARNESS-R014.11",
     "AU-HARNESS-R015",
     "AU-HARNESS-R015.1",
@@ -741,9 +745,16 @@
     {
       "id": "AU-HARNESS-R014.6",
       "title": "Public snapshot model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "27f6dd83eb8f"
+      ],
+      "verified_by": [
+        "tests/harness/test_current_plan_read.py:28",
+        "tests/harness/test_current_plan_read.py:44",
+        "tests/harness/test_current_plan_read.py:62",
+        "tests/harness/test_current_plan_read.py:88"
+      ]
     },
     {
       "id": "AU-HARNESS-R014.7",
@@ -764,11 +775,57 @@
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R014.9.1",
+        "AU-HARNESS-R014.9.2"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R014.9.1",
+      "title": "Public read port",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1ba036fb1158",
+        "27f6dd83eb8f"
+      ],
+      "verified_by": [
+        "tests/harness/test_current_plan_port.py:16"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R014.9.2",
+      "title": "Runtime binding",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "AU-HARNESS-R014.10",
       "title": "Refusal and evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-R014.10.1",
+        "AU-HARNESS-R014.10.2"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R014.10.1",
+      "title": "Public boundary refusal",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1ba036fb1158",
+        "27f6dd83eb8f"
+      ],
+      "verified_by": [
+        "tests/harness/test_current_plan_port.py:16"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-R014.10.2",
+      "title": "Runtime refusal and diagnostics",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
