@@ -144,3 +144,5 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [x] **AU-BOUNDARY-R043.4.5:** Prove two updates through the actual run loop.
 - [ ] Assign SDK snapshot and EG plan-record contracts before the host-port producer bridge; preserve the revision, scope, expiry and refusal obligations in the amendment.
 - [ ] Wire Arbora's ARBORA-OPS-R021.4.5 reader to the producer and complete served inspector acceptance.
+
+- [x] **AU-BOUNDARY-R043.5.1:** Add atomic scaffold revision/read semantics before the owner-composed snapshot bridge.

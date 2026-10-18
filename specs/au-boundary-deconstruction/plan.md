@@ -420,3 +420,59 @@ A host-supplied `RunPlan` can enable this with
 historical context-policy or action-space fields. No snapshot reader is exported
 by this slice: revision, lease/scope binding, SDK/EG contracts and Arbora read
 composition remain prerequisites to the unchanged `runs.current_plan` contract.
+
+### Next producer slice: atomic revisions and explicit owner prerequisites
+
+AU-BOUNDARY-R043.5.1 implements only the atomic revision mechanism from historical
+AU-HARNESS-R014.7. `PlanState.read_versioned()` returns `(revision, items)` from
+the very state updated by `PlanScaffold.update_plan`; it introduces no wire DTO,
+clock, authority claim or registry. Validation completes before the update lock;
+revision increment and replacement share that lock with reads. Two writers may
+finish validation in either order, but each accepted replacement gets one unique
+revision and readers never mix revisions with another update's items.
+
+The following exact interfaces must exist before the snapshot bridge can ship:
+
+1. SDK owns strict frozen `CurrentPlanRequest`, `CurrentPlanSnapshot` and
+   `CurrentPlanRead` semantics already listed above. Preserve Arbora's current
+   `run_id`, nonnegative `revision`, UTC `observed_at`/`expires_at`, ordered text
+   and status items, and available/snapshot versus unavailable/null invariants.
+   This is a planned owner interface, not an existing SDK import. The available
+   SDK source at `a0f78fe` contains no current-plan definition; refresh its main
+   before assigning a row and reusing or adding its export.
+2. EG owns any plan record and run-lease fence used to locate or retain published
+   state. Extend its existing run/WorkItem authority, not an AU or Arbora lookup
+   store. The inspected EG source at `8857234` contains no `CurrentPlan` contract.
+   The smallest prerequisite must bind publication and readback to authenticated
+   tenant, principal, run ID and the active run lease; reject stale fences,
+   regressing revisions, ended runs and wrong owners. No engine method name is
+   invented here. This requires an owner-native row and public client contract.
+3. Arbora's `agent_runs.AgentRunPort.execute_agent` already receives a verified
+   `GraphSession`; AU's `AgentRunExecutor.execute_agent` forwards that session in
+   run metadata. `a2a.authority.WorkItemA2AAuthority._run` claims a WorkItem through
+   `work_items.claim_specific`, but does not pass the claim to that execution
+   port. The bridge must carry the real run-lease deadline and fence from this
+   authority. A credential expiry or `continuity_expires_at` is not the run lease.
+   Do not infer authority or lease expiry from request payloads or run-ID knowledge.
+4. Arbora must recheck session authority and `kg:read` at each read, bind the
+   requested run to the execution tenant/principal, and return the same unavailable
+   shape for absent, ended, foreign or expired state. Compute UTC expiry as
+   observation plus the validated positive bounded validity (default 30 seconds),
+   capped by the active run lease. Reject future observations, expired intervals
+   and revision regression. Its `api.ops.runs.CurrentPlanReader.read` already
+   takes `run_id`, `tenant`, `principal`; `mcp_server.server` does not bind that
+   reader. Preserve the operation's wire shape when composing the published
+   SDK/EG interfaces.
+5. Operational scaffold activation also needs the real host decision. At inspected
+   Arbora `2d62cd8`, `agent_runs.decide_run` uses `default_run_plan` and reports no
+   served run-plan decision method. It does not enable the scaffold. The existing
+   EG owner is `EG-DECISION-ENGINE-R128` (`harness_config`, including `.3` answer
+   and `.6` scaffold rule); refresh its producer/client evidence before wiring
+   the result. A test-supplied `HarnessConfig(plan_scaffold="on")` proves the AU
+   mechanism, not an authenticated deployed decision or inspector journey.
+
+These source observations are bounded to the stated local revisions. They do
+not assert that newer owner branches lack a contract. No live expiry, caller
+binding, reader availability or served acceptance is claimed by the revision
+slice. The next cross-owner change must supply these prerequisites or keep the
+read truthfully unavailable.

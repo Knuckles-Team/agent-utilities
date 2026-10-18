@@ -64,3 +64,11 @@ R043.4.2–R043.4.5 are exercised by `tests/test_plan_runtime.py` through
 per-request injection across execution steps, separate-run isolation, retained
 history inspection, budget-exit cleanup and the no-selection tool/import surface.
 This evidence covers the scaffold loop, not a snapshot reader or served inspector.
+
+## AU-BOUNDARY-R043.5.1 atomic revision acceptance
+
+Read revision zero with empty items. Accept identical replacements and empty
+resets with one increment each. Reject invalid items without an increment.
+Preserve old immutable views. Exercise competing writers and interleaved reads
+with bounded barriers, no sleeps or network, and prove every observed revision
+corresponds to its complete item tuple. This proves no caller or lease authority.
