@@ -55,7 +55,13 @@ def _r041_canonical_path(module_name: str) -> Path:
     """Pre-cut location: 11 modules under domains/finance/, quant_tasks under
     knowledge_graph/core/ (plan.md inventory)."""
     if module_name == "quant_tasks":
-        return REPO_ROOT / "agent_utilities" / "knowledge_graph" / "core" / "quant_tasks.py"
+        return (
+            REPO_ROOT
+            / "agent_utilities"
+            / "knowledge_graph"
+            / "core"
+            / "quant_tasks.py"
+        )
     return REPO_ROOT / "agent_utilities" / "domains" / "finance" / f"{module_name}.py"
 
 
@@ -68,7 +74,9 @@ def _python_files() -> list[Path]:
     return files
 
 
-def _import_census(module_names: tuple[str, ...], dotted_paths: tuple[str, ...]) -> list[str]:
+def _import_census(
+    module_names: tuple[str, ...], dotted_paths: tuple[str, ...]
+) -> list[str]:
     """Return one evidence line per import of any retired module name."""
     hits: list[str] = []
     for path in _python_files():
@@ -111,12 +119,28 @@ def _import_census(module_names: tuple[str, ...], dotted_paths: tuple[str, ...])
 @pytest.mark.spec("AU-BOUNDARY-R030.6")
 def test_manifest_compiler_deleted_without_importers():
     """The retired manifest compiler is absent and no caller remains."""
-    retired = REPO_ROOT / "agent_utilities" / "knowledge_graph" / "ontology" / "manifest_compiler.py"
-    assert not retired.exists(), f"retired path still present: {retired.relative_to(REPO_ROOT)}"
-    strays = [p for p in (REPO_ROOT / "agent_utilities").rglob("*.py") if p.stem == MANIFEST_COMPILER]
-    assert strays == [], f"manifest_compiler.py reappeared: {[str(p.relative_to(REPO_ROOT)) for p in strays]}"
+    retired = (
+        REPO_ROOT
+        / "agent_utilities"
+        / "knowledge_graph"
+        / "ontology"
+        / "manifest_compiler.py"
+    )
+    assert not retired.exists(), (
+        f"retired path still present: {retired.relative_to(REPO_ROOT)}"
+    )
+    strays = [
+        p
+        for p in (REPO_ROOT / "agent_utilities").rglob("*.py")
+        if p.stem == MANIFEST_COMPILER
+    ]
+    assert strays == [], (
+        f"manifest_compiler.py reappeared: {[str(p.relative_to(REPO_ROOT)) for p in strays]}"
+    )
     hits = _import_census((MANIFEST_COMPILER,), (MANIFEST_COMPILER_DOTTED,))
-    assert hits == [], "import census found callers of manifest_compiler:\n" + "\n".join(hits)
+    assert hits == [], (
+        "import census found callers of manifest_compiler:\n" + "\n".join(hits)
+    )
 
 
 @pytest.mark.spec("AU-BOUNDARY-R041")
@@ -124,12 +148,22 @@ def test_manifest_compiler_deleted_without_importers():
 def test_retired_finance_module_absent_without_importers(module_name):
     """Each named fabricated-data finance module is gone and unreferenced."""
     canonical = _r041_canonical_path(module_name)
-    assert not canonical.exists(), f"retired path still present: {canonical.relative_to(REPO_ROOT)}"
-    strays = [p for p in (REPO_ROOT / "agent_utilities").rglob("*.py") if p.stem == module_name]
-    assert strays == [], f"{module_name}.py reappeared: {[str(p.relative_to(REPO_ROOT)) for p in strays]}"
+    assert not canonical.exists(), (
+        f"retired path still present: {canonical.relative_to(REPO_ROOT)}"
+    )
+    strays = [
+        p
+        for p in (REPO_ROOT / "agent_utilities").rglob("*.py")
+        if p.stem == module_name
+    ]
+    assert strays == [], (
+        f"{module_name}.py reappeared: {[str(p.relative_to(REPO_ROOT)) for p in strays]}"
+    )
     if module_name == "quant_tasks":
         dotted = ("agent_utilities.knowledge_graph.core.quant_tasks",)
     else:
         dotted = (f"agent_utilities.domains.finance.{module_name}",)
     hits = _import_census((module_name,), dotted)
-    assert hits == [], f"import census found callers of {module_name}:\n" + "\n".join(hits)
+    assert hits == [], f"import census found callers of {module_name}:\n" + "\n".join(
+        hits
+    )
