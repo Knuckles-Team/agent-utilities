@@ -53,3 +53,8 @@ Test disabled, ended and restarted runs, absent ports, malformed or regressing
 snapshots, expired leases, denied refresh and run switches. A served test must
 reach the same state used by injection, without a model call or history rebuild.
 The SDK, EG and Arbora boundaries remain separate acceptance obligations.
+
+R043.4.1 is exercised by `tests/test_harness_plan.py`: full ordered replacement,
+empty reset, stable old views, immutable items, two-run isolation, strict field
+validation and invalid-later-item atomicity. The loop/tool/injection tests for
+R043.4.2–R043.4.5 remain separate planned acceptance.

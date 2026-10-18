@@ -20,6 +20,7 @@ from .edit_engine import (
     apply_with_reflection,
     parse_edits,
 )
+from .plan import PlanItem, PlanState
 from .quality_gates import (
     Antipattern,
     AntipatternRegistry,
@@ -40,6 +41,8 @@ __all__ = [
     "EditResult",
     "HierarchicalConstraint",
     "MultiDimensionalCritique",
+    "PlanItem",
+    "PlanState",
     "PreEmitGate",
     "PreflightGate",
     "ToolContract",

@@ -137,7 +137,7 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [x] **AU-BOUNDARY-R043.3:** Restore the `rlm/` recursive run loop.
 
 - [ ] **AU-BOUNDARY-R043.4:** Restore all five model-edited scaffold children; do not substitute execution steps.
-- [ ] **AU-BOUNDARY-R043.4.1:** Implement per-run whole-list scaffold state and immutable items.
+- [x] **AU-BOUNDARY-R043.4.1:** Implement per-run whole-list scaffold state and immutable items.
 - [ ] **AU-BOUNDARY-R043.4.2:** Wire the validated update tool under a received scaffold decision.
 - [ ] **AU-BOUNDARY-R043.4.3:** Inject into each outgoing request without retaining scaffold text in history.
 - [ ] **AU-BOUNDARY-R043.4.4:** Prove the scaffold has no planner or selection authority.

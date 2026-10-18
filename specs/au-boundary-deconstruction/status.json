@@ -1503,9 +1503,16 @@
     {
       "id": "AU-BOUNDARY-R043.4.1",
       "title": "One run's scaffold state",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8c2c8a76e6f8"
+      ],
+      "verified_by": [
+        "tests/test_harness_plan.py:29",
+        "tests/test_harness_plan.py:39",
+        "tests/test_harness_plan.py:55",
+        "tests/test_harness_plan.py:9"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043.4.2",
