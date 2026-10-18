@@ -38,3 +38,11 @@ The [deliverable matrix](cutover-matrix.md) defines the concrete source cut, tar
 All mapped cuts are individually evidenced at exact merged revisions, public entry points have served or wiring parity, the forbidden-import and owner-manifest gates pass, and whole-repository quality gates are green. A source branch marked built does not count as accepted.
 
 Requirement IDs are defined in [requirements.md](requirements.md); delivery state per ID is in `status.json`.
+
+## Retained run scaffold
+
+AU-BOUNDARY-R043.4 and its children retain the model-edited, per-run scaffold
+from historical AU-HARNESS-R014.1–R014.5. See the dated migration in
+[plan.md](plan.md#amendment-2026-10-18-retain-the-run-scaffold-after-the-boundary-cut)
+for immutable source provenance and the separate SDK, EG and Arbora read
+obligations. These are implementation requirements, not delivery claims.

@@ -305,3 +305,95 @@ Two further inconsistencies, where the paths exist:
 - AU-BOUNDARY-R030 writes `core/ontology_publisher.py` and `extraction/schema_discovery.py`, AU-BOUNDARY-R026 writes `enrichment/git_history` and `enrichment/source_adapters`, and the AU-RETIRE requirements write `core/…`, `enrichment/…` and `ingestion/…`; all of these exist only under `agent_utilities/knowledge_graph/`.
 
 Every console script and packaging extra named by a requirement (`arbora`, `arbora-daemon`, `agent-utilities-acp`, `agent-utilities-messaging`, `kg-ingest-worker`, `arbora-analytics-worker`, `setup-databases`, `arbora-certify-connector`, `gateway-widgets`) is declared in `pyproject.toml`. All other paths named by the two specs resolve to tracked files.
+
+## Amendment 2026-10-18: retain the run scaffold after the boundary cut
+
+### Provenance and migration
+
+The deletion commit [c45f277c](https://github.com/Knuckles-Team/agent-utilities/commit/c45f277c061c12e654b80fa12d1cf8f11f01d5ac)
+names the public pre-cut snapshot
+[5eb8d85a](https://github.com/Knuckles-Team/agent-utilities/tree/5eb8d85a3c5d0c5d07babd55e983ecd9778d6d81).
+Its [R014 requirements](https://github.com/Knuckles-Team/agent-utilities/blob/5eb8d85a3c5d0c5d07babd55e983ecd9778d6d81/specs/harness-evolution/requirements.md)
+and [current-plan design](https://github.com/Knuckles-Team/agent-utilities/blob/5eb8d85a3c5d0c5d07babd55e983ecd9778d6d81/specs/harness-evolution/plan.md#public-current-plan-snapshots-au-harness-r0146-to-r01411)
+are the source of this migration. That design explicitly recorded the absence of
+`layers/harness_plan.py` and the producer runtime. A historical requirement is
+not evidence of a shipped feature. Closed, unmerged
+[AU PR #302](https://github.com/Knuckles-Team/agent-utilities/pull/302) supplies no landing evidence.
+
+| Historical requirement | Current owner and acceptance |
+|---|---|
+| AU-HARNESS-R014.1 | AU-BOUNDARY-R043.4.1: whole-list mutable run scaffold with frozen items |
+| AU-HARNESS-R014.2 | AU-BOUNDARY-R043.4.2: configuration-gated validated update tool |
+| AU-HARNESS-R014.3 | AU-BOUNDARY-R043.4.3: per-request injection outside stored history |
+| AU-HARNESS-R014.4 | AU-BOUNDARY-R043.4.4: no planner or selection authority |
+| AU-HARNESS-R014.5 | AU-BOUNDARY-R043.4.5: two-update end-to-end proof |
+| AU-HARNESS-R014.6 | SDK-owned request/snapshot models; do not restore AU API DTOs |
+| AU-HARNESS-R014.7 | AU emits the real scaffold revision and lifecycle; SDK defines the snapshot and EG owns any plan record |
+| AU-HARNESS-R014.8–R014.10 | Arbora admission, caller checks and read composition; AU supplies actual run state through host ports |
+| AU-HARNESS-R014.11 | Cross-owner served proof, ending at ARBORA-OPS-R021.4.5 and the inspector |
+
+The [current ecosystem boundary standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/ecosystem-boundaries.md)
+explicitly routes current-plan reads: the plan record belongs to EG, snapshot
+models to SDK, and authorized reads to Arbora. This supersedes the historical
+`AgentControlPlane.current_plan` placement, not its acceptance. No deleted AU
+server, public API, lookup store or planner is restored.
+
+### Existing implementation and next slices
+
+At AU `6a18dd2`, `graph/executor.py::iterate_run` executes received
+`RunPlan.steps` and emits transitions through `host_ports.emit_run_event`.
+`graph/state.py::HarnessConfig` has retries, response format and model settings;
+it has no scaffold decision. No `PlanState`, update tool or injection hook exists.
+Execution prompts are not the model-edited scaffold. Those transitions cannot
+truthfully supply `current_plan`.
+
+Implement R043.4.1 first under `harness/`, then wire R043.4.2 and R043.4.3 into
+the existing loop under a received scaffold decision. Extend the real typed
+configuration and host decision integration with tests; do not infer a decision
+from metadata or invent configuration fields at a consumer. R043.4.4 and
+R043.4.5 prove this wiring. The original absolute ban on plan text in stored
+history also applies to update-tool arguments and observations; returning an
+observation is not permission to persist it.
+
+### Preserved snapshot acceptance and implementation dependencies
+
+The following obligations remain required, not implemented by this amendment:
+
+- Initialization starts at revision zero. Each accepted whole-list replacement
+  increments once, including identical content. Failed validation changes neither
+  items nor revision. Reads never increment revision. Capture items and revision
+  atomically under the update synchronization.
+- Observation and expiry are UTC. `snapshot_validity_seconds` has the historical
+  replaceable default of 30; composition validates a positive finite bounded
+  value. Expiry is observation plus validity, capped by the active run lease.
+  An expired lease is unavailable. The historical text gives no numeric upper
+  bound; its configuration owner must define that bound before runtime acceptance.
+- Bind the real scaffold to the authenticated execution tenant, principal and
+  run. Arbora checks authority on every read; request parameters carry only run
+  selection. Unknown and foreign runs have the same unavailable result.
+- SDK request fields contain only `run_id`; snapshot fields are `run_id`,
+  `revision`, `observed_at`, `expires_at` and ordered `items`.
+  SDK models remain strict and frozen, reject unknown fields, and require a
+  nonnegative integer revision. The read has `availability` and nullable
+  `snapshot`: `available` requires a snapshot and `unavailable` requires null.
+  Snapshot expiry must be strictly later than observation.
+- Preserve ordered items and the three statuses. Available empty state differs
+  from unavailable state. Malformed, wrong-run, future or expired snapshots fail
+  closed. Regressing revisions fail closed within the same run.
+- Disabled scaffolds, ended runs, lost state and absent ports are unavailable.
+  Termination releases state; a restarted runtime uses a new run ID. No model
+  call or history reconstruction serves a read. Diagnostics contain outcome,
+  run ID, revision and timing only, never plan text or credentials.
+- SDK/EG owner contracts and their published interfaces must precede production
+  snapshot composition. AU emits actual state through `host_ports`; it adds no
+  durable record or global read registry. Arbora retains admission and the
+  read-only operation. No public plan mutation is introduced.
+
+Consumer dependency:
+[ARBORA-OPS-R021.4.5](https://github.com/Knuckles-Team/arbora/blob/2d62cd8/specs/hosted-api-operations/requirements.md)
+remains unavailable until the scaffold children, the SDK/EG contract assignment
+and producer bridge, and Arbora composition have independent evidence. Its
+reference to AU-HARNESS-R014 now resolves through the migration table above.
+Two updates, expiry, denied refresh and run-switch clearing still require
+served acceptance. This amendment claims neither `runs.get` completion nor
+inspector availability. All new implementation tasks remain unchecked.

@@ -36,3 +36,20 @@ All tests live in `tests/unit/knowledge_graph/enrichment/test_writeback_governed
 | `AU-BOUNDARY-R043.3` | The recursive loop caps slices and depth. It classifies each failure. | `tests/test_rlm.py` |
 
 The tests use fakes for the host ports and pydantic-ai function models. They run under `pytest -n auto` in random order.
+
+## AU-BOUNDARY-R043.4 scaffold migration acceptance
+
+R043.4.1–R043.4.5 retain the historical R014.1–R014.5 acceptance. Use deterministic
+model fixtures through the existing run loop: replace ordered items twice,
+refuse malformed input atomically, gate the tool on the received decision,
+inspect every outgoing request, and assert no scaffold content in stored history
+or tool records. Check isolation across two runs and the absence of planner
+imports or selection fields. These are planned tests, not existing evidence.
+
+Snapshot follow-up must prove revision zero, repeated-content increments, read
+stability, atomic item/revision capture, UTC expiry and lease capping, caller
+isolation by tenant and principal, and identical unknown/foreign unavailability.
+Test disabled, ended and restarted runs, absent ports, malformed or regressing
+snapshots, expired leases, denied refresh and run switches. A served test must
+reach the same state used by injection, without a model call or history rebuild.
+The SDK, EG and Arbora boundaries remain separate acceptance obligations.
