@@ -1233,11 +1233,14 @@
     {
       "id": "AU-BOUNDARY-R030.6",
       "title": "Delete `agent_utilities/knowledge_graph/ontology/manifest_compiler.py`",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "5430b7149a81",
         "c4c654815738"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_retired_manifest_compiler_finance.py:111"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R030.7",
@@ -1410,11 +1413,14 @@
     {
       "id": "AU-BOUNDARY-R041",
       "title": "Finance modules that produced fabricated data are removed",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "a5340ff4839f",
         "dbe24ea1b0d3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_retired_manifest_compiler_finance.py:122"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R042",
