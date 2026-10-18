@@ -125,3 +125,26 @@ def test_standardization_retirement_holds():
         from_map={"kg.standardization": ("cohorts", "consolidation", "standards")},
     )
     assert not hits, f"importers of retired standardization modules: {hits}"
+
+@pytest.mark.spec("AU-BOUNDARY-R028.3")
+def test_quantum_retirement_holds():
+    """The kg/quantum package and observability/quantum_trace.py are absent.
+
+    No module may import the retired names, and the row's named symbols must
+    be unreferenced anywhere in the source tree.
+    """
+    _assert_retired_absent(
+        "kg/quantum/budget.py",
+        "kg/quantum/__init__.py",
+        "observability/quantum_trace.py",
+    )
+    hits = _importer_hits(
+        ("kg.quantum.budget", "kg.quantum", "observability.quantum_trace"),
+        from_map={"kg": ("quantum",)},
+    )
+    assert not hits, f"importers of retired quantum modules: {hits}"
+    symbol_hits = _symbol_hits(
+        ("QuantumBudgetExceeded", "reserve_quantum_budget", "persist_quantum_job"),
+    )
+    assert not symbol_hits, f"references to retired quantum symbols: {symbol_hits}"
+
