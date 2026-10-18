@@ -1239,7 +1239,7 @@
         "c4c654815738"
       ],
       "verified_by": [
-        "tests/test_retired_manifest_compiler_finance.py:111"
+        "tests/test_retired_manifest_compiler_finance.py:119"
       ]
     },
     {
@@ -1419,7 +1419,7 @@
         "dbe24ea1b0d3"
       ],
       "verified_by": [
-        "tests/test_retired_manifest_compiler_finance.py:122"
+        "tests/test_retired_manifest_compiler_finance.py:146"
       ]
     },
     {
