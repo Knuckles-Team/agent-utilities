@@ -1596,7 +1596,8 @@
       "title": "Publish actual scaffold revisions through a run-local host port",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "da8a2d9cfbaa"
+        "da8a2d9cfbaa",
+        "dca34a7af5c9"
       ],
       "verified_by": [
         "tests/test_host_ports.py:125",
