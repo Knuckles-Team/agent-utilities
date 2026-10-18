@@ -195,11 +195,14 @@
     {
       "id": "AU-BOUNDARY-R002.2",
       "title": "Delete `agent_utilities/deployment/backends.py`",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "08124cf97d53",
         "db29b2da626e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_retired_deployment_sparql_images.py:67"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R002.3",
@@ -1297,6 +1300,7 @@
       "title": "Delete AU's legacy SPARQL backend and setup path",
       "delivery_state": "LANDED",
       "landed_in": [
+        "1a9ea15f4b25",
         "743e98cda405",
         "a05257fb6541"
       ],
@@ -1705,11 +1709,14 @@
     {
       "id": "AU-BOUNDARY-R048.1",
       "title": "`images/` is already relocated",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "635f38f64aca"
+        "635f38f64aca",
+        "cf6cddd527d3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_retired_deployment_sparql_images.py:122"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R048.2",
