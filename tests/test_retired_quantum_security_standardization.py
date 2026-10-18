@@ -47,7 +47,9 @@ def _assert_retired_absent(*relative_paths: str) -> None:
 
 
 def _touches(name: str, module_names: tuple[str, ...]) -> bool:
-    return any(name == module or name.startswith(module + ".") for module in module_names)
+    return any(
+        name == module or name.startswith(module + ".") for module in module_names
+    )
 
 
 def _importer_hits(
@@ -75,15 +77,21 @@ def _importer_hits(
                 if isinstance(node, ast.Import):
                     for alias in node.names:
                         if _touches(alias.name, module_names):
-                            hits.append(f"{_rel(path)}:{node.lineno}: import {alias.name}")
+                            hits.append(
+                                f"{_rel(path)}:{node.lineno}: import {alias.name}"
+                            )
                 elif isinstance(node, ast.ImportFrom):
                     module = node.module or ""
                     if _touches(module, module_names):
-                        hits.append(f"{_rel(path)}:{node.lineno}: from {module} import ...")
+                        hits.append(
+                            f"{_rel(path)}:{node.lineno}: from {module} import ..."
+                        )
                     elif module in from_map:
                         for alias in node.names:
                             if alias.name in from_map[module]:
-                                hits.append(f"{_rel(path)}:{node.lineno}: from {module} import {alias.name}")
+                                hits.append(
+                                    f"{_rel(path)}:{node.lineno}: from {module} import {alias.name}"
+                                )
         for lineno, line in enumerate(text.splitlines(), start=1):
             if "import" not in line:
                 continue
@@ -96,7 +104,9 @@ def _importer_hits(
 def _symbol_hits(symbols: tuple[str, ...]) -> list[str]:
     hits: list[str] = []
     for path in _source_files():
-        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        for lineno, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
             for symbol in symbols:
                 if re.search(rf"\b{re.escape(symbol)}\b", line):
                     hits.append(f"{_rel(path)}:{lineno}: {line.strip()}")
@@ -125,6 +135,7 @@ def test_standardization_retirement_holds():
         from_map={"kg.standardization": ("cohorts", "consolidation", "standards")},
     )
     assert not hits, f"importers of retired standardization modules: {hits}"
+
 
 @pytest.mark.spec("AU-BOUNDARY-R028.3")
 def test_quantum_retirement_holds():
