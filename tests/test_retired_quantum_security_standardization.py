@@ -176,3 +176,16 @@ def test_security_retirement_holds():
     )
     assert not hits, f"importers of retired security modules: {hits}"
 
+
+@pytest.mark.spec("AU-BOUNDARY-R028.5")
+def test_enterprise_protocols_retirement_holds():
+    """The protocols/enterprise package and read_models are absent and unimported."""
+    _assert_retired_absent(
+        "protocols/enterprise/__init__.py",
+        "protocols/enterprise/read_models.py",
+    )
+    hits = _importer_hits(
+        ("protocols.enterprise.read_models", "protocols.enterprise"),
+        from_map={"protocols": ("enterprise",)},
+    )
+    assert not hits, f"importers of retired enterprise protocols: {hits}"
