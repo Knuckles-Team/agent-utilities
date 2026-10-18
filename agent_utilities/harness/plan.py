@@ -7,6 +7,7 @@ The run loop owns each instance and shares it between updates and injection.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from threading import Lock
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,14 +29,23 @@ class PlanState:
 
     def __init__(self) -> None:
         self._items: tuple[PlanItem, ...] = ()
+        self._revision = 0
+        self._lock = Lock()
 
     @property
     def items(self) -> tuple[PlanItem, ...]:
         """An immutable view that remains stable after later replacements."""
-        return self._items
+        return self.read_versioned()[1]
+
+    def read_versioned(self) -> tuple[int, tuple[PlanItem, ...]]:
+        """Read a consistent revision/item pair without changing either value."""
+        with self._lock:
+            return self._revision, self._items
 
     def replace(self, items: Sequence[PlanItem]) -> tuple[PlanItem, ...]:
         """Replace all items atomically; invalid input leaves the old list intact."""
         replacement = tuple(PlanItem.model_validate(item) for item in items)
-        self._items = replacement
+        with self._lock:
+            self._items = replacement
+            self._revision += 1
         return replacement
