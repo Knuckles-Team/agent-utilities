@@ -197,8 +197,8 @@
       "title": "Delete `agent_utilities/deployment/backends.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "08124cf97d53",
-        "db29b2da626e"
+        "db29b2da626e",
+        "dd6cc2e34dd8"
       ],
       "verified_by": [
         "tests/test_retired_deployment_sparql_images.py:67"
@@ -1300,7 +1300,6 @@
       "title": "Delete AU's legacy SPARQL backend and setup path",
       "delivery_state": "LANDED",
       "landed_in": [
-        "1a9ea15f4b25",
         "743e98cda405",
         "a05257fb6541"
       ],
@@ -1712,7 +1711,7 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "635f38f64aca",
-        "cf6cddd527d3"
+        "b5bd89149551"
       ],
       "verified_by": [
         "tests/test_retired_deployment_sparql_images.py:122"
