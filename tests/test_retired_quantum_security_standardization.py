@@ -148,3 +148,31 @@ def test_quantum_retirement_holds():
     )
     assert not symbol_hits, f"references to retired quantum symbols: {symbol_hits}"
 
+
+@pytest.mark.spec("AU-BOUNDARY-R028.4")
+def test_security_retirement_holds():
+    """All four retired kg/security modules are absent and unimported."""
+    _assert_retired_absent(
+        "kg/security/cognitive_trap_defense.py",
+        "kg/security/policy_ingestor.py",
+        "kg/security/graph_validator.py",
+        "kg/security/rule_ingestor.py",
+    )
+    hits = _importer_hits(
+        (
+            "kg.security.cognitive_trap_defense",
+            "kg.security.policy_ingestor",
+            "kg.security.graph_validator",
+            "kg.security.rule_ingestor",
+        ),
+        from_map={
+            "kg.security": (
+                "cognitive_trap_defense",
+                "policy_ingestor",
+                "graph_validator",
+                "rule_ingestor",
+            ),
+        },
+    )
+    assert not hits, f"importers of retired security modules: {hits}"
+
