@@ -144,6 +144,8 @@
     "AU-BOUNDARY-R043.4.3",
     "AU-BOUNDARY-R043.4.4",
     "AU-BOUNDARY-R043.4.5",
+    "AU-BOUNDARY-R043.5",
+    "AU-BOUNDARY-R043.5.1",
     "AU-BOUNDARY-R044",
     "AU-BOUNDARY-R044.1",
     "AU-BOUNDARY-R045",
@@ -1438,7 +1440,8 @@
         "AU-BOUNDARY-R043.1",
         "AU-BOUNDARY-R043.2",
         "AU-BOUNDARY-R043.3",
-        "AU-BOUNDARY-R043.4"
+        "AU-BOUNDARY-R043.4",
+        "AU-BOUNDARY-R043.5"
       ]
     },
     {
@@ -1561,6 +1564,29 @@
       ],
       "verified_by": [
         "tests/test_plan_runtime.py:59"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.5",
+      "title": "Produce real scaffold state for an owner-composed read",
+      "delivery_state": "VERIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R043.5.1"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.5.1",
+      "title": "Atomic scaffold revision",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "b0d6007b022f"
+      ],
+      "verified_by": [
+        "tests/test_harness_plan.py:120",
+        "tests/test_harness_plan.py:65",
+        "tests/test_harness_plan.py:86"
       ]
     },
     {
