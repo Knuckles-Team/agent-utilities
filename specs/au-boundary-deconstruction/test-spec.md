@@ -44,7 +44,7 @@ model fixtures through the existing run loop: replace ordered items twice,
 refuse malformed input atomically, gate the tool on the received decision,
 inspect every outgoing request, and assert no scaffold content in stored history
 or tool records. Check isolation across two runs and the absence of planner
-imports or selection fields. These are planned tests, not existing evidence.
+imports or selection fields. The bound test files below provide the scaffold implementation evidence.
 
 Snapshot follow-up must prove revision zero, repeated-content increments, read
 stability, atomic item/revision capture, UTC expiry and lease capping, caller
@@ -56,5 +56,11 @@ The SDK, EG and Arbora boundaries remain separate acceptance obligations.
 
 R043.4.1 is exercised by `tests/test_harness_plan.py`: full ordered replacement,
 empty reset, stable old views, immutable items, two-run isolation, strict field
-validation and invalid-later-item atomicity. The loop/tool/injection tests for
-R043.4.2–R043.4.5 remain separate planned acceptance.
+validation and invalid-later-item atomicity. The loop/tool/injection evidence for
+R043.4.2–R043.4.5 is recorded below.
+
+R043.4.2–R043.4.5 are exercised by `tests/test_plan_runtime.py` through
+`graph.executor.run`: received on/off gating, two updates and a malformed update,
+per-request injection across execution steps, separate-run isolation, retained
+history inspection, budget-exit cleanup and the no-selection tool/import surface.
+This evidence covers the scaffold loop, not a snapshot reader or served inspector.

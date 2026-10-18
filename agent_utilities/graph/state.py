@@ -14,6 +14,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from agent_utilities.harness.plan import PlanState
+
 RunStatus = Literal["pending", "running", "completed", "stopped", "failed"]
 
 #: Fallback budgets when the host gives none.
@@ -56,6 +58,7 @@ class HarnessConfig:
     retries: int = DEFAULT_RETRIES
     response_format: Literal["text", "json"] = "text"
     model_settings: Mapping[str, Any] = field(default_factory=dict)
+    plan_scaffold: Literal["on", "off"] = "off"
 
 
 @dataclass(frozen=True)
@@ -108,6 +111,7 @@ class GraphState:
     outputs: list[str] = field(default_factory=list)
     usage: dict[str, int] = field(default_factory=dict)
     error: str | None = None
+    scaffold: PlanState | None = None
 
     def add_usage(self, usage: Any) -> None:
         for key in ("requests", "tool_calls", "input_tokens", "output_tokens"):
