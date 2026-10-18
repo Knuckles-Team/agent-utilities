@@ -42,7 +42,7 @@ class DockerWorkspace:
         self,
         *,
         run_id: str | None = None,
-        image: str = "python:3.11-slim",
+        image: str = "python:3.14-slim",
         memory: str = "2g",
         cpus: str = "2.0",
         pids_limit: int = 1024,
