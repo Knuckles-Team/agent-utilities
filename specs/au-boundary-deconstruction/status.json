@@ -195,11 +195,14 @@
     {
       "id": "AU-BOUNDARY-R002.2",
       "title": "Delete `agent_utilities/deployment/backends.py`",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "db29b2da626e"
+        "db29b2da626e",
+        "dd6cc2e34dd8"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_retired_deployment_sparql_images.py:67"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R002.3",
@@ -1705,11 +1708,14 @@
     {
       "id": "AU-BOUNDARY-R048.1",
       "title": "`images/` is already relocated",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "635f38f64aca"
+        "635f38f64aca",
+        "b5bd89149551"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_retired_deployment_sparql_images.py:122"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R048.2",
