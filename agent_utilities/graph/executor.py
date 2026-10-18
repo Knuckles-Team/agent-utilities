@@ -20,6 +20,8 @@ from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 
 from agent_utilities import host_ports
+from agent_utilities.harness.plan import PlanState
+from agent_utilities.harness.plan_runtime import PlanScaffold
 
 from .state import (
     GraphDeps,
@@ -44,8 +46,17 @@ async def resolve_plan(request: RunRequest, config: Mapping[str, Any]) -> RunPla
     return plan
 
 
-def build_agent(plan: RunPlan, run_id: str) -> Agent[GraphDeps, Any]:
+def build_agent(
+    plan: RunPlan, run_id: str, *, scaffold: PlanState | None = None
+) -> Agent[GraphDeps, Any]:
     """One pydantic-ai agent bound to the plan's model, instructions and tools."""
+    if plan.harness.plan_scaffold not in ("on", "off"):
+        raise ValueError("plan_scaffold must be on or off")
+    capabilities = (
+        [PlanScaffold(scaffold if scaffold is not None else PlanState())]
+        if plan.harness.plan_scaffold == "on"
+        else []
+    )
     model = (
         host_ports.resolve_model(plan.model)
         if isinstance(plan.model, str)
@@ -61,6 +72,7 @@ def build_agent(plan: RunPlan, run_id: str) -> Agent[GraphDeps, Any]:
     output_type: Any = dict[str, Any] if plan.harness.response_format == "json" else str
     return Agent(
         model,
+        capabilities=capabilities,
         output_type=output_type,
         instructions=plan.instructions or None,
         deps_type=GraphDeps,
@@ -104,7 +116,9 @@ async def iterate_run(
     state = GraphState(run_id=request.run_id, query=request.task, mode=request.mode)
     try:
         run_plan = plan or await resolve_plan(request, cfg)
-        agent = build_agent(run_plan, state.run_id)
+        if run_plan.harness.plan_scaffold == "on":
+            state.scaffold = PlanState()
+        agent = build_agent(run_plan, state.run_id, scaffold=state.scaffold)
     except Exception as exc:  # noqa: BLE001 - a failed plan is a failed run
         state.status, state.error = "failed", f"{type(exc).__name__}: {exc}"
         yield _event(state, "error", error=state.error, result=_result(state))

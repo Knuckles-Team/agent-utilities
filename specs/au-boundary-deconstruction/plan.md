@@ -396,4 +396,27 @@ and producer bridge, and Arbora composition have independent evidence. Its
 reference to AU-HARNESS-R014 now resolves through the migration table above.
 Two updates, expiry, denied refresh and run-switch clearing still require
 served acceptance. This amendment claims neither `runs.get` completion nor
-inspector availability. All new implementation tasks remain unchecked.
+inspector availability. At migration time all new implementation tasks remained unchecked; the
+implementation section below records subsequent scaffold delivery.
+
+### Scaffold loop implementation
+
+`HarnessConfig.plan_scaffold` is the received `on`/`off` decision, defaulting to
+`off`. `iterate_run` creates one `harness.plan.PlanState` when enabled and passes
+it to `build_agent`. `harness.plan_runtime.PlanScaffold` registers the sequential
+`update_plan` tool and shares that same state with `before_model_request`.
+Malformed items produce an `invalid_plan` observation without changing state.
+The hook adds request-only context data; it does not write injected text to
+history. It replaces stored scaffold tool arguments and observations with
+payload-free parts while preserving tool-call identifiers. Cleanup also runs on
+budget/error/cancellation exit, using the history captured at the model boundary.
+Each agent call gets separate cleanup tracking while successive steps of the
+same outer run share the scaffold. Existing configuration positional arguments
+remain unchanged.
+
+A host-supplied `RunPlan` can enable this with
+`HarnessConfig(plan_scaffold="on")` through the existing run decision provider.
+`RunPlan.steps` remain execution prompts. This config field does not add the
+historical context-policy or action-space fields. No snapshot reader is exported
+by this slice: revision, lease/scope binding, SDK/EG contracts and Arbora read
+composition remain prerequisites to the unchanged `runs.current_plan` contract.

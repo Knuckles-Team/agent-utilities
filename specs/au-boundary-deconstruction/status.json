@@ -1428,7 +1428,7 @@
     {
       "id": "AU-BOUNDARY-R043",
       "title": "The agent run loop stays in Agent Utilities",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "8a45ab8013ad",
         "fdeabad709b3"
@@ -1489,7 +1489,7 @@
     {
       "id": "AU-BOUNDARY-R043.4",
       "title": "Restore the model-edited run scaffold",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
@@ -1511,36 +1511,57 @@
         "tests/test_harness_plan.py:29",
         "tests/test_harness_plan.py:39",
         "tests/test_harness_plan.py:55",
-        "tests/test_harness_plan.py:9"
+        "tests/test_harness_plan.py:9",
+        "tests/test_plan_runtime.py:116"
       ]
     },
     {
       "id": "AU-BOUNDARY-R043.4.2",
       "title": "Gated update tool",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8fdd01e03831"
+      ],
+      "verified_by": [
+        "tests/test_plan_runtime.py:214",
+        "tests/test_plan_runtime.py:32",
+        "tests/test_plan_runtime.py:57"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043.4.3",
       "title": "Request-only injection",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8fdd01e03831"
+      ],
+      "verified_by": [
+        "tests/test_plan_runtime.py:117",
+        "tests/test_plan_runtime.py:135",
+        "tests/test_plan_runtime.py:58"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043.4.4",
       "title": "No planner authority",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8fdd01e03831"
+      ],
+      "verified_by": [
+        "tests/test_plan_runtime.py:174"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043.4.5",
       "title": "End-to-end scaffold proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8fdd01e03831"
+      ],
+      "verified_by": [
+        "tests/test_plan_runtime.py:59"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R044",
