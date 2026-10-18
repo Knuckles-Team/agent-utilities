@@ -146,6 +146,7 @@
     "AU-BOUNDARY-R043.4.5",
     "AU-BOUNDARY-R043.5",
     "AU-BOUNDARY-R043.5.1",
+    "AU-BOUNDARY-R043.5.2",
     "AU-BOUNDARY-R044",
     "AU-BOUNDARY-R044.1",
     "AU-BOUNDARY-R045",
@@ -1430,7 +1431,7 @@
     {
       "id": "AU-BOUNDARY-R043",
       "title": "The agent run loop stays in Agent Utilities",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "8a45ab8013ad",
         "fdeabad709b3"
@@ -1569,11 +1570,12 @@
     {
       "id": "AU-BOUNDARY-R043.5",
       "title": "Produce real scaffold state for an owner-composed read",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R043.5.1"
+        "AU-BOUNDARY-R043.5.1",
+        "AU-BOUNDARY-R043.5.2"
       ]
     },
     {
@@ -1587,6 +1589,19 @@
         "tests/test_harness_plan.py:120",
         "tests/test_harness_plan.py:65",
         "tests/test_harness_plan.py:86"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.5.2",
+      "title": "Publish actual scaffold revisions through a run-local host port",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/test_host_ports.py:125",
+        "tests/test_host_ports.py:140",
+        "tests/test_host_ports.py:175",
+        "tests/test_host_ports.py:202",
+        "tests/test_host_ports.py:97"
       ]
     },
     {

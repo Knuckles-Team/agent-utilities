@@ -23,6 +23,7 @@ def _clear_host_ports():
 
     registrars = (
         host_ports.register_run_decision_provider,
+        host_ports.register_scaffold_publication_factory,
         host_ports.register_model_provider,
         host_ports.register_run_event_sink,
         host_ports.register_native_toolset_provider,

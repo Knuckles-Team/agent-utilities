@@ -39,7 +39,10 @@ import contextlib
 from collections.abc import AsyncIterator, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from agent_utilities.harness.plan import PlanItem, PlanState
 
 
 class HostToolError(RuntimeError):
@@ -359,3 +362,76 @@ def clean_tool_name(prefix: str, server_name: str, original_tool_name: str) -> s
         budget = 44 - len(prefix) - 2
         candidate = f"{prefix}__{cleaned[:budget].strip('_')}"
     return candidate
+
+
+class ScaffoldPublisher(Protocol):
+    """Host-owned publication of an actual run-local scaffold revision."""
+
+    async def publish(self, revision: int, items: tuple[PlanItem, ...]) -> None: ...
+
+
+ScaffoldPublicationFactory = Callable[
+    [Any], contextlib.AbstractAsyncContextManager[ScaffoldPublisher]
+]
+_SCAFFOLD_PUBLICATION: ScaffoldPublicationFactory | None = None
+
+
+def register_scaffold_publication_factory(
+    factory: ScaffoldPublicationFactory | None,
+) -> None:
+    """Install the host binder; request metadata alone supplies no authority."""
+    global _SCAFFOLD_PUBLICATION
+    _SCAFFOLD_PUBLICATION = factory
+
+
+class _ScopedPublisher:
+    def __init__(self, publisher: ScaffoldPublisher) -> None:
+        self.publisher = publisher
+        self.active = True
+
+    async def publish(self, revision: int, items: tuple[PlanItem, ...]) -> None:
+        if not self.active:
+            raise RuntimeError("scaffold publication scope is closed")
+        try:
+            await self.publisher.publish(revision, items)
+        except Exception:
+            raise RuntimeError("scaffold publication failed") from None
+
+
+@contextlib.asynccontextmanager
+async def scaffold_publication_scope(
+    request: Any, state: PlanState | None
+) -> AsyncIterator[ScaffoldPublisher | None]:
+    """Publish actual state through a host binding, never a local read registry.
+
+    The host owns verified identity, lease fencing, expiry and wire mapping.
+    Missing providers make no availability claim. Failures may follow an external
+    write; the accepted local revision is never rolled back.
+    """
+    factory = _SCAFFOLD_PUBLICATION
+    if state is None or factory is None:
+        yield None
+        return
+    try:
+        scope = factory(request)
+        publisher = _ScopedPublisher(await scope.__aenter__())
+    except Exception:
+        raise RuntimeError("scaffold publication binding failed") from None
+    failure: BaseException | None = None
+    try:
+        await publisher.publish(*state.read_versioned())
+        yield publisher
+    except BaseException as exc:
+        failure = exc
+        raise
+    finally:
+        publisher.active = False
+        try:
+            await scope.__aexit__(
+                type(failure) if failure is not None else None,
+                failure,
+                failure.__traceback__ if failure is not None else None,
+            )
+        except Exception:
+            if failure is None:
+                raise RuntimeError("scaffold publication close failed") from None

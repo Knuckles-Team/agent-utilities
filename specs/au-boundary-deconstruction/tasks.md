@@ -146,3 +146,5 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] Wire Arbora's ARBORA-OPS-R021.4.5 reader to the producer and complete served inspector acceptance.
 
 - [x] **AU-BOUNDARY-R043.5.1:** Add atomic scaffold revision/read semantics before the owner-composed snapshot bridge.
+
+- [x] **AU-BOUNDARY-R043.5.2:** Publish actual atomic scaffold revisions through an optional run-local host binding with lifecycle, isolation and refusal tests.

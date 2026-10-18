@@ -22,6 +22,8 @@ from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.run import AgentRunResult
 from pydantic_ai.toolsets import FunctionToolset
 
+from agent_utilities.host_ports import ScaffoldPublisher
+
 from .plan import PlanItem, PlanState
 
 _ITEMS = TypeAdapter(list[PlanItem])
@@ -60,20 +62,23 @@ def _without_scaffold_payload(messages: list[ModelMessage]) -> list[ModelMessage
 class PlanScaffold(AbstractCapability[Any]):
     """One scaffold shared by a run's update tool and outgoing request hook."""
 
-    def __init__(self, state: PlanState) -> None:
+    def __init__(
+        self, state: PlanState, publisher: ScaffoldPublisher | None = None
+    ) -> None:
         self.state = state
+        self.publisher = publisher
         self._history: list[ModelMessage] | None = None
 
     async def for_run(self, ctx: RunContext[Any]) -> PlanScaffold:
         """Keep cleanup tracking local to each agent call, sharing its run scaffold."""
-        return PlanScaffold(self.state)
+        return PlanScaffold(self.state, self.publisher)
 
     def get_toolset(self) -> FunctionToolset[Any]:
         toolset: FunctionToolset[Any] = FunctionToolset()
         toolset.add_function(self.update_plan, sequential=True)
         return toolset
 
-    def update_plan(self, items: Any) -> dict[str, Any]:
+    async def update_plan(self, items: Any) -> dict[str, Any]:
         """Replace the whole plan with ordered text/status items.
 
         Status must be pending, in_progress or done. This tool does not select
@@ -81,9 +86,11 @@ class PlanScaffold(AbstractCapability[Any]):
         """
         try:
             values = _ITEMS.validate_python(items, strict=True)
-            current = self.state.replace(values)
+            revision, current = self.state.replace_versioned(values)
         except ValidationError:
             return {"status": "invalid_plan"}
+        if self.publisher is not None:
+            await self.publisher.publish(revision, current)
         return {"status": "updated", "items": [item.model_dump() for item in current]}
 
     async def before_model_request(

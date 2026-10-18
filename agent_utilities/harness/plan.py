@@ -44,8 +44,14 @@ class PlanState:
 
     def replace(self, items: Sequence[PlanItem]) -> tuple[PlanItem, ...]:
         """Replace all items atomically; invalid input leaves the old list intact."""
+        return self.replace_versioned(items)[1]
+
+    def replace_versioned(
+        self, items: Sequence[PlanItem]
+    ) -> tuple[int, tuple[PlanItem, ...]]:
+        """Return exactly the accepted revision and items under the update lock."""
         replacement = tuple(PlanItem.model_validate(item) for item in items)
         with self._lock:
             self._items = replacement
             self._revision += 1
-        return replacement
+            return self._revision, replacement
