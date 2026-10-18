@@ -47,7 +47,7 @@ def create_workspace(
     prefer_docker: bool = True,
     actor: str | None = None,
     policy_gate: PolicyGate | None = None,
-    image: str = "python:3.11-slim",
+    image: str = "python:3.14-slim",
     root: str | None = None,
     computer_use: ComputerUseDriver | None = None,
 ) -> DevWorkspace:
