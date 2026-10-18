@@ -74,3 +74,40 @@ def test_deployment_package_and_backends_module_deleted() -> None:
     assert not deployment.exists(), "agent_utilities/deployment/ is still present on main"
     hits = _importers_of("agent_utilities.deployment")
     assert not hits, "importers of agent_utilities.deployment remain:\n" + "\n".join(hits)
+
+
+def test_legacy_sparql_backend_and_setup_path_deleted() -> None:
+    """AU-BOUNDARY-R032 census: the legacy SPARQL backend and setup path are gone.
+
+    Proves the "no runtime or command-line caller remains" half of the row's
+    acceptance: the retired paths are absent, no remaining source imports
+    them, and the ``setup-databases`` console script is undeclared. The
+    other half -- a typed unavailable response for the removed paths --
+    belongs to the epistemic-graph federation path after the 3.0.0 cut, so
+    this test deliberately carries no spec marker (GAP, not bound).
+    """
+    retired_paths = (
+        "agent_utilities/kg/backends/sparql",
+        "agent_utilities/kg/setup",
+        "agent_utilities/kg/integrations/stardog_sync.py",
+        "agent_utilities/kg/integrations/sparql_ingestor.py",
+    )
+    for rel in retired_paths:
+        assert not (_ROOT / rel).exists(), f"retired path still present: {rel}"
+    for name in ("stardog_sync.py", "sparql_ingestor.py"):
+        strays = [p.relative_to(_ROOT) for p in _python_files() if p.name == name]
+        assert not strays, f"retired module file still present: {strays}"
+    for module in (
+        "agent_utilities.kg.backends.sparql",
+        "agent_utilities.kg.setup",
+        "agent_utilities.kg.integrations.stardog_sync",
+        "agent_utilities.kg.integrations.sparql_ingestor",
+    ):
+        hits = _importers_of(module)
+        assert not hits, f"importers of {module} remain:\n" + "\n".join(hits)
+    scripts = tomllib.loads(
+        (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    ).get("project", {})
+    assert "setup-databases" not in scripts.get("scripts", {}), (
+        "setup-databases console script is still declared in pyproject.toml"
+    )
