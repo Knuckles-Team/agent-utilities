@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.2] - 2026-10-18
+
+### Added
+- Run-local plan scaffold tools and request-only injection, gated by the received harness decision.
+- Atomic scaffold revisions and an optional host publication port. The host receives the initial empty revision and each accepted update; publication failures stop the run, and completed scopes reject later calls.
+
+### Scope
+- This supplies harness mechanisms only. Arbora composes caller admission, EG-backed lease fencing and expiry, and the reader. No successful served harness decision or complete run-inspector availability is claimed.
+
 ## [3.0.1] - 2026-10-17 — Arbora rename
 
 ### Changed
