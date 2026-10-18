@@ -40,7 +40,9 @@ def _absolute_imports(py_file: Path) -> list[tuple[int, str]]:
         elif isinstance(node, ast.ImportFrom):
             level = node.level or 0
             anchor = base[: len(base) - (level - 1)] if level else []
-            module = ".".join((*anchor, *node.module.split(".")) if node.module else anchor)
+            module = ".".join(
+                (*anchor, *node.module.split(".")) if node.module else anchor
+            )
             if module:
                 found.append((node.lineno, module))
     return found
@@ -71,9 +73,13 @@ def test_deployment_package_and_backends_module_deleted() -> None:
     ``agent_utilities.deployment``.
     """
     deployment = _ROOT / "agent_utilities" / "deployment"
-    assert not deployment.exists(), "agent_utilities/deployment/ is still present on main"
+    assert not deployment.exists(), (
+        "agent_utilities/deployment/ is still present on main"
+    )
     hits = _importers_of("agent_utilities.deployment")
-    assert not hits, "importers of agent_utilities.deployment remain:\n" + "\n".join(hits)
+    assert not hits, "importers of agent_utilities.deployment remain:\n" + "\n".join(
+        hits
+    )
 
 
 def test_legacy_sparql_backend_and_setup_path_deleted() -> None:
@@ -105,9 +111,21 @@ def test_legacy_sparql_backend_and_setup_path_deleted() -> None:
     ):
         hits = _importers_of(module)
         assert not hits, f"importers of {module} remain:\n" + "\n".join(hits)
-    scripts = tomllib.loads(
-        (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    ).get("project", {})
+    scripts = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8")).get(
+        "project", {}
+    )
     assert "setup-databases" not in scripts.get("scripts", {}), (
         "setup-databases console script is still declared in pyproject.toml"
+    )
+
+
+@pytest.mark.spec("AU-BOUNDARY-R048.1")
+def test_images_directory_absent() -> None:
+    """AU-BOUNDARY-R048.1: ``agent_utilities/images/`` no longer exists.
+
+    The directory was already deleted/relocated before this cut; the
+    acceptance is that ``agent_utilities/images`` yields no path on main.
+    """
+    assert not (_ROOT / "agent_utilities" / "images").exists(), (
+        "agent_utilities/images/ is still present on main"
     )
