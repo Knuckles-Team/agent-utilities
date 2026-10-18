@@ -476,3 +476,19 @@ not assert that newer owner branches lack a contract. No live expiry, caller
 binding, reader availability or served acceptance is claimed by the revision
 slice. The next cross-owner change must supply these prerequisites or keep the
 read truthfully unavailable.
+
+### Run-local publication mechanism
+
+AU-BOUNDARY-R043.5.2 adds an optional host factory and explicitly injects its
+run-local publisher into the scaffold capability. The host receives the run
+request for binding but must obtain verified authority and a real lease itself;
+metadata is not authority. AU awaits the initial atomic revision and accepted
+replacements, without synthesizing refresh revisions. A retained publisher is
+deactivated before asynchronous close. Publication failures stop the run without
+rolling back a possibly already published replacement. No ContextVar binding
+crosses async-generator yields. Off and unbound execution remain local only.
+
+SDK current-plan contracts are now published in 0.2.2 and EG native ownership
+landed in #663, but EG 2.27.5 installed acceptance remains pending. This slice
+does not compose Arbora's reader, enable a host harness decision, or establish
+lease-bound served availability. Those owner prerequisites remain separate.

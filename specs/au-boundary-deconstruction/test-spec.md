@@ -72,3 +72,15 @@ resets with one increment each. Reject invalid items without an increment.
 Preserve old immutable views. Exercise competing writers and interleaved reads
 with bounded barriers, no sleeps or network, and prove every observed revision
 corresponds to its complete item tuple. This proves no caller or lease authority.
+
+## AU-BOUNDARY-R043.5.2 publication mechanism acceptance
+
+`tests/test_plan_runtime.py` drives the real model/tool loop: revision zero
+precedes the first request, two accepted updates publish in order, invalid input
+publishes nothing, concurrent runs remain isolated, and host binding/publication/
+close failures fail the run without exposing their payloads.
+`tests/test_host_ports.py` covers absent/off bindings, cancellation during initial
+publication, invalidation before close, retained publisher refusal, preservation
+of original body errors during cleanup, and no rollback after uncertain writes.
+These tests use a host double and establish no installed EG acceptance, verified
+lease admission, deployed decision activation or served inspector availability.

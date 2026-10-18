@@ -232,3 +232,188 @@ async def test_invalid_received_scaffold_decision_fails_before_model_call(mode):
     assert result.error is not None
     assert "plan_scaffold must be on or off" in result.error
     assert calls == []
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.5.2")
+async def test_host_receives_only_actual_accepted_revisions():
+    from contextlib import asynccontextmanager
+
+    from agent_utilities import host_ports
+
+    published = []
+    lifecycle = []
+    turns = []
+
+    class Publisher:
+        async def publish(self, revision, items):
+            published.append((revision, tuple(item.model_dump() for item in items)))
+
+    @asynccontextmanager
+    async def factory(request):
+        lifecycle.append(request.run_id)
+        try:
+            yield Publisher()
+        finally:
+            lifecycle.append("closed")
+
+    host_ports.register_scaffold_publication_factory(factory)
+
+    def model(messages, info):
+        turns.append(len(published))
+        turn = len(turns)
+        if turn == 4:
+            return ModelResponse(parts=[TextPart("done")])
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    "update_plan",
+                    {
+                        "items": [
+                            {
+                                "text": f"private-{turn}",
+                                "status": "invalid" if turn == 2 else "done",
+                            }
+                        ]
+                    },
+                )
+            ]
+        )
+
+    result = await run(
+        RunRequest(task="task", run_id="bound-run"),
+        plan=RunPlan(
+            model=FunctionModel(model),
+            steps=("task",),
+            harness=HarnessConfig(plan_scaffold="on"),
+        ),
+    )
+    assert result.status == "completed"
+    assert turns == [1, 2, 2, 3]
+    assert published == [
+        (0, ()),
+        (1, ({"text": "private-1", "status": "done"},)),
+        (2, ({"text": "private-3", "status": "done"},)),
+    ]
+    assert lifecycle == ["bound-run", "closed"]
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.5.2")
+@pytest.mark.parametrize("failure_at", ["enter", "initial", "update", "close"])
+async def test_publication_failure_stops_run_without_disclosing_payload(failure_at):
+    from contextlib import asynccontextmanager
+
+    from agent_utilities import host_ports
+
+    calls = []
+    closed = []
+
+    class Publisher:
+        async def publish(self, revision, items):
+            if (failure_at == "initial" and revision == 0) or (
+                failure_at == "update" and revision == 1
+            ):
+                raise ValueError("private-plan-payload")
+
+    @asynccontextmanager
+    async def factory(request):
+        if failure_at == "enter":
+            raise ValueError("private-plan-payload")
+        try:
+            yield Publisher()
+        finally:
+            closed.append(True)
+            if failure_at == "close":
+                raise ValueError("private-plan-payload")
+
+    host_ports.register_scaffold_publication_factory(factory)
+
+    def model(messages, info):
+        calls.append(True)
+        if len(calls) == 1:
+            return ModelResponse(
+                parts=[
+                    ToolCallPart(
+                        "update_plan",
+                        {
+                            "items": [
+                                {"text": "private-plan-payload", "status": "pending"}
+                            ]
+                        },
+                    )
+                ]
+            )
+        return ModelResponse(parts=[TextPart("done")])
+
+    result = await run(
+        RunRequest(task="task"),
+        plan=RunPlan(
+            model=FunctionModel(model),
+            steps=("task",),
+            harness=HarnessConfig(plan_scaffold="on"),
+        ),
+    )
+    assert result.status == "failed"
+    assert "private-plan-payload" not in repr(result)
+    assert "scaffold publication" in result.error
+    assert len(calls) == {"enter": 0, "initial": 0, "update": 1, "close": 2}[failure_at]
+    assert closed == ([] if failure_at == "enter" else [True])
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.5.2")
+async def test_concurrent_runs_publish_to_their_own_host_binding():
+    import asyncio
+    from contextlib import asynccontextmanager
+
+    from agent_utilities import host_ports
+
+    observed = {}
+    ready = asyncio.Event()
+
+    class Publisher:
+        def __init__(self, run_id):
+            self.run_id = run_id
+
+        async def publish(self, revision, items):
+            observed.setdefault(self.run_id, []).append((revision, items))
+            if len(observed) == 2:
+                ready.set()
+            await ready.wait()
+
+    @asynccontextmanager
+    async def factory(request):
+        yield Publisher(request.run_id)
+
+    host_ports.register_scaffold_publication_factory(factory)
+
+    async def execute(run_id):
+        calls = []
+
+        def model(messages, info):
+            calls.append(True)
+            if len(calls) == 1:
+                return ModelResponse(
+                    parts=[
+                        ToolCallPart(
+                            "update_plan",
+                            {"items": [{"text": run_id, "status": "done"}]},
+                        )
+                    ]
+                )
+            return ModelResponse(parts=[TextPart("done")])
+
+        return await run(
+            RunRequest(task="task", run_id=run_id),
+            plan=RunPlan(
+                model=FunctionModel(model),
+                steps=("task",),
+                harness=HarnessConfig(plan_scaffold="on"),
+            ),
+        )
+
+    results = await asyncio.gather(execute("first"), execute("second"))
+    assert all(result.status == "completed" for result in results)
+    for run_id, snapshots in observed.items():
+        assert snapshots[0] == (0, ())
+        assert snapshots[1][0] == 1
+        assert snapshots[1][1][0].text == run_id
+        assert len(snapshots) == 2
