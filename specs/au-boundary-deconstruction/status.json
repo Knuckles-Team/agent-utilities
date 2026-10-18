@@ -138,6 +138,12 @@
     "AU-BOUNDARY-R043.1",
     "AU-BOUNDARY-R043.2",
     "AU-BOUNDARY-R043.3",
+    "AU-BOUNDARY-R043.4",
+    "AU-BOUNDARY-R043.4.1",
+    "AU-BOUNDARY-R043.4.2",
+    "AU-BOUNDARY-R043.4.3",
+    "AU-BOUNDARY-R043.4.4",
+    "AU-BOUNDARY-R043.4.5",
     "AU-BOUNDARY-R044",
     "AU-BOUNDARY-R044.1",
     "AU-BOUNDARY-R045",
@@ -1422,7 +1428,7 @@
     {
       "id": "AU-BOUNDARY-R043",
       "title": "The agent run loop stays in Agent Utilities",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "8a45ab8013ad",
         "fdeabad709b3"
@@ -1431,7 +1437,8 @@
       "rollup_of": [
         "AU-BOUNDARY-R043.1",
         "AU-BOUNDARY-R043.2",
-        "AU-BOUNDARY-R043.3"
+        "AU-BOUNDARY-R043.3",
+        "AU-BOUNDARY-R043.4"
       ]
     },
     {
@@ -1478,6 +1485,55 @@
         "tests/test_rlm.py:75",
         "tests/test_rlm.py:82"
       ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.4",
+      "title": "Restore the model-edited run scaffold",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R043.4.1",
+        "AU-BOUNDARY-R043.4.2",
+        "AU-BOUNDARY-R043.4.3",
+        "AU-BOUNDARY-R043.4.4",
+        "AU-BOUNDARY-R043.4.5"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.4.1",
+      "title": "One run's scaffold state",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.4.2",
+      "title": "Gated update tool",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.4.3",
+      "title": "Request-only injection",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.4.4",
+      "title": "No planner authority",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.4.5",
+      "title": "End-to-end scaffold proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R044",

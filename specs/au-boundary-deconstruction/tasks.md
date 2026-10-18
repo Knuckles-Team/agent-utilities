@@ -135,3 +135,12 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [x] **AU-BOUNDARY-R043.1:** Restore the `graph/` run loop over the host decision port.
 - [x] **AU-BOUNDARY-R043.2:** Add the fallback plan and the fail-closed refusals.
 - [x] **AU-BOUNDARY-R043.3:** Restore the `rlm/` recursive run loop.
+
+- [ ] **AU-BOUNDARY-R043.4:** Restore all five model-edited scaffold children; do not substitute execution steps.
+- [ ] **AU-BOUNDARY-R043.4.1:** Implement per-run whole-list scaffold state and immutable items.
+- [ ] **AU-BOUNDARY-R043.4.2:** Wire the validated update tool under a received scaffold decision.
+- [ ] **AU-BOUNDARY-R043.4.3:** Inject into each outgoing request without retaining scaffold text in history.
+- [ ] **AU-BOUNDARY-R043.4.4:** Prove the scaffold has no planner or selection authority.
+- [ ] **AU-BOUNDARY-R043.4.5:** Prove two updates through the actual run loop.
+- [ ] Assign SDK snapshot and EG plan-record contracts before the host-port producer bridge; preserve the revision, scope, expiry and refusal obligations in the amendment.
+- [ ] Wire Arbora's ARBORA-OPS-R021.4.5 reader to the producer and complete served inspector acceptance.
