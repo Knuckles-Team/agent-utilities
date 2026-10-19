@@ -1,0 +1,101 @@
+{
+  "schema_version": 2,
+  "spec_id": "AU-HARNESS-CYCLE",
+  "owner_repo": "agent-utilities",
+  "delivery_state": "SPECIFIED",
+  "requirement_ids": [
+    "AU-HARNESS-CYCLE-R001",
+    "AU-HARNESS-CYCLE-R001.1",
+    "AU-HARNESS-CYCLE-R001.2",
+    "AU-HARNESS-CYCLE-R001.3",
+    "AU-HARNESS-CYCLE-R001.4",
+    "AU-HARNESS-CYCLE-R001.5",
+    "AU-HARNESS-CYCLE-R001.6",
+    "AU-HARNESS-CYCLE-R001.7",
+    "AU-HARNESS-CYCLE-R001.8",
+    "AU-HARNESS-CYCLE-R001.9"
+  ],
+  "requirements": [
+    {
+      "id": "AU-HARNESS-CYCLE-R001",
+      "title": "Harness evolution cycle (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-HARNESS-CYCLE-R001.1",
+        "AU-HARNESS-CYCLE-R001.2",
+        "AU-HARNESS-CYCLE-R001.3",
+        "AU-HARNESS-CYCLE-R001.4",
+        "AU-HARNESS-CYCLE-R001.5",
+        "AU-HARNESS-CYCLE-R001.6",
+        "AU-HARNESS-CYCLE-R001.7",
+        "AU-HARNESS-CYCLE-R001.8",
+        "AU-HARNESS-CYCLE-R001.9"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-CYCLE-R001.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-CYCLE-R001.2",
+      "title": "Propose",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-CYCLE-R001.3",
+      "title": "Probe",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-CYCLE-R001.4",
+      "title": "Compose",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-CYCLE-R001.5",
+      "title": "Persist",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-CYCLE-R001.6",
+      "title": "Reflect",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-CYCLE-R001.7",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-CYCLE-R001.8",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-CYCLE-R001.9",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    }
+  ]
+}
