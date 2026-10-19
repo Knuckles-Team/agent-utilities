@@ -69,3 +69,4 @@ bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuck
 - [`AU-RETRIEVAL`](retrieval-evaluation/spec.md) — public, reproducible structure-aware retrieval evaluation.
 - [`AU-FREEZE`](release-evidence-freeze/spec.md) — exact-revision AU source and release evidence freeze.
 - [`AU-BASELINE`](baseline-ingestion/spec.md) — baseline ingestion after boot and served ontology content.
+- [`AU-HARNESS-CYCLE`](harness-cycle/spec.md) — harness evolution cycle: propose, probe, compose, persist, reflect.
