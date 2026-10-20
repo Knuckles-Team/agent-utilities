@@ -479,6 +479,132 @@ async def test_reflect_submits_lesson_on_adoption(tmp_path, events) -> None:
     assert cycle_events[0]["evidence_run_ids"] == []
 
 
+@pytest.mark.spec("AU-HARNESS-CYCLE-R001.7")
+async def test_refusals_keep_harness(tmp_path, monkeypatch) -> None:
+    import agent_utilities.harness.harness_cycle as cycle
+
+    def model(messages, info):
+        return ModelResponse(parts=[TextPart("done")])
+
+    def plan(candidate_slots):
+        return RunPlan(
+            model=FunctionModel(model),
+            steps=("task",),
+            budget=RunBudget(candidate_slots=candidate_slots),
+        )
+
+    def registered_provider(request):
+        return RunPlan(
+            model=FunctionModel(model),
+            steps=(request.task,),
+            budget=RunBudget(candidate_slots=2),
+        )
+
+    hp.register_run_decision_provider(registered_provider)
+
+    component = tmp_path / "harness" / "system_prompt.md"
+    component.parent.mkdir(parents=True)
+    component.write_text("current prompt", encoding="utf-8")
+    written: list[str] = []
+    queried: list[str] = []
+
+    def library(task_class):
+        queried.append(task_class)
+        return _library()
+
+    def write_envelope(envelope):
+        written.append(str(envelope["kind"]))
+        return f"ref-{envelope['kind']}"
+
+    def abstain(request):
+        return {"adopted_version_ref": None, "abstain_reason": "no_improvement"}
+
+    # budget_below_contrast: an allocation under two candidate slots.
+    for slots in (1, 0, None):
+        outcome = await run_cycle_tick(
+            _tick_request(),
+            plan(slots),
+            task_class="classification",
+            graph=object(),
+            library_query=library,
+            decide=lambda request: {
+                "adopted_version_ref": "v-a",
+                "abstain_reason": None,
+                "adopted_component_kind": "system_prompt",
+                "adopted_content": "adopted prompt",
+            },
+            write_envelope=write_envelope,
+            root=tmp_path,
+        )
+        assert outcome.abstain_reason == "budget_below_contrast"
+        assert outcome.k == (slots or 0)
+        assert outcome.adopted_version_ref is None
+        assert outcome.contrast_ref is None and outcome.lesson_ref is None
+    assert queried == [] and written == []
+
+    # no_candidates: an empty library answer.
+    outcome = await run_cycle_tick(
+        _tick_request(),
+        plan(2),
+        task_class="classification",
+        graph=object(),
+        library_query=lambda _class: [],
+        decide=lambda request: {
+            "adopted_version_ref": "v-a",
+            "abstain_reason": None,
+            "adopted_component_kind": "system_prompt",
+            "adopted_content": "adopted prompt",
+        },
+        write_envelope=write_envelope,
+        root=tmp_path,
+    )
+    assert outcome.abstain_reason == "no_candidates"
+    assert outcome.k == 2
+    assert written == []
+
+    # probe_trace_missing: a lost probe trace.
+    async def lost_probe(*args, **kwargs):
+        raise RuntimeError("trace lost")
+
+    monkeypatch.setattr(cycle, "execute_graph", lost_probe)
+    outcome = await run_cycle_tick(
+        _tick_request(),
+        plan(2),
+        task_class="classification",
+        graph=object(),
+        library_query=library,
+        decide=lambda request: {
+            "adopted_version_ref": "v-a",
+            "abstain_reason": None,
+            "adopted_component_kind": "system_prompt",
+            "adopted_content": "adopted prompt",
+        },
+        write_envelope=write_envelope,
+        root=tmp_path,
+    )
+    assert outcome.abstain_reason == "probe_trace_missing"
+    assert written == []
+
+    # compose_abstention: the engine abstains, and no adoption persists.
+    monkeypatch.undo()
+    outcome = await run_cycle_tick(
+        _tick_request(),
+        plan(2),
+        task_class="classification",
+        graph=object(),
+        library_query=library,
+        decide=abstain,
+        write_envelope=write_envelope,
+        root=tmp_path,
+    )
+    assert outcome.abstain_reason == "compose_abstention"
+    assert outcome.adopted_version_ref is None
+    assert written == []
+
+    # Every refusal kept the current harness.
+    assert component.read_text(encoding="utf-8") == "current prompt"
+
+
 def test_cycle_refusal_rejects_open_code() -> None:
     for code in ABSTAIN_REASONS:
         assert CycleRefusal(code).code == code
