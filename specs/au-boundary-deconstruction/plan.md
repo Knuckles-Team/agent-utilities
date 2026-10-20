@@ -513,3 +513,5 @@ decision and validate it before admitting a WorkItem. Its current registry has
 no such capability field or producer; an OpenAI-compatible transport alone
 is not evidence that a selected model supports images. Full acceptance still
 requires a supported-model journey and zero-task rejection through Arbora.
+
+AU-BOUNDARY-R043.5.2: The optional publication registration accepts a per-run `None` binding; AU keeps the local scaffold usable and closes the host scope normally. Existing required-publisher registration remains compatible.
