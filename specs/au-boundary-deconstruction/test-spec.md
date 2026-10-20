@@ -84,3 +84,11 @@ publication, invalidation before close, retained publisher refusal, preservation
 of original body errors during cleanup, and no rollback after uncertain writes.
 These tests use a host double and establish no installed EG acceptance, verified
 lease admission, deployed decision activation or served inspector availability.
+
+## R043.6 client tool forwarding
+
+`tests/test_client_capabilities.py` drives the real run loop with a scripted
+model and a bound test transport. Assert exact method and parameters, one call,
+closed permission refusals, byte and wait limits, absent transport refusal and
+privacy-safe trace fields. This test does not grant permission or prove the
+Arbora gateway and native approval producers.

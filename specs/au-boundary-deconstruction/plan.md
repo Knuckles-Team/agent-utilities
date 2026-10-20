@@ -527,3 +527,16 @@ same result through the host event sink so Arbora, WebUI, TUI and Geniusbot can
 consume one producer. EG retains durable aggregation; AU adds no store or price
 calculation. Real model execution tests cover repeated calls, failures and
 malformed usage without timing sleeps or fabricated generation measurements.
+
+## Client capability tools — 2026-10-20
+
+R043.6 restores the in-run part of historical AU-CONTROL-R044 through the
+current RunPlan seam. The host supplies a bound ClientCapabilityTransport,
+a closed tool selection and limits. The executor binds only that selection.
+The harness forwards requests and bounds request size, response size and wait
+time. It never opens files, starts processes, chooses grants or stores approvals.
+Arbora owns session binding and dispatch; the connected client owns containment.
+Permission-required and denied responses remain refusals. A timeout does not
+assert rollback or retry a possibly dispatched effect. Trace records contain
+method, byte counts and outcome only. Mutations remain unavailable unless the
+host can obtain the existing atomic approval authority.
