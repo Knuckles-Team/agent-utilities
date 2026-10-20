@@ -469,3 +469,33 @@ async def run_checkpoint_scope(
     else:
         async with _CHECKPOINTS(request, plan) as checkpoint:
             yield checkpoint
+
+
+class DurableRunEventPublisher(Protocol):
+    """A verified host's native durable event writer for one admitted run."""
+
+    async def publish(self, kind: str, content: Mapping[str, Any]) -> None: ...
+
+
+DurableRunEventFactory = Callable[
+    [Any], contextlib.AbstractAsyncContextManager[DurableRunEventPublisher | None]
+]
+_DURABLE_RUN_EVENTS: DurableRunEventFactory | None = None
+
+
+def register_durable_run_event_factory(factory: DurableRunEventFactory | None) -> None:
+    """Install a host binder; the harness never obtains authority from metadata."""
+    global _DURABLE_RUN_EVENTS
+    _DURABLE_RUN_EVENTS = factory
+
+
+@contextlib.asynccontextmanager
+async def durable_run_event_scope(
+    request: Any,
+) -> AsyncIterator[DurableRunEventPublisher | None]:
+    """Open the optional native event publisher without a local event log."""
+    if _DURABLE_RUN_EVENTS is None:
+        yield None
+    else:
+        async with _DURABLE_RUN_EVENTS(request) as publisher:
+            yield publisher

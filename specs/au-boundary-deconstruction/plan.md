@@ -505,3 +505,15 @@ An in-flight restored marker refuses execution because effects may be uncertain.
 This mechanism does not claim served resume or live acceptance until the native
 producer and Arbora composition are qualified. Opaque ready-made toolsets and
 plan-scaffold state are not resumable in this first bounded mechanism.
+
+### 2026-10-20 — Awaited durable run-event publication
+
+The run loop may bind a host-owned durable publisher and drive the model's real
+streaming event handler. It publishes text deltas, function-tool calls and their
+results in observed order, awaiting each host write. It does not create an event
+store, a cursor or a replacement authority. A completed model step is identified
+as such; only the host's native WorkItem commit establishes task completion.
+Unbound execution retains the ordinary run path. Publisher failure stops the
+run without retrying model or tool effects; already performed effects remain
+uncertain until reconciled by their owner. Native persistence and served replay
+qualification remain producer/Arbora integration work.
