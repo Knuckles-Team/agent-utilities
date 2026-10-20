@@ -12,6 +12,8 @@ from agent_utilities import host_ports as hp
 from agent_utilities.graph import RunPlan
 from agent_utilities.harness.harness_cycle import (
     ABSTAIN_REASONS,
+    ContrastAnswer,
+    ContrastDelta,
     ContrastRequest,
     CycleOutcome,
     CycleRefusal,
@@ -19,6 +21,7 @@ from agent_utilities.harness.harness_cycle import (
     ProbeTrace,
     compose,
     conditions_digest,
+    persist,
     probe_candidates,
     propose,
 )
@@ -275,6 +278,85 @@ async def test_compose_abstains_when_engine_abstains() -> None:
             decide=decide,
         )
     assert len(calls) == 1
+
+
+@pytest.mark.spec("AU-HARNESS-CYCLE-R001.5")
+def test_persist_envelopes_switch_harness(tmp_path, monkeypatch) -> None:
+    import agent_utilities.harness.harness_cycle as cycle
+
+    component = tmp_path / "harness" / "system_prompt.md"
+    component.parent.mkdir(parents=True)
+    component.write_text("current prompt", encoding="utf-8")
+
+    envelopes: list[dict[str, object]] = []
+
+    def write_envelope(envelope: dict[str, object]) -> str:
+        envelopes.append(envelope)
+        return f"ref-{envelope['kind']}"
+
+    calls: list[tuple[list, object]] = []
+    real_apply = cycle.apply_edits
+
+    def counting_apply(edits: list, root, **kwargs) -> object:
+        calls.append((list(edits), root))
+        return real_apply(edits, root, **kwargs)
+
+    monkeypatch.setattr(cycle, "apply_edits", counting_apply)
+
+    adopted = _probe_candidates()[0]
+    contrast = ContrastDelta(
+        candidate_id="c-0",
+        run_a_trace_id="run-1:probe:current",
+        run_b_trace_id="run-1:probe:c-0",
+        retry_delta=0,
+        tool_selection_delta=0,
+        eval_score_delta=1,
+        cost_delta=0,
+    )
+    answer = ContrastAnswer(
+        adopted_version_ref="v-a",
+        abstain_reason=None,
+        adopted_component_kind="system_prompt",
+        adopted_content="adopted prompt",
+    )
+
+    version_ref, contrast_ref, lesson_ref = persist(
+        task_ref="task-1",
+        task_class="classification",
+        conditions_digest_value="digest-1",
+        adopted=adopted,
+        contrast=contrast,
+        answer=answer,
+        write_envelope=write_envelope,
+        root=tmp_path,
+    )
+
+    assert [envelope["kind"] for envelope in envelopes] == [
+        "harness_component_version",
+        "harness_contrast",
+        "harness_lesson",
+    ]
+    assert len(calls) == 1
+    assert version_ref == "v-a"
+    assert contrast_ref == "ref-harness_contrast"
+    assert lesson_ref == "ref-harness_lesson"
+    assert component.read_text(encoding="utf-8") == "adopted prompt\n"
+    assert [
+        path.relative_to(tmp_path).as_posix()
+        for path in tmp_path.rglob("*")
+        if path.is_file()
+    ] == ["harness/system_prompt.md"]
+    assert envelopes[0]["fact"] == {
+        "task_ref": "task-1",
+        "component_kind": "system_prompt",
+        "component_version_ref": "v-a",
+        "evidence_run_id": "run-1:probe:c-0",
+    }
+    assert envelopes[1]["fact"]["conditions_digest"] == "digest-1"
+    assert envelopes[2]["fact"]["evidence_run_ids"] == [
+        "run-1:probe:current",
+        "run-1:probe:c-0",
+    ]
 
 
 def test_cycle_refusal_rejects_open_code() -> None:

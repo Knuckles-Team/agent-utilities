@@ -26,9 +26,12 @@ import inspect
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Final
 
 from agent_utilities.graph.runner import execute_graph
+
+from .edit_engine import Edit, apply_edits
 
 #: The closed refusal codes of one tick. Anything else is not a refusal.
 ABSTAIN_REASONS: Final[tuple[str, ...]] = (
@@ -431,6 +434,92 @@ async def compose(
     return normalized
 
 
+#: The generated-client envelope writer, driven by the host: one graph-fact
+#: envelope in, the written fact's reference out.
+EnvelopeWriter = Callable[[Mapping[str, Any]], str]
+
+
+def _component_file(component_kind: str) -> str:
+    """The in-run harness's own component file under the workspace root."""
+    return f"harness/{component_kind}.md"
+
+
+def persist(
+    *,
+    task_ref: str,
+    task_class: str,
+    conditions_digest_value: str,
+    adopted: HarnessCandidate,
+    contrast: ContrastDelta,
+    answer: ContrastAnswer,
+    write_envelope: EnvelopeWriter,
+    root: str | Path = ".",
+) -> tuple[str, str, str]:
+    """Write the adopted version, the contrast and the lesson, then switch.
+
+    Three graph-fact envelopes through the host's generated-client writer:
+    the adopted component version, the measured contrast of the adoption
+    and the lesson for the next task, which cites the evidence runs by
+    trace id. The in-run harness switch reuses :func:`apply_edits`: the
+    adopted component's content replaces the current content of the
+    harness's own component file. The step writes no other state.
+    """
+    write_envelope(
+        {
+            "kind": "harness_component_version",
+            "fact": {
+                "task_ref": task_ref,
+                "component_kind": adopted.component_kind,
+                "component_version_ref": adopted.component_version_ref,
+                "evidence_run_id": contrast.run_b_trace_id,
+            },
+        }
+    )
+    contrast_ref = write_envelope(
+        {
+            "kind": "harness_contrast",
+            "fact": {
+                "task_ref": task_ref,
+                "conditions_digest": conditions_digest_value,
+                "run_a_trace_id": contrast.run_a_trace_id,
+                "run_b_trace_id": contrast.run_b_trace_id,
+                "retry_delta": contrast.retry_delta,
+                "tool_selection_delta": contrast.tool_selection_delta,
+                "eval_score_delta": contrast.eval_score_delta,
+                "cost_delta": contrast.cost_delta,
+            },
+        }
+    )
+    lesson_ref = write_envelope(
+        {
+            "kind": "harness_lesson",
+            "fact": {
+                "task_class": task_class,
+                "changed_component_kind": adopted.component_kind,
+                "what_changed": (
+                    f"{adopted.component_kind} switched to "
+                    f"{adopted.component_version_ref}"
+                ),
+                "evidence_run_ids": [contrast.run_a_trace_id, contrast.run_b_trace_id],
+            },
+        }
+    )
+    component_path = _component_file(adopted.component_kind)
+    current_path = Path(root) / component_path
+    current = current_path.read_text(encoding="utf-8") if current_path.exists() else ""
+    result = apply_edits(
+        [Edit(path=component_path, search=current, replace=answer.adopted_content)],
+        root,
+    )
+    if not result.ok:
+        raise RuntimeError(
+            f"the in-run harness switch failed: {result.failures[0].reason}"
+        )
+    if answer.adopted_version_ref is None:
+        raise ValueError("persist is called on an adoption only")
+    return answer.adopted_version_ref, contrast_ref, lesson_ref
+
+
 __all__ = [
     "ABSTAIN_REASONS",
     "CURRENT_PROBE_ID",
@@ -440,12 +529,14 @@ __all__ = [
     "ContrastRequest",
     "CycleOutcome",
     "CycleRefusal",
+    "EnvelopeWriter",
     "HarnessCandidate",
     "LibraryQuery",
     "ProbeTrace",
     "conditions_digest",
     "compose",
     "measure_contrasts",
+    "persist",
     "probe_candidates",
     "propose",
 ]
