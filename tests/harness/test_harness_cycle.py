@@ -9,7 +9,9 @@ import pytest
 from agent_utilities.harness.harness_cycle import (
     ABSTAIN_REASONS,
     CycleOutcome,
+    CycleRefusal,
     HarnessCandidate,
+    propose,
 )
 
 
@@ -82,9 +84,83 @@ def test_model_round_trips() -> None:
 
 
 def test_cycle_refusal_rejects_open_code() -> None:
-    from agent_utilities.harness.harness_cycle import CycleRefusal
-
     for code in ABSTAIN_REASONS:
         assert CycleRefusal(code).code == code
     with pytest.raises(ValueError, match="open refusal code"):
         CycleRefusal("because")
+
+
+@pytest.mark.spec("AU-HARNESS-CYCLE-R001.2")
+@pytest.mark.parametrize(
+    ("returned", "k", "expected_refs"),
+    [
+        (
+            [
+                {"component_kind": "system_prompt", "component_version_ref": "v-a"},
+                {"component_kind": "guardrails", "component_version_ref": "v-b"},
+            ],
+            2,
+            ("v-a", "v-b"),
+        ),
+        (
+            [
+                {"component_kind": "system_prompt", "component_version_ref": "v-a"},
+                {"component_kind": "guardrails", "component_version_ref": "v-b"},
+                {"component_kind": "memory", "component_version_ref": "v-c"},
+            ],
+            2,
+            ("v-a", "v-b"),
+        ),
+    ],
+)
+def test_propose_queries_lesson_library(returned, k, expected_refs) -> None:
+    queried: list[str] = []
+
+    def library(task_class: str) -> list[dict[str, str]]:
+        queried.append(task_class)
+        return [dict(entry) for entry in returned]
+
+    candidates = propose(
+        task_ref="task-1",
+        task_class="classification",
+        library=library,
+        seed="seed-1",
+        model_ref="model-1",
+        budget_ref="budget-1",
+        k=k,
+    )
+
+    assert queried == ["classification"]
+    assert tuple(c.component_version_ref for c in candidates) == expected_refs
+    for candidate in candidates:
+        assert candidate.task_ref == "task-1"
+        assert candidate.seed == "seed-1"
+        assert candidate.model_ref == "model-1"
+        assert candidate.budget_ref == "budget-1"
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            candidate.seed = "other"  # type: ignore[misc]
+
+    # The cycle stores nothing: a rerun re-queries the library and stores no
+    # answer of its own (no write, no cache).
+    again = propose(
+        task_ref="task-1",
+        task_class="classification",
+        library=library,
+        seed="seed-1",
+        model_ref="model-1",
+        budget_ref="budget-1",
+        k=k,
+    )
+    assert again == candidates
+    assert queried == ["classification", "classification"]
+
+    with pytest.raises(CycleRefusal, match="no_candidates"):
+        propose(
+            task_ref="task-1",
+            task_class="classification",
+            library=lambda _class: [],
+            seed="seed-1",
+            model_ref="model-1",
+            budget_ref="budget-1",
+            k=k,
+        )
