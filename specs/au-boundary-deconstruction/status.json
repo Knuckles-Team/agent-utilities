@@ -165,7 +165,8 @@
     "AU-BOUNDARY-R048.9",
     "AU-BOUNDARY-R048.10",
     "AU-BOUNDARY-R048.11",
-    "AU-BOUNDARY-R049"
+    "AU-BOUNDARY-R049",
+    "AU-BOUNDARY-R043.6"
   ],
   "requirements": [
     {
@@ -1463,7 +1464,8 @@
         "AU-BOUNDARY-R043.2",
         "AU-BOUNDARY-R043.3",
         "AU-BOUNDARY-R043.4",
-        "AU-BOUNDARY-R043.5"
+        "AU-BOUNDARY-R043.5",
+        "AU-BOUNDARY-R043.6"
       ]
     },
     {
@@ -1809,6 +1811,21 @@
         "0e44186eac39"
       ],
       "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.6",
+      "title": "Apply host-selected client tools",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "53e77f794766"
+      ],
+      "verified_by": [
+        "tests/test_client_capabilities.py:101",
+        "tests/test_client_capabilities.py:119",
+        "tests/test_client_capabilities.py:132",
+        "tests/test_client_capabilities.py:142",
+        "tests/test_client_capabilities.py:155"
+      ]
     }
   ]
 }
