@@ -61,7 +61,8 @@
       "title": "Probe",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "0f73d154af55"
+        "0f73d154af55",
+        "8268ab7fabb6"
       ],
       "verified_by": [
         "tests/harness/test_harness_cycle.py:122",
