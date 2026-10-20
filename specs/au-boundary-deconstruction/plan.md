@@ -527,3 +527,6 @@ Unbound execution retains the ordinary run path. Publisher failure stops the
 run without retrying model or tool effects; already performed effects remain
 uncertain until reconciled by their owner. Native persistence and served replay
 qualification remain producer/Arbora integration work.
+
+
+AU-BOUNDARY-R043.5.2: The optional publication registration accepts a per-run `None` binding; AU keeps the local scaffold usable and closes the host scope normally. Existing required-publisher registration remains compatible.

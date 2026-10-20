@@ -373,13 +373,28 @@ class ScaffoldPublisher(Protocol):
 ScaffoldPublicationFactory = Callable[
     [Any], contextlib.AbstractAsyncContextManager[ScaffoldPublisher]
 ]
-_SCAFFOLD_PUBLICATION: ScaffoldPublicationFactory | None = None
+OptionalScaffoldPublicationFactory = Callable[
+    [Any], contextlib.AbstractAsyncContextManager[ScaffoldPublisher | None]
+]
+_SCAFFOLD_PUBLICATION: OptionalScaffoldPublicationFactory | None = None
 
 
 def register_scaffold_publication_factory(
     factory: ScaffoldPublicationFactory | None,
 ) -> None:
     """Install the host binder; request metadata alone supplies no authority."""
+    global _SCAFFOLD_PUBLICATION
+    _SCAFFOLD_PUBLICATION = factory
+
+
+def register_optional_scaffold_publication_factory(
+    factory: OptionalScaffoldPublicationFactory | None,
+) -> None:
+    """Install a host binder that may decline publication for an individual run.
+
+    A declined binding leaves the local scaffold usable and makes no external
+    availability claim. The host scope still closes on success or failure.
+    """
     global _SCAFFOLD_PUBLICATION
     _SCAFFOLD_PUBLICATION = factory
 
@@ -414,18 +429,21 @@ async def scaffold_publication_scope(
         return
     try:
         scope = factory(request)
-        publisher = _ScopedPublisher(await scope.__aenter__())
+        bound = await scope.__aenter__()
+        publisher = _ScopedPublisher(bound) if bound is not None else None
     except Exception:
         raise RuntimeError("scaffold publication binding failed") from None
     failure: BaseException | None = None
     try:
-        await publisher.publish(*state.read_versioned())
+        if publisher is not None:
+            await publisher.publish(*state.read_versioned())
         yield publisher
     except BaseException as exc:
         failure = exc
         raise
     finally:
-        publisher.active = False
+        if publisher is not None:
+            publisher.active = False
         try:
             await scope.__aexit__(
                 type(failure) if failure is not None else None,
