@@ -23,6 +23,7 @@ from agent_utilities import host_ports
 from agent_utilities.harness.plan import PlanState
 from agent_utilities.harness.plan_runtime import PlanScaffold
 
+from .checkpoint import RunCheckpoint
 from .state import (
     GraphDeps,
     GraphState,
@@ -134,32 +135,66 @@ async def iterate_run(
     steps = run_plan.steps[: max(run_plan.stop.max_steps, 0)]
     try:
         async with host_ports.authority_keepalive_scope():
-            async with asyncio.timeout(run_plan.budget.timeout_seconds):
-                async with host_ports.scaffold_publication_scope(
-                    request, state.scaffold
-                ) as publisher:
-                    agent = build_agent(
-                        run_plan,
-                        state.run_id,
-                        scaffold=state.scaffold,
-                        publisher=publisher,
-                    )
-                    for prompt in steps:
-                        state.step += 1
-                        result = await agent.run(
-                            prompt,
-                            deps=deps,
-                            message_history=history,
-                            usage_limits=limits,
+            async with host_ports.run_checkpoint_scope(request, run_plan) as port:
+                checkpoint = (
+                    RunCheckpoint(port, state, run_plan) if port is not None else None
+                )
+                if checkpoint is not None:
+                    await checkpoint.restore()
+                    history = checkpoint.history
+                timeout = (
+                    checkpoint.remaining_timeout()
+                    if checkpoint
+                    else run_plan.budget.timeout_seconds
+                )
+                if (
+                    checkpoint is not None
+                    and timeout <= 0
+                    and state.status == "running"
+                    and state.step < len(steps)
+                ):
+                    raise TimeoutError
+                async with asyncio.timeout(timeout):
+                    async with host_ports.scaffold_publication_scope(
+                        request, state.scaffold
+                    ) as publisher:
+                        agent = build_agent(
+                            run_plan,
+                            state.run_id,
+                            scaffold=state.scaffold,
+                            publisher=publisher,
                         )
-                        history = list(result.all_messages())
-                        state.add_usage(result.usage)
-                        text = _text(result.output)
-                        state.outputs.append(text)
-                        yield _event(state, "node_transition", output=text)
-                        if any(m in text for m in run_plan.stop.stop_markers):
-                            state.status = "stopped"
-                            break
+                        for prompt in steps[state.step :]:
+                            if state.status != "running":
+                                break
+                            if checkpoint is not None:
+                                await checkpoint.save("step_inflight")
+                            state.step += 1
+                            result = await agent.run(
+                                prompt,
+                                deps=deps,
+                                message_history=history,
+                                usage_limits=limits,
+                                usage=checkpoint.usage()
+                                if checkpoint is not None
+                                else None,
+                            )
+                            history = list(result.all_messages())
+                            if checkpoint is not None:
+                                state.usage = {}
+                            state.add_usage(result.usage)
+                            text = _text(result.output)
+                            state.outputs.append(text)
+                            if any(m in text for m in run_plan.stop.stop_markers):
+                                state.status = "stopped"
+                            elif state.step == len(steps):
+                                state.status = "completed"
+                            if checkpoint is not None:
+                                checkpoint.history = history
+                                await checkpoint.save("completed")
+                            yield _event(state, "node_transition", output=text)
+                            if state.status != "running":
+                                break
     except UsageLimitExceeded as exc:
         state.status, state.error = "stopped", f"budget: {exc}"
     except TimeoutError:

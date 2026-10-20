@@ -492,3 +492,16 @@ SDK current-plan contracts are now published in 0.2.2 and EG native ownership
 landed in #663, but EG 2.27.5 installed acceptance remains pending. This slice
 does not compose Arbora's reader, enable a host harness decision, or establish
 lease-bound served availability. Those owner prerequisites remain separate.
+
+### 2026-10-20 — Host-backed run checkpoint mechanism
+
+AU serializes validated model-message history and completed-step state through an
+optional host checkpoint port. EG owns durable snapshots, revision CAS, native
+WorkItem ownership and fencing; Arbora binds that authority from admission.
+Restoration binds the same run, admission identity and executable plan digest.
+Before any next model/tool step, AU publishes an in-flight marker; after a
+completed step it publishes history, cumulative usage, elapsed budget and output.
+An in-flight restored marker refuses execution because effects may be uncertain.
+This mechanism does not claim served resume or live acceptance until the native
+producer and Arbora composition are qualified. Opaque ready-made toolsets and
+plan-scaffold state are not resumable in this first bounded mechanism.

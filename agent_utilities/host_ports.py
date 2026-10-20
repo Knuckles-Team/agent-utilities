@@ -435,3 +435,37 @@ async def scaffold_publication_scope(
         except Exception:
             if failure is None:
                 raise RuntimeError("scaffold publication close failed") from None
+
+
+class RunCheckpointPort(Protocol):
+    """A host-bound native checkpoint transaction for one admitted run."""
+
+    admission_identity: str
+
+    async def restore(self) -> str | None: ...
+
+    async def save(self, content: str) -> None: ...
+
+
+RunCheckpointFactory = Callable[
+    [Any, Any], contextlib.AbstractAsyncContextManager[RunCheckpointPort | None]
+]
+_CHECKPOINTS: RunCheckpointFactory | None = None
+
+
+def register_run_checkpoint_factory(factory: RunCheckpointFactory | None) -> None:
+    """Install the verified host binder; request metadata is never authority."""
+    global _CHECKPOINTS
+    _CHECKPOINTS = factory
+
+
+@contextlib.asynccontextmanager
+async def run_checkpoint_scope(
+    request: Any, plan: Any
+) -> AsyncIterator[RunCheckpointPort | None]:
+    """Open an optional native checkpoint binding, propagating host failures."""
+    if _CHECKPOINTS is None:
+        yield None
+    else:
+        async with _CHECKPOINTS(request, plan) as checkpoint:
+            yield checkpoint
