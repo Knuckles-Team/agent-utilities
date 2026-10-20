@@ -605,6 +605,60 @@ async def test_refusals_keep_harness(tmp_path, monkeypatch) -> None:
     assert component.read_text(encoding="utf-8") == "current prompt"
 
 
+@pytest.mark.spec("AU-HARNESS-CYCLE-R001.8")
+async def test_port_fails_closed_without_provider() -> None:
+    from agent_utilities.harness.harness_cycle import drive_cycle_tick
+
+    with pytest.raises(RuntimeError, match="arbora"):
+        await drive_cycle_tick(
+            RunRequest(task="classify"),
+            RunPlan(model="m-1"),
+            task_class="classification",
+            graph=object(),
+        )
+
+
+@pytest.mark.spec("AU-HARNESS-CYCLE-R001.8")
+async def test_drive_delegates_to_registered_provider() -> None:
+    from agent_utilities.harness.harness_cycle import drive_cycle_tick
+
+    outcome = CycleOutcome(
+        task_ref="task-1",
+        k=2,
+        adopted_version_ref="v-a",
+        abstain_reason=None,
+        contrast_ref="ref-harness_contrast",
+        lesson_ref="ref-harness_lesson",
+    )
+    seen: list[tuple[object, object]] = []
+
+    async def provider(request, plan, **kwargs):
+        seen.append((request, kwargs))
+        return outcome
+
+    hp.register_harness_cycle_provider(provider)
+    assert (
+        await drive_cycle_tick(
+            RunRequest(task="classify"),
+            RunPlan(model="m-1"),
+            task_class="classification",
+            graph=object(),
+        )
+        is outcome
+    )
+    assert seen[0][0].task == "classify"
+    assert seen[0][1]["task_class"] == "classification"
+
+    hp.register_harness_cycle_provider(lambda *args, **kwargs: "not an outcome")
+    with pytest.raises(TypeError, match="CycleOutcome"):
+        await drive_cycle_tick(
+            RunRequest(task="classify"),
+            RunPlan(model="m-1"),
+            task_class="classification",
+            graph=object(),
+        )
+
+
 def test_cycle_refusal_rejects_open_code() -> None:
     for code in ABSTAIN_REASONS:
         assert CycleRefusal(code).code == code

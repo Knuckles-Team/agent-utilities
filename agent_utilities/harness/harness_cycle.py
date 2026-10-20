@@ -702,6 +702,43 @@ async def run_cycle_tick(
         return _refused(task_ref, k, refusal.code)
 
 
+async def drive_cycle_tick(
+    request: RunRequest,
+    plan: RunPlan,
+    *,
+    task_class: str,
+    graph: Any,
+    config: Mapping[str, Any] | None = None,
+    root: str | Path = ".",
+    mode: str = "ask",
+) -> CycleOutcome:
+    """Drive one cycle tick through the host-registered provider.
+
+    The host registers the driver at startup; the driver owns the served
+    decision and graph ports and the tick reports through the existing run
+    event sink. Without a registered provider the port fails closed.
+    """
+    provider = host_ports.harness_cycle_provider()
+    if provider is None:
+        raise RuntimeError(
+            "the harness cycle requires the arbora host to register a provider"
+        )
+    outcome = provider(
+        request,
+        plan,
+        task_class=task_class,
+        graph=graph,
+        config=config,
+        root=root,
+        mode=mode,
+    )
+    if inspect.isawaitable(outcome):
+        outcome = await outcome
+    if not isinstance(outcome, CycleOutcome):
+        raise TypeError("the harness cycle provider must return a CycleOutcome")
+    return outcome
+
+
 __all__ = [
     "ABSTAIN_REASONS",
     "CURRENT_PROBE_ID",
@@ -720,6 +757,7 @@ __all__ = [
     "compose",
     "measure_contrasts",
     "persist",
+    "drive_cycle_tick",
     "probe_candidates",
     "propose",
     "reflect",
