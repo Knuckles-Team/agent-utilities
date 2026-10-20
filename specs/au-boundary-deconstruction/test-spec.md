@@ -84,3 +84,6 @@ publication, invalidation before close, retained publisher refusal, preservation
 of original body errors during cleanup, and no rollback after uncertain writes.
 These tests use a host double and establish no installed EG acceptance, verified
 lease admission, deployed decision activation or served inspector availability.
+
+
+AU-BOUNDARY-R043.5.2: Per-run declined publication leaves local state usable, closes exactly once on success or body failure, and never changes another run’s binding.
