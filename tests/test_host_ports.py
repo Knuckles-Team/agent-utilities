@@ -222,3 +222,35 @@ async def test_failed_publication_keeps_accepted_revision():
             revision, items = state.replace_versioned(accepted)
             await publisher.publish(revision, items)
     assert state.read_versioned() == (1, accepted)
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.5.2")
+@pytest.mark.parametrize("outcome", ["success", "error", "cancel"])
+async def test_optional_host_binding_can_decline_one_run_and_still_close(outcome):
+    import asyncio
+    from contextlib import asynccontextmanager, nullcontext
+
+    from agent_utilities.harness.plan import PlanItem, PlanState
+
+    closed = []
+
+    @asynccontextmanager
+    async def factory(request):
+        try:
+            yield None
+        finally:
+            closed.append(request)
+
+    hp.register_optional_scaffold_publication_factory(factory)
+    state = PlanState()
+    request = object()
+    failure = {"error": LookupError, "cancel": asyncio.CancelledError}.get(outcome)
+    expected = pytest.raises(failure) if failure else nullcontext()
+    with expected:
+        async with hp.scaffold_publication_scope(request, state) as publisher:
+            assert publisher is None
+            state.replace_versioned((PlanItem(text="local", status="pending"),))
+            if failure:
+                raise failure()
+    assert closed == [request]
+    assert state.read_versioned()[0] == 1

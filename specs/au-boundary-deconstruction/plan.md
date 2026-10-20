@@ -492,3 +492,6 @@ SDK current-plan contracts are now published in 0.2.2 and EG native ownership
 landed in #663, but EG 2.27.5 installed acceptance remains pending. This slice
 does not compose Arbora's reader, enable a host harness decision, or establish
 lease-bound served availability. Those owner prerequisites remain separate.
+
+
+AU-BOUNDARY-R043.5.2: The optional publication registration accepts a per-run `None` binding; AU keeps the local scaffold usable and closes the host scope normally. Existing required-publisher registration remains compatible.
