@@ -1,0 +1,18 @@
+{
+  "schema_version": 2,
+  "spec_id": "AU-SCM",
+  "owner_repo": "agent-utilities",
+  "delivery_state": "SPECIFIED",
+  "requirement_ids": [
+    "AU-SCM-R001"
+  ],
+  "requirements": [
+    {
+      "id": "AU-SCM-R001",
+      "title": "Development loop on changesets",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    }
+  ]
+}
