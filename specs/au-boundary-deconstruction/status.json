@@ -1817,6 +1817,7 @@
       "title": "Apply host-selected client tools",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "1978fffd4de8",
         "53e77f794766"
       ],
       "verified_by": [
