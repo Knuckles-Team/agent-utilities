@@ -22,6 +22,7 @@ candidates of its own.
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -240,15 +241,211 @@ async def probe_candidates(
     return tuple(traces)
 
 
+@dataclass(frozen=True)
+class ContrastDelta:
+    """One candidate's measured contrast against the current harness's probe.
+
+    The deltas are measurements the engine decides on: retry, tool
+    selection, eval score and cost, each the candidate probe minus the
+    current-harness probe. A positive eval score delta is the improvement
+    the engine adopts on.
+    """
+
+    candidate_id: str
+    run_a_trace_id: str
+    run_b_trace_id: str
+    retry_delta: int
+    tool_selection_delta: int
+    eval_score_delta: int
+    cost_delta: int
+
+
+@dataclass(frozen=True)
+class ContrastRequest:
+    """The payload of one served contrast decision call per tick."""
+
+    task_ref: str
+    task_class: str
+    conditions_digest: str
+    candidate_version_refs: tuple[str, ...]
+    probe_trace_ids: tuple[str, ...]
+    contrasts: tuple[ContrastDelta, ...]
+
+
+@dataclass(frozen=True)
+class ContrastAnswer:
+    """The engine's answer: one adoption or one abstention, never both.
+
+    ``abstain_reason`` is the engine's closed vocabulary, passed through.
+    On an adoption ``adopted_component_kind`` and ``adopted_content`` carry
+    the adopted component's kind and content for the in-run switch, the
+    content resolved by the host from the graph.
+    """
+
+    adopted_version_ref: str | None = None
+    abstain_reason: str | None = None
+    adopted_component_kind: str = ""
+    adopted_content: str = ""
+
+
+#: The served contrast decision, driven by the host: one Decide call under
+#: the contrast question kind per tick; the answer may be awaitable.
+ContrastDecision = Callable[[ContrastRequest], Any]
+
+
+def _usage_of(trace: ProbeTrace, key: str) -> int:
+    return int(trace.usage.get(key, 0))
+
+
+def _score_of(trace: ProbeTrace) -> int:
+    """One probe's eval score: the run completed without an error, or not."""
+    return 1 if trace.status == "completed" and trace.error is None else 0
+
+
+def measure_contrasts(
+    *,
+    baseline: ProbeTrace | None,
+    candidates: Sequence[HarnessCandidate],
+    traces: Mapping[str, ProbeTrace],
+) -> tuple[ContrastDelta, ...]:
+    """Each candidate's measured contrast against the current harness's probe.
+
+    Measurement only: the deltas the engine decides on are computed here and
+    kept out of any ranking; without a current-harness probe the deltas
+    measure against the empty baseline.
+    """
+    deltas: list[ContrastDelta] = []
+    for candidate in candidates:
+        trace = traces[candidate.candidate_id]
+        if baseline is None:
+            retry_delta = _usage_of(trace, "requests")
+            tool_selection_delta = _usage_of(trace, "tool_calls")
+            eval_score_delta = _score_of(trace)
+            cost_delta = _usage_of(trace, "total_tokens")
+            run_a = ""
+        else:
+            retry_delta = _usage_of(trace, "requests") - _usage_of(baseline, "requests")
+            tool_selection_delta = _usage_of(trace, "tool_calls") - _usage_of(
+                baseline, "tool_calls"
+            )
+            eval_score_delta = _score_of(trace) - _score_of(baseline)
+            cost_delta = _usage_of(trace, "total_tokens") - _usage_of(
+                baseline, "total_tokens"
+            )
+            run_a = baseline.trace_id
+        deltas.append(
+            ContrastDelta(
+                candidate_id=candidate.candidate_id,
+                run_a_trace_id=run_a,
+                run_b_trace_id=trace.trace_id,
+                retry_delta=retry_delta,
+                tool_selection_delta=tool_selection_delta,
+                eval_score_delta=eval_score_delta,
+                cost_delta=cost_delta,
+            )
+        )
+    return tuple(deltas)
+
+
+def _field(value: Any, name: str) -> Any:
+    """One duck-typed field of an answer the engine types itself."""
+    return getattr(value, name, None)
+
+
+def _normalize_answer(answer: Any) -> ContrastAnswer:
+    if isinstance(answer, ContrastAnswer):
+        normalized = answer
+    elif isinstance(answer, Mapping):
+        normalized = ContrastAnswer(
+            adopted_version_ref=None
+            if answer.get("adopted_version_ref") is None
+            else str(answer["adopted_version_ref"]),
+            abstain_reason=None
+            if answer.get("abstain_reason") is None
+            else str(answer["abstain_reason"]),
+            adopted_component_kind=str(answer.get("adopted_component_kind") or ""),
+            adopted_content=str(answer.get("adopted_content") or ""),
+        )
+    else:
+        normalized = ContrastAnswer(
+            adopted_version_ref=None
+            if _field(answer, "adopted_version_ref") is None
+            else str(_field(answer, "adopted_version_ref")),
+            abstain_reason=None
+            if _field(answer, "abstain_reason") is None
+            else str(_field(answer, "abstain_reason")),
+            adopted_component_kind=str(_field(answer, "adopted_component_kind") or ""),
+            adopted_content=str(_field(answer, "adopted_content") or ""),
+        )
+    if normalized.adopted_version_ref is None and normalized.abstain_reason is None:
+        raise ValueError(
+            "the contrast decision answered with neither adoption nor abstention"
+        )
+    if (
+        normalized.adopted_version_ref is not None
+        and normalized.abstain_reason is not None
+    ):
+        raise ValueError(
+            "the contrast decision answered with an adoption and an abstention"
+        )
+    return normalized
+
+
+async def compose(
+    *,
+    task_ref: str,
+    task_class: str,
+    conditions_digest_value: str,
+    candidates: Sequence[HarnessCandidate],
+    baseline: ProbeTrace | None,
+    traces: Mapping[str, ProbeTrace],
+    decide: ContrastDecision,
+) -> ContrastAnswer:
+    """One served Decide call under the contrast question kind.
+
+    Sends the probe traces and the measured contrasts; the engine answer is
+    the adoption or the abstention. The cycle applies no local ranking: it
+    sends, and the engine's answer stands. An engine abstention refuses the
+    tick with ``compose_abstention``.
+    """
+    request = ContrastRequest(
+        task_ref=task_ref,
+        task_class=task_class,
+        conditions_digest=conditions_digest_value,
+        candidate_version_refs=tuple(
+            candidate.component_version_ref for candidate in candidates
+        ),
+        probe_trace_ids=tuple(
+            traces[candidate.candidate_id].trace_id for candidate in candidates
+        ),
+        contrasts=measure_contrasts(
+            baseline=baseline, candidates=candidates, traces=traces
+        ),
+    )
+    answer = decide(request)
+    if inspect.isawaitable(answer):
+        answer = await answer
+    normalized = _normalize_answer(answer)
+    if normalized.abstain_reason is not None:
+        raise CycleRefusal("compose_abstention")
+    return normalized
+
+
 __all__ = [
     "ABSTAIN_REASONS",
     "CURRENT_PROBE_ID",
+    "ContrastAnswer",
+    "ContrastDecision",
+    "ContrastDelta",
+    "ContrastRequest",
     "CycleOutcome",
     "CycleRefusal",
     "HarnessCandidate",
     "LibraryQuery",
     "ProbeTrace",
     "conditions_digest",
+    "compose",
+    "measure_contrasts",
     "probe_candidates",
     "propose",
 ]

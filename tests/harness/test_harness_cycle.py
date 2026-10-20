@@ -12,9 +12,12 @@ from agent_utilities import host_ports as hp
 from agent_utilities.graph import RunPlan
 from agent_utilities.harness.harness_cycle import (
     ABSTAIN_REASONS,
+    ContrastRequest,
     CycleOutcome,
     CycleRefusal,
     HarnessCandidate,
+    ProbeTrace,
+    compose,
     conditions_digest,
     probe_candidates,
     propose,
@@ -181,6 +184,97 @@ async def test_probe_records_current_harness_baseline() -> None:
             task="classify", seed="seed-1", model_ref="model-1", budget_ref="budget-1"
         )
     }
+
+
+def _trace(
+    candidate_id: str, *, status: str = "completed", tool_calls: int = 0
+) -> ProbeTrace:
+    return ProbeTrace(
+        candidate_id=candidate_id,
+        trace_id=f"run-1:probe:{candidate_id}",
+        conditions_digest="digest-1",
+        status=status,
+        steps=1,
+        usage={"requests": 1, "tool_calls": tool_calls, "total_tokens": 10},
+        error=None if status == "completed" else "boom",
+    )
+
+
+@pytest.mark.spec("AU-HARNESS-CYCLE-R001.4")
+async def test_compose_delegates_to_engine() -> None:
+    candidates = _probe_candidates()
+    baseline = _trace("current")
+    traces = {
+        candidate.candidate_id: _trace(candidate.candidate_id)
+        for candidate in candidates
+    }
+    calls: list[ContrastRequest] = []
+
+    def decide(request: ContrastRequest):
+        calls.append(request)
+        return {
+            "adopted_version_ref": candidates[1].component_version_ref,
+            "abstain_reason": None,
+            "adopted_component_kind": "guardrails",
+            "adopted_content": "new guardrails",
+        }
+
+    answer = await compose(
+        task_ref="task-1",
+        task_class="classification",
+        conditions_digest_value="digest-1",
+        candidates=candidates,
+        baseline=baseline,
+        traces=traces,
+        decide=decide,
+    )
+
+    assert len(calls) == 1
+    request = calls[0]
+    assert request.task_ref == "task-1"
+    assert request.task_class == "classification"
+    assert request.conditions_digest == "digest-1"
+    # Passed through in candidate order; the cycle ranks nothing.
+    assert request.candidate_version_refs == (
+        candidates[0].component_version_ref,
+        candidates[1].component_version_ref,
+    )
+    assert request.probe_trace_ids == (
+        "run-1:probe:c-0",
+        "run-1:probe:c-1",
+    )
+    assert [delta.candidate_id for delta in request.contrasts] == ["c-0", "c-1"]
+    for delta in request.contrasts:
+        assert delta.run_a_trace_id == baseline.trace_id
+        assert delta.run_b_trace_id in request.probe_trace_ids
+    # The engine's answer stands, even for a later candidate.
+    assert answer.adopted_version_ref == candidates[1].component_version_ref
+    assert answer.abstain_reason is None
+
+
+@pytest.mark.spec("AU-HARNESS-CYCLE-R001.4")
+async def test_compose_abstains_when_engine_abstains() -> None:
+    candidates = _probe_candidates()
+    calls: list[ContrastRequest] = []
+
+    async def decide(request: ContrastRequest):
+        calls.append(request)
+        return {"adopted_version_ref": None, "abstain_reason": "no_improvement"}
+
+    with pytest.raises(CycleRefusal, match="compose_abstention"):
+        await compose(
+            task_ref="task-1",
+            task_class="classification",
+            conditions_digest_value="digest-1",
+            candidates=candidates,
+            baseline=None,
+            traces={
+                candidate.candidate_id: _trace(candidate.candidate_id)
+                for candidate in candidates
+            },
+            decide=decide,
+        )
+    assert len(calls) == 1
 
 
 def test_cycle_refusal_rejects_open_code() -> None:
