@@ -568,14 +568,14 @@ def _model_ref(model: Any) -> str:
 
 
 def _budget_ref(budget: RunBudget) -> str:
-    """The budget reference shared by every probe: the budget's limits, digested."""
+    """The budget reference shared by every probe: the limits the run loop
+    enforces for the probe, digested."""
     payload = json.dumps(
         {
             "request_limit": budget.request_limit,
             "tool_calls_limit": budget.tool_calls_limit,
             "total_tokens_limit": budget.total_tokens_limit,
             "timeout_seconds": budget.timeout_seconds,
-            "candidate_slots": budget.candidate_slots,
         },
         sort_keys=True,
     )
