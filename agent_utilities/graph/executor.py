@@ -25,6 +25,7 @@ from agent_utilities.harness.plan_runtime import PlanScaffold
 
 from .checkpoint import CheckpointUnavailable, RunCheckpoint
 from .conversation_history import read_conversation_history
+from .live_events import run_step
 from .state import (
     GraphDeps,
     GraphState,
@@ -136,7 +137,10 @@ async def iterate_run(
     steps = run_plan.steps[: max(run_plan.stop.max_steps, 0)]
     try:
         async with host_ports.authority_keepalive_scope():
-            async with host_ports.run_checkpoint_scope(request, run_plan) as port:
+            async with (
+                host_ports.run_checkpoint_scope(request, run_plan) as port,
+                host_ports.durable_run_event_scope(request) as event_publisher,
+            ):
                 checkpoint = (
                     RunCheckpoint(port, state, run_plan) if port is not None else None
                 )
@@ -179,8 +183,11 @@ async def iterate_run(
                             if checkpoint is not None:
                                 await checkpoint.save("step_inflight")
                             state.step += 1
-                            result = await agent.run(
+                            result = await run_step(
+                                agent,
                                 prompt,
+                                publisher=event_publisher,
+                                step=state.step,
                                 deps=deps,
                                 message_history=history,
                                 usage_limits=limits,

@@ -515,3 +515,15 @@ outputs and budgets fresh. A checkpoint for the current run takes precedence.
 Malformed, incomplete or foreign-run history fails before model/tool effects;
 there is no local transcript store or reconstruction from output text. Native
 owner/context discovery and retention remain EG/Arbora responsibilities.
+
+### 2026-10-20 — Awaited durable run-event publication
+
+The run loop may bind a host-owned durable publisher and drive the model's real
+streaming event handler. It publishes text deltas, function-tool calls and their
+results in observed order, awaiting each host write. It does not create an event
+store, a cursor or a replacement authority. A completed model step is identified
+as such; only the host's native WorkItem commit establishes task completion.
+Unbound execution retains the ordinary run path. Publisher failure stops the
+run without retrying model or tool effects; already performed effects remain
+uncertain until reconciled by their owner. Native persistence and served replay
+qualification remain producer/Arbora integration work.
