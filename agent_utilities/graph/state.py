@@ -14,6 +14,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from pydantic_ai import BinaryContent
+
 from agent_utilities.harness.plan import PlanState
 
 RunStatus = Literal["pending", "running", "completed", "stopped", "failed"]
@@ -37,6 +39,8 @@ class RunBudget:
     tool_calls_limit: int | None = None
     total_tokens_limit: int | None = None
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
+    max_attachment_bytes: int = 1_048_576
+    max_attachments: int = 8
 
 
 @dataclass(frozen=True)
@@ -76,6 +80,7 @@ class RunRequest:
     budget_tokens: int | None = None
     response_format: Literal["text", "json"] = "text"
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    attachments: tuple[BinaryContent, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -97,6 +102,7 @@ class RunPlan:
     budget: RunBudget = field(default_factory=RunBudget)
     stop: StopRule = field(default_factory=StopRule)
     harness: HarnessConfig = field(default_factory=HarnessConfig)
+    input_media_types: tuple[str, ...] = ()
 
 
 @dataclass

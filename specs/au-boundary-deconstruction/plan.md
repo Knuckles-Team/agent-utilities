@@ -492,3 +492,24 @@ SDK current-plan contracts are now published in 0.2.2 and EG native ownership
 landed in #663, but EG 2.27.5 installed acceptance remains pending. This slice
 does not compose Arbora's reader, enable a host harness decision, or establish
 lease-bound served availability. Those owner prerequisites remain separate.
+
+
+## Amendment 2026-10-20: received attachment input bounds
+
+AU-BOUNDARY-R043.1 also applies to admitted binary model inputs. The host
+provides inline `pydantic_ai.BinaryContent` values in `RunRequest.attachments`
+and explicitly supplies the selected model's permitted media types in
+`RunPlan.input_media_types`. The default is empty and refuses attachments.
+`RunBudget` supplies aggregate byte and part-count limits (fallbacks: 1 MiB
+and 8 parts). AU validates these before constructing a model or emitting
+`run_started`, injects the content on the first executed step only, and retains
+it through the normal model history. UTF-8 text becomes user text; image bytes
+remain binary input. No URL, filename read, media download, capability guess,
+policy grant, storage or provider configuration change is introduced.
+
+This is an enforcement prerequisite for ARBORA-A2A-R001.5, not served attachment
+acceptance. Arbora must obtain the selected model's authoritative input-media
+decision and validate it before admitting a WorkItem. Its current registry has
+no such capability field or producer; an OpenAI-compatible transport alone
+is not evidence that a selected model supports images. Full acceptance still
+requires a supported-model journey and zero-task rejection through Arbora.
