@@ -5,12 +5,18 @@ from __future__ import annotations
 import dataclasses
 
 import pytest
+from pydantic_ai.messages import ModelResponse, TextPart
+from pydantic_ai.models.function import FunctionModel
 
+from agent_utilities import host_ports as hp
+from agent_utilities.graph import RunPlan
 from agent_utilities.harness.harness_cycle import (
     ABSTAIN_REASONS,
     CycleOutcome,
     CycleRefusal,
     HarnessCandidate,
+    conditions_digest,
+    probe_candidates,
     propose,
 )
 
@@ -81,6 +87,100 @@ def test_model_round_trips() -> None:
             contrast_ref=None,
             lesson_ref=None,
         )
+
+
+def _probe_candidates() -> list[HarnessCandidate]:
+    return [
+        HarnessCandidate(
+            candidate_id="c-0",
+            task_ref="task-1",
+            component_kind="system_prompt",
+            component_version_ref="v-a",
+            seed="seed-1",
+            model_ref="model-1",
+            budget_ref="budget-1",
+        ),
+        HarnessCandidate(
+            candidate_id="c-1",
+            task_ref="task-1",
+            component_kind="guardrails",
+            component_version_ref="v-b",
+            seed="seed-1",
+            model_ref="model-1",
+            budget_ref="budget-1",
+        ),
+    ]
+
+
+@pytest.mark.spec("AU-HARNESS-CYCLE-R001.3")
+async def test_probe_shares_conditions_and_records_trace() -> None:
+    def model(messages, info):
+        return ModelResponse(parts=[TextPart("done")])
+
+    hp.register_run_decision_provider(
+        lambda request: RunPlan(model=FunctionModel(model), steps=(request.task,))
+    )
+
+    traces = await probe_candidates(
+        graph=object(),
+        config=None,
+        task="classify",
+        seed="seed-1",
+        model_ref="model-1",
+        budget_ref="budget-1",
+        run_id="run-1",
+        current_version_ref="",
+        candidates=_probe_candidates(),
+    )
+
+    assert [trace.candidate_id for trace in traces] == ["c-0", "c-1"]
+    assert [trace.trace_id for trace in traces] == [
+        "run-1:probe:c-0",
+        "run-1:probe:c-1",
+    ]
+    assert {trace.conditions_digest for trace in traces} == {
+        conditions_digest(
+            task="classify", seed="seed-1", model_ref="model-1", budget_ref="budget-1"
+        )
+    }
+    for trace in traces:
+        assert trace.status == "completed"
+        assert trace.error is None
+        assert trace.steps == 1
+
+
+@pytest.mark.spec("AU-HARNESS-CYCLE-R001.3")
+async def test_probe_records_current_harness_baseline() -> None:
+    def model(messages, info):
+        return ModelResponse(parts=[TextPart("done")])
+
+    hp.register_run_decision_provider(
+        lambda request: RunPlan(model=FunctionModel(model), steps=(request.task,))
+    )
+
+    traces = await probe_candidates(
+        graph=object(),
+        config=None,
+        task="classify",
+        seed="seed-1",
+        model_ref="model-1",
+        budget_ref="budget-1",
+        run_id="run-1",
+        current_version_ref="v-0",
+        candidates=_probe_candidates(),
+    )
+
+    assert [trace.candidate_id for trace in traces] == [
+        "current",
+        "c-0",
+        "c-1",
+    ]
+    assert traces[0].trace_id == "run-1:probe:current"
+    assert {trace.conditions_digest for trace in traces} == {
+        conditions_digest(
+            task="classify", seed="seed-1", model_ref="model-1", budget_ref="budget-1"
+        )
+    }
 
 
 def test_cycle_refusal_rejects_open_code() -> None:

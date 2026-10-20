@@ -21,9 +21,13 @@ candidates of its own.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
+
+from agent_utilities.graph.runner import execute_graph
 
 #: The closed refusal codes of one tick. Anything else is not a refusal.
 ABSTAIN_REASONS: Final[tuple[str, ...]] = (
@@ -129,11 +133,122 @@ def propose(
     return tuple(candidates)
 
 
+#: The probe id of the current-harness probe (the contrast's run a).
+CURRENT_PROBE_ID = "current"
+
+
+@dataclass(frozen=True)
+class ProbeTrace:
+    """One probe under the shared conditions: its trace and its outcome.
+
+    ``trace_id`` is the probe run's run id; the host records the run's events
+    as the trace. ``conditions_digest`` binds the shared task, seed, model and
+    budget references every probe of the tick ran under.
+    """
+
+    candidate_id: str
+    trace_id: str
+    conditions_digest: str
+    status: str
+    steps: int
+    usage: Mapping[str, int]
+    error: str | None
+
+
+def conditions_digest(*, task: str, seed: str, model_ref: str, budget_ref: str) -> str:
+    """The digest that binds the shared probe conditions.
+
+    Every probe of one tick runs the same task with the same seed, model
+    reference and budget reference; the digest of those four values is what
+    the probe traces carry and what the engine checks against.
+    """
+    payload = json.dumps(
+        {"task": task, "seed": seed, "model_ref": model_ref, "budget_ref": budget_ref},
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+async def probe_candidates(
+    *,
+    graph: Any,
+    config: Mapping[str, Any] | None,
+    task: str,
+    seed: str,
+    model_ref: str,
+    budget_ref: str,
+    run_id: str,
+    current_version_ref: str,
+    candidates: Sequence[HarnessCandidate],
+    mode: str = "ask",
+    agent_name: str = "",
+) -> tuple[ProbeTrace, ...]:
+    """Probe the current harness and each candidate under one shared condition.
+
+    Every probe enters through the run loop with the same task, seed, model
+    reference and budget reference; the conditions digest binds them, and each
+    probe records one trace under its own run id. The probe writes no graph
+    state. A probe whose run produces no trace refuses the tick with
+    ``probe_trace_missing``.
+    """
+    digest = conditions_digest(
+        task=task, seed=seed, model_ref=model_ref, budget_ref=budget_ref
+    )
+    entries: list[tuple[str, str]] = []
+    if current_version_ref:
+        entries.append((CURRENT_PROBE_ID, current_version_ref))
+    entries.extend(
+        (candidate.candidate_id, candidate.component_version_ref)
+        for candidate in candidates
+    )
+    traces: list[ProbeTrace] = []
+    for candidate_id, version_ref in entries:
+        trace_id = f"{run_id}:probe:{candidate_id}"
+        try:
+            result = await execute_graph(
+                graph,
+                config,
+                task,
+                run_id=trace_id,
+                mode=mode,
+                requested_model_id=model_ref,
+                agent_name=agent_name,
+                metadata={
+                    "harness_probe": {
+                        "candidate_id": candidate_id,
+                        "component_version_ref": version_ref,
+                        "seed": seed,
+                    }
+                },
+            )
+        except Exception:
+            raise CycleRefusal("probe_trace_missing") from None
+        if not isinstance(result, Mapping) or result.get("run_id") != trace_id:
+            raise CycleRefusal("probe_trace_missing")
+        usage = result.get("usage") or {}
+        traces.append(
+            ProbeTrace(
+                candidate_id=candidate_id,
+                trace_id=trace_id,
+                conditions_digest=digest,
+                status=str(result.get("status") or ""),
+                steps=int(result.get("steps") or 0),
+                usage={str(key): int(value) for key, value in dict(usage).items()},
+                error=None if result.get("error") is None else str(result["error"]),
+            )
+        )
+    return tuple(traces)
+
+
 __all__ = [
     "ABSTAIN_REASONS",
+    "CURRENT_PROBE_ID",
     "CycleOutcome",
     "CycleRefusal",
     "HarnessCandidate",
     "LibraryQuery",
+    "ProbeTrace",
+    "conditions_digest",
+    "probe_candidates",
     "propose",
 ]
