@@ -29,7 +29,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
+from agent_utilities import host_ports
 from agent_utilities.graph.runner import execute_graph
+from agent_utilities.graph.state import RunBudget, RunPlan, RunRequest
 
 from .edit_engine import Edit, apply_edits
 
@@ -520,6 +522,186 @@ def persist(
     return answer.adopted_version_ref, contrast_ref, lesson_ref
 
 
+def reflect(
+    outcome: CycleOutcome,
+    *,
+    evidence_run_ids: Sequence[str] = (),
+) -> None:
+    """Report one tick's outcome through the existing run event sink.
+
+    Submits the lesson only when the compose step adopted a candidate,
+    citing the evidence runs by trace id; an abstained tick reports its
+    refusal code and submits no lesson. A no-op without a registered
+    host sink.
+    """
+    host_ports.emit_run_event(
+        {
+            "type": "harness_cycle_outcome",
+            "task_ref": outcome.task_ref,
+            "k": outcome.k,
+            "adopted_version_ref": outcome.adopted_version_ref,
+            "abstain_reason": outcome.abstain_reason,
+            "contrast_ref": outcome.contrast_ref,
+            "lesson_ref": outcome.lesson_ref,
+            "evidence_run_ids": (
+                list(evidence_run_ids)
+                if outcome.adopted_version_ref is not None
+                else []
+            ),
+        }
+    )
+
+
+#: The candidate slot count below which the cycle abstains.
+MIN_CANDIDATE_SLOTS = 2
+
+
+def _model_ref(model: Any) -> str:
+    """The model reference shared by every probe.
+
+    The plan's model id when the host names one, else the resolved model's
+    name when the host already built it.
+    """
+    if isinstance(model, str):
+        return model
+    return str(_field(model, "model_name") or "host-resolved")
+
+
+def _budget_ref(budget: RunBudget) -> str:
+    """The budget reference shared by every probe: the budget's limits, digested."""
+    payload = json.dumps(
+        {
+            "request_limit": budget.request_limit,
+            "tool_calls_limit": budget.tool_calls_limit,
+            "total_tokens_limit": budget.total_tokens_limit,
+            "timeout_seconds": budget.timeout_seconds,
+            "candidate_slots": budget.candidate_slots,
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _refused(task_ref: str, k: int, code: str) -> CycleOutcome:
+    """The abstained outcome: the current harness is kept, nothing persisted."""
+    outcome = CycleOutcome(
+        task_ref=task_ref,
+        k=k,
+        adopted_version_ref=None,
+        abstain_reason=code,
+        contrast_ref=None,
+        lesson_ref=None,
+    )
+    reflect(outcome)
+    return outcome
+
+
+async def run_cycle_tick(
+    request: RunRequest,
+    plan: RunPlan,
+    *,
+    task_class: str,
+    graph: Any,
+    config: Mapping[str, Any] | None = None,
+    library_query: LibraryQuery,
+    decide: ContrastDecision,
+    write_envelope: EnvelopeWriter,
+    root: str | Path = ".",
+    mode: str = "ask",
+    agent_name: str = "",
+) -> CycleOutcome:
+    """One propose–probe–compose–persist–reflect tick for one task.
+
+    Reads the candidate budget k from the candidate slot count of the
+    stage allocation the run decision carries on the budget; below two
+    slots the cycle abstains with ``budget_below_contrast`` and keeps
+    the current harness. Each step refuses with one typed code; a refusal
+    persists nothing and the current harness is kept.
+    """
+    task_ref = request.run_id
+    k = plan.budget.candidate_slots
+    if k is None or k < MIN_CANDIDATE_SLOTS:
+        return _refused(task_ref, k or 0, "budget_below_contrast")
+    seed = str(request.metadata.get("harness_seed") or "")
+    current_version_ref = str(request.metadata.get("harness_current_version_ref") or "")
+    model_ref = _model_ref(plan.model)
+    budget_ref = _budget_ref(plan.budget)
+    try:
+        candidates = propose(
+            task_ref=task_ref,
+            task_class=task_class,
+            library=library_query,
+            seed=seed,
+            model_ref=model_ref,
+            budget_ref=budget_ref,
+            k=k,
+        )
+        traces = await probe_candidates(
+            graph=graph,
+            config=config,
+            task=request.task,
+            seed=seed,
+            model_ref=model_ref,
+            budget_ref=budget_ref,
+            run_id=task_ref,
+            current_version_ref=current_version_ref,
+            candidates=candidates,
+            mode=mode,
+            agent_name=agent_name,
+        )
+        baseline = next(
+            (trace for trace in traces if trace.candidate_id == CURRENT_PROBE_ID), None
+        )
+        by_id = {trace.candidate_id: trace for trace in traces}
+        digest = traces[0].conditions_digest
+        answer = await compose(
+            task_ref=task_ref,
+            task_class=task_class,
+            conditions_digest_value=digest,
+            candidates=candidates,
+            baseline=baseline,
+            traces=by_id,
+            decide=decide,
+        )
+        try:
+            adopted = next(
+                candidate
+                for candidate in candidates
+                if candidate.component_version_ref == answer.adopted_version_ref
+            )
+        except StopIteration:
+            raise ValueError(
+                "the engine adopted a version outside the presented candidates"
+            ) from None
+        contrast = measure_contrasts(
+            baseline=baseline, candidates=[adopted], traces=by_id
+        )[0]
+        version_ref, contrast_ref, lesson_ref = persist(
+            task_ref=task_ref,
+            task_class=task_class,
+            conditions_digest_value=digest,
+            adopted=adopted,
+            contrast=contrast,
+            answer=answer,
+            write_envelope=write_envelope,
+            root=root,
+        )
+        outcome = CycleOutcome(
+            task_ref=task_ref,
+            k=k,
+            adopted_version_ref=version_ref,
+            abstain_reason=None,
+            contrast_ref=contrast_ref,
+            lesson_ref=lesson_ref,
+        )
+        reflect(
+            outcome, evidence_run_ids=(contrast.run_a_trace_id, contrast.run_b_trace_id)
+        )
+        return outcome
+    except CycleRefusal as refusal:
+        return _refused(task_ref, k, refusal.code)
+
+
 __all__ = [
     "ABSTAIN_REASONS",
     "CURRENT_PROBE_ID",
@@ -532,6 +714,7 @@ __all__ = [
     "EnvelopeWriter",
     "HarnessCandidate",
     "LibraryQuery",
+    "MIN_CANDIDATE_SLOTS",
     "ProbeTrace",
     "conditions_digest",
     "compose",
@@ -539,4 +722,6 @@ __all__ = [
     "persist",
     "probe_candidates",
     "propose",
+    "reflect",
+    "run_cycle_tick",
 ]

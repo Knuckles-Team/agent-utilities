@@ -9,7 +9,7 @@ from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 
 from agent_utilities import host_ports as hp
-from agent_utilities.graph import RunPlan
+from agent_utilities.graph import RunBudget, RunPlan, RunRequest
 from agent_utilities.harness.harness_cycle import (
     ABSTAIN_REASONS,
     ContrastAnswer,
@@ -24,6 +24,7 @@ from agent_utilities.harness.harness_cycle import (
     persist,
     probe_candidates,
     propose,
+    run_cycle_tick,
 )
 
 
@@ -357,6 +358,125 @@ def test_persist_envelopes_switch_harness(tmp_path, monkeypatch) -> None:
         "run-1:probe:current",
         "run-1:probe:c-0",
     ]
+
+
+def _library() -> list[dict[str, str]]:
+    return [
+        {"component_kind": "system_prompt", "component_version_ref": "v-a"},
+        {"component_kind": "guardrails", "component_version_ref": "v-b"},
+    ]
+
+
+def _tick_request() -> RunRequest:
+    return RunRequest(
+        task="classify",
+        run_id="task-1",
+        metadata={
+            "harness_seed": "seed-1",
+            "harness_current_version_ref": "v-0",
+        },
+    )
+
+
+@pytest.mark.spec("AU-HARNESS-CYCLE-R001.6")
+async def test_reflect_submits_lesson_on_adoption(tmp_path, events) -> None:
+    def model(messages, info):
+        return ModelResponse(parts=[TextPart("done")])
+
+    hp.register_run_decision_provider(
+        lambda request: RunPlan(
+            model=FunctionModel(model),
+            steps=(request.task,),
+            budget=RunBudget(candidate_slots=2),
+        )
+    )
+
+    def decide(request: ContrastRequest):
+        return {
+            "adopted_version_ref": request.candidate_version_refs[0],
+            "abstain_reason": None,
+            "adopted_component_kind": "system_prompt",
+            "adopted_content": "adopted prompt",
+        }
+
+    written: list[str] = []
+
+    def write_envelope(envelope: dict[str, object]) -> str:
+        written.append(str(envelope["kind"]))
+        return f"ref-{envelope['kind']}"
+
+    component = tmp_path / "harness" / "system_prompt.md"
+    component.parent.mkdir(parents=True)
+    component.write_text("current prompt", encoding="utf-8")
+
+    outcome = await run_cycle_tick(
+        _tick_request(),
+        RunPlan(
+            model=FunctionModel(model),
+            budget=RunBudget(candidate_slots=2),
+        ),
+        task_class="classification",
+        graph=object(),
+        library_query=lambda _class: _library(),
+        decide=decide,
+        write_envelope=write_envelope,
+        root=tmp_path,
+    )
+
+    assert outcome.adopted_version_ref == "v-a"
+    assert outcome.abstain_reason is None
+    assert outcome.lesson_ref == "ref-harness_lesson"
+    assert outcome.contrast_ref == "ref-harness_contrast"
+    assert written == [
+        "harness_component_version",
+        "harness_contrast",
+        "harness_lesson",
+    ]
+    assert component.read_text(encoding="utf-8") == "adopted prompt\n"
+
+    cycle_events = [
+        event for event in events if event.get("type") == "harness_cycle_outcome"
+    ]
+    assert len(cycle_events) == 1
+    reported = cycle_events[0]
+    # One lesson on adoption, citing the evidence runs by trace id.
+    assert reported["lesson_ref"] == "ref-harness_lesson"
+    assert reported["evidence_run_ids"] == [
+        "task-1:probe:current",
+        "task-1:probe:task-1:candidate:0",
+    ]
+    assert reported["abstain_reason"] is None
+
+    # None on abstention.
+    def abstain(request: ContrastRequest):
+        return {"adopted_version_ref": None, "abstain_reason": "no_improvement"}
+
+    written.clear()
+    events.clear()
+    outcome = await run_cycle_tick(
+        _tick_request(),
+        RunPlan(
+            model=FunctionModel(model),
+            budget=RunBudget(candidate_slots=2),
+        ),
+        task_class="classification",
+        graph=object(),
+        library_query=lambda _class: _library(),
+        decide=abstain,
+        write_envelope=write_envelope,
+        root=tmp_path,
+    )
+    assert outcome.abstain_reason == "compose_abstention"
+    assert outcome.adopted_version_ref is None
+    assert outcome.lesson_ref is None
+    assert written == []
+    assert component.read_text(encoding="utf-8") == "adopted prompt\n"
+    cycle_events = [
+        event for event in events if event.get("type") == "harness_cycle_outcome"
+    ]
+    assert len(cycle_events) == 1
+    assert cycle_events[0]["lesson_ref"] is None
+    assert cycle_events[0]["evidence_run_ids"] == []
 
 
 def test_cycle_refusal_rejects_open_code() -> None:

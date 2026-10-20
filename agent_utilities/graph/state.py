@@ -31,12 +31,18 @@ class RunPlanUnavailable(RuntimeError):
 
 @dataclass(frozen=True)
 class RunBudget:
-    """Limits the run loop enforces; it never widens them."""
+    """Limits the run loop enforces; it never widens them.
+
+    ``candidate_slots`` is the candidate slot count of the stage
+    allocation the run decision carries; the harness evolution cycle
+    reads its candidate budget k from it and abstains below two.
+    """
 
     request_limit: int | None = DEFAULT_REQUEST_LIMIT
     tool_calls_limit: int | None = None
     total_tokens_limit: int | None = None
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
+    candidate_slots: int | None = None
 
 
 @dataclass(frozen=True)
