@@ -505,3 +505,13 @@ An in-flight restored marker refuses execution because effects may be uncertain.
 This mechanism does not claim served resume or live acceptance until the native
 producer and Arbora composition are qualified. Opaque ready-made toolsets and
 plan-scaffold state are not resumable in this first bounded mechanism.
+
+### 2026-10-20 — New-turn history from completed native checkpoints
+
+The host may supply a caller-authorized prior run checkpoint for a new turn.
+AU validates the checkpoint envelope and decodes its actual ModelMessages. It
+imports only conversation messages, leaving the new turn's plan, counters,
+outputs and budgets fresh. A checkpoint for the current run takes precedence.
+Malformed, incomplete or foreign-run history fails before model/tool effects;
+there is no local transcript store or reconstruction from output text. Native
+owner/context discovery and retention remain EG/Arbora responsibilities.

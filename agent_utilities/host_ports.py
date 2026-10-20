@@ -36,7 +36,7 @@ every read port reports the empty answer, never inventing a surface of its own.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import AsyncIterator, Callable, Iterable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
@@ -469,3 +469,20 @@ async def run_checkpoint_scope(
     else:
         async with _CHECKPOINTS(request, plan) as checkpoint:
             yield checkpoint
+
+
+RunHistoryProvider = Callable[[Any], Awaitable[Mapping[str, str] | None]]
+_RUN_HISTORY: RunHistoryProvider | None = None
+
+
+def register_run_history_provider(provider: RunHistoryProvider | None) -> None:
+    """Install the host's owner/context-bound read of a prior completed run."""
+    global _RUN_HISTORY
+    _RUN_HISTORY = provider
+
+
+async def read_run_history(request: Any) -> Mapping[str, str] | None:
+    """Read optional prior history; host admission owns whether it is required."""
+    if _RUN_HISTORY is None:
+        return None
+    return await _RUN_HISTORY(request)

@@ -71,6 +71,7 @@ class RunCheckpoint:
         self.port, self.state, self.plan = port, state, plan
         self.digest = _plan_digest(plan)
         self.history: list[Any] = []
+        self.restored = False
         self.elapsed = 0.0
         self.started = time.monotonic()
         if not isinstance(port.admission_identity, str) or not port.admission_identity:
@@ -133,6 +134,7 @@ class RunCheckpoint:
         self.state.step, self.state.outputs = saved.next_step, saved.outputs
         self.state.usage, self.state.status = saved.usage, saved.status
         self.elapsed = saved.elapsed_seconds
+        self.restored = True
 
     def usage(self) -> RunUsage:
         return RunUsage(

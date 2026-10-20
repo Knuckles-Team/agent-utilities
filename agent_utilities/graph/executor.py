@@ -23,7 +23,8 @@ from agent_utilities import host_ports
 from agent_utilities.harness.plan import PlanState
 from agent_utilities.harness.plan_runtime import PlanScaffold
 
-from .checkpoint import RunCheckpoint
+from .checkpoint import CheckpointUnavailable, RunCheckpoint
+from .conversation_history import read_conversation_history
 from .state import (
     GraphDeps,
     GraphState,
@@ -142,6 +143,14 @@ async def iterate_run(
                 if checkpoint is not None:
                     await checkpoint.restore()
                     history = checkpoint.history
+                if checkpoint is None or not checkpoint.restored:
+                    history = await read_conversation_history(request)
+                    if history and checkpoint is None:
+                        raise CheckpointUnavailable(
+                            "conversation continuation requires durable checkpoints"
+                        )
+                    if checkpoint is not None:
+                        checkpoint.history = history
                 timeout = (
                     checkpoint.remaining_timeout()
                     if checkpoint
