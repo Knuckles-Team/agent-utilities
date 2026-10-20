@@ -513,3 +513,17 @@ decision and validate it before admitting a WorkItem. Its current registry has
 no such capability field or producer; an OpenAI-compatible transport alone
 is not evidence that a selected model supports images. Full acceptance still
 requires a supported-model journey and zero-task rejection through Arbora.
+
+### Amendment 2026-10-20: shared measured request timing
+
+AU-BOUNDARY-R043.1 emits run-local timing measured by the harness's monotonic
+clock, alongside each actual model request's response usage and attribution.
+A request duration includes network and provider waiting and is never labeled
+provider generation time or used to calculate generation TPS. The run duration
+includes plan resolution, tools and retries; it is not the served HTTP latency.
+Unknown provider generation duration, queue wait and TTFT remain absent. Keep
+request samples bounded, expose incomplete coverage explicitly, and emit the
+same result through the host event sink so Arbora, WebUI, TUI and Geniusbot can
+consume one producer. EG retains durable aggregation; AU adds no store or price
+calculation. Real model execution tests cover repeated calls, failures and
+malformed usage without timing sleeps or fabricated generation measurements.
