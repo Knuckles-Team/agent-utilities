@@ -27,7 +27,10 @@ plain typed providers at startup:
 * a **model provider** that turns a model id from that plan into a pydantic-ai
   model with arbora's credentials attached;
 * a **run event sink** that receives every event of one run (arbora writes
-  the trace into epistemic-graph).
+  the trace into epistemic-graph);
+* a **harness cycle provider** that drives one harness-evolution tick per
+  task (propose, probe, compose, persist, reflect) through the served
+  decision and graph ports.
 
 Without a registered provider every binding port fails closed (raises) and
 every read port reports the empty answer, never inventing a surface of its own.
@@ -120,6 +123,12 @@ ModelProvider = Callable[[str], Any]
 RunEventSink = Callable[[Mapping[str, Any]], None]
 """Receives one run event (a JSON-shaped mapping) in emission order."""
 
+HarnessCycleProvider = Callable[..., Any]
+"""``(request, plan, *, task_class, graph, config, root, mode) ->
+CycleOutcome`` (or an awaitable of it): the host drives one
+harness-evolution tick per task through the served decision and graph
+ports; see ``agent_utilities.harness.harness_cycle``."""
+
 _NATIVE: NativeToolsetProvider | None = None
 _FLEET: Callable[[], Mapping[str, FleetServer]] | None = None
 _KEEPALIVE: Callable[[], contextlib.AbstractAsyncContextManager[None]] | None = None
@@ -130,6 +139,7 @@ _IDENTITY: DelegatedIdentityProvider | None = None
 _DECIDE: RunDecisionProvider | None = None
 _MODELS: ModelProvider | None = None
 _EVENTS: RunEventSink | None = None
+_CYCLE: HarnessCycleProvider | None = None
 
 
 def register_run_decision_provider(provider: RunDecisionProvider | None) -> None:
@@ -150,9 +160,20 @@ def register_run_event_sink(sink: RunEventSink | None) -> None:
     _EVENTS = sink
 
 
+def register_harness_cycle_provider(provider: HarnessCycleProvider | None) -> None:
+    """Install (or clear) the host's harness-evolution cycle driver."""
+    global _CYCLE
+    _CYCLE = provider
+
+
 def run_decision_provider() -> RunDecisionProvider | None:
     """The host's run-plan provider, or ``None`` (the harness then uses defaults)."""
     return _DECIDE
+
+
+def harness_cycle_provider() -> HarnessCycleProvider | None:
+    """The host's cycle driver, or ``None`` (the tick then fails closed)."""
+    return _CYCLE
 
 
 def resolve_model(model_id: str) -> Any:

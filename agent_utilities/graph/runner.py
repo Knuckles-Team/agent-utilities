@@ -31,6 +31,7 @@ def _request_and_config(
     mcp_toolsets: list[Any] | None,
     requested_model_id: str | None,
     agent_name: str,
+    metadata: Mapping[str, Any] | None,
 ) -> tuple[RunRequest, dict[str, Any]]:
     cfg = dict(config or {})
     if isinstance(graph, RunGraph):
@@ -50,6 +51,8 @@ def _request_and_config(
     }
     if run_id:
         fields["run_id"] = run_id
+    if metadata:
+        fields["metadata"] = dict(metadata)
     return RunRequest(**fields), cfg
 
 
@@ -63,10 +66,23 @@ async def execute_graph_iter(
     handler: GraphEventHandler | None = None,
     requested_model_id: str | None = None,
     agent_name: str = "",
+    metadata: Mapping[str, Any] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
-    """Yield each event of one run in the caller's task."""
+    """Yield each event of one run in the caller's task.
+
+    ``metadata`` passes through to the run request: the host decision
+    provider sees it; the run loop itself never reads it.
+    """
     request, cfg = _request_and_config(
-        graph, config, query, run_id, mode, mcp_toolsets, requested_model_id, agent_name
+        graph,
+        config,
+        query,
+        run_id,
+        mode,
+        mcp_toolsets,
+        requested_model_id,
+        agent_name,
+        metadata,
     )
     async for event in executor.iterate_run(request, cfg):
         if handler is not None:
@@ -86,6 +102,7 @@ async def execute_graph(
     mcp_toolsets: list[Any] | None = None,
     requested_model_id: str | None = None,
     agent_name: str = "",
+    metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run one query to its end; return the terminal result as a dict."""
     final: dict[str, Any] = {}
@@ -98,6 +115,7 @@ async def execute_graph(
         mcp_toolsets=mcp_toolsets,
         requested_model_id=requested_model_id,
         agent_name=agent_name,
+        metadata=metadata,
     ):
         final = event
     return dict(final["result"])

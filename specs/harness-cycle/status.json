@@ -39,56 +39,75 @@
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/harness/test_harness_cycle.py:43"
+      ]
     },
     {
       "id": "AU-HARNESS-CYCLE-R001.2",
       "title": "Propose",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/harness/test_harness_cycle.py:669"
+      ]
     },
     {
       "id": "AU-HARNESS-CYCLE-R001.3",
       "title": "Probe",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/harness/test_harness_cycle.py:122",
+        "tests/harness/test_harness_cycle.py:159"
+      ]
     },
     {
       "id": "AU-HARNESS-CYCLE-R001.4",
       "title": "Compose",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/harness/test_harness_cycle.py:207",
+        "tests/harness/test_harness_cycle.py:259"
+      ]
     },
     {
       "id": "AU-HARNESS-CYCLE-R001.5",
       "title": "Persist",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/harness/test_harness_cycle.py:284"
+      ]
     },
     {
       "id": "AU-HARNESS-CYCLE-R001.6",
       "title": "Reflect",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/harness/test_harness_cycle.py:381"
+      ]
     },
     {
       "id": "AU-HARNESS-CYCLE-R001.7",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/harness/test_harness_cycle.py:482"
+      ]
     },
     {
       "id": "AU-HARNESS-CYCLE-R001.8",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/harness/test_harness_cycle.py:608",
+        "tests/harness/test_harness_cycle.py:621"
+      ]
     },
     {
       "id": "AU-HARNESS-CYCLE-R001.9",
