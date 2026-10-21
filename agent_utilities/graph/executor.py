@@ -15,7 +15,7 @@ import json
 from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, BinaryContent
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 
@@ -104,6 +104,38 @@ def _event(state: GraphState, kind: str, **fields: Any) -> dict[str, Any]:
     return event
 
 
+def _attachment_input(request: RunRequest, plan: RunPlan) -> list[str | BinaryContent]:
+    """Enforce the received model input grant and limits without widening them."""
+    if not request.attachments:
+        return []
+    for limit in (plan.budget.max_attachments, plan.budget.max_attachment_bytes):
+        if type(limit) is not int or limit < 0:
+            raise ValueError("invalid attachment budget")
+    if len(request.attachments) > plan.budget.max_attachments:
+        raise ValueError("attachment count exceeds the run budget")
+    total = 0
+    content: list[str | BinaryContent] = []
+    for part in request.attachments:
+        if not isinstance(part, BinaryContent) or not isinstance(part.data, bytes):
+            raise ValueError("attachments must be inline binary content")
+        if part.media_type not in plan.input_media_types:
+            raise ValueError("attachment media type is not admitted for this model")
+        if part.media_type not in (
+            "text/plain",
+            "image/png",
+            "image/jpeg",
+            "image/webp",
+        ):
+            raise ValueError("unsupported attachment media type")
+        total += len(part.data)
+        if not part.data or total > plan.budget.max_attachment_bytes:
+            raise ValueError("attachment bytes exceed the run budget or are empty")
+        content.append(
+            part.data.decode("utf-8") if part.media_type == "text/plain" else part
+        )
+    return content
+
+
 async def iterate_run(
     request: RunRequest,
     config: Mapping[str, Any] | None = None,
@@ -120,6 +152,7 @@ async def iterate_run(
     state = GraphState(run_id=request.run_id, query=request.task, mode=request.mode)
     try:
         run_plan = plan or await resolve_plan(request, cfg)
+        attachments = _attachment_input(request, run_plan)
         if run_plan.harness.plan_scaffold == "on":
             state.scaffold = PlanState()
     except Exception as exc:  # noqa: BLE001 - a failed plan is a failed run
@@ -146,8 +179,11 @@ async def iterate_run(
                     )
                     for prompt in steps:
                         state.step += 1
+                        model_input: str | list[str | BinaryContent] = prompt
+                        if state.step == 1 and attachments:
+                            model_input = [prompt, *attachments]
                         result = await agent.run(
-                            prompt,
+                            model_input,
                             deps=deps,
                             message_history=history,
                             usage_limits=limits,
@@ -220,6 +256,7 @@ class AgentRunExecutor:
             budget_tokens=getattr(request, "budget_tokens", None),
             response_format=getattr(request, "response_format", "text"),
             metadata={"session": session} if session is not None else {},
+            attachments=tuple(getattr(request, "attachments", ())),
         )
         result = await run(run_request, self._config)
         if result.status == "failed":

@@ -1471,7 +1471,8 @@
       "title": "The run loop applies a received run plan",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "e7ce34331f28"
+        "e7ce34331f28",
+        "e9d99415a5cd"
       ],
       "verified_by": [
         "tests/test_run_loop.py:120",

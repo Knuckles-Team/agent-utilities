@@ -297,3 +297,82 @@ def test_top_level_exports_are_lazy():
     assert agent_utilities.execute_graph is execute_graph
     with pytest.raises(AttributeError):
         agent_utilities.not_a_name  # noqa: B018
+
+
+# spec: AU-BOUNDARY-R043.1
+@pytest.mark.parametrize("through_port", [False, True])
+async def test_admitted_attachments_reach_only_first_model_input(through_port):
+    from pydantic_ai import BinaryContent
+
+    png = BinaryContent(data=b"\x89PNG\r\n\x1a\nfixture", media_type="image/png")
+    text = BinaryContent(data=b"attached text", media_type="text/plain")
+    captured = []
+
+    def observe(messages, info):
+        captured.append(messages[-1].parts[-1].content)
+        return ModelResponse(parts=[TextPart("ok")])
+
+    plan = plan_of(
+        FunctionModel(observe),
+        steps=("inspect", "continue"),
+        input_media_types=("image/png", "text/plain"),
+    )
+    request = RunRequest(task="inspect", attachments=(png, text))
+    if through_port:
+        host_ports.register_run_decision_provider(lambda request: plan)
+        result = await AgentRunExecutor().execute_agent(request)
+    else:
+        result = await run(request, plan=plan)
+    assert result.status == "completed"
+    assert captured == [["inspect", png, "attached text"], "continue"]
+
+
+# spec: AU-BOUNDARY-R043.1
+@pytest.mark.parametrize(
+    ("parts", "media", "budget"),
+    [
+        ((b"x", "image/png"), (), {}),
+        ((b"x", "application/pdf"), ("application/pdf",), {}),
+        ((b"", "image/png"), ("image/png",), {}),
+        ((b"long", "image/png"), ("image/png",), {"max_attachment_bytes": 3}),
+        ((b"x", "image/png"), ("image/png",), {"max_attachments": 0}),
+        ((b"x", "image/png"), ("image/png",), {"max_attachment_bytes": True}),
+        ((b"\xff", "text/plain"), ("text/plain",), {}),
+    ],
+)
+async def test_attachment_refusal_precedes_model_construction(
+    parts, media, budget, events
+):
+    from pydantic_ai import BinaryContent
+
+    host_ports.register_model_provider(lambda model: pytest.fail("model constructed"))
+    result = await run(
+        RunRequest(
+            task="inspect",
+            attachments=(BinaryContent(data=parts[0], media_type=parts[1]),),
+        ),
+        plan=plan_of(
+            "must-not-resolve", input_media_types=media, budget=RunBudget(**budget)
+        ),
+    )
+    assert result.status == "failed"
+    assert [event["type"] for event in events] == ["error"]
+
+
+# spec: AU-BOUNDARY-R043.1
+async def test_attachment_budget_is_aggregate_and_urls_are_not_fetched(events):
+    from pydantic_ai import BinaryContent, ImageUrl
+
+    host_ports.register_model_provider(lambda model: pytest.fail("model constructed"))
+    plan = plan_of(
+        "must-not-resolve",
+        input_media_types=("image/png",),
+        budget=RunBudget(max_attachment_bytes=3),
+    )
+    for parts in [
+        (BinaryContent(data=b"xx", media_type="image/png"),) * 2,
+        (ImageUrl(url="https://example.invalid/image.png"),),
+    ]:
+        result = await run(RunRequest(task="inspect", attachments=parts), plan=plan)
+        assert result.status == "failed"
+    assert [event["type"] for event in events] == ["error", "error"]
