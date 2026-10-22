@@ -32,6 +32,7 @@ from .state import (
     GraphDeps,
     GraphState,
     RunPlan,
+    RunPlanFailure,
     RunRequest,
     RunResult,
     default_run_plan,
@@ -170,7 +171,16 @@ async def iterate_run(
     cfg = dict(config or {})
     state = GraphState(run_id=request.run_id, query=request.task, mode=request.mode)
     try:
-        run_plan = plan or await resolve_plan(request, cfg)
+        try:
+            run_plan = plan or await resolve_plan(request, cfg)
+        except RunPlanFailure as failure:
+            # A trusted provider can report measured work even when no plan
+            # was admitted. It grants no execution and cannot replace limits.
+            state.add_usage(initial_run_usage(failure))
+            if isinstance(failure.error, (asyncio.CancelledError, GeneratorExit)):
+                state.status = "stopped"
+                _event(state, "run_cancelled", status="stopped", result=_result(state))
+            raise failure.error from failure.error.__cause__
         initial_usage = initial_run_usage(run_plan)
         has_initial_usage = initial_usage.has_values() or bool(
             run_plan.initial_elapsed_seconds

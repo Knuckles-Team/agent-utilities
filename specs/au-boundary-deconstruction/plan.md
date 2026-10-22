@@ -615,3 +615,21 @@ serial behavior remains unchanged. All rolling and cancellation guarantees
 and residuals above still apply. The harness does not estimate missing token
 usage or know in-flight token counts before the provider reports them. The
 host must not add planner counters to AU results a second time.
+
+### Failed plan resolution after measured host work
+
+The trusted decision provider can raise `RunPlanFailure` after measured work.
+Later admission, validation or publication may fail before a `RunPlan` returns.
+The carrier requires the original `BaseException` and
+reported `RunUsage`. It accepts the same measured `initial_elapsed_seconds`.
+AU validates and snapshots these values with the existing initial-usage
+helper. Invalid input fails closed without a partial ledger.
+
+The carrier grants no execution, supplies no budget and cannot widen one.
+AU includes its counters once in the failed terminal event and result. It
+does not clamp consumed usage to a limit or replace the original failure
+with a budget refusal. Cancellation and iterator close emit the measured
+ledger in a stopped cancellation event and re-raise the original exception.
+A raw provider error or cancellation without a reported ledger keeps its
+previous behavior. AU adds no estimate or second accounting path. Model
+proposals and request metadata cannot supply a trusted failure carrier.

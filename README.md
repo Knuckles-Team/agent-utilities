@@ -76,6 +76,13 @@ allowed, but additional tools do not. Invalid counters or time
 fail closed. Model proposals, request metadata and scaffold updates cannot
 set this host-only input. Unreported token usage remains zero, not an estimate.
 
+If measured host work fails before a plan can return, the decision provider can
+raise `RunPlanFailure(error, initial_usage=usage, initial_elapsed_seconds=elapsed)`.
+AU validates the same inputs and includes the counters once in the terminal
+event and result. It preserves the original failure or cancellation, without
+dispatching work or replacing a budget. Do not wrap a provider failure without
+a reported usage ledger or add these counters again in the host.
+
 Request and tool reservations are shared across tasks and validation retries.
 An unspecified parallel tool limit uses a finite fallback of fifty calls.
 Token limits use reported usage, including fallback attempts. In-flight token

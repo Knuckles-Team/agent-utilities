@@ -32,6 +32,31 @@ class RunPlanUnavailable(RuntimeError):
     """The run has no model: neither the host plan nor the caller named one."""
 
 
+class RunPlanFailure(Exception):
+    """Trusted host failure after measured work, before a plan can return.
+
+    Raise this from the run decision provider only with actual reported usage.
+    The run loop validates and snapshots the counters, then handles ``error``
+    as the original failure or cancellation. This grants no execution and
+    supplies no replacement budget. Model output and request metadata cannot
+    set it. A provider without a usage ledger must raise its original error.
+    """
+
+    def __init__(
+        self,
+        error: BaseException,
+        *,
+        initial_usage: RunUsage,
+        initial_elapsed_seconds: float = 0.0,
+    ) -> None:
+        if not isinstance(error, BaseException):
+            raise TypeError("error must be an exception")
+        super().__init__(str(error))
+        self.error = error
+        self.initial_usage = initial_usage
+        self.initial_elapsed_seconds = initial_elapsed_seconds
+
+
 @dataclass(frozen=True)
 class RunBudget:
     """Limits the run loop enforces; it never widens them.
