@@ -147,6 +147,11 @@
     "AU-BOUNDARY-R043.5",
     "AU-BOUNDARY-R043.5.1",
     "AU-BOUNDARY-R043.5.2",
+    "AU-BOUNDARY-R043.6",
+    "AU-BOUNDARY-R043.7",
+    "AU-BOUNDARY-R043.8",
+    "AU-BOUNDARY-R043.9",
+    "AU-BOUNDARY-R043.10",
     "AU-BOUNDARY-R044",
     "AU-BOUNDARY-R044.1",
     "AU-BOUNDARY-R045",
@@ -166,7 +171,7 @@
     "AU-BOUNDARY-R048.10",
     "AU-BOUNDARY-R048.11",
     "AU-BOUNDARY-R049",
-    "AU-BOUNDARY-R043.6"
+    "AU-BOUNDARY-R043.11"
   ],
   "requirements": [
     {
@@ -1453,7 +1458,7 @@
     {
       "id": "AU-BOUNDARY-R043",
       "title": "The agent run loop stays in Agent Utilities",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "8a45ab8013ad",
         "fdeabad709b3"
@@ -1465,7 +1470,12 @@
         "AU-BOUNDARY-R043.3",
         "AU-BOUNDARY-R043.4",
         "AU-BOUNDARY-R043.5",
-        "AU-BOUNDARY-R043.6"
+        "AU-BOUNDARY-R043.6",
+        "AU-BOUNDARY-R043.7",
+        "AU-BOUNDARY-R043.8",
+        "AU-BOUNDARY-R043.9",
+        "AU-BOUNDARY-R043.10",
+        "AU-BOUNDARY-R043.11"
       ]
     },
     {
@@ -1493,11 +1503,11 @@
         "e7ce34331f28"
       ],
       "verified_by": [
-        "tests/test_run_loop.py:113",
-        "tests/test_run_loop.py:194",
-        "tests/test_run_loop.py:248",
-        "tests/test_run_loop.py:59",
-        "tests/test_run_loop.py:67"
+        "tests/test_run_loop.py:122",
+        "tests/test_run_loop.py:130",
+        "tests/test_run_loop.py:176",
+        "tests/test_run_loop.py:257",
+        "tests/test_run_loop.py:311"
       ]
     },
     {
@@ -1508,7 +1518,7 @@
         "e7ce34331f28"
       ],
       "verified_by": [
-        "tests/test_rlm.py:106",
+        "tests/test_rlm.py:107",
         "tests/test_rlm.py:20",
         "tests/test_rlm.py:64",
         "tests/test_rlm.py:75",
@@ -1629,8 +1639,54 @@
         "tests/test_host_ports.py:140",
         "tests/test_host_ports.py:175",
         "tests/test_host_ports.py:202",
-        "tests/test_host_ports.py:97"
+        "tests/test_host_ports.py:227"
       ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.6",
+      "title": "Apply a received bounded dependency plan",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "1978fffd4de8",
+        "53e77f794766"
+      ],
+      "verified_by": [
+        "tests/test_dependency.py:28"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.7",
+      "title": "Account and drain parallel work",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/test_dependency.py:194",
+        "tests/test_dependency.py:349",
+        "tests/test_dependency.py:821",
+        "tests/test_dependency.py:861",
+        "tests/test_dependency.py:936"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.8",
+      "title": "Resume a run from a host checkpoint",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.9",
+      "title": "Carry completed conversation history into a fresh run",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.10",
+      "title": "Publish model and tool events through a durable host port",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R044",
@@ -1813,13 +1869,10 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R043.6",
+      "id": "AU-BOUNDARY-R043.11",
       "title": "Apply host-selected client tools",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "1978fffd4de8",
-        "53e77f794766"
-      ],
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": [
         "tests/test_client_capabilities.py:101",
         "tests/test_client_capabilities.py:119",

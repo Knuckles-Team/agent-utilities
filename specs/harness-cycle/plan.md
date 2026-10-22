@@ -65,3 +65,12 @@ and the cycle owns only probe scheduling and persistence. The rejected
 alternative kept a local ranking inside the cycle. It fails the
 no-duplicate-authority check, because the measured contrast is the
 only authority.
+
+## Reachability
+
+`drive_cycle_tick` has no production caller. No host registers a `HarnessCycleProvider` yet.
+Superseded evidence: the unit tests of R001.5 and R001.8 run against fake persist and decide ports.
+They prove the AU step logic and the closed port. They do not prove host registration or engine envelopes.
+`AU-HARNESS-CYCLE-R001.10` owns persistence through the released EG client.
+`AU-HARNESS-CYCLE-R001.11` owns the host-registered tick. The host registration row belongs to arbora.
+The arbora row waits for the release of EG-ORCH-VOCAB-R801.2, EG-ORCH-VOCAB-R802 and EG-DECISION-ENGINE-R803.

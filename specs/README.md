@@ -19,7 +19,7 @@ and `status.json` (machine-readable delivery, acceptance, and public receipts, i
 evidence).
 Start from [`_template/`](_template/). Keep status and evidence explicit; a planned or tested item
 is not a landed item. Put durable evidence links in the spec directory, never local scratch output.
-This follows GitHub Spec Kit's specify/plan/tasks flow with an explicit test contract.
+This follows a specify/plan/tasks flow with an explicit test contract.
 
 Each spec must name its stable ID and sole owner. Cross-repository work links the other owners'
 public specs by stable ID and GitHub URL; each repository documents the complete contracts and

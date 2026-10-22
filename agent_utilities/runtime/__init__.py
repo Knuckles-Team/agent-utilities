@@ -1,4 +1,4 @@
-"""Developer-Workspace Runtime — the persistent, sandboxed substrate for the SWE agent.
+"""Developer workspaces and the lazy host-facing run contract facade.
 
 Pillars: OS-5.33 (runtime/backends), ORCH-1.46 (action/observation protocol + dispatcher),
 the provenance sink port. See ``.specify/design/os-5.33-developer-workspace-runtime``.
@@ -19,9 +19,21 @@ Typical use::
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from agent_utilities.graph import (
+        AgentRunExecutor,
+        DependencyPlan,
+        RunBudget,
+        RunFailed,
+        RunPlan,
+        RunPlanFailure,
+        RunTask,
+        StopRule,
+        default_run_plan,
+    )
+
     from .computer_use_tier import ComputerUseDriver
 
 from .docker_workspace import DockerWorkspace
@@ -29,7 +41,28 @@ from .local_workspace import LocalWorkspace
 from .provenance import ProvenanceMirror, ProvenanceSink
 from .workspace import DevWorkspace, PolicyGate, WorkspaceBackend
 
+_RUN_EXPORTS = (
+    "AgentRunExecutor",
+    "DependencyPlan",
+    "RunBudget",
+    "RunFailed",
+    "RunPlan",
+    "RunPlanFailure",
+    "RunTask",
+    "StopRule",
+    "default_run_plan",
+)
+
 __all__ = [
+    "AgentRunExecutor",
+    "DependencyPlan",
+    "RunBudget",
+    "RunFailed",
+    "RunPlan",
+    "RunPlanFailure",
+    "RunTask",
+    "StopRule",
+    "default_run_plan",
     "DevWorkspace",
     "DockerWorkspace",
     "LocalWorkspace",
@@ -39,6 +72,15 @@ __all__ = [
     "WorkspaceBackend",
     "create_workspace",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Expose the same run contracts without eagerly loading the model runtime."""
+    if name in _RUN_EXPORTS:
+        from agent_utilities import graph
+
+        return getattr(graph, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def create_workspace(

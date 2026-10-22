@@ -16,11 +16,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.usage import RunUsage, UsageLimits
+from pydantic_ai.usage import UsageLimits
 
 from agent_utilities import host_ports
+from agent_utilities.graph.budget import SharedBudget
 from agent_utilities.graph.executor import resolve_plan
-from agent_utilities.graph.state import RunRequest
+from agent_utilities.graph.state import RunBudget, RunRequest
 
 from .telemetry import SandboxFatalError, classify_failure
 
@@ -43,6 +44,8 @@ class RLMConfig:
     request_limit: int = 50
     total_tokens_limit: int | None = None
     timeout_seconds: float = 600.0
+    max_concurrent_requests: int = 4
+    tool_calls_limit: int | None = 50
 
 
 @dataclass
@@ -50,17 +53,23 @@ class _Env:
     text: str
     depth: int
     config: RLMConfig
-    usage: RunUsage
+    budget: SharedBudget
 
 
 def _model(value: Any) -> Any:
     return host_ports.resolve_model(value) if isinstance(value, str) else value
 
 
-def _agent(config: RLMConfig, depth: int, output_type: Any) -> Agent[_Env, Any]:
+def _agent(
+    config: RLMConfig, depth: int, output_type: Any, budget: SharedBudget
+) -> Agent[_Env, Any]:
     model = _model(config.model if depth == 0 else (config.sub_model or config.model))
     agent: Agent[_Env, Any] = Agent(
-        model, output_type=output_type, deps_type=_Env, instructions=ROOT_INSTRUCTIONS
+        model,
+        output_type=output_type,
+        deps_type=_Env,
+        instructions=ROOT_INSTRUCTIONS,
+        capabilities=[budget],
     )
 
     @agent.tool
@@ -81,9 +90,9 @@ def _agent(config: RLMConfig, depth: int, output_type: Any) -> Agent[_Env, Any]:
             text=ctx.deps.text[start : end or None],
             depth=ctx.deps.depth + 1,
             config=ctx.deps.config,
-            usage=ctx.deps.usage,
+            budget=ctx.deps.budget,
         )
-        out = await _run_level(question, child, str)
+        out = await _run_drained(question, child, str)
         return str(out)
 
     return agent
@@ -96,22 +105,53 @@ def _prompt(task: str, env: _Env) -> str:
 
 async def _run_level(task: str, env: _Env, output_type: Any) -> Any:
     limits = UsageLimits(
-        request_limit=env.config.request_limit,
-        total_tokens_limit=env.config.total_tokens_limit,
+        request_limit=None,
+        tool_calls_limit=env.budget.limits.tool_calls_limit,
     )
-    result = await _agent(env.config, env.depth, output_type).run(
-        _prompt(task, env), deps=env, usage_limits=limits, usage=env.usage
+    result = await _agent(env.config, env.depth, output_type, env.budget).run(
+        _prompt(task, env), deps=env, usage_limits=limits
     )
     return result.output
+
+
+async def _run_drained(task: str, env: _Env, output_type: Any) -> Any:
+    """Cancel the framework once, then shield all descendant cleanup."""
+    child = asyncio.create_task(_run_level(task, env, output_type))
+    interrupted: BaseException | None = None
+    value: Any = None
+    try:
+        value = await asyncio.shield(child)
+    except BaseException as exc:
+        interrupted = exc
+    finally:
+        if not child.done():
+            child.cancel()
+        drain = asyncio.gather(child, return_exceptions=True)
+        while not drain.done():
+            try:
+                await asyncio.shield(drain)
+            except asyncio.CancelledError as exc:
+                # Preserve the original cancellation while refusing to deliver
+                # another cancellation into a descendant's async finally block.
+                interrupted = interrupted or exc
+    if interrupted is not None:
+        raise interrupted
+    return value
 
 
 async def _config_from_host(task: str) -> RLMConfig:
     plan = await resolve_plan(RunRequest(task=task, agent_name="rlm"), {})
     return RLMConfig(
         model=plan.model,
-        request_limit=plan.budget.request_limit or 50,
+        request_limit=50
+        if plan.budget.request_limit is None
+        else plan.budget.request_limit,
         total_tokens_limit=plan.budget.total_tokens_limit,
         timeout_seconds=plan.budget.timeout_seconds,
+        max_concurrent_requests=plan.budget.max_concurrent_requests,
+        tool_calls_limit=50
+        if plan.budget.tool_calls_limit is None
+        else plan.budget.tool_calls_limit,
     )
 
 
@@ -131,9 +171,30 @@ async def run_rlm(
     try:
         cfg = config if config is not None and config.model else None
         cfg = cfg or await _config_from_host(task)
-        env = _Env(text=input_text, depth=0, config=cfg, usage=RunUsage())
+        for name in ("max_concurrent_requests",):
+            value = getattr(cfg, name)
+            if type(value) is not int or value < 1:
+                raise ValueError(f"{name} must be a positive integer")
+        for name in (
+            "request_limit",
+            "tool_calls_limit",
+            "total_tokens_limit",
+            "max_depth",
+        ):
+            value = getattr(cfg, name)
+            if value is not None and (type(value) is not int or value < 0):
+                raise ValueError(f"{name} must be a nonnegative integer")
+        budget = SharedBudget(
+            RunBudget(
+                request_limit=cfg.request_limit,
+                tool_calls_limit=cfg.tool_calls_limit,
+                total_tokens_limit=cfg.total_tokens_limit,
+            ),
+            max_concurrent_requests=cfg.max_concurrent_requests,
+        )
+        env = _Env(text=input_text, depth=0, config=cfg, budget=budget)
         async with asyncio.timeout(cfg.timeout_seconds):
-            value = await _run_level(task, env, output_type)
+            value = await _run_drained(task, env, output_type)
     except SandboxFatalError:
         raise
     except Exception as exc:  # noqa: BLE001 - the entry returns a typed failure
@@ -144,10 +205,10 @@ async def run_rlm(
             "task": task,
         }
     usage = {
-        "requests": env.usage.requests,
-        "input_tokens": env.usage.input_tokens,
-        "output_tokens": env.usage.output_tokens,
-        "total": env.usage.input_tokens + env.usage.output_tokens,
+        "requests": env.budget.usage.requests,
+        "input_tokens": env.budget.usage.input_tokens,
+        "output_tokens": env.budget.usage.output_tokens,
+        "total": env.budget.usage.input_tokens + env.budget.usage.output_tokens,
     }
     return {
         "ok": True,

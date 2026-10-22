@@ -85,7 +85,71 @@ of original body errors during cleanup, and no rollback after uncertain writes.
 These tests use a host double and establish no installed EG acceptance, verified
 lease admission, deployed decision activation or served inspector availability.
 
-## R043.6 client tool forwarding
+
+AU-BOUNDARY-R043.5.2: Per-run declined publication leaves local state usable, closes exactly once on success or body failure, and never changes another run’s binding.
+
+## AU-BOUNDARY-R043.6 and R043.7 dependency execution
+
+`tests/test_dependency.py` drives the public run API with deterministic
+FunctionModel responses and explicit event gates, with no sleeps or network.
+Cover capacity-two rolling refill, joins, deterministic output, isolated task
+history and malformed DAGs. Cover budgets, stop markers, failures, timeout, parent
+cancellation, iterator close and ordered unique lifecycle events. Existing
+`tests/test_run_loop.py`, `tests/test_rlm.py` and `tests/test_plan_runtime.py`
+remain compatibility gates. This proves in-run behavior, not served admission
+or durable replay. Those proofs belong to Arbora and EG.
+
+Test paused readers against both rolling dispatch and the driver deadline.
+Test scaffold binding and initial publication against the same run timeout.
+Assert completed asynchronous model cleanup under repeated cancellation, including nested runs.
+Refuse oversized tool batches before fan-out, including the finite parallel fallback.
+Keep root-only recursion and first-event iterator close compatible.
+
+### Initial host accounting under AU-BOUNDARY-R043.7
+
+Public run-loop and dependency tests provide `RunUsage` and measured elapsed
+time, with original budgets intact. They prove exact one-time aggregate
+accounting, pre-dispatch refusal of exhausted bounds, strict invalid-input
+refusal and unchanged zero defaults. Exact tool limits permit model-only
+answers, including at zero. Additional tool calls must have no side effects.
+Prior tool usage above the limit must stop before binding or child dispatch.
+Cover setup failure, child failure,
+parent cancellation, serial multi-step limits, plan reuse and a provider
+that reports no token counts. Model proposal text and request metadata must
+not change the host ledger. No test uses a sleep or live provider.
+
+Trusted provider failures after measured planning must preserve their original
+error and include the reported counters exactly once. Terminal event usage
+must equal result usage, even when the failed planning consumed a limit.
+Neither a failed carrier nor its elapsed time may admit executable work or
+replace a budget. Test synchronous and asynchronous providers, invalid
+ledgers, reuse, cancellation and iterator close. A provider failure without
+a ledger must not invent consumption. Existing success and zero-default
+cases must keep their behavior.
+
+Public executor tests must retain a failed aggregate receipt in `RunFailed`
+with the same `RuntimeError` message and catch behavior. Prove equality with
+the terminal event for planning, setup, serial and dependency failures.
+Validate scalar fields and the entire public ledger. Source and caller
+mutation must not alter the retained receipt; empty usage stays empty.
+Exercise plain-dict serialization and exception copy and pickle round trips.
+Forged provider and model receipts must not provide accounting. Successful
+and stopped returns and original cancellation must remain unchanged.
+The runtime facade exports the identical run contract objects.
+Importing it must not load the graph runtime before a caller resolves those aliases.
+
+### Run resume, history and live events under AU-BOUNDARY-R043.8 to R043.10
+
+AU-BOUNDARY-R043.8 tests restart a function-model run from a completed
+checkpoint and count model calls. An in-flight checkpoint, a changed plan and
+a changed admission each refuse before any effect. AU-BOUNDARY-R043.9 tests
+capture the earlier messages in the next run's first request and refuse
+malformed history. AU-BOUNDARY-R043.10 tests record publication order, refuse
+a tool effect after a failed call publication, and stop after a failed result
+publication. Live qualification needs the EG checkpoint producer and the
+Arbora admission-bound adapter.
+
+## R043.11 client tool forwarding
 
 `tests/test_client_capabilities.py` drives the real run loop with a scripted
 model and a bound test transport. Assert exact method and parameters, one call,

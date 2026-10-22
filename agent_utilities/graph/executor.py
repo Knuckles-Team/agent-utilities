@@ -2,9 +2,10 @@
 
 The loop takes a :class:`RunPlan` from the host decision provider (or the
 documented fallback in :func:`default_run_plan`), binds the model and tools
-through ``host_ports``, runs each plan step in order on one message history,
-enforces the plan's budget, timeout and stop rule, and emits one event per
-transition to the host run event sink. It chooses nothing and stores nothing.
+through ``host_ports``, runs serial steps on one history or applies a received
+dependency DAG with bounded rolling slots, enforces the received limits, and
+emits public transitions to the host run event sink. It chooses and stores
+nothing.
 """
 
 from __future__ import annotations
@@ -12,7 +13,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import uuid
 from collections.abc import AsyncIterator, Mapping
+from contextlib import aclosing
 from typing import Any
 
 from pydantic_ai import Agent, BinaryContent
@@ -23,11 +26,15 @@ from agent_utilities import host_ports
 from agent_utilities.harness.plan import PlanState
 from agent_utilities.harness.plan_runtime import PlanScaffold
 
+from .budget import SharedBudget, initial_run_usage
+from .dependency import iterate_dependency_plan, validate_dependency_plan
 from .metrics import MeasuredModel, RunMetrics
 from .state import (
     GraphDeps,
     GraphState,
+    RunFailed,
     RunPlan,
+    RunPlanFailure,
     RunRequest,
     RunResult,
     default_run_plan,
@@ -54,15 +61,18 @@ def build_agent(
     scaffold: PlanState | None = None,
     publisher: host_ports.ScaffoldPublisher | None = None,
     metrics: RunMetrics | None = None,
+    shared_budget: SharedBudget | None = None,
 ) -> Agent[GraphDeps, Any]:
     """One pydantic-ai agent bound to the plan's model, instructions and tools."""
     if plan.harness.plan_scaffold not in ("on", "off"):
         raise ValueError("plan_scaffold must be on or off")
-    capabilities = (
+    capabilities: list[Any] = (
         [PlanScaffold(scaffold if scaffold is not None else PlanState(), publisher)]
         if plan.harness.plan_scaffold == "on"
         else []
     )
+    if shared_budget is not None:
+        capabilities.append(shared_budget)
     model = (
         host_ports.resolve_model(plan.model)
         if isinstance(plan.model, str)
@@ -114,7 +124,18 @@ def _text(output: Any) -> str:
 
 
 def _event(state: GraphState, kind: str, **fields: Any) -> dict[str, Any]:
-    event = {"type": kind, "run_id": state.run_id, "step": state.step, **fields}
+    state.event_sequence += 1
+    event = {
+        "type": kind,
+        "run_id": state.run_id,
+        "step": state.step,
+        **fields,
+        "sequence": state.event_sequence,
+        "event_id": uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"agent-utilities:run:{state.run_id}:event:{state.event_sequence}",
+        ).hex,
+    }
     host_ports.emit_run_event(event)
     return event
 
@@ -166,7 +187,23 @@ async def iterate_run(
     cfg = dict(config or {})
     state = GraphState(run_id=request.run_id, query=request.task, mode=request.mode)
     try:
-        run_plan = plan or await resolve_plan(request, cfg)
+        try:
+            run_plan = plan or await resolve_plan(request, cfg)
+        except RunPlanFailure as failure:
+            # A trusted provider can report measured work even when no plan
+            # was admitted. It grants no execution and cannot replace limits.
+            state.add_usage(initial_run_usage(failure))
+            if isinstance(failure.error, (asyncio.CancelledError, GeneratorExit)):
+                state.status = "stopped"
+                _event(state, "run_cancelled", status="stopped", result=_result(state))
+            raise failure.error from failure.error.__cause__
+        initial_usage = initial_run_usage(run_plan)
+        has_initial_usage = initial_usage.has_values() or bool(
+            run_plan.initial_elapsed_seconds
+        )
+        if has_initial_usage:
+            state.add_usage(initial_usage)
+        validate_dependency_plan(run_plan)
         attachments = _attachment_input(request, run_plan)
         if run_plan.harness.plan_scaffold == "on":
             state.scaffold = PlanState()
@@ -176,13 +213,36 @@ async def iterate_run(
         return
     deps = GraphDeps(state=state, plan=run_plan, config=cfg)
     state.status = "running"
-    yield _event(state, "run_started", mode=state.mode, steps=len(run_plan.steps))
     history: list[Any] = []
     limits = _limits(run_plan)
     steps = run_plan.steps[: max(run_plan.stop.max_steps, 0)]
+    shared_budget = (
+        SharedBudget(
+            run_plan.budget,
+            max_concurrent_requests=run_plan.budget.max_concurrent_requests,
+            initial_usage=initial_usage if has_initial_usage else None,
+        )
+        if run_plan.dependency_plan is not None or has_initial_usage
+        else None
+    )
     try:
+        if has_initial_usage:
+            assert shared_budget is not None
+            shared_budget.check_initial_consumption()
+            if run_plan.initial_elapsed_seconds >= run_plan.budget.timeout_seconds:
+                raise TimeoutError
+        yield _event(
+            state,
+            "run_started",
+            mode=state.mode,
+            steps=len(run_plan.dependency_plan.tasks)
+            if run_plan.dependency_plan is not None
+            else len(run_plan.steps),
+        )
         async with host_ports.authority_keepalive_scope():
-            async with asyncio.timeout(run_plan.budget.timeout_seconds):
+            async with asyncio.timeout(
+                run_plan.budget.timeout_seconds - run_plan.initial_elapsed_seconds
+            ) as timeout:
                 async with host_ports.scaffold_publication_scope(
                     request, state.scaffold
                 ) as publisher:
@@ -192,20 +252,47 @@ async def iterate_run(
                         scaffold=state.scaffold,
                         publisher=publisher,
                         metrics=state.metrics,
+                        shared_budget=shared_budget,
                     )
+                    if run_plan.dependency_plan is not None:
+                        assert shared_budget is not None
+                        # Setup uses this same absolute deadline. Once setup
+                        # finishes, the driver owns it, not the paused viewer.
+                        deadline = timeout.when()
+                        timeout.reschedule(None)
+                        async with aclosing(
+                            iterate_dependency_plan(
+                                agent,
+                                run_plan,
+                                state,
+                                cfg,
+                                attachments,
+                                shared_budget,
+                                _event,
+                                deadline=deadline,
+                            )
+                        ) as execution:
+                            async for event in execution:
+                                yield event
                     for prompt in steps:
                         state.step += 1
                         model_input: str | list[str | BinaryContent] = prompt
                         if state.step == 1 and attachments:
                             model_input = [prompt, *attachments]
-                        result = await agent.run(
-                            model_input,
-                            deps=deps,
-                            message_history=history,
-                            usage_limits=limits,
-                        )
+                        try:
+                            result = await agent.run(
+                                model_input,
+                                deps=deps,
+                                message_history=history,
+                                usage_limits=limits,
+                            )
+                        finally:
+                            if shared_budget is not None:
+                                state.usage.clear()
+                                state.add_usage(shared_budget.usage)
                         history = list(result.all_messages())
-                        state.add_usage(result.usage)
+                        if shared_budget is None:
+                            state.add_usage(result.usage)
                         text = _text(result.output)
                         state.outputs.append(text)
                         yield _event(state, "node_transition", output=text)
@@ -216,6 +303,10 @@ async def iterate_run(
         state.status, state.error = "stopped", f"budget: {exc}"
     except TimeoutError:
         state.status, state.error = "stopped", "budget: run timed out"
+    except (asyncio.CancelledError, GeneratorExit):
+        state.status = "stopped"
+        _event(state, "run_cancelled", status="stopped", result=_result(state))
+        raise
     except Exception as exc:  # noqa: BLE001 - surfaced as the terminal event
         state.status, state.error = "failed", f"{type(exc).__name__}: {exc}"
         yield _event(state, "error", error=state.error, result=_result(state))
@@ -256,7 +347,8 @@ class AgentRunExecutor:
 
     ``execute_agent`` reads the fields of arbora's typed execution request
     (duck-typed, so the harness does not import arbora) and returns a
-    :class:`RunResult`; arbora maps it onto its own result type.
+    :class:`RunResult`; arbora maps it onto its own result type. A failed
+    result raises :class:`RunFailed` with the same aggregate receipt.
     """
 
     def __init__(self, config: Mapping[str, Any] | None = None) -> None:
@@ -277,7 +369,7 @@ class AgentRunExecutor:
         )
         result = await run(run_request, self._config)
         if result.status == "failed":
-            raise RuntimeError(result.error or "agent run failed")
+            raise RunFailed(result)
         return result
 
 

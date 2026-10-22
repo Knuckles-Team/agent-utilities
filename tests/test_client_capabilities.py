@@ -41,7 +41,7 @@ def scripted(tool, params, observed):
     return FunctionModel(model)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6")
+@pytest.mark.spec("AU-BOUNDARY-R043.11")
 @pytest.mark.parametrize(
     ("tool", "params", "method"),
     [
@@ -86,7 +86,7 @@ async def test_real_run_binds_only_selected_tool(
     assert "private" not in json.dumps(trace) and "secret" not in json.dumps(trace)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6")
+@pytest.mark.spec("AU-BOUNDARY-R043.11")
 @pytest.mark.parametrize(
     "reason", ["permission_required", "permission_denied", "client_disconnected"]
 )
@@ -98,7 +98,7 @@ async def test_refusal_never_approves_or_retries(reason, events):
     assert events[-1]["outcome"] == reason
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6")
+@pytest.mark.spec("AU-BOUNDARY-R043.11")
 @pytest.mark.parametrize(
     ("limits", "response", "reason", "calls"),
     [
@@ -116,7 +116,7 @@ async def test_byte_limits_and_invalid_response(limits, response, reason, calls)
     assert len(transport.calls) == calls
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6")
+@pytest.mark.spec("AU-BOUNDARY-R043.11")
 async def test_transport_timeout_does_not_retry():
     class TimedOut(Transport):
         async def call(self, method, params):
@@ -129,7 +129,7 @@ async def test_transport_timeout_does_not_retry():
     assert len(transport.calls) == 1
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6")
+@pytest.mark.spec("AU-BOUNDARY-R043.11")
 @pytest.mark.parametrize(
     "changes",
     [{"output_bytes": 0}, {"request_bytes": True}, {"timeout_seconds": float("nan")}],
@@ -139,7 +139,7 @@ def test_invalid_limits(changes):
         replace(ClientToolLimits(), **changes)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6")
+@pytest.mark.spec("AU-BOUNDARY-R043.11")
 async def test_missing_transport_fails_real_run(events):
     plan = RunPlan(
         model=scripted("read_file", {}, []),
@@ -152,14 +152,14 @@ async def test_missing_transport_fails_real_run(events):
     assert "client_disconnected" in result.error
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6")
+@pytest.mark.spec("AU-BOUNDARY-R043.11")
 @pytest.mark.parametrize("selected", [("unknown",), ("read_file", "read_file")])
 def test_unknown_or_duplicate_selection(selected):
     with pytest.raises(ValueError):
         ClientCapabilityToolset(Transport(), selected, run_id="r")
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6")
+@pytest.mark.spec("AU-BOUNDARY-R043.11")
 async def test_wait_limit_cancels_request_without_retry():
     cancelled = asyncio.Event()
 
@@ -182,7 +182,7 @@ async def test_wait_limit_cancels_request_without_retry():
     assert cancelled.is_set() and len(transport.calls) == 1
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6")
+@pytest.mark.spec("AU-BOUNDARY-R043.11")
 async def test_transport_exception_has_no_private_detail(events):
     class Broken(Transport):
         async def call(self, method, params):
@@ -194,7 +194,7 @@ async def test_transport_exception_has_no_private_detail(events):
     assert "private" not in result + json.dumps(events)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6")
+@pytest.mark.spec("AU-BOUNDARY-R043.11")
 async def test_public_hosted_run_binds_transport(events):
     from agent_utilities.harness.hosted_run import iterate_client_run
 
@@ -211,7 +211,7 @@ async def test_public_hosted_run_binds_transport(events):
     assert any(event.get("output") == "client reply" for event in emitted)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6")
+@pytest.mark.spec("AU-BOUNDARY-R043.11")
 async def test_public_hosted_run_rejects_server_tools(events):
     from agent_utilities.harness.hosted_run import iterate_client_run
 
