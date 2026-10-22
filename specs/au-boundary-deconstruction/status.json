@@ -1631,6 +1631,7 @@
       "title": "Publish actual scaffold revisions through a run-local host port",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "b58060b4530b",
         "da8a2d9cfbaa",
         "dca34a7af5c9"
       ],
@@ -1648,7 +1649,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "1978fffd4de8",
-        "53e77f794766"
+        "53e77f794766",
+        "aff1b2ca7a77"
       ],
       "verified_by": [
         "tests/test_dependency.py:28"
@@ -1657,8 +1659,13 @@
     {
       "id": "AU-BOUNDARY-R043.7",
       "title": "Account and drain parallel work",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7287ddfe03e3",
+        "9f41376674f8",
+        "aff1b2ca7a77",
+        "c98538fea6ae"
+      ],
       "verified_by": [
         "tests/test_dependency.py:194",
         "tests/test_dependency.py:349",
