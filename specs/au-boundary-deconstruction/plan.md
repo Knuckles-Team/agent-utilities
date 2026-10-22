@@ -688,3 +688,7 @@ Permission-required and denied responses remain refusals. A timeout does not
 assert rollback or retry a possibly dispatched effect. Trace records contain
 method, byte counts and outcome only. Mutations remain unavailable unless the
 host can obtain the existing atomic approval authority.
+
+## Amendment 2026-10-22: render-receipt consumer moved from pipelines
+
+`AU-BOUNDARY-R050` was `PIPE-PAGES-R036` in pipelines. Checking a render receipt before model transport is in-run harness work, so the run loop owns it. The engine produces the receipt under EG-TYPED-PACKS-R002.10 and names this row as its dispatch consumer. The rows were SPECIFIED with no bindings, so no evidence moved.

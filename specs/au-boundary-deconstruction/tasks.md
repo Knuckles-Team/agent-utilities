@@ -19,6 +19,7 @@
 | Domain models, shapes, assets and skill content | AU-BOUNDARY-R048 | TODO | each directory placed; pack or skill validation in the receiving repository |
 | Governed write-back execution | AU-BOUNDARY-R049 | IN PROGRESS | `run_writeback` calls every sink through the SDK `DurableWritableConnector`. The governed and existing write-back suites pass at the merged head |
 | Governed write-back on the EG ledger | AU-BOUNDARY-R049 | TODO | live applies use `EpistemicGraphWriteBackLedger` once arbora serves the EG `WriteBack` operation. A restart test proves receipt replay |
+| Render-receipt check before model transport | AU-BOUNDARY-R050 | TODO | the run loop validates the EG-TYPED-PACKS-R002.10 receipt before any model request; invalid receipts cause zero requests |
 | Permanent owner guard | AU-BOUNDARY-R038 | TODO | generated manifest, CI gate and exact-head check |
 | Quality gates and evidence | all of the above | TODO | CCCC, KISS, Dupehound, jscpd, language linters and the full test suite pass at the merged head and the result is recorded in [evidence.md](evidence.md) |
 
@@ -31,6 +32,12 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 
 ## Decomposition children (tracked)
 
+- [ ] **AU-BOUNDARY-R050.1:** Define the render-receipt consumer and its run-loop call site.
+- [ ] **AU-BOUNDARY-R050.2:** Publish the consumer interface and dispatch semantics.
+- [ ] **AU-BOUNDARY-R050.3:** Bind the engine receipt to the consumer before transport.
+- [ ] **AU-BOUNDARY-R050.4:** Refuse invalid receipts with zero model requests.
+- [ ] **AU-BOUNDARY-R050.5:** Record the consumer location against the run snapshot.
+- [ ] **AU-BOUNDARY-R050.6:** Prove the served journey: one request for a valid receipt, none otherwise.
 - [x] **AU-BOUNDARY-R028.2.1:** Pin the kg/infra production-importer set.
 - [x] **AU-BOUNDARY-R028.6.1:** Pin the observability/{trace_ontology,self_ingest,audit_logger} production-importer set.
 - [x] **AU-BOUNDARY-R028.7.1:** Pin the governance/relational_authority importer set.
