@@ -28,6 +28,7 @@ from agent_utilities.harness.plan_runtime import PlanScaffold
 
 from .budget import SharedBudget, initial_run_usage
 from .dependency import iterate_dependency_plan, validate_dependency_plan
+from .metrics import MeasuredModel, RunMetrics
 from .state import (
     GraphDeps,
     GraphState,
@@ -59,6 +60,7 @@ def build_agent(
     *,
     scaffold: PlanState | None = None,
     publisher: host_ports.ScaffoldPublisher | None = None,
+    metrics: RunMetrics | None = None,
     shared_budget: SharedBudget | None = None,
 ) -> Agent[GraphDeps, Any]:
     """One pydantic-ai agent bound to the plan's model, instructions and tools."""
@@ -76,6 +78,8 @@ def build_agent(
         if isinstance(plan.model, str)
         else plan.model
     )
+    if metrics is not None:
+        model = MeasuredModel(model, metrics)
     toolsets = list(plan.toolsets)
     if plan.tool_names:
         toolsets.append(
@@ -236,6 +240,7 @@ async def iterate_run(
                         state.run_id,
                         scaffold=state.scaffold,
                         publisher=publisher,
+                        metrics=state.metrics,
                         shared_budget=shared_budget,
                     )
                     if run_plan.dependency_plan is not None:
@@ -308,6 +313,7 @@ def _result(state: GraphState) -> dict[str, Any]:
         steps=state.step,
         usage=dict(state.usage),
         error=state.error,
+        metrics=state.metrics.snapshot(),
     ).as_dict()
 
 

@@ -8,6 +8,7 @@ import pickle
 from collections import UserDict
 from dataclasses import asdict, replace
 from types import MappingProxyType, SimpleNamespace
+from unittest.mock import ANY
 
 import pytest
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
@@ -33,6 +34,61 @@ from agent_utilities.graph import (
     iterate_run,
     run,
 )
+
+# The measured-timing snapshot (AU-BOUNDARY-R043.1) every terminal result
+# carries. Only the client clock readings vary between runs.
+NO_MODEL_METRICS = {
+    "source": "client_monotonic_clock",
+    "run_elapsed_ms": ANY,
+    "observed_model_requests": 0,
+    "coverage": "complete",
+    "model_requests": [],
+}
+ONE_FAILED_MODEL_REQUEST_METRICS = {
+    "source": "client_monotonic_clock",
+    "run_elapsed_ms": ANY,
+    "observed_model_requests": 1,
+    "coverage": "complete",
+    "model_requests": [
+        {
+            "sequence": 1,
+            "source": "client_monotonic_clock",
+            "outcome": "failed",
+            "provider_name": "function",
+            "model_name": "function:respond:",
+            "client_request_elapsed_ms": ANY,
+        }
+    ],
+}
+
+
+# The first model request completes with reported tokens; the second fails.
+COMPLETED_THEN_FAILED_METRICS = {
+    "source": "client_monotonic_clock",
+    "run_elapsed_ms": ANY,
+    "observed_model_requests": 2,
+    "coverage": "complete",
+    "model_requests": [
+        {
+            "sequence": 1,
+            "source": "client_monotonic_clock",
+            "client_request_elapsed_ms": ANY,
+            "outcome": "completed",
+            "model_name": "function:respond:",
+            "provider_name": "function",
+            "input_tokens": 2,
+            "output_tokens": 1,
+        },
+        {
+            "sequence": 2,
+            "source": "client_monotonic_clock",
+            "client_request_elapsed_ms": ANY,
+            "outcome": "failed",
+            "model_name": "function:respond:",
+            "provider_name": "function",
+        },
+    ],
+}
 
 
 def echo_model(log: list[int] | None = None) -> FunctionModel:
@@ -890,6 +946,7 @@ async def test_measured_planning_failure_is_a_single_reusable_terminal_result(
         },
         "error": f"{error_type.__name__}: {message}",
         "execution_mode": "graph",
+        "metrics": NO_MODEL_METRICS,
     }
     for _ in range(2):
         events.clear()
@@ -981,6 +1038,7 @@ async def test_measured_planning_cancellation_keeps_ledger_and_original_exceptio
         },
         "error": None,
         "execution_mode": "graph",
+        "metrics": NO_MODEL_METRICS,
     }
     assert asdict(initial) == original
 
@@ -1271,6 +1329,7 @@ async def test_task_cancellation_after_planner_consumption_reports_actual_usage(
         },
         "error": None,
         "execution_mode": "graph",
+        "metrics": NO_MODEL_METRICS,
     }
     assert initial == RunUsage(requests=2, input_tokens=9, output_tokens=3)
 
@@ -1599,6 +1658,7 @@ async def test_failed_run_receipt_matches_the_single_terminal_aggregate(
         },
         "error": error,
         "execution_mode": "graph",
+        "metrics": NO_MODEL_METRICS if steps == 0 else COMPLETED_THEN_FAILED_METRICS,
     }
     assert calls == ["first", "fail"][:steps]
     terminals = [
@@ -1741,6 +1801,7 @@ async def test_executor_preserves_raw_and_measured_planner_cancellation(
             },
             "error": None,
             "execution_mode": "graph",
+            "metrics": NO_MODEL_METRICS,
         }
     else:
         assert events == []
@@ -1797,4 +1858,5 @@ async def test_executor_task_cancellation_remains_cancelled_with_measured_usage(
         },
         "error": None,
         "execution_mode": "graph",
+        "metrics": ONE_FAILED_MODEL_REQUEST_METRICS,
     }

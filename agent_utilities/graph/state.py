@@ -20,6 +20,8 @@ from pydantic_ai.usage import RunUsage
 
 from agent_utilities.harness.plan import PlanState
 
+from .metrics import RunMetrics
+
 RunStatus = Literal["pending", "running", "completed", "stopped", "failed"]
 
 #: Fallback budgets when the host gives none.
@@ -187,6 +189,7 @@ class GraphState:
     usage: dict[str, int] = field(default_factory=dict)
     error: str | None = None
     scaffold: PlanState | None = None
+    metrics: RunMetrics = field(default_factory=RunMetrics)
     event_sequence: int = 0
 
     def add_usage(self, usage: Any) -> None:
@@ -219,6 +222,7 @@ class RunResult:
     usage: Mapping[str, int]
     error: str | None = None
     execution_mode: Literal["direct", "graph"] = "graph"
+    metrics: Mapping[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -229,6 +233,7 @@ class RunResult:
             "usage": dict(self.usage),
             "error": self.error,
             "execution_mode": self.execution_mode,
+            "metrics": dict(self.metrics),
         }
 
 
@@ -279,6 +284,7 @@ def _failed_result_snapshot(result: RunResult) -> RunResult:
         usage=MappingProxyType(dict(result.usage)),
         error=result.error,
         execution_mode=result.execution_mode,
+        metrics=MappingProxyType(dict(result.metrics)),
     )
     if type(snapshot.run_id) is not str or not snapshot.run_id:
         raise ValueError("result run_id must be a nonempty string")

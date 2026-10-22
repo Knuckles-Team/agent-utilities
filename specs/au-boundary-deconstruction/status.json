@@ -1481,15 +1481,16 @@
       "title": "The run loop applies a received run plan",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "84b757737456",
         "e7ce34331f28",
         "e9d99415a5cd"
       ],
       "verified_by": [
-        "tests/test_run_loop.py:127",
-        "tests/test_run_loop.py:145",
-        "tests/test_run_loop.py:163",
-        "tests/test_run_loop.py:176",
-        "tests/test_run_loop.py:228"
+        "tests/test_graph_metrics.py:102",
+        "tests/test_graph_metrics.py:120",
+        "tests/test_graph_metrics.py:16",
+        "tests/test_graph_metrics.py:58",
+        "tests/test_graph_metrics.py:76"
       ]
     },
     {
@@ -1500,11 +1501,11 @@
         "e7ce34331f28"
       ],
       "verified_by": [
-        "tests/test_run_loop.py:120",
-        "tests/test_run_loop.py:201",
-        "tests/test_run_loop.py:255",
-        "tests/test_run_loop.py:66",
-        "tests/test_run_loop.py:74"
+        "tests/test_run_loop.py:122",
+        "tests/test_run_loop.py:130",
+        "tests/test_run_loop.py:176",
+        "tests/test_run_loop.py:257",
+        "tests/test_run_loop.py:311"
       ]
     },
     {

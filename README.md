@@ -49,6 +49,21 @@ async with create_workspace(run_id="r1", prefer_docker=False) as ws:
     result = await ws.act(TestRunAction(selector="tests"))
 ```
 
+## Run measurements
+
+The graph run result and terminal event include `metrics` from a monotonic
+client clock: `run_elapsed_ms` and ordered `model_requests` with
+`client_request_elapsed_ms`, outcome, model/provider attribution and validated
+per-response token counts. The sample list is bounded; `coverage: "partial"`
+means some observed requests were omitted. Failed requests have no invented
+token counts. These measurements are emitted through the host event sink for
+shared backend consumption; AU stores no session totals.
+
+Run time includes planning, tools and retries. Client request time includes
+transport and provider waiting. Neither is provider generation time, and neither
+is used to derive generation TPS. Provider queue wait, generation duration and
+TTFT are absent unless a future adapter measures and identifies them explicitly.
+
 ## Received dependency plans
 
 A host can pass `RunPlan(dependency_plan=DependencyPlan(...))` to the same
