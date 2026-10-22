@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from contextlib import nullcontext
 from typing import Any
 
@@ -14,7 +15,26 @@ from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RunUsage, UsageLimits
 
-from .state import RunBudget
+from .state import RunBudget, RunPlan
+
+
+def initial_run_usage(plan: RunPlan) -> RunUsage:
+    """Snapshot only the public counters; never estimate unreported usage."""
+    usage = plan.initial_usage
+    if not isinstance(usage, RunUsage):
+        raise ValueError("initial_usage must be RunUsage")
+    counters = {
+        key: getattr(usage, key)
+        for key in ("requests", "tool_calls", "input_tokens", "output_tokens")
+    }
+    if any(type(value) is not int or value < 0 for value in counters.values()):
+        raise ValueError("initial_usage counters must be nonnegative integers")
+    if usage.total_tokens != counters["input_tokens"] + counters["output_tokens"]:
+        raise ValueError("initial_usage total_tokens must match input and output")
+    elapsed = plan.initial_elapsed_seconds
+    if type(elapsed) not in (int, float) or not math.isfinite(elapsed) or elapsed < 0:
+        raise ValueError("initial_elapsed_seconds must be finite and nonnegative")
+    return RunUsage(**counters)
 
 
 async def _request_drained(
@@ -58,9 +78,16 @@ class SharedBudget(AbstractCapability[Any]):
     """
 
     def __init__(
-        self, budget: RunBudget, *, max_concurrent_requests: int | None = None
+        self,
+        budget: RunBudget,
+        *,
+        max_concurrent_requests: int | None = None,
+        initial_usage: RunUsage | None = None,
     ) -> None:
         self.usage = RunUsage()
+        if initial_usage is not None:
+            self.usage.incr(initial_usage)
+        self._has_initial_usage = initial_usage is not None
         self.limits = UsageLimits(
             request_limit=budget.request_limit,
             tool_calls_limit=50
@@ -74,6 +101,18 @@ class SharedBudget(AbstractCapability[Any]):
             else None
         )
 
+    def check_initial_consumption(self) -> None:
+        """Refuse an exhausted host ledger before constructing any child."""
+        self.limits.check_before_request(self.usage)
+        token_limit = self.limits.total_tokens_limit
+        if token_limit is not None and self.usage.total_tokens >= token_limit:
+            raise UsageLimitExceeded(
+                f"Initial usage exhausts the total_tokens_limit of {token_limit}"
+            )
+        # An exact tool cap still allows a model-only answer. Only prior usage
+        # above the cap refuses the run; before_tool_execute rejects new tools.
+        self.limits.check_before_tool_call(self.usage)
+
     async def wrap_model_request(
         self,
         ctx: RunContext[Any],
@@ -85,6 +124,15 @@ class SharedBudget(AbstractCapability[Any]):
         # child tools. Nested recursive runs cannot deadlock the request pool.
         async with self.slots if self.slots is not None else nullcontext():
             self.limits.check_before_request(self.usage)
+            token_limit = self.limits.total_tokens_limit
+            if (
+                self._has_initial_usage
+                and token_limit is not None
+                and self.usage.total_tokens >= token_limit
+            ):
+                raise UsageLimitExceeded(
+                    f"The next request would exceed the total_tokens_limit of {token_limit}"
+                )
             self.usage.requests += 1
             before_input = ctx.usage.input_tokens
             before_output = ctx.usage.output_tokens

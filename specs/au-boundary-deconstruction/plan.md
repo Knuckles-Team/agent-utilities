@@ -583,3 +583,35 @@ Host extensions own cancellation-safe asynchronous scope exits. Repeated direct
 cancellation can interrupt a host exit after AU finishes child cleanup.
 AU does not move host exits to another task, which may break ContextVar ownership.
 No elapsed cleanup bound applies to handlers that do not cooperate.
+
+## Amendment 2026-10-22: account for prior host consumption
+
+AU-BOUNDARY-R043.7 applies the original host bounds to prior measured work
+and in-run execution. `RunPlan.initial_usage` uses the existing pydantic-ai
+`RunUsage` type. `initial_elapsed_seconds` carries measured time before AU
+execution. Both default to zero. They are trusted host inputs, not model
+proposal fields. Request metadata and the model scaffold cannot set them.
+Arbora supplies its real planner usage and elapsed time. EG still owns task
+choice and admission bounds; AU adds no scheduler, planner or store.
+
+AU snapshots the public request, tool, input-token and output-token counters
+before yielding or binding a model. Counts must be nonnegative integers, not
+booleans or fractions. Total tokens are the sum of input and output tokens.
+Elapsed time must be finite and nonnegative. The public usage shape stays
+unchanged. Extended provider metrics remain outside this accounting change.
+
+The host keeps the original `RunBudget`, not a pre-subtracted remainder. AU
+seeds one aggregate ledger and subtracts initial elapsed time once from the
+existing setup/driver timeout. An exhausted initial request, token or time
+bound stops before model binding and child dispatch. Prior tool usage above
+its limit also stops. An exact tool limit allows model-only completion, but
+AU refuses additional tools before their execution. Terminal usage
+includes validated initial counters on completion, refusal, failure and
+cancellation. Reusing a plan does not mutate or reuse its run ledger.
+
+Nonzero initial consumption also opts serial steps into the existing shared
+budget. They cannot reset the initial charge for each step. Zero-default
+serial behavior remains unchanged. All rolling and cancellation guarantees
+and residuals above still apply. The harness does not estimate missing token
+usage or know in-flight token counts before the provider reports them. The
+host must not add planner counters to AU results a second time.

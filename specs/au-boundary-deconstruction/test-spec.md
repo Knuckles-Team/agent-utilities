@@ -104,3 +104,16 @@ Test scaffold binding and initial publication against the same run timeout.
 Assert completed asynchronous model cleanup under repeated cancellation, including nested runs.
 Refuse oversized tool batches before fan-out, including the finite parallel fallback.
 Keep root-only recursion and first-event iterator close compatible.
+
+### Initial host accounting under AU-BOUNDARY-R043.7
+
+Public run-loop and dependency tests provide `RunUsage` and measured elapsed
+time, with original budgets intact. They prove exact one-time aggregate
+accounting, pre-dispatch refusal of exhausted bounds, strict invalid-input
+refusal and unchanged zero defaults. Exact tool limits permit model-only
+answers, including at zero. Additional tool calls must have no side effects.
+Prior tool usage above the limit must stop before binding or child dispatch.
+Cover setup failure, child failure,
+parent cancellation, serial multi-step limits, plan reuse and a provider
+that reports no token counts. Model proposal text and request metadata must
+not change the host ledger. No test uses a sleep or live provider.

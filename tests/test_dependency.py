@@ -11,7 +11,7 @@ import pytest
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.toolsets import FunctionToolset
-from pydantic_ai.usage import RequestUsage
+from pydantic_ai.usage import RequestUsage, RunUsage
 
 from agent_utilities import host_ports
 from agent_utilities.graph import (
@@ -93,12 +93,20 @@ async def reached(event):
     await asyncio.wait_for(event.wait(), timeout=0.5)
 
 
-async def test_freed_slot_starts_dependent_before_slow_peer_and_join_waits(events):
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("seeded", [False, True])
+async def test_freed_slot_starts_dependent_before_slow_peer_and_join_waits(
+    seeded, events
+):
     model = ControlledModel("A", "B", "C", "join")
     model.release["B"].set()
-    parent = asyncio.create_task(
-        run(RunRequest(task="complex query"), plan=graph_plan(model.model))
+    initial = (
+        RunUsage(requests=2, tool_calls=1, input_tokens=3, output_tokens=4)
+        if seeded
+        else RunUsage()
     )
+    plan = graph_plan(model.model, initial_usage=initial)
+    parent = asyncio.create_task(run(RunRequest(task="complex query"), plan=plan))
     try:
         await reached(model.started["C"])
         assert not model.ended["A"].is_set()
@@ -122,8 +130,15 @@ async def test_freed_slot_starts_dependent_before_slow_peer_and_join_waits(event
             parent.cancel()
         await asyncio.gather(parent, return_exceptions=True)
     assert result.status == "completed" and result.output == "result:join"
-    assert result.steps == 4 and result.usage["requests"] == 4
-    assert result.usage["total_tokens"] == 8
+    assert result.steps == 4 and result.usage["requests"] == initial.requests + 4
+    assert result.usage["tool_calls"] == initial.tool_calls
+    assert result.usage["total_tokens"] == initial.total_tokens + 8
+    assert events[-1]["result"]["usage"] == result.usage
+    assert initial == (
+        RunUsage(requests=2, tool_calls=1, input_tokens=3, output_tokens=4)
+        if seeded
+        else RunUsage()
+    )
     assert model.history_lengths == [1] * 4
     assert model.active == 0
     assert (
@@ -176,16 +191,24 @@ async def test_active_limit_and_ready_order(capacity):
     assert [key for key, kind in model.timeline if kind == "start"] == list(names)
 
 
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("seeded", [False, True])
 @pytest.mark.parametrize("failure", ["error", "stop", "cancel"])
 async def test_failure_stop_and_cancel_drain_siblings_and_block_dependents(
-    failure, events
+    failure, seeded, events
 ):
     model = ControlledModel(
         "A", "B", "C", "join", failed="B" if failure == "error" else None
     )
+    initial = (
+        RunUsage(requests=2, tool_calls=1, input_tokens=3, output_tokens=4)
+        if seeded
+        else RunUsage()
+    )
     plan = graph_plan(
         model.model,
         stop=StopRule(stop_markers=("result:B",) if failure == "stop" else ()),
+        initial_usage=initial,
     )
     parent = asyncio.create_task(run(RunRequest(task="t"), plan=plan))
     await reached(model.started["A"])
@@ -199,6 +222,20 @@ async def test_failure_stop_and_cancel_drain_siblings_and_block_dependents(
         result = await parent
         assert result.status == ("failed" if failure == "error" else "stopped")
     assert model.active == 0 and model.ended["A"].is_set()
+    assert events[-1]["result"]["usage"] == {
+        "requests": initial.requests + 2,
+        "tool_calls": initial.tool_calls,
+        "input_tokens": initial.input_tokens + (failure == "stop"),
+        "output_tokens": initial.output_tokens + (failure == "stop"),
+        "total_tokens": initial.total_tokens + (2 if failure == "stop" else 0),
+    }
+    if failure != "cancel":
+        assert events[-1]["result"]["usage"] == result.usage
+    assert initial == (
+        RunUsage(requests=2, tool_calls=1, input_tokens=3, output_tokens=4)
+        if seeded
+        else RunUsage()
+    )
     assert not model.started["C"].is_set()
     assert not model.started["join"].is_set()
     assert {e["task_id"] for e in events if e["type"] == "task_blocked"} == {
@@ -309,7 +346,11 @@ async def test_shared_token_limit_stops_after_reported_usage():
     assert result.usage["total_tokens"] == 4
 
 
-async def test_tool_reservations_are_shared_across_parallel_children():
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("initial_tool_calls", [0, 1])
+async def test_tool_reservations_are_shared_across_parallel_children(
+    initial_tool_calls,
+):
     effects: list[str] = []
     toolset = FunctionToolset()
 
@@ -328,12 +369,13 @@ async def test_tool_reservations_are_shared_across_parallel_children():
         plan=graph_plan(
             FunctionModel(model),
             toolsets=(toolset,),
-            budget=RunBudget(tool_calls_limit=1),
+            budget=RunBudget(tool_calls_limit=initial_tool_calls + 1),
+            initial_usage=RunUsage(tool_calls=initial_tool_calls),
         ),
     )
     assert result.status == "stopped"
     assert effects == ["effect"]
-    assert result.usage["tool_calls"] == 1
+    assert result.usage["tool_calls"] == initial_tool_calls + 1
 
 
 @pytest.mark.parametrize("mode", ["timeout", "cancel", "fail"])
@@ -774,3 +816,172 @@ async def test_dependency_deadline_includes_scaffold_setup(stage, monkeypatch):
         if not parent.done():
             parent.cancel()
         await asyncio.gather(parent, return_exceptions=True)
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize(
+    ("initial", "budget", "elapsed"),
+    [
+        (RunUsage(requests=3), RunBudget(request_limit=3), 0),
+        (RunUsage(input_tokens=2, output_tokens=3), RunBudget(total_tokens_limit=5), 0),
+        (RunUsage(tool_calls=1), RunBudget(tool_calls_limit=0), 0),
+        (RunUsage(tool_calls=3), RunBudget(tool_calls_limit=2), 0),
+        (RunUsage(), RunBudget(timeout_seconds=5), 5),
+    ],
+)
+async def test_initial_dependency_budget_refuses_before_binding_or_child_dispatch(
+    initial, budget, elapsed, events
+):
+    host_ports.register_model_provider(lambda _: pytest.fail("model resolved"))
+    host_ports.register_native_toolset_provider(
+        host_ports.NativeToolsetProvider(
+            available_tools=lambda: pytest.fail("tools discovered"),
+            build_toolset=lambda *_: pytest.fail("tools bound"),
+        )
+    )
+    result = await run(
+        RunRequest(task="t"),
+        plan=graph_plan(
+            "unbound",
+            tool_names=("effect",),
+            initial_usage=initial,
+            initial_elapsed_seconds=elapsed,
+            budget=budget,
+        ),
+    )
+    assert result.status == "stopped" and result.steps == 0
+    assert (result.error or "").startswith("budget:")
+    assert result.usage["requests"] == initial.requests
+    assert result.usage["tool_calls"] == initial.tool_calls
+    assert result.usage["total_tokens"] == initial.total_tokens
+    assert events[-1]["result"]["usage"] == result.usage
+    assert not any(event["type"].startswith("task_") for event in events)
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("limit", [0, 2])
+@pytest.mark.parametrize("attempt_tool", [False, True])
+async def test_exact_initial_dependency_tool_limit_allows_only_model_work(
+    limit, attempt_tool, events
+):
+    effects = []
+    prompts = []
+    toolset = FunctionToolset()
+
+    @toolset.tool_plain
+    async def effect() -> str:
+        effects.append("effect")
+        return "done"
+
+    async def reply(messages, info):
+        prompts.append(messages[-1].parts[-1].content.split("\n", 1)[0])
+        return ModelResponse(
+            parts=[ToolCallPart("effect", {}) if attempt_tool else TextPart("ok")],
+            usage=RequestUsage(input_tokens=2, output_tokens=1),
+        )
+
+    initial = RunUsage(requests=1, tool_calls=limit, input_tokens=3, output_tokens=4)
+    result = await run(
+        RunRequest(task="t"),
+        plan=graph_plan(
+            FunctionModel(reply),
+            capacity=1 if attempt_tool else 2,
+            toolsets=(toolset,),
+            initial_usage=initial,
+            budget=RunBudget(tool_calls_limit=limit),
+        ),
+    )
+    calls = 1 if attempt_tool else 4
+    assert prompts == ["A", "B", "C", "join"][:calls]
+    assert (result.status, result.steps, result.output) == (
+        "stopped" if attempt_tool else "completed",
+        calls,
+        "" if attempt_tool else "ok",
+    )
+    assert effects == []
+    assert result.usage == {
+        "requests": 1 + calls,
+        "tool_calls": limit,
+        "input_tokens": 3 + 2 * calls,
+        "output_tokens": 4 + calls,
+        "total_tokens": 7 + 3 * calls,
+    }
+    assert initial == RunUsage(
+        requests=1, tool_calls=limit, input_tokens=3, output_tokens=4
+    )
+    assert events[0]["type"] == "run_started"
+    assert events[-1]["type"] == "graph_complete"
+    assert events[-1]["result"] == result.as_dict()
+    lifecycle = [(event["type"], event["task_id"]) for event in events[1:-1]]
+    if attempt_tool:
+        assert (result.error or "").startswith("budget:")
+        assert "tool_calls_limit" in result.error
+        assert lifecycle == [
+            ("task_started", "A"),
+            ("task_failed", "A"),
+            ("task_blocked", "B"),
+            ("task_blocked", "C"),
+            ("task_blocked", "join"),
+        ]
+    else:
+        assert result.error is None
+        assert len(lifecycle) == 8
+        assert set(lifecycle) == {
+            (kind, task)
+            for kind in ("task_started", "task_completed")
+            for task in ("A", "B", "C", "join")
+        }
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize(
+    ("initial", "budget", "calls", "tokens"),
+    [
+        (RunUsage(requests=1), RunBudget(request_limit=4), 3, 6),
+        (RunUsage(input_tokens=3), RunBudget(total_tokens_limit=5), 1, 5),
+    ],
+)
+async def test_initial_dependency_usage_leaves_only_the_aggregate_remainder(
+    initial, budget, calls, tokens, events
+):
+    model = ControlledModel("A", "B", "C", "join")
+    for gate in model.release.values():
+        gate.set()
+    result = await run(
+        RunRequest(task="t"),
+        plan=graph_plan(model.model, capacity=1, initial_usage=initial, budget=budget),
+    )
+    assert result.status == "stopped"
+    assert len(model.inputs) == calls and model.active == 0
+    assert result.usage["requests"] == initial.requests + calls
+    assert result.usage["total_tokens"] == tokens
+    assert events[-1]["result"]["usage"] == result.usage
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+async def test_reusing_one_seeded_dependency_plan_does_not_share_mutable_usage():
+    async def reply(messages, info):
+        return ModelResponse(
+            parts=[TextPart("ok")],
+            usage=RequestUsage(input_tokens=1, output_tokens=1),
+        )
+
+    initial = RunUsage(requests=2, tool_calls=1, input_tokens=3, output_tokens=4)
+    plan = graph_plan(FunctionModel(reply), initial_usage=initial)
+    results = await asyncio.gather(
+        *(run(RunRequest(task="t"), plan=plan) for _ in range(2))
+    )
+    expected = {
+        "requests": 6,
+        "tool_calls": 1,
+        "input_tokens": 7,
+        "output_tokens": 8,
+        "total_tokens": 15,
+    }
+    assert all(
+        result.status == "completed" and result.usage == expected for result in results
+    )
+    assert initial == RunUsage(
+        requests=2, tool_calls=1, input_tokens=3, output_tokens=4
+    )
+    assert results[0].run_id != results[1].run_id

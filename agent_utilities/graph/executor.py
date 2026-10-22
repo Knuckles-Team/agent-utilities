@@ -26,7 +26,7 @@ from agent_utilities import host_ports
 from agent_utilities.harness.plan import PlanState
 from agent_utilities.harness.plan_runtime import PlanScaffold
 
-from .budget import SharedBudget
+from .budget import SharedBudget, initial_run_usage
 from .dependency import iterate_dependency_plan, validate_dependency_plan
 from .state import (
     GraphDeps,
@@ -171,6 +171,12 @@ async def iterate_run(
     state = GraphState(run_id=request.run_id, query=request.task, mode=request.mode)
     try:
         run_plan = plan or await resolve_plan(request, cfg)
+        initial_usage = initial_run_usage(run_plan)
+        has_initial_usage = initial_usage.has_values() or bool(
+            run_plan.initial_elapsed_seconds
+        )
+        if has_initial_usage:
+            state.add_usage(initial_usage)
         validate_dependency_plan(run_plan)
         attachments = _attachment_input(request, run_plan)
         if run_plan.harness.plan_scaffold == "on":
@@ -188,11 +194,17 @@ async def iterate_run(
         SharedBudget(
             run_plan.budget,
             max_concurrent_requests=run_plan.budget.max_concurrent_requests,
+            initial_usage=initial_usage if has_initial_usage else None,
         )
-        if run_plan.dependency_plan is not None
+        if run_plan.dependency_plan is not None or has_initial_usage
         else None
     )
     try:
+        if has_initial_usage:
+            assert shared_budget is not None
+            shared_budget.check_initial_consumption()
+            if run_plan.initial_elapsed_seconds >= run_plan.budget.timeout_seconds:
+                raise TimeoutError
         yield _event(
             state,
             "run_started",
@@ -202,7 +214,9 @@ async def iterate_run(
             else len(run_plan.steps),
         )
         async with host_ports.authority_keepalive_scope():
-            async with asyncio.timeout(run_plan.budget.timeout_seconds) as timeout:
+            async with asyncio.timeout(
+                run_plan.budget.timeout_seconds - run_plan.initial_elapsed_seconds
+            ) as timeout:
                 async with host_ports.scaffold_publication_scope(
                     request, state.scaffold
                 ) as publisher:
@@ -213,7 +227,8 @@ async def iterate_run(
                         publisher=publisher,
                         shared_budget=shared_budget,
                     )
-                    if shared_budget is not None:
+                    if run_plan.dependency_plan is not None:
+                        assert shared_budget is not None
                         # Setup uses this same absolute deadline. Once setup
                         # finishes, the driver owns it, not the paused viewer.
                         deadline = timeout.when()
@@ -237,14 +252,20 @@ async def iterate_run(
                         model_input: str | list[str | BinaryContent] = prompt
                         if state.step == 1 and attachments:
                             model_input = [prompt, *attachments]
-                        result = await agent.run(
-                            model_input,
-                            deps=deps,
-                            message_history=history,
-                            usage_limits=limits,
-                        )
+                        try:
+                            result = await agent.run(
+                                model_input,
+                                deps=deps,
+                                message_history=history,
+                                usage_limits=limits,
+                            )
+                        finally:
+                            if shared_budget is not None:
+                                state.usage.clear()
+                                state.add_usage(shared_budget.usage)
                         history = list(result.all_messages())
-                        state.add_usage(result.usage)
+                        if shared_budget is None:
+                            state.add_usage(result.usage)
                         text = _text(result.output)
                         state.outputs.append(text)
                         yield _event(state, "node_transition", output=text)
