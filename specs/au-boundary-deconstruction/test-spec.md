@@ -87,3 +87,20 @@ lease admission, deployed decision activation or served inspector availability.
 
 
 AU-BOUNDARY-R043.5.2: Per-run declined publication leaves local state usable, closes exactly once on success or body failure, and never changes another run’s binding.
+
+## AU-BOUNDARY-R043.6 and R043.7 dependency execution
+
+`tests/test_dependency.py` drives the public run API with deterministic
+FunctionModel responses and explicit event gates, with no sleeps or network.
+Cover capacity-two rolling refill, joins, deterministic output, isolated task
+history and malformed DAGs. Cover budgets, stop markers, failures, timeout, parent
+cancellation, iterator close and ordered unique lifecycle events. Existing
+`tests/test_run_loop.py`, `tests/test_rlm.py` and `tests/test_plan_runtime.py`
+remain compatibility gates. This proves in-run behavior, not served admission
+or durable replay. Those proofs belong to Arbora and EG.
+
+Test paused readers against both rolling dispatch and the driver deadline.
+Test scaffold binding and initial publication against the same run timeout.
+Assert completed asynchronous model cleanup under repeated cancellation, including nested runs.
+Refuse oversized tool batches before fan-out, including the finite parallel fallback.
+Keep root-only recursion and first-event iterator close compatible.

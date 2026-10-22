@@ -147,6 +147,8 @@
     "AU-BOUNDARY-R043.5",
     "AU-BOUNDARY-R043.5.1",
     "AU-BOUNDARY-R043.5.2",
+    "AU-BOUNDARY-R043.6",
+    "AU-BOUNDARY-R043.7",
     "AU-BOUNDARY-R044",
     "AU-BOUNDARY-R044.1",
     "AU-BOUNDARY-R045",
@@ -1452,7 +1454,7 @@
     {
       "id": "AU-BOUNDARY-R043",
       "title": "The agent run loop stays in Agent Utilities",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "8a45ab8013ad",
         "fdeabad709b3"
@@ -1463,7 +1465,9 @@
         "AU-BOUNDARY-R043.2",
         "AU-BOUNDARY-R043.3",
         "AU-BOUNDARY-R043.4",
-        "AU-BOUNDARY-R043.5"
+        "AU-BOUNDARY-R043.5",
+        "AU-BOUNDARY-R043.6",
+        "AU-BOUNDARY-R043.7"
       ]
     },
     {
@@ -1505,7 +1509,7 @@
         "e7ce34331f28"
       ],
       "verified_by": [
-        "tests/test_rlm.py:106",
+        "tests/test_rlm.py:107",
         "tests/test_rlm.py:20",
         "tests/test_rlm.py:64",
         "tests/test_rlm.py:75",
@@ -1628,6 +1632,28 @@
         "tests/test_host_ports.py:175",
         "tests/test_host_ports.py:202",
         "tests/test_host_ports.py:227"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.6",
+      "title": "Apply a received bounded dependency plan",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/test_dependency.py:28"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.7",
+      "title": "Account and drain parallel work",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/test_rlm.py:123",
+        "tests/test_rlm.py:182",
+        "tests/test_rlm.py:234",
+        "tests/test_rlm.py:261",
+        "tests/test_rlm.py:274"
       ]
     },
     {

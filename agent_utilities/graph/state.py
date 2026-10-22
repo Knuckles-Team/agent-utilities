@@ -38,6 +38,8 @@ class RunBudget:
     ``candidate_slots`` is the candidate slot count of the stage
     allocation the run decision carries; the harness evolution cycle
     reads its candidate budget k from it and abstains below two.
+    ``max_concurrent_requests`` caps concurrent model calls on dependency and
+    recursive paths; waiting parents do not hold these permits.
     """
 
     request_limit: int | None = DEFAULT_REQUEST_LIMIT
@@ -47,6 +49,7 @@ class RunBudget:
     candidate_slots: int | None = None
     max_attachment_bytes: int = 1_048_576
     max_attachments: int = 8
+    max_concurrent_requests: int = 4
 
 
 @dataclass(frozen=True)
@@ -90,6 +93,30 @@ class RunRequest:
 
 
 @dataclass(frozen=True)
+class RunTask:
+    """One received task and its direct prerequisites, not a planning decision."""
+
+    task_id: str
+    prompt: str
+    depends_on: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class DependencyPlan:
+    """An admitted, finite DAG to execute with a bounded rolling ready queue.
+
+    The host supplies declaration order, dependencies, the final output task
+    and the concurrency limit. The harness neither adds tasks nor picks them.
+    All tasks must contribute to ``output_task_id`` through dependency edges.
+    """
+
+    tasks: tuple[RunTask, ...]
+    output_task_id: str
+    max_concurrency: int = 1
+    plan_id: str = ""
+
+
+@dataclass(frozen=True)
 class RunPlan:
     """Every decision of one run, as received from the host.
 
@@ -97,7 +124,8 @@ class RunPlan:
     ready pydantic-ai model. ``steps`` are the prompts run in order; each step
     sees the earlier steps' messages. ``toolsets`` are ready pydantic-ai
     toolsets; ``tool_names`` are host operations bound through the native
-    toolset provider.
+    toolset provider. ``dependency_plan`` opts into bounded rolling execution
+    instead of serial ``steps``; the two are mutually exclusive.
     """
 
     model: Any
@@ -109,6 +137,7 @@ class RunPlan:
     stop: StopRule = field(default_factory=StopRule)
     harness: HarnessConfig = field(default_factory=HarnessConfig)
     input_media_types: tuple[str, ...] = ()
+    dependency_plan: DependencyPlan | None = None
 
 
 @dataclass
@@ -124,6 +153,7 @@ class GraphState:
     usage: dict[str, int] = field(default_factory=dict)
     error: str | None = None
     scaffold: PlanState | None = None
+    event_sequence: int = 0
 
     def add_usage(self, usage: Any) -> None:
         for key in ("requests", "tool_calls", "input_tokens", "output_tokens"):
@@ -140,6 +170,8 @@ class GraphDeps:
     state: GraphState
     plan: RunPlan
     config: Mapping[str, Any] = field(default_factory=dict)
+    task_id: str | None = None
+    dependency_outputs: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -202,6 +234,7 @@ def default_run_plan(request: RunRequest, config: Mapping[str, Any]) -> RunPlan:
 
 
 __all__ = [
+    "DependencyPlan",
     "GraphDeps",
     "GraphState",
     "HarnessConfig",
@@ -211,6 +244,7 @@ __all__ = [
     "RunRequest",
     "RunResult",
     "RunStatus",
+    "RunTask",
     "StopRule",
     "default_run_plan",
 ]

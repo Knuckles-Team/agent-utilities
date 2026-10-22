@@ -148,3 +148,6 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [x] **AU-BOUNDARY-R043.5.1:** Add atomic scaffold revision/read semantics before the owner-composed snapshot bridge.
 
 - [x] **AU-BOUNDARY-R043.5.2:** Publish actual atomic scaffold revisions through an optional run-local host binding with lifecycle, isolation and refusal tests.
+
+- [x] **AU-BOUNDARY-R043.6:** Run the received DAG with bounded rolling slots.
+- [x] **AU-BOUNDARY-R043.7:** Reserve aggregate limits and drain child lifecycle.
