@@ -151,3 +151,6 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 
 - [x] **AU-BOUNDARY-R043.6:** Run the received DAG with bounded rolling slots.
 - [x] **AU-BOUNDARY-R043.7:** Reserve aggregate limits and drain child lifecycle.
+- [ ] **AU-BOUNDARY-R043.8:** Compose the host checkpoint port with dependency plans and shared budgets; qualify restart against the EG native checkpoint producer.
+- [ ] **AU-BOUNDARY-R043.9:** Restore completed conversation history from a host-authorized checkpoint.
+- [ ] **AU-BOUNDARY-R043.10:** Publish model and tool events through the durable host event port.

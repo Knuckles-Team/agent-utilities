@@ -137,3 +137,14 @@ Forged provider and model receipts must not provide accounting. Successful
 and stopped returns and original cancellation must remain unchanged.
 The runtime facade exports the identical run contract objects.
 Importing it must not load the graph runtime before a caller resolves those aliases.
+
+### Run resume, history and live events under AU-BOUNDARY-R043.8 to R043.10
+
+AU-BOUNDARY-R043.8 tests restart a function-model run from a completed
+checkpoint and count model calls. An in-flight checkpoint, a changed plan and
+a changed admission each refuse before any effect. AU-BOUNDARY-R043.9 tests
+capture the earlier messages in the next run's first request and refuse
+malformed history. AU-BOUNDARY-R043.10 tests record publication order, refuse
+a tool effect after a failed call publication, and stop after a failed result
+publication. Live qualification needs the EG checkpoint producer and the
+Arbora admission-bound adapter.

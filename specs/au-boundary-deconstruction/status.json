@@ -149,6 +149,9 @@
     "AU-BOUNDARY-R043.5.2",
     "AU-BOUNDARY-R043.6",
     "AU-BOUNDARY-R043.7",
+    "AU-BOUNDARY-R043.8",
+    "AU-BOUNDARY-R043.9",
+    "AU-BOUNDARY-R043.10",
     "AU-BOUNDARY-R044",
     "AU-BOUNDARY-R044.1",
     "AU-BOUNDARY-R045",
@@ -1454,7 +1457,7 @@
     {
       "id": "AU-BOUNDARY-R043",
       "title": "The agent run loop stays in Agent Utilities",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "8a45ab8013ad",
         "fdeabad709b3"
@@ -1467,7 +1470,10 @@
         "AU-BOUNDARY-R043.4",
         "AU-BOUNDARY-R043.5",
         "AU-BOUNDARY-R043.6",
-        "AU-BOUNDARY-R043.7"
+        "AU-BOUNDARY-R043.7",
+        "AU-BOUNDARY-R043.8",
+        "AU-BOUNDARY-R043.9",
+        "AU-BOUNDARY-R043.10"
       ]
     },
     {
@@ -1662,6 +1668,27 @@
         "tests/test_dependency.py:861",
         "tests/test_dependency.py:936"
       ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.8",
+      "title": "Resume a run from a host checkpoint",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.9",
+      "title": "Carry completed conversation history into a fresh run",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.10",
+      "title": "Publish model and tool events through a durable host port",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R044",
