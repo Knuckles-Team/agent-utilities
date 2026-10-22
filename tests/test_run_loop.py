@@ -800,3 +800,473 @@ async def test_incoherent_initial_token_total_fails_before_model_resolution(even
     assert result.status == "failed" and result.steps == 0
     assert "total_tokens" in result.error
     assert [event["type"] for event in events] == ["error"]
+
+
+@pytest.fixture
+def no_planning_failure_execution():
+    """Fail immediately if a rejected host decision reaches an execution port."""
+    host_ports.register_model_provider(lambda _: pytest.fail("model resolved"))
+    host_ports.register_native_toolset_provider(
+        host_ports.NativeToolsetProvider(
+            available_tools=lambda: pytest.fail("tools discovered"),
+            build_toolset=lambda *_: pytest.fail("tools bound"),
+        )
+    )
+    host_ports.register_scaffold_publication_factory(
+        lambda _: pytest.fail("execution scaffold bound")
+    )
+
+
+def register_failing_decision(error: BaseException, *, is_async: bool = False):
+    """Exercise both public synchronous and awaitable decision-provider forms."""
+    seen = []
+
+    def provide(request):
+        seen.append(request)
+        if is_async:
+
+            async def later():
+                raise error
+
+            return later()
+        raise error
+
+    host_ports.register_run_decision_provider(provide)
+    return seen
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("is_async", [False, True])
+@pytest.mark.parametrize("through_iterator", [False, True])
+@pytest.mark.parametrize(
+    ("error_type", "message"),
+    [
+        (ValueError, "planner output validation failed"),
+        (RuntimeError, "plan publication failed"),
+        (LookupError, "published plan readback failed"),
+        (PermissionError, "authority expired after planning"),
+        (TimeoutError, "publication timed out after planning"),
+    ],
+)
+async def test_measured_planning_failure_is_a_single_reusable_terminal_result(
+    is_async,
+    through_iterator,
+    error_type,
+    message,
+    no_planning_failure_execution,
+    events,
+):
+    from agent_utilities.graph import RunPlanFailure
+
+    initial = RunUsage(
+        requests=7,
+        tool_calls=2,
+        input_tokens=11,
+        output_tokens=13,
+        cache_read_tokens=41,
+        details={"provider-extra": 9},
+    )
+    original = asdict(initial)
+    error = error_type(message)
+    failure = RunPlanFailure(error, initial_usage=initial, initial_elapsed_seconds=2.5)
+    seen = register_failing_decision(failure, is_async=is_async)
+    request = RunRequest(
+        task="t", model_id="unbound", allowed_tools=("effect",), budget_tokens=1
+    )
+    expected = {
+        "run_id": request.run_id,
+        "output": "",
+        "status": "failed",
+        "steps": 0,
+        "usage": {
+            "requests": 7,
+            "tool_calls": 2,
+            "input_tokens": 11,
+            "output_tokens": 13,
+            "total_tokens": 24,
+        },
+        "error": f"{error_type.__name__}: {message}",
+        "execution_mode": "graph",
+    }
+    for _ in range(2):
+        events.clear()
+        if through_iterator:
+            emitted = [event async for event in iterate_run(request)]
+            assert emitted == events
+            assert emitted[-1]["result"] == expected
+        else:
+            result = await run(request)
+            assert result.as_dict() == expected
+        assert [event["type"] for event in events] == ["error"]
+        assert events[0]["result"] == expected
+        assert events[0]["error"] == expected["error"]
+        assert events[0]["sequence"] == 1 and events[0]["step"] == 0
+        assert asdict(initial) == original
+    assert seen == [request, request]
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+async def test_measured_planning_limit_failure_preserves_original_error_and_usage(
+    no_planning_failure_execution, events
+):
+    from pydantic_ai.exceptions import UsageLimitExceeded
+
+    from agent_utilities.graph import RunPlanFailure
+
+    error = UsageLimitExceeded("planner exceeded its original token allowance")
+    register_failing_decision(
+        RunPlanFailure(error, initial_usage=RunUsage(requests=3, input_tokens=15))
+    )
+    result = await run(RunRequest(task="t", budget_tokens=2))
+    assert (result.status, result.steps, result.error) == (
+        "failed",
+        0,
+        f"UsageLimitExceeded: {error}",
+    )
+    assert result.usage == {
+        "requests": 3,
+        "tool_calls": 0,
+        "input_tokens": 15,
+        "output_tokens": 0,
+        "total_tokens": 15,
+    }
+    assert [event["type"] for event in events] == ["error"]
+    assert events[0]["result"] == result.as_dict()
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("is_async", [False, True])
+@pytest.mark.parametrize("through_iterator", [False, True])
+@pytest.mark.parametrize("error_type", [asyncio.CancelledError, GeneratorExit])
+async def test_measured_planning_cancellation_keeps_ledger_and_original_exception(
+    is_async, through_iterator, error_type, no_planning_failure_execution, events
+):
+    from agent_utilities.graph import RunPlanFailure
+
+    initial = RunUsage(requests=2, tool_calls=1, input_tokens=9, output_tokens=3)
+    original = asdict(initial)
+    error = error_type("cancel after planner response")
+    cause = ValueError("original cancellation cause")
+    error.__cause__ = cause
+    register_failing_decision(
+        RunPlanFailure(error, initial_usage=initial, initial_elapsed_seconds=0.25),
+        is_async=is_async,
+    )
+    request = RunRequest(task="t", model_id="unbound", allowed_tools=("effect",))
+    with pytest.raises(error_type) as caught:
+        if through_iterator:
+            async for _ in iterate_run(request):
+                pytest.fail("planning cancellation yielded an execution event")
+        else:
+            await run(request)
+    assert caught.value is error
+    assert caught.value.__cause__ is cause
+    assert [event["type"] for event in events] == ["run_cancelled"]
+    assert events[0]["status"] == "stopped"
+    assert events[0]["sequence"] == 1 and events[0]["step"] == 0
+    assert events[0]["result"] == {
+        "run_id": request.run_id,
+        "output": "",
+        "status": "stopped",
+        "steps": 0,
+        "usage": {
+            "requests": 2,
+            "tool_calls": 1,
+            "input_tokens": 9,
+            "output_tokens": 3,
+            "total_tokens": 12,
+        },
+        "error": None,
+        "execution_mode": "graph",
+    }
+    assert asdict(initial) == original
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("is_async", [False, True])
+@pytest.mark.parametrize(
+    "error_type", [RuntimeError, asyncio.CancelledError, GeneratorExit]
+)
+async def test_raw_planning_failures_cannot_claim_unmeasured_usage(
+    is_async, error_type, no_planning_failure_execution, events
+):
+    error = error_type("raw provider failure")
+    error.initial_usage = RunUsage(requests=999, input_tokens=999)
+    error.initial_elapsed_seconds = 999.0
+    register_failing_decision(error, is_async=is_async)
+    request = RunRequest(
+        task="t",
+        metadata={
+            "initial_usage": {"requests": 888, "input_tokens": 888},
+            "initial_elapsed_seconds": 888.0,
+        },
+    )
+    if error_type is RuntimeError:
+        result = await run(request)
+        assert (result.status, result.steps, result.usage, result.error) == (
+            "failed",
+            0,
+            {},
+            "RuntimeError: raw provider failure",
+        )
+        assert [event["type"] for event in events] == ["error"]
+        assert events[0]["result"] == result.as_dict()
+    else:
+        with pytest.raises(error_type) as caught:
+            await run(request)
+        assert caught.value is error
+        assert events == []
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize(
+    "field", ["requests", "tool_calls", "input_tokens", "output_tokens"]
+)
+@pytest.mark.parametrize("value", [-1, True, 1.5, "3", None])
+async def test_invalid_planning_failure_counters_reject_the_whole_ledger(
+    field, value, no_planning_failure_execution, events
+):
+    from agent_utilities.graph import RunPlanFailure
+
+    initial = RunUsage(requests=2, tool_calls=1, input_tokens=9, output_tokens=3)
+    setattr(initial, field, value)
+    original = asdict(initial)
+
+    def provide(request):
+        raise RunPlanFailure(ValueError("original failure"), initial_usage=initial)
+
+    host_ports.register_run_decision_provider(provide)
+    result = await run(RunRequest(task="t"))
+    assert (result.status, result.steps, result.usage) == ("failed", 0, {})
+    assert "initial_usage" in result.error
+    assert "nonnegative integers" in result.error
+    assert [event["type"] for event in events] == ["error"]
+    assert events[0]["result"] == result.as_dict()
+    assert asdict(initial) == original
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize(
+    "elapsed", [-1, True, float("nan"), float("inf"), float("-inf"), "2", None]
+)
+async def test_invalid_planning_failure_elapsed_rejects_the_whole_ledger(
+    elapsed, no_planning_failure_execution, events
+):
+    from agent_utilities.graph import RunPlanFailure
+
+    initial = RunUsage(requests=2, input_tokens=9, output_tokens=3)
+
+    def provide(request):
+        raise RunPlanFailure(
+            RuntimeError("original failure"),
+            initial_usage=initial,
+            initial_elapsed_seconds=elapsed,
+        )
+
+    host_ports.register_run_decision_provider(provide)
+    result = await run(RunRequest(task="t"))
+    assert (result.status, result.steps, result.usage) == ("failed", 0, {})
+    assert "initial_elapsed_seconds" in result.error
+    assert [event["type"] for event in events] == ["error"]
+    assert events[0]["result"] == result.as_dict()
+    assert initial == RunUsage(requests=2, input_tokens=9, output_tokens=3)
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize(
+    "initial",
+    [None, {"requests": 2}, SimpleNamespace(requests=2), RequestUsage(input_tokens=2)],
+)
+async def test_planning_failure_requires_a_typed_host_ledger(
+    initial, no_planning_failure_execution, events
+):
+    from agent_utilities.graph import RunPlanFailure
+
+    def provide(request):
+        raise RunPlanFailure(RuntimeError("original failure"), initial_usage=initial)
+
+    host_ports.register_run_decision_provider(provide)
+    result = await run(RunRequest(task="t"))
+    assert (result.status, result.steps, result.usage) == ("failed", 0, {})
+    assert "initial_usage must be RunUsage" in result.error
+    assert [event["type"] for event in events] == ["error"]
+    assert events[0]["result"] == result.as_dict()
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+async def test_planning_failure_rejects_an_incoherent_host_token_total(
+    no_planning_failure_execution, events
+):
+    from agent_utilities.graph import RunPlanFailure
+
+    class IncoherentUsage(RunUsage):
+        @property
+        def total_tokens(self):
+            return super().total_tokens + 1
+
+    def provide(request):
+        raise RunPlanFailure(
+            RuntimeError("original failure"),
+            initial_usage=IncoherentUsage(requests=2, input_tokens=9, output_tokens=3),
+        )
+
+    host_ports.register_run_decision_provider(provide)
+    result = await run(RunRequest(task="t"))
+    assert (result.status, result.steps, result.usage) == ("failed", 0, {})
+    assert "initial_usage total_tokens" in result.error
+    assert [event["type"] for event in events] == ["error"]
+    assert events[0]["result"] == result.as_dict()
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+async def test_model_cannot_inject_a_second_planning_failure_ledger(events):
+    from agent_utilities.graph import RunPlanFailure
+
+    async def fail(messages, info):
+        raise RunPlanFailure(
+            RuntimeError("not a trusted host planning failure"),
+            initial_usage=RunUsage(requests=999, input_tokens=999),
+            initial_elapsed_seconds=999.0,
+        )
+
+    plan = plan_of(FunctionModel(fail), initial_usage=RunUsage(requests=2))
+    result = await run(
+        RunRequest(
+            task="t",
+            metadata={
+                "initial_usage": {"requests": 888, "input_tokens": 888},
+                "initial_elapsed_seconds": 888.0,
+            },
+        ),
+        plan=plan,
+    )
+    assert (result.status, result.steps) == ("failed", 1)
+    assert result.usage == {
+        "requests": 3,
+        "tool_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+    }
+    assert [event["type"] for event in events] == ["run_started", "error"]
+    assert events[-1]["result"] == result.as_dict()
+    assert plan.initial_usage == RunUsage(requests=2)
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("error_type", [asyncio.CancelledError, GeneratorExit])
+@pytest.mark.parametrize("invalid_part", ["counter", "elapsed"])
+async def test_invalid_planning_cancellation_ledger_fails_before_cancellation(
+    error_type, invalid_part, no_planning_failure_execution, events
+):
+    from agent_utilities.graph import RunPlanFailure
+
+    initial = RunUsage(requests=2, input_tokens=9, output_tokens=3)
+    if invalid_part == "counter":
+        initial.requests = -1
+    register_failing_decision(
+        RunPlanFailure(
+            error_type("cancel after planning"),
+            initial_usage=initial,
+            initial_elapsed_seconds=float("nan") if invalid_part == "elapsed" else 0,
+        )
+    )
+    result = await run(RunRequest(task="t"))
+    assert (result.status, result.steps, result.usage) == ("failed", 0, {})
+    assert result.error.startswith("ValueError: initial_")
+    assert [event["type"] for event in events] == ["error"]
+    assert events[0]["result"] == result.as_dict()
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("requests", [0, 2])
+async def test_planning_failure_does_not_estimate_unreported_tokens(
+    requests, no_planning_failure_execution, events
+):
+    from agent_utilities.graph import RunPlanFailure
+
+    initial = RunUsage(requests=requests)
+    register_failing_decision(
+        RunPlanFailure(
+            RuntimeError("planner tokens were not reported"), initial_usage=initial
+        )
+    )
+    result = await run(
+        RunRequest(task="Prompt and output text must not become token measurements")
+    )
+    assert (result.status, result.steps) == ("failed", 0)
+    assert result.usage == {
+        "requests": requests,
+        "tool_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+    }
+    assert [event["type"] for event in events] == ["error"]
+    assert events[0]["result"] == result.as_dict()
+    assert initial == RunUsage(requests=requests)
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("error", [None, "not an exception", RuntimeError])
+def test_planning_failure_requires_an_exception_instance(error):
+    from agent_utilities.graph import RunPlanFailure
+
+    with pytest.raises(TypeError, match="error must be an exception"):
+        RunPlanFailure(error, initial_usage=RunUsage(requests=2))
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+async def test_task_cancellation_after_planner_consumption_reports_actual_usage(
+    no_planning_failure_execution, events
+):
+    from agent_utilities.graph import RunPlanFailure
+
+    consumed = asyncio.Event()
+    publication = asyncio.Event()
+    original_cancellations = []
+    initial = RunUsage(requests=2, input_tokens=9, output_tokens=3)
+
+    async def provide(request):
+        consumed.set()
+        try:
+            await publication.wait()
+        except asyncio.CancelledError as error:
+            original_cancellations.append(error)
+            raise RunPlanFailure(error, initial_usage=initial) from error
+        pytest.fail("publication unexpectedly completed")
+
+    host_ports.register_run_decision_provider(provide)
+    request = RunRequest(task="t", model_id="unbound", allowed_tools=("effect",))
+    execution = asyncio.create_task(run(request))
+    try:
+        await asyncio.wait_for(consumed.wait(), timeout=0.5)
+        execution.cancel("stop while publishing the measured plan")
+        with pytest.raises(asyncio.CancelledError) as caught:
+            await execution
+    finally:
+        if not execution.done():
+            execution.cancel()
+        await asyncio.gather(execution, return_exceptions=True)
+    assert len(original_cancellations) == 1
+    assert caught.value is original_cancellations[0]
+    assert str(caught.value) == "stop while publishing the measured plan"
+    assert execution.cancelled()
+    assert [event["type"] for event in events] == ["run_cancelled"]
+    assert events[0]["status"] == "stopped"
+    assert events[0]["result"] == {
+        "run_id": request.run_id,
+        "output": "",
+        "status": "stopped",
+        "steps": 0,
+        "usage": {
+            "requests": 2,
+            "tool_calls": 0,
+            "input_tokens": 9,
+            "output_tokens": 3,
+            "total_tokens": 12,
+        },
+        "error": None,
+        "execution_mode": "graph",
+    }
+    assert initial == RunUsage(requests=2, input_tokens=9, output_tokens=3)

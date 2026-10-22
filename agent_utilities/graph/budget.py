@@ -15,10 +15,10 @@ from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RunUsage, UsageLimits
 
-from .state import RunBudget, RunPlan
+from .state import RunBudget, RunPlan, RunPlanFailure
 
 
-def initial_run_usage(plan: RunPlan) -> RunUsage:
+def initial_run_usage(plan: RunPlan | RunPlanFailure) -> RunUsage:
     """Snapshot only the public counters; never estimate unreported usage."""
     usage = plan.initial_usage
     if not isinstance(usage, RunUsage):

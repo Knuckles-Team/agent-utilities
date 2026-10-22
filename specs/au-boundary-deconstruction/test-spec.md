@@ -117,3 +117,12 @@ Cover setup failure, child failure,
 parent cancellation, serial multi-step limits, plan reuse and a provider
 that reports no token counts. Model proposal text and request metadata must
 not change the host ledger. No test uses a sleep or live provider.
+
+Trusted provider failures after measured planning must preserve their original
+error and include the reported counters exactly once. Terminal event usage
+must equal result usage, even when the failed planning consumed a limit.
+Neither a failed carrier nor its elapsed time may admit executable work or
+replace a budget. Test synchronous and asynchronous providers, invalid
+ledgers, reuse, cancellation and iterator close. A provider failure without
+a ledger must not invent consumption. Existing success and zero-default
+cases must keep their behavior.
