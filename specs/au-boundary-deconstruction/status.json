@@ -1454,7 +1454,7 @@
     {
       "id": "AU-BOUNDARY-R043",
       "title": "The agent run loop stays in Agent Utilities",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "8a45ab8013ad",
         "fdeabad709b3"
@@ -1495,11 +1495,11 @@
         "e7ce34331f28"
       ],
       "verified_by": [
-        "tests/test_run_loop.py:124",
-        "tests/test_run_loop.py:132",
-        "tests/test_run_loop.py:178",
-        "tests/test_run_loop.py:259",
-        "tests/test_run_loop.py:313"
+        "tests/test_run_loop.py:122",
+        "tests/test_run_loop.py:130",
+        "tests/test_run_loop.py:176",
+        "tests/test_run_loop.py:257",
+        "tests/test_run_loop.py:311"
       ]
     },
     {
@@ -1623,6 +1623,7 @@
       "title": "Publish actual scaffold revisions through a run-local host port",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "b58060b4530b",
         "da8a2d9cfbaa",
         "dca34a7af5c9"
       ],
@@ -1637,8 +1638,10 @@
     {
       "id": "AU-BOUNDARY-R043.6",
       "title": "Apply a received bounded dependency plan",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "aff1b2ca7a77"
+      ],
       "verified_by": [
         "tests/test_dependency.py:28"
       ]
@@ -1646,8 +1649,13 @@
     {
       "id": "AU-BOUNDARY-R043.7",
       "title": "Account and drain parallel work",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "7287ddfe03e3",
+        "9f41376674f8",
+        "aff1b2ca7a77",
+        "c98538fea6ae"
+      ],
       "verified_by": [
         "tests/test_dependency.py:194",
         "tests/test_dependency.py:349",
