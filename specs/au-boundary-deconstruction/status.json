@@ -1639,7 +1639,7 @@
       "title": "Apply a received bounded dependency plan",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "2e48e1ce3c92"
+        "aff1b2ca7a77"
       ],
       "verified_by": [
         "tests/test_dependency.py:28"
@@ -1650,10 +1650,10 @@
       "title": "Account and drain parallel work",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "2e48e1ce3c92",
-        "48b89247e496",
-        "ab56b81ba488",
-        "ccadb26dead9"
+        "7287ddfe03e3",
+        "9f41376674f8",
+        "aff1b2ca7a77",
+        "c98538fea6ae"
       ],
       "verified_by": [
         "tests/test_dependency.py:194",
