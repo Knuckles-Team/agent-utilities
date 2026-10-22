@@ -83,6 +83,16 @@ event and result. It preserves the original failure or cancellation, without
 dispatching work or replacing a budget. Do not wrap a provider failure without
 a reported usage ledger or add these counters again in the host.
 
+`run()` returns a failed `RunResult`. `AgentRunExecutor.execute_agent()` raises
+`RunFailed`, a `RuntimeError` subclass with the same error message. Its immutable
+`result` snapshot retains that aggregate receipt, with `run_id` and `usage`
+properties. The allowed host facade `agent_utilities.runtime` lazily re-exports
+the same run executor, plans, tasks, bounds, stop rule and failure types.
+Hosts must check the exception type and expected run identity
+before copying these counters. Keep the outcome failed; do not publish a
+partial answer or add the counters again. Successful and stopped returns,
+cancellation, and empty unreported ledgers keep their existing behavior.
+
 Request and tool reservations are shared across tasks and validation retries.
 An unspecified parallel tool limit uses a finite fallback of fifty calls.
 Token limits use reported usage, including fallback attempts. In-flight token

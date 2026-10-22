@@ -31,6 +31,7 @@ from .dependency import iterate_dependency_plan, validate_dependency_plan
 from .state import (
     GraphDeps,
     GraphState,
+    RunFailed,
     RunPlan,
     RunPlanFailure,
     RunRequest,
@@ -329,7 +330,8 @@ class AgentRunExecutor:
 
     ``execute_agent`` reads the fields of arbora's typed execution request
     (duck-typed, so the harness does not import arbora) and returns a
-    :class:`RunResult`; arbora maps it onto its own result type.
+    :class:`RunResult`; arbora maps it onto its own result type. A failed
+    result raises :class:`RunFailed` with the same aggregate receipt.
     """
 
     def __init__(self, config: Mapping[str, Any] | None = None) -> None:
@@ -350,7 +352,7 @@ class AgentRunExecutor:
         )
         result = await run(run_request, self._config)
         if result.status == "failed":
-            raise RuntimeError(result.error or "agent run failed")
+            raise RunFailed(result)
         return result
 
 

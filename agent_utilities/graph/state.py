@@ -12,6 +12,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any, Literal
 
 from pydantic_ai import BinaryContent
@@ -231,6 +232,95 @@ class RunResult:
         }
 
 
+def _validate_failure_outcome(result: RunResult) -> None:
+    """Only a failed terminal state can travel through the exception port."""
+    if type(result.status) is not str or result.status != "failed":
+        raise ValueError("result status must be failed")
+    if type(result.steps) is not int or result.steps < 0:
+        raise ValueError("result steps must be a nonnegative integer")
+    if result.error is not None and type(result.error) is not str:
+        raise ValueError("result error must be a string or None")
+    if type(result.execution_mode) is not str or result.execution_mode not in (
+        "direct",
+        "graph",
+    ):
+        raise ValueError("result execution_mode must be direct or graph")
+
+
+def _validate_public_usage(counters: Mapping[str, int]) -> None:
+    """Accept a complete public ledger or preserve an unreported empty one."""
+    if not counters:
+        return
+    if set(counters) != {
+        "requests",
+        "tool_calls",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+    }:
+        raise ValueError("result usage must contain the five public counters")
+    if any(type(value) is not int or value < 0 for value in counters.values()):
+        raise ValueError("result usage counters must be nonnegative integers")
+    if counters["total_tokens"] != counters["input_tokens"] + counters["output_tokens"]:
+        raise ValueError("result usage total_tokens must match input and output")
+
+
+def _failed_result_snapshot(result: RunResult) -> RunResult:
+    """Copy before validation so the retained receipt cannot change afterward."""
+    if not isinstance(result, RunResult):
+        raise TypeError("result must be a RunResult")
+    if not isinstance(result.usage, Mapping):
+        raise ValueError("result usage must be a mapping")
+    snapshot = RunResult(
+        run_id=result.run_id,
+        output=result.output,
+        status=result.status,
+        steps=result.steps,
+        usage=MappingProxyType(dict(result.usage)),
+        error=result.error,
+        execution_mode=result.execution_mode,
+    )
+    if type(snapshot.run_id) is not str or not snapshot.run_id:
+        raise ValueError("result run_id must be a nonempty string")
+    if type(snapshot.output) is not str:
+        raise ValueError("result output must be a string")
+    _validate_failure_outcome(snapshot)
+    _validate_public_usage(snapshot.usage)
+    return snapshot
+
+
+class RunFailed(RuntimeError):
+    """A failed executor result with its authoritative aggregate receipt.
+
+    The message and RuntimeError catch contract stay unchanged. The snapshot
+    grants no execution or retry. Hosts must match its run identity before
+    using its counters, and must not add them to the terminal ledger again.
+    """
+
+    def __init__(self, result: RunResult) -> None:
+        snapshot = _failed_result_snapshot(result)
+        super().__init__(snapshot.error or "agent run failed")
+        self._result: RunResult = snapshot
+
+    @property
+    def result(self) -> RunResult:
+        return self._result
+
+    @property
+    def run_id(self) -> str:
+        return self._result.run_id
+
+    @property
+    def usage(self) -> Mapping[str, int]:
+        return self._result.usage
+
+    def __reduce__(self) -> tuple[type[RunFailed], tuple[RunResult], dict[str, Any]]:
+        # RuntimeError reconstructs from its message by default. Rebuild this
+        # typed carrier from plain scalar data instead of a mapping proxy.
+        state = {key: value for key, value in self.__dict__.items() if key != "_result"}
+        return type(self), (RunResult(**self.result.as_dict()),), state
+
+
 def default_run_plan(request: RunRequest, config: Mapping[str, Any]) -> RunPlan:
     """The fallback plan when no host decision provider is registered.
 
@@ -272,6 +362,7 @@ __all__ = [
     "GraphState",
     "HarnessConfig",
     "RunBudget",
+    "RunFailed",
     "RunPlan",
     "RunPlanUnavailable",
     "RunRequest",

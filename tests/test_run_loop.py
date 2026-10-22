@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import asdict
-from types import SimpleNamespace
+import copy
+import pickle
+from collections import UserDict
+from dataclasses import asdict, replace
+from types import MappingProxyType, SimpleNamespace
 
 import pytest
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
@@ -1270,3 +1273,528 @@ async def test_task_cancellation_after_planner_consumption_reports_actual_usage(
         "execution_mode": "graph",
     }
     assert initial == RunUsage(requests=2, input_tokens=9, output_tokens=3)
+
+
+@pytest.fixture
+def failed_run_result():
+    from agent_utilities.graph import RunResult
+
+    return RunResult(
+        run_id="host-assigned-run-id",
+        output="partial output",
+        status="failed",
+        steps=2,
+        usage={
+            "requests": 2,
+            "tool_calls": 1,
+            "input_tokens": 5,
+            "output_tokens": 7,
+            "total_tokens": 12,
+        },
+        error="ValueError: execution failed",
+    )
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("error", ["ValueError: execution failed", "", None])
+@pytest.mark.parametrize("mode", ["direct", "graph"])
+def test_run_failed_is_public_and_preserves_runtime_error_message(
+    error, mode, failed_run_result
+):
+    from agent_utilities import graph
+    from agent_utilities.graph import RunFailed, RunResult
+
+    result = replace(failed_run_result, error=error, execution_mode=mode)
+    failure = RunFailed(result)
+    assert "RunFailed" in graph.__all__ and graph.RunFailed is RunFailed
+    assert isinstance(failure, RuntimeError)
+    assert isinstance(failure.result, RunResult)
+    assert failure.result is not result
+    assert failure.result.as_dict() == result.as_dict()
+    assert (str(failure), failure.args) == (
+        error or "agent run failed",
+        (error or "agent run failed",),
+    )
+    assert failure.run_id == result.run_id
+    assert failure.usage == result.usage
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("mapping_type", [dict, UserDict, MappingProxyType])
+@pytest.mark.parametrize("empty", [False, True])
+def test_run_failed_snapshots_mapping_without_aliasing_or_estimating(
+    mapping_type, empty, failed_run_result
+):
+    from agent_utilities.graph import RunFailed
+
+    source = {} if empty else dict(failed_run_result.usage)
+    result = replace(failed_run_result, usage=mapping_type(source))
+    expected = result.as_dict()
+    failure = RunFailed(result)
+    if not isinstance(result.usage, MappingProxyType):
+        result.usage.clear()
+    source.clear()
+    source["requests"] = 999
+    assert failure.result.as_dict() == expected
+    assert failure.usage == expected["usage"]
+    with pytest.raises(TypeError):
+        failure.usage["requests"] = 999
+    with pytest.raises(TypeError):
+        failure.result.usage["requests"] = 999
+    exported = failure.result.as_dict()
+    exported["run_id"] = "changed"
+    exported["usage"]["requests"] = 999
+    assert failure.result.as_dict() == expected
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("field", ["result", "run_id", "usage"])
+def test_run_failed_receipt_properties_are_read_only(field, failed_run_result):
+    from agent_utilities.graph import RunFailed
+
+    failure = RunFailed(failed_run_result)
+    with pytest.raises(AttributeError):
+        setattr(failure, field, None)
+    with pytest.raises(AttributeError):
+        failure.result.run_id = "changed"
+    with pytest.raises(AttributeError):
+        failure.result.usage = {}
+    assert failure.result.as_dict() == failed_run_result.as_dict()
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("method", ["copy", "deepcopy", "pickle"])
+@pytest.mark.parametrize("empty", [False, True])
+def test_run_failed_copy_and_pickle_preserve_receipt_and_exception_state(
+    method, empty, failed_run_result
+):
+    from agent_utilities.graph import RunFailed
+
+    result = replace(failed_run_result, usage={}) if empty else failed_run_result
+    failure = RunFailed(result)
+    failure.add_note("host diagnostic note")
+    failure.context = {"phase": ["execution"]}
+    if method == "pickle":
+        restored = pickle.loads(pickle.dumps(failure))
+    else:
+        restored = getattr(copy, method)(failure)
+    assert type(restored) is RunFailed and restored is not failure
+    assert restored.args == failure.args and str(restored) == str(failure)
+    assert restored.result.as_dict() == failure.result.as_dict()
+    assert restored.run_id == failure.run_id and restored.usage == failure.usage
+    assert restored.__notes__ == failure.__notes__
+    assert restored.context == failure.context
+    assert (restored.context is failure.context) is (method == "copy")
+    with pytest.raises(TypeError):
+        restored.result.usage["requests"] = 999
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("result", [None, {}, SimpleNamespace(), RuntimeError("x")])
+def test_run_failed_rejects_non_result_receipts(result):
+    from agent_utilities.graph import RunFailed
+
+    with pytest.raises((TypeError, ValueError)):
+        RunFailed(result)
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("status", value)
+        for value in ("pending", "running", "completed", "stopped", None)
+    ]
+    + [("run_id", value) for value in ("", None, 1, False)]
+    + [("output", value) for value in (None, 1, b"text")]
+    + [("error", value) for value in (1, b"error", RuntimeError("not text"))]
+    + [("steps", value) for value in (-1, True, False, 1.0, "1", None)]
+    + [("execution_mode", value) for value in ("", "ask", None, 1)],
+)
+def test_run_failed_rejects_invalid_result_fields(field, value, failed_run_result):
+    from agent_utilities.graph import RunFailed
+
+    with pytest.raises((TypeError, ValueError)):
+        RunFailed(replace(failed_run_result, **{field: value}))
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize(
+    "usage", [None, [], (), [("requests", 2)], RunUsage(requests=2), False]
+)
+def test_run_failed_requires_a_usage_mapping(usage, failed_run_result):
+    from agent_utilities.graph import RunFailed
+
+    with pytest.raises((TypeError, ValueError)):
+        RunFailed(replace(failed_run_result, usage=usage))
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize(
+    "missing",
+    ["requests", "tool_calls", "input_tokens", "output_tokens", "total_tokens"],
+)
+def test_run_failed_rejects_partial_usage_without_filling_counters(
+    missing, failed_run_result
+):
+    from agent_utilities.graph import RunFailed
+
+    usage = dict(failed_run_result.usage)
+    del usage[missing]
+    with pytest.raises((TypeError, ValueError)):
+        RunFailed(replace(failed_run_result, usage=usage))
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("extra", ["cached_tokens", "details", 0])
+def test_run_failed_rejects_noncanonical_usage_keys(extra, failed_run_result):
+    from agent_utilities.graph import RunFailed
+
+    with pytest.raises((TypeError, ValueError)):
+        RunFailed(
+            replace(failed_run_result, usage={**failed_run_result.usage, extra: 0})
+        )
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize(
+    "field", ["requests", "tool_calls", "input_tokens", "output_tokens", "total_tokens"]
+)
+@pytest.mark.parametrize("value", [-1, True, False, 1.0, "1", None])
+def test_run_failed_rejects_invalid_usage_counters(field, value, failed_run_result):
+    from agent_utilities.graph import RunFailed
+
+    with pytest.raises((TypeError, ValueError)):
+        RunFailed(
+            replace(failed_run_result, usage={**failed_run_result.usage, field: value})
+        )
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("total", [11, 13])
+def test_run_failed_rejects_incoherent_total(total, failed_run_result):
+    from agent_utilities.graph import RunFailed
+
+    with pytest.raises((TypeError, ValueError)):
+        RunFailed(
+            replace(
+                failed_run_result,
+                usage={**failed_run_result.usage, "total_tokens": total},
+            )
+        )
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("counter", [0, 2**65])
+def test_run_failed_preserves_exact_nonnegative_integer_counters(
+    counter, failed_run_result
+):
+    from agent_utilities.graph import RunFailed
+
+    usage = {key: counter for key in failed_run_result.usage}
+    usage["total_tokens"] = counter * 2
+    failure = RunFailed(replace(failed_run_result, usage=usage, steps=0))
+    assert failure.usage == usage and failure.result.steps == 0
+
+
+def register_measured_run_failure(phase, initial):
+    """Bind public fake host ports for a failure at the selected execution stage."""
+    from agent_utilities.graph import DependencyPlan, RunPlanFailure, RunTask
+
+    calls = []
+
+    async def respond(messages, info):
+        prompt = messages[-1].parts[-1].content.split("\n", 1)[0]
+        calls.append(prompt)
+        if prompt == "fail":
+            raise ValueError("execution failed")
+        return ModelResponse(
+            parts=[TextPart("partial output")],
+            usage=RequestUsage(input_tokens=2, output_tokens=1),
+        )
+
+    def resolve(model_id):
+        raise ValueError("setup failed")
+
+    if phase == "planner":
+        register_failing_decision(
+            RunPlanFailure(ValueError("planner failed"), initial_usage=initial)
+        )
+        return calls
+    host_ports.register_model_provider(resolve)
+    dependency_plan = None
+    if phase == "dag":
+        dependency_plan = DependencyPlan(
+            tasks=(RunTask("first", "first"), RunTask("fail", "fail", ("first",))),
+            output_task_id="fail",
+        )
+    plan = plan_of(
+        "host:model" if phase == "setup" else FunctionModel(respond),
+        steps=() if phase == "dag" else ("first", "fail"),
+        initial_usage=initial,
+        dependency_plan=dependency_plan,
+    )
+    host_ports.register_run_decision_provider(lambda request: plan)
+    return calls
+
+
+async def failed_result_from_entrypoint(entrypoint, request, events):
+    """Observe the same failed public result through each supported entrypoint."""
+    from agent_utilities.graph import RunFailed
+
+    if entrypoint == "executor":
+        with pytest.raises(RunFailed) as caught:
+            await AgentRunExecutor().execute_agent(request)
+        result = caught.value.result.as_dict()
+        assert caught.value.run_id == request.run_id
+        assert caught.value.usage == result["usage"]
+        assert caught.value.args == (result["error"],)
+        return result
+    if entrypoint == "run":
+        return (await run(request)).as_dict()
+    emitted = [event async for event in iterate_run(request)]
+    assert emitted == events
+    return emitted[-1]["result"]
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize(
+    ("phase", "output", "steps", "requests", "input_tokens", "output_tokens", "error"),
+    [
+        ("planner", "", 0, 2, 3, 4, "ValueError: planner failed"),
+        ("setup", "", 0, 2, 3, 4, "ValueError: setup failed"),
+        ("model", "partial output", 2, 4, 5, 5, "ValueError: execution failed"),
+        ("dag", "", 2, 4, 5, 5, "ValueError: execution failed"),
+    ],
+    ids=["planner", "setup", "model", "dag"],
+)
+@pytest.mark.parametrize("entrypoint", ["executor", "run", "iterate"])
+async def test_failed_run_receipt_matches_the_single_terminal_aggregate(
+    phase,
+    output,
+    steps,
+    requests,
+    input_tokens,
+    output_tokens,
+    error,
+    entrypoint,
+    events,
+):
+    initial = RunUsage(requests=2, tool_calls=1, input_tokens=3, output_tokens=4)
+    original = asdict(initial)
+    calls = register_measured_run_failure(phase, initial)
+    request = RunRequest(task="t", run_id="actual-run")
+    result = await failed_result_from_entrypoint(entrypoint, request, events)
+    assert result == {
+        "run_id": request.run_id,
+        "output": output,
+        "status": "failed",
+        "steps": steps,
+        "usage": {
+            "requests": requests,
+            "tool_calls": 1,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+        },
+        "error": error,
+        "execution_mode": "graph",
+    }
+    assert calls == ["first", "fail"][:steps]
+    terminals = [
+        event
+        for event in events
+        if event["type"] in ("error", "graph_complete", "run_cancelled")
+    ]
+    assert terminals == [events[-1]]
+    assert terminals[0]["type"] == "error"
+    assert terminals[0]["result"] == result
+    assert asdict(initial) == original
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("phase", ["planner", "setup", "default"])
+async def test_executor_failure_preserves_missing_usage_as_empty(phase, events):
+    from agent_utilities.graph import RunFailed
+
+    def fail(*args):
+        raise ValueError("no measured usage")
+
+    if phase == "planner":
+        host_ports.register_run_decision_provider(fail)
+    elif phase == "setup":
+        host_ports.register_model_provider(fail)
+        host_ports.register_run_decision_provider(lambda request: plan_of("host:model"))
+    request = RunRequest(task="unreported tokens must not be estimated")
+    with pytest.raises(RunFailed) as caught:
+        await AgentRunExecutor().execute_agent(request)
+    assert caught.value.run_id == request.run_id
+    assert caught.value.usage == {}
+    assert caught.value.result.steps == 0
+    assert events[-1]["result"] == caught.value.result.as_dict()
+    assert sum(event["type"] == "error" for event in events) == 1
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("phase", ["planner", "setup", "model"])
+async def test_executor_uses_its_own_aggregate_not_a_foreign_failure_receipt(
+    phase, failed_run_result, events
+):
+    from agent_utilities.graph import RunFailed
+
+    forged = RunFailed(replace(failed_run_result, run_id="foreign-run"))
+
+    def fail(*args):
+        raise forged
+
+    if phase == "planner":
+        host_ports.register_run_decision_provider(fail)
+    else:
+        host_ports.register_model_provider(fail)
+        plan = plan_of(
+            "host:model" if phase == "setup" else FunctionModel(fail),
+            initial_usage=RunUsage(requests=2, input_tokens=3, output_tokens=4),
+        )
+        host_ports.register_run_decision_provider(lambda request: plan)
+    request = RunRequest(task="t", run_id="actual-run")
+    with pytest.raises(RunFailed) as caught:
+        await AgentRunExecutor().execute_agent(request)
+    assert caught.value is not forged
+    assert caught.value.run_id == request.run_id
+    assert caught.value.result.output == ""
+    assert caught.value.result.steps == (1 if phase == "model" else 0)
+    assert caught.value.usage == (
+        {}
+        if phase == "planner"
+        else {
+            "requests": 3 if phase == "model" else 2,
+            "tool_calls": 0,
+            "input_tokens": 3,
+            "output_tokens": 4,
+            "total_tokens": 7,
+        }
+    )
+    assert caught.value.result.error == f"RunFailed: {forged}"
+    assert events[-1]["result"] == caught.value.result.as_dict()
+    assert sum(event["type"] == "error" for event in events) == 1
+    assert (
+        forged.result.as_dict()
+        == replace(failed_run_result, run_id="foreign-run").as_dict()
+    )
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("kind", ["completed", "stop_marker", "budget"])
+async def test_executor_keeps_successful_and_stopped_return_contract(kind, events):
+    from agent_utilities.graph import RunResult
+
+    plan = plan_of(
+        TestModel(custom_output_text="ok"),
+        initial_usage=RunUsage(requests=2, input_tokens=3),
+        stop=StopRule(stop_markers=("ok",)) if kind == "stop_marker" else StopRule(),
+        budget=RunBudget(request_limit=2) if kind == "budget" else RunBudget(),
+    )
+    host_ports.register_run_decision_provider(lambda request: plan)
+    result = await AgentRunExecutor().execute_agent(RunRequest(task="t"))
+    assert isinstance(result, RunResult)
+    assert result.status == ("completed" if kind == "completed" else "stopped")
+    assert result.steps == (0 if kind == "budget" else 1)
+    assert events[-1]["type"] == "graph_complete"
+    assert events[-1]["result"] == result.as_dict()
+    assert sum(event["type"] == "graph_complete" for event in events) == 1
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("error_type", [asyncio.CancelledError, GeneratorExit])
+@pytest.mark.parametrize("measured", [False, True])
+@pytest.mark.parametrize("is_async", [False, True])
+async def test_executor_preserves_raw_and_measured_planner_cancellation(
+    error_type, measured, is_async, no_planning_failure_execution, events
+):
+    from agent_utilities.graph import RunPlanFailure
+
+    error = error_type("cancel during planning")
+    cause = ValueError("original cause")
+    error.__cause__ = cause
+    initial = RunUsage(requests=2, input_tokens=3, output_tokens=4)
+    register_failing_decision(
+        RunPlanFailure(error, initial_usage=initial) if measured else error,
+        is_async=is_async,
+    )
+    request = RunRequest(task="t")
+    with pytest.raises(error_type) as caught:
+        await AgentRunExecutor().execute_agent(request)
+    assert caught.value is error and caught.value.__cause__ is cause
+    if measured:
+        assert [event["type"] for event in events] == ["run_cancelled"]
+        assert events[0]["result"] == {
+            "run_id": request.run_id,
+            "output": "",
+            "status": "stopped",
+            "steps": 0,
+            "usage": {
+                "requests": 2,
+                "tool_calls": 0,
+                "input_tokens": 3,
+                "output_tokens": 4,
+                "total_tokens": 7,
+            },
+            "error": None,
+            "execution_mode": "graph",
+        }
+    else:
+        assert events == []
+    assert initial == RunUsage(requests=2, input_tokens=3, output_tokens=4)
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+async def test_executor_task_cancellation_remains_cancelled_with_measured_usage(events):
+    started = asyncio.Event()
+    release = asyncio.Event()
+    original_cancellations = []
+
+    async def respond(messages, info):
+        started.set()
+        try:
+            await release.wait()
+        except asyncio.CancelledError as error:
+            original_cancellations.append(error)
+            raise
+        pytest.fail("model unexpectedly resumed")
+
+    plan = plan_of(
+        FunctionModel(respond),
+        initial_usage=RunUsage(requests=2, input_tokens=3, output_tokens=4),
+    )
+    host_ports.register_run_decision_provider(lambda request: plan)
+    request = RunRequest(task="t")
+    execution = asyncio.create_task(AgentRunExecutor().execute_agent(request))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=0.5)
+        execution.cancel("stop model execution")
+        with pytest.raises(asyncio.CancelledError) as caught:
+            await execution
+    finally:
+        if not execution.done():
+            execution.cancel()
+        await asyncio.gather(execution, return_exceptions=True)
+    assert execution.cancelled()
+    assert len(original_cancellations) == 1
+    assert isinstance(original_cancellations[0], asyncio.CancelledError)
+    assert str(caught.value) == "stop model execution"
+    assert [event["type"] for event in events] == ["run_started", "run_cancelled"]
+    assert events[-1]["result"] == {
+        "run_id": request.run_id,
+        "output": "",
+        "status": "stopped",
+        "steps": 1,
+        "usage": {
+            "requests": 3,
+            "tool_calls": 0,
+            "input_tokens": 3,
+            "output_tokens": 4,
+            "total_tokens": 7,
+        },
+        "error": None,
+        "execution_mode": "graph",
+    }
