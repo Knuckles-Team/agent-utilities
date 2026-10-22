@@ -15,6 +15,7 @@ from .runner import (
     run_graph,
 )
 from .state import (
+    DependencyPlan,
     GraphDeps,
     GraphState,
     HarnessConfig,
@@ -23,12 +24,14 @@ from .state import (
     RunPlanUnavailable,
     RunRequest,
     RunResult,
+    RunTask,
     StopRule,
     default_run_plan,
 )
 
 __all__ = [
     "AgentRunExecutor",
+    "DependencyPlan",
     "GraphDeps",
     "GraphEventHandler",
     "GraphState",
@@ -39,6 +42,7 @@ __all__ = [
     "RunPlanUnavailable",
     "RunRequest",
     "RunResult",
+    "RunTask",
     "StopRule",
     "create_graph_agent",
     "default_run_plan",

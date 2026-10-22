@@ -515,3 +515,71 @@ is not evidence that a selected model supports images. Full acceptance still
 requires a supported-model journey and zero-task rejection through Arbora.
 
 AU-BOUNDARY-R043.5.2: The optional publication registration accepts a per-run `None` binding; AU keeps the local scaffold usable and closes the host scope normally. Existing required-publisher registration remains compatible.
+
+## Amendment 2026-10-22: received dependency execution
+
+The ecosystem boundary standard assigns task planning and bounds to EG R134.
+Arbora owns admission and replay. AU R043.6 and R043.7 own in-run fan-out.
+`graph/dependency.py` applies a received DAG. `graph/budget.py` reserves the
+received aggregate limits in one event loop. Neither module chooses a plan.
+
+`RunPlan.dependency_plan` is exclusive with serial `steps`. `RunTask` carries
+a task ID, prompt and direct dependency IDs. `DependencyPlan` carries tasks,
+an output task ID, a positive concurrency limit and optional plan identity.
+The output task is the sole sink, so all admitted work contributes to it.
+Malformed, cyclic or over-step-budget plans fail before a model is built.
+
+Only dispatched tasks get an asyncio task. A ready queue holds the rest as
+bounded plan data. Each completion can refill a slot; joins require all named
+prerequisites. Task histories are isolated. Direct prerequisite outputs enter
+as JSON data in declared order. Binary inputs stay with the first declared
+task, not every child. The host keeps all model, tool and identity bindings.
+
+Failure is fail-fast: cancel and await siblings, report undispatched tasks as
+blocked, then emit the parent terminal event. A stop marker stops the whole
+plan. No task-level retry or implicit synthesis is added. Existing model/tool
+validation retries share the same request and tool reservations. Tokens use
+reported response accounting; the harness cannot promise zero in-flight token
+overshoot. Terminal output comes only from the designated output task.
+
+All producer events receive a one-based per-run sequence and UUIDv5 event ID
+over the run ID and sequence. Task events report execution state and output,
+never private model reasoning. Arbora owns safe replay projection. Existing
+`graph_complete`, `error` and ordered-step events remain compatible.
+
+Legacy recursive `sub_query` calls still wait for the parent model to choose
+its next tool batch. This differs from a declared DAG.
+AU does not invent a dependency or a future child to bypass that choice.
+
+Recursive calls share the same reservation mechanism. Their received
+`max_concurrent_requests` caps model calls, not waiting parents. This prevents
+a nested child from waiting for a permit that its parent holds. The fallback
+is four requests and fifty tool calls. A tool response batch above the received
+tool limit fails before framework fan-out. The host request limit of zero is
+preserved, not replaced with a fallback. Tokens include reported fallback
+attempts. Host tools own cancellation of external operations that outlive
+their coroutine. AU does not claim to stop an uncooperative external process.
+
+A single driver runs the DAG independently of event consumption. Its queue
+holds at most two lifecycle events per declared task plus an end marker. A
+slow viewer cannot hold a newly ready task behind an unrelated task. Model
+output and dependency output are data; they cannot change the admitted DAG,
+its IDs or its limits. The host must supply a fresh run ID for each execution.
+Stable event IDs support repeat delivery of the same event, not crash recovery
+or durable active-run resume. AU has no event store or restart coordinator.
+
+Parallel tools use a finite fallback of fifty calls when the host omits that limit.
+Explicit finite limits remain unchanged. Root-only recursive depth zero remains valid.
+Model handlers use one tracked task per request permit. Cancellation drains that
+handler before accounting usage or releasing its permit. This protects awaited
+cleanup from the model framework's repeated cancellation scopes.
+
+Setup and the DAG driver share one absolute deadline. A paused reader cannot
+prevent child timeout and cleanup. Consumers must finish or close the iterator.
+A pause can delay the parent terminal event and host-scope release after work stops.
+
+The drain guarantee covers AU-owned tasks and model request handlers.
+Host extensions own cancellation-safe asynchronous scope exits. Repeated direct
+cancellation can interrupt a host exit after AU finishes child cleanup.
+AU does not move host exits to another task, which may break ContextVar ownership.
+No elapsed cleanup bound applies to handlers that do not cooperate.
