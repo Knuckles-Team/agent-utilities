@@ -4,12 +4,20 @@
   "owner_repo": "agent-utilities",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "AU-SCM-R001"
+    "AU-SCM-R001",
+    "AU-SCM-R002"
   ],
   "requirements": [
     {
       "id": "AU-SCM-R001",
       "title": "Development loop on changesets",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-SCM-R002",
+      "title": "Symbol-level edits in the run loop",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
