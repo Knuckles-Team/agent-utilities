@@ -31,7 +31,7 @@ Each row is a separately reviewable deliverable. The owner named after the arrow
 | AU-BOUNDARY-R029 | Move ontology object model and graph parsing to EG | Exact source identity, graph isomorphism and no AU RDF parser |
 | AU-BOUNDARY-R030 | Move hand-written RDF/OWL/SHACL emitters behind EG pack compilation | Typed declaration in AU, generated artifact and conflict tests |
 | AU-BOUNDARY-R031 | Replace AU graph-schema DTOs with EG-generated types | Exact digest, unknown field rejection, no copied model |
-| AU-BOUNDARY-R032 | Delete legacy Fuseki/Stardog SPARQL backend and setup paths | No runtime or CLI caller; typed unavailable response |
+| AU-BOUNDARY-R032 | Delete legacy external SPARQL-store backend and setup paths | No runtime or CLI caller; typed unavailable response |
 | AU-BOUNDARY-R033 | Move other external graph/database federation to EG | Scoped foreign-source query and fail-closed outage |
 | AU-BOUNDARY-R034 | Move retrieval engines to EG; AU retains context compilation | Same-snapshot tenant/source proof, cited ranking parity |
 | AU-BOUNDARY-R035 | Place drift gate in SDK sync and schema candidate/activation in EG | Quarantine without cursor advance, approved activation |
