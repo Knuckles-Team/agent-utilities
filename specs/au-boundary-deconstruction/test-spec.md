@@ -156,3 +156,7 @@ model and a bound test transport. Assert exact method and parameters, one call,
 closed permission refusals, byte and wait limits, absent transport refusal and
 privacy-safe trace fields. This test does not grant permission or prove the
 Arbora gateway and native approval producers.
+
+## AU-BOUNDARY-R043.12: measured request emission
+
+Bind all six tests in `tests/test_graph_metrics.py` to this producer row. Repeated FunctionModel requests prove attribution, response counts, client-clock timing and equal terminal-event metrics; negative cases prove no fabricated failed-request usage, invalid-count omission, zero requests without a model, no zero-duration TPS and bounded partial coverage. These deterministic tests do not measure a live provider or prove streaming coverage.
