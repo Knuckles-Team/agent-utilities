@@ -13,7 +13,9 @@
     "AU-HARNESS-CYCLE-R001.6",
     "AU-HARNESS-CYCLE-R001.7",
     "AU-HARNESS-CYCLE-R001.8",
-    "AU-HARNESS-CYCLE-R001.9"
+    "AU-HARNESS-CYCLE-R001.9",
+    "AU-HARNESS-CYCLE-R001.10",
+    "AU-HARNESS-CYCLE-R001.11"
   ],
   "requirements": [
     {
@@ -31,7 +33,9 @@
         "AU-HARNESS-CYCLE-R001.6",
         "AU-HARNESS-CYCLE-R001.7",
         "AU-HARNESS-CYCLE-R001.8",
-        "AU-HARNESS-CYCLE-R001.9"
+        "AU-HARNESS-CYCLE-R001.9",
+        "AU-HARNESS-CYCLE-R001.10",
+        "AU-HARNESS-CYCLE-R001.11"
       ]
     },
     {
@@ -129,6 +133,20 @@
     {
       "id": "AU-HARNESS-CYCLE-R001.9",
       "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-CYCLE-R001.10",
+      "title": "Persist through the released client",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-CYCLE-R001.11",
+      "title": "Host registration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

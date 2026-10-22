@@ -13,6 +13,8 @@ Governing spec: [spec.md](spec.md).
 | T-007 | `AU-HARNESS-CYCLE-R001.6` | Unit | An adopted outcome and a neutral outcome | One lesson on adoption, and none on abstention |  |
 | T-008 | `AU-HARNESS-CYCLE-R001.7` | Unit | Each refusal input | The typed code, and the current harness kept |  |
 | T-009 | `AU-HARNESS-CYCLE-R001.8` | Unit | No registered provider | The port raises the closed failure |  |
+| T-011 | `AU-HARNESS-CYCLE-R001.10` | Served | An adopted candidate on the released EG client | Three envelopes that a graph read returns |  |
+| T-012 | `AU-HARNESS-CYCLE-R001.11` | Served | A host-registered provider | One tick and one run event |  |
 
 ## Negative and boundary cases
 
