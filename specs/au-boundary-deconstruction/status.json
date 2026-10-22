@@ -298,7 +298,11 @@
       "id": "AU-BOUNDARY-R006",
       "title": "Migrate connector packages F-J onto the SDK",
       "delivery_state": "LANDED",
-      "landed_in": [],
+      "landed_in": [
+        "105559f760c3",
+        "5a00da215c55",
+        "fe5ca4e239ec"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-BOUNDARY-R006.1"
@@ -375,7 +379,9 @@
       "id": "AU-BOUNDARY-R009",
       "title": "Migrate connector packages T-Z onto the SDK",
       "delivery_state": "LANDED",
-      "landed_in": [],
+      "landed_in": [
+        "5a00da215c55"
+      ],
       "verified_by": [],
       "rollup_of": [
         "AU-BOUNDARY-R009.1"
@@ -757,7 +763,9 @@
       "title": "Split AU's monolithic configuration module",
       "delivery_state": "LANDED",
       "landed_in": [
-        "13655b508554"
+        "13655b508554",
+        "5a00da215c55",
+        "fe5ca4e239ec"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1020,11 +1028,11 @@
       "title": "Move remaining graph standardization and security modules to EG (rollup)",
       "delivery_state": "LANDED",
       "landed_in": [
-        "4d0883da01d2",
-        "5c70aeb872d9",
-        "743e98cda405",
-        "8edddc8b0a00",
-        "9fec85433f51"
+        "21bf66b122de",
+        "26b087dd3b2f",
+        "32bdd70f5ea4",
+        "37ea38e83a0b",
+        "4980aef8be2f"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1055,7 +1063,8 @@
       "title": "Retire `kg/infra/{placement_optimizer,inventory_collector}.py`",
       "delivery_state": "LANDED",
       "landed_in": [
-        "32bdd70f5ea4"
+        "32bdd70f5ea4",
+        "4a5540dd2e3d"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1116,7 +1125,9 @@
       "title": "Retire `observability/{trace_ontology,self_ingest,audit_logger}.py`",
       "delivery_state": "LANDED",
       "landed_in": [
-        "26b087dd3b2f"
+        "26b087dd3b2f",
+        "32bdd70f5ea4",
+        "4a5540dd2e3d"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1139,7 +1150,9 @@
       "title": "Retire `governance/relational_authority.py` and `.json`",
       "delivery_state": "LANDED",
       "landed_in": [
-        "26b087dd3b2f"
+        "26b087dd3b2f",
+        "32bdd70f5ea4",
+        "4a5540dd2e3d"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1163,7 +1176,8 @@
       "delivery_state": "LANDED",
       "landed_in": [
         "26b087dd3b2f",
-        "32bdd70f5ea4"
+        "32bdd70f5ea4",
+        "4a5540dd2e3d"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1536,8 +1550,17 @@
       "id": "AU-BOUNDARY-R043.4",
       "title": "Restore the model-edited run scaffold",
       "delivery_state": "VERIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "landed_in": [
+        "8c2c8a76e6f8",
+        "8fdd01e03831"
+      ],
+      "verified_by": [
+        "tests/test_harness_plan.py:29",
+        "tests/test_harness_plan.py:39",
+        "tests/test_harness_plan.py:55",
+        "tests/test_harness_plan.py:9",
+        "tests/test_plan_runtime.py:116"
+      ],
       "rollup_of": [
         "AU-BOUNDARY-R043.4.1",
         "AU-BOUNDARY-R043.4.2",
@@ -1613,8 +1636,19 @@
       "id": "AU-BOUNDARY-R043.5",
       "title": "Produce real scaffold state for an owner-composed read",
       "delivery_state": "VERIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "landed_in": [
+        "b0d6007b022f",
+        "b58060b4530b",
+        "da8a2d9cfbaa",
+        "dca34a7af5c9"
+      ],
+      "verified_by": [
+        "tests/test_harness_plan.py:120",
+        "tests/test_harness_plan.py:65",
+        "tests/test_harness_plan.py:86",
+        "tests/test_host_ports.py:125",
+        "tests/test_host_ports.py:140"
+      ],
       "rollup_of": [
         "AU-BOUNDARY-R043.5.1",
         "AU-BOUNDARY-R043.5.2"
