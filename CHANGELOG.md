@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-10-22
+
+### Added
+- Public harness-cycle API (#333, #334): the `HarnessCycleProvider` host port and the harness-evolution cycle (propose, probe, compose, persist, reflect) with closed refusal codes.
+- Bounded rolling-slot execution of received dependency plans (fan-out and DAG plans).
+- Measured host usage accounting, retained validated failed run receipts, and the lazy host runtime facade.
+- Bounded model attachments and hosted client capabilities.
+
 ## [3.0.2] - 2026-10-18
 
 ### Added
