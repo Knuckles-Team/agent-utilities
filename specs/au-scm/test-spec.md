@@ -24,3 +24,9 @@ tests/harness/test_changeset_loop.py -q`.
 Language-native: ruff, mypy and the repository scanners through
 `.config/pre-commit.yaml` and `release.yml`. A source test is not served
 acceptance.
+
+## Symbol-level edits in the run loop
+
+| Row | Proving test |
+|---|---|
+| `AU-SCM-R002` | `tests/harness/test_changeset_loop.py::test_symbol_edit_retries_once_on_stale_base` |

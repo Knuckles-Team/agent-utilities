@@ -78,3 +78,9 @@ no-duplicate-authority check. The retry bound stops an unbounded loop.
 The bound is a received value. It defaults to 3 rebases. Exhaustion
 refuses with `conflict_retry_exhausted`. The loop then hands the run
 back to the caller.
+
+## Symbol-level edits (R002)
+
+The harness sends a symbol edit instead of a file write when the file has a parser. The engine
+projects the edit to bytes and confirms it by a re-parse (EG-SCM-R013). The harness only applies
+the answer: it retries a stale base once and returns a round-trip refusal to the model.

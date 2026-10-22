@@ -13,6 +13,8 @@ serve or connect on its own.
 
 | Module | What it does inside one run |
 |---|---|
+| `agent_utilities.graph` | Applies a received ordered plan or dependency DAG. It enforces task slots and shared budgets, and emits ordered execution events. |
+| `agent_utilities.rlm` | Runs recursive model queries with shared request and tool limits and bounded concurrent model requests. |
 | `agent_utilities.harness.edit_engine` | Parses model-proposed edits (search/replace blocks, unified diffs), applies them with graduated matching, and re-prompts on malformed or unmatched edits. |
 | `agent_utilities.harness.contract_validator` | Checks a tool call's pre-conditions and its output's schema and verifier. |
 | `agent_utilities.harness.constraint_engine` | Enforces hierarchical constraints on tool calls (prompt, tool description, middleware, implementation) and escalates repeated violations. |
@@ -61,6 +63,78 @@ Run time includes planning, tools and retries. Client request time includes
 transport and provider waiting. Neither is provider generation time, and neither
 is used to derive generation TPS. Provider queue wait, generation duration and
 TTFT are absent unless a future adapter measures and identifies them explicitly.
+
+## Received dependency plans
+
+A host can pass `RunPlan(dependency_plan=DependencyPlan(...))` to the same
+`run` or `iterate_run` entry point. Do not also set serial `steps`.
+`DependencyPlan` contains ordered `RunTask(task_id, prompt, depends_on)` values,
+an `output_task_id`, a `max_concurrency` task cap and an optional `plan_id`.
+The host gets the plan from EG and admits it through Arbora. AU does not turn
+free text into a plan or authorize a task.
+
+A completed task frees a slot at once. A dependent task can start while an
+unrelated task still runs. Every prerequisite must succeed. Each task gets a
+fresh history with only its direct dependency outputs. The output task must
+be the sole sink. Failed or stopped plans never return a partial child answer
+as a completed parent result.
+
+The trusted host can pass prior measured consumption as `RunPlan.initial_usage`
+(a `pydantic_ai.usage.RunUsage`) and `initial_elapsed_seconds`. Both default to
+zero. Keep `RunBudget` at its original bounds; do not subtract this usage in
+the host or add it to AU's result again. AU snapshots the reported request,
+tool and token counters. It includes them once in terminal aggregate usage.
+It subtracts the elapsed time once from the execution deadline. Exhausted initial
+model bounds stop before model binding or child dispatch. Prior tool usage above
+the tool limit also stops. At the exact tool limit, model-only answers remain
+allowed, but additional tools do not. Invalid counters or time
+fail closed. Model proposals, request metadata and scaffold updates cannot
+set this host-only input. Unreported token usage remains zero, not an estimate.
+
+If measured host work fails before a plan can return, the decision provider can
+raise `RunPlanFailure(error, initial_usage=usage, initial_elapsed_seconds=elapsed)`.
+AU validates the same inputs and includes the counters once in the terminal
+event and result. It preserves the original failure or cancellation, without
+dispatching work or replacing a budget. Do not wrap a provider failure without
+a reported usage ledger or add these counters again in the host.
+
+`run()` returns a failed `RunResult`. `AgentRunExecutor.execute_agent()` raises
+`RunFailed`, a `RuntimeError` subclass with the same error message. Its immutable
+`result` snapshot retains that aggregate receipt, with `run_id` and `usage`
+properties. The allowed host facade `agent_utilities.runtime` lazily re-exports
+the same run executor, plans, tasks, bounds, stop rule and failure types.
+Hosts must check the exception type and expected run identity
+before copying these counters. Keep the outcome failed; do not publish a
+partial answer or add the counters again. Successful and stopped returns,
+cancellation, and empty unreported ledgers keep their existing behavior.
+
+Request and tool reservations are shared across tasks and validation retries.
+An unspecified parallel tool limit uses a finite fallback of fifty calls.
+Token limits use reported usage, including fallback attempts. In-flight token
+use is not known in advance. `RunBudget.max_concurrent_requests` also caps
+model requests (fallback: four); the task cap can be lower. On cancellation,
+AU drains child coroutines before invoking host-scope exit. Hosts own the
+cancellation safety of their asynchronous scope exits; repeated cancellation
+can interrupt that host cleanup. Host tools also own external work that cannot
+stop with their coroutine. No elapsed cleanup bound is promised for handlers
+that do not cooperate.
+
+`RLMConfig.max_concurrent_requests` and `tool_calls_limit` bound recursive
+model calls and tool fan-out (fallbacks: four and fifty). A parent releases its
+model-request slot before waiting for a child, including at capacity one.
+The parent model still chooses its next tool batch after the current batch
+returns. That model-choice boundary is not a declared dependency DAG.
+
+Public lifecycle events have a per-run `sequence` and stable `event_id`.
+Task events carry `task_id`, `parent_run_id`, `plan_id` and `depends_on`.
+They report execution state, not private model reasoning. Arbora owns their
+safe replay projection and access checks.
+
+A DAG driver owns the deadline after setup, using the same absolute deadline.
+A paused event reader cannot delay task dispatch or timeout cleanup. Consumers
+must finish or close the iterator. Pausing can delay the parent terminal event
+and host-scope release, even after all task work has stopped. Request handlers
+finish asynchronous cleanup before cancellation returns, including nested runs.
 
 ## Develop
 

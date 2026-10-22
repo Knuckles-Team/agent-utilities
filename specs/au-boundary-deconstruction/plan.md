@@ -527,3 +527,151 @@ same result through the host event sink so Arbora, WebUI, TUI and Geniusbot can
 consume one producer. EG retains durable aggregation; AU adds no store or price
 calculation. Real model execution tests cover repeated calls, failures and
 malformed usage without timing sleeps or fabricated generation measurements.
+
+AU-BOUNDARY-R043.5.2: The optional publication registration accepts a per-run `None` binding; AU keeps the local scaffold usable and closes the host scope normally. Existing required-publisher registration remains compatible.
+
+## Amendment 2026-10-22: received dependency execution
+
+The ecosystem boundary standard assigns task planning and bounds to EG R134.
+Arbora owns admission and replay. AU R043.6 and R043.7 own in-run fan-out.
+`graph/dependency.py` applies a received DAG. `graph/budget.py` reserves the
+received aggregate limits in one event loop. Neither module chooses a plan.
+
+`RunPlan.dependency_plan` is exclusive with serial `steps`. `RunTask` carries
+a task ID, prompt and direct dependency IDs. `DependencyPlan` carries tasks,
+an output task ID, a positive concurrency limit and optional plan identity.
+The output task is the sole sink, so all admitted work contributes to it.
+Malformed, cyclic or over-step-budget plans fail before a model is built.
+
+Only dispatched tasks get an asyncio task. A ready queue holds the rest as
+bounded plan data. Each completion can refill a slot; joins require all named
+prerequisites. Task histories are isolated. Direct prerequisite outputs enter
+as JSON data in declared order. Binary inputs stay with the first declared
+task, not every child. The host keeps all model, tool and identity bindings.
+
+Failure is fail-fast: cancel and await siblings, report undispatched tasks as
+blocked, then emit the parent terminal event. A stop marker stops the whole
+plan. No task-level retry or implicit synthesis is added. Existing model/tool
+validation retries share the same request and tool reservations. Tokens use
+reported response accounting; the harness cannot promise zero in-flight token
+overshoot. Terminal output comes only from the designated output task.
+
+All producer events receive a one-based per-run sequence and UUIDv5 event ID
+over the run ID and sequence. Task events report execution state and output,
+never private model reasoning. Arbora owns safe replay projection. Existing
+`graph_complete`, `error` and ordered-step events remain compatible.
+
+Legacy recursive `sub_query` calls still wait for the parent model to choose
+its next tool batch. This differs from a declared DAG.
+AU does not invent a dependency or a future child to bypass that choice.
+
+Recursive calls share the same reservation mechanism. Their received
+`max_concurrent_requests` caps model calls, not waiting parents. This prevents
+a nested child from waiting for a permit that its parent holds. The fallback
+is four requests and fifty tool calls. A tool response batch above the received
+tool limit fails before framework fan-out. The host request limit of zero is
+preserved, not replaced with a fallback. Tokens include reported fallback
+attempts. Host tools own cancellation of external operations that outlive
+their coroutine. AU does not claim to stop an uncooperative external process.
+
+A single driver runs the DAG independently of event consumption. Its queue
+holds at most two lifecycle events per declared task plus an end marker. A
+slow viewer cannot hold a newly ready task behind an unrelated task. Model
+output and dependency output are data; they cannot change the admitted DAG,
+its IDs or its limits. The host must supply a fresh run ID for each execution.
+Stable event IDs support repeat delivery of the same event, not crash recovery
+or durable active-run resume. AU has no event store or restart coordinator.
+
+Parallel tools use a finite fallback of fifty calls when the host omits that limit.
+Explicit finite limits remain unchanged. Root-only recursive depth zero remains valid.
+Model handlers use one tracked task per request permit. Cancellation drains that
+handler before accounting usage or releasing its permit. This protects awaited
+cleanup from the model framework's repeated cancellation scopes.
+
+Setup and the DAG driver share one absolute deadline. A paused reader cannot
+prevent child timeout and cleanup. Consumers must finish or close the iterator.
+A pause can delay the parent terminal event and host-scope release after work stops.
+
+The drain guarantee covers AU-owned tasks and model request handlers.
+Host extensions own cancellation-safe asynchronous scope exits. Repeated direct
+cancellation can interrupt a host exit after AU finishes child cleanup.
+AU does not move host exits to another task, which may break ContextVar ownership.
+No elapsed cleanup bound applies to handlers that do not cooperate.
+
+## Amendment 2026-10-22: account for prior host consumption
+
+AU-BOUNDARY-R043.7 applies the original host bounds to prior measured work
+and in-run execution. `RunPlan.initial_usage` uses the existing pydantic-ai
+`RunUsage` type. `initial_elapsed_seconds` carries measured time before AU
+execution. Both default to zero. They are trusted host inputs, not model
+proposal fields. Request metadata and the model scaffold cannot set them.
+Arbora supplies its real planner usage and elapsed time. EG still owns task
+choice and admission bounds; AU adds no scheduler, planner or store.
+
+AU snapshots the public request, tool, input-token and output-token counters
+before yielding or binding a model. Counts must be nonnegative integers, not
+booleans or fractions. Total tokens are the sum of input and output tokens.
+Elapsed time must be finite and nonnegative. The public usage shape stays
+unchanged. Extended provider metrics remain outside this accounting change.
+
+The host keeps the original `RunBudget`, not a pre-subtracted remainder. AU
+seeds one aggregate ledger and subtracts initial elapsed time once from the
+existing setup/driver timeout. An exhausted initial request, token or time
+bound stops before model binding and child dispatch. Prior tool usage above
+its limit also stops. An exact tool limit allows model-only completion, but
+AU refuses additional tools before their execution. Terminal usage
+includes validated initial counters on completion, refusal, failure and
+cancellation. Reusing a plan does not mutate or reuse its run ledger.
+
+Nonzero initial consumption also opts serial steps into the existing shared
+budget. They cannot reset the initial charge for each step. Zero-default
+serial behavior remains unchanged. All rolling and cancellation guarantees
+and residuals above still apply. The harness does not estimate missing token
+usage or know in-flight token counts before the provider reports them. The
+host must not add planner counters to AU results a second time.
+
+### Failed plan resolution after measured host work
+
+The trusted decision provider can raise `RunPlanFailure` after measured work.
+Later admission, validation or publication may fail before a `RunPlan` returns.
+The carrier requires the original `BaseException` and
+reported `RunUsage`. It accepts the same measured `initial_elapsed_seconds`.
+AU validates and snapshots these values with the existing initial-usage
+helper. Invalid input fails closed without a partial ledger.
+
+The carrier grants no execution, supplies no budget and cannot widen one.
+AU includes its counters once in the failed terminal event and result. It
+does not clamp consumed usage to a limit or replace the original failure
+with a budget refusal. Cancellation and iterator close emit the measured
+ledger in a stopped cancellation event and re-raise the original exception.
+A raw provider error or cancellation without a reported ledger keeps its
+previous behavior. AU adds no estimate or second accounting path. Model
+proposals and request metadata cannot supply a trusted failure carrier.
+
+### Failed executor receipts
+
+`run()` still returns its failed `RunResult`. The execution port raises
+`RunFailed(result)` instead of discarding that result in a plain `RuntimeError`.
+The subclass keeps the same message and catch compatibility. Its read-only
+`result`, `run_id` and `usage` properties expose one aggregate receipt.
+The allowed host boundary `agent_utilities.runtime` lazily exports the same
+`AgentRunExecutor`, `DependencyPlan`, `RunBudget`, `RunFailed`, `RunPlan`,
+`RunPlanFailure`, `RunTask`, `StopRule` and `default_run_plan` objects.
+This facade adds no implementation or policy and does not load the model
+runtime merely to import workspace capabilities.
+
+The constructor copies and validates a failed result before retaining it.
+Scalar fields keep their declared types; steps are nonnegative integers.
+Run IDs must be nonempty strings, not necessarily UUIDs. Empty usage stays
+empty. Other ledgers contain exactly the five public counters as nonnegative
+integers, excluding booleans. Total tokens must equal input plus output.
+The retained result and its usage mapping are immutable. `result.as_dict()`
+returns plain data. Exception copy and pickle round trips retain the receipt.
+
+The executor constructs this exception only from its own returned result.
+It never trusts receipt attributes on a provider or model exception. Hosts
+must recognize the typed failure and verify its expected run identity before
+copying counters. They keep the outcome failed and must not publish a partial
+answer. This receipt supplies no execution, retry or budget grant. The host
+must not add it to the same terminal ledger again. Successful and stopped
+returns, cancellation and the existing event schema remain unchanged.

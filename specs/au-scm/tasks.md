@@ -10,3 +10,5 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Rows: [requireme
 - [ ] Implement the rebase-and-retry step on `SOURCE_CONFLICT{paths}` with the retry bound.
 - [ ] Add the served proof and the focused unit tests; run the gates.
 - [ ] Update `status.json` only after the required gates pass on the merged revision.
+
+- [ ] **AU-SCM-R002:** Symbol-level edits in the run loop.

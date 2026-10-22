@@ -64,7 +64,7 @@ reflects their intended post-merge state for those four repos.
 | kafka-mcp | n/a | none found |
 | keycloak-agent | n/a | `keycloak_agent/auth.py:16` `agent_utilities.arbora_client.client_credentials.ClientCredentialsTokenProvider` — annotated SDK gap (SDK's counterpart needs a credential ref + mandatory httpx.Client; out of scope mechanical rename) |
 | lakekeeper-mcp | n/a | none found |
-| langfuse-agent | n/a | `langfuse_agent/auth.py:18` `agent_utilities.core.config.resolve_langfuse_host` — annotated SDK gap (no SDK equivalent for Langfuse-specific host/transport helpers) |
+| langfuse-agent | n/a | `langfuse_agent/auth.py:18` `agent_utilities.core.config.resolve_langfuse_host` — annotated SDK gap (no SDK equivalent for the connector-specific trace-host and transport helpers) |
 | leanix-agent | n/a | none found |
 | legal-peripherals-mcp | n/a | none found |
 | lgtm-mcp | n/a | none found |
