@@ -154,3 +154,4 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R043.8:** Compose the host checkpoint port with dependency plans and shared budgets; qualify restart against the EG native checkpoint producer.
 - [ ] **AU-BOUNDARY-R043.9:** Restore completed conversation history from a host-authorized checkpoint.
 - [ ] **AU-BOUNDARY-R043.10:** Publish model and tool events through the durable host event port.
+- [ ] **AU-BOUNDARY-R043.11:** Bind host-selected client tools in the real run loop and prove bounded forwarding without local effects.

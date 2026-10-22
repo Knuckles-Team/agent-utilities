@@ -81,6 +81,17 @@ def build_agent(
     if metrics is not None:
         model = MeasuredModel(model, metrics)
     toolsets = list(plan.toolsets)
+    if plan.harness.client_tools:
+        from agent_utilities.harness.client_capabilities import ClientCapabilityToolset
+
+        toolsets.append(
+            ClientCapabilityToolset(
+                plan.client_transport,
+                plan.harness.client_tools,
+                limits=plan.harness.client_tool_limits,
+                run_id=run_id,
+            )
+        )
     if plan.tool_names:
         toolsets.append(
             host_ports.build_native_toolset(

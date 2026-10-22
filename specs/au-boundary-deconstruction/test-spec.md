@@ -148,3 +148,11 @@ malformed history. AU-BOUNDARY-R043.10 tests record publication order, refuse
 a tool effect after a failed call publication, and stop after a failed result
 publication. Live qualification needs the EG checkpoint producer and the
 Arbora admission-bound adapter.
+
+## R043.11 client tool forwarding
+
+`tests/test_client_capabilities.py` drives the real run loop with a scripted
+model and a bound test transport. Assert exact method and parameters, one call,
+closed permission refusals, byte and wait limits, absent transport refusal and
+privacy-safe trace fields. This test does not grant permission or prove the
+Arbora gateway and native approval producers.

@@ -52,6 +52,29 @@ class HostToolError(RuntimeError):
     """A tool call the host executed reported a tool-level error."""
 
 
+class ClientCapabilityTransport(Protocol):
+    """One host-bound client session; the host owns grants and approval state."""
+
+    async def call(self, method: str, params: Mapping[str, Any]) -> str:
+        """Dispatch once or raise ClientCapabilityRefused; never infer approval."""
+        ...
+
+
+class ClientCapabilityRefused(RuntimeError):
+    """Closed host refusal safe to return to a model without private details."""
+
+    def __init__(self, reason: str) -> None:
+        allowed = {
+            "permission_required",
+            "permission_denied",
+            "client_disconnected",
+            "capability_not_declared",
+            "authority_unavailable",
+        }
+        self.reason = reason if reason in allowed else "authority_unavailable"
+        super().__init__(self.reason)
+
+
 class ToolClient(Protocol):
     """One open client session onto a tool endpoint, provided by the host."""
 

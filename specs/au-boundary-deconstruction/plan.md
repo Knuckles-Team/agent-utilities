@@ -675,3 +675,16 @@ copying counters. They keep the outcome failed and must not publish a partial
 answer. This receipt supplies no execution, retry or budget grant. The host
 must not add it to the same terminal ledger again. Successful and stopped
 returns, cancellation and the existing event schema remain unchanged.
+
+## Client capability tools — 2026-10-20
+
+R043.11 restores the in-run part of historical AU-CONTROL-R044 through the
+current RunPlan seam. The host supplies a bound ClientCapabilityTransport,
+a closed tool selection and limits. The executor binds only that selection.
+The harness forwards requests and bounds request size, response size and wait
+time. It never opens files, starts processes, chooses grants or stores approvals.
+Arbora owns session binding and dispatch; the connected client owns containment.
+Permission-required and denied responses remain refusals. A timeout does not
+assert rollback or retry a possibly dispatched effect. Trace records contain
+method, byte counts and outcome only. Mutations remain unavailable unless the
+host can obtain the existing atomic approval authority.

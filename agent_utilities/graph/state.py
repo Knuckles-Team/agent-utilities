@@ -13,7 +13,7 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic_ai import BinaryContent
 from pydantic_ai.usage import RunUsage
@@ -21,6 +21,10 @@ from pydantic_ai.usage import RunUsage
 from agent_utilities.harness.plan import PlanState
 
 from .metrics import RunMetrics
+
+if TYPE_CHECKING:
+    from agent_utilities.harness.client_capabilities import ClientToolLimits
+    from agent_utilities.host_ports import ClientCapabilityTransport
 
 RunStatus = Literal["pending", "running", "completed", "stopped", "failed"]
 
@@ -101,6 +105,8 @@ class HarnessConfig:
     response_format: Literal["text", "json"] = "text"
     model_settings: Mapping[str, Any] = field(default_factory=dict)
     plan_scaffold: Literal["on", "off"] = "off"
+    client_tools: tuple[str, ...] = ()
+    client_tool_limits: ClientToolLimits | None = None
 
 
 @dataclass(frozen=True)
@@ -170,6 +176,9 @@ class RunPlan:
     budget: RunBudget = field(default_factory=RunBudget)
     stop: StopRule = field(default_factory=StopRule)
     harness: HarnessConfig = field(default_factory=HarnessConfig)
+    client_transport: ClientCapabilityTransport | None = field(
+        default=None, repr=False, compare=False
+    )
     input_media_types: tuple[str, ...] = ()
     dependency_plan: DependencyPlan | None = None
     initial_usage: RunUsage = field(default_factory=RunUsage)

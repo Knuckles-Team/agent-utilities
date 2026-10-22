@@ -170,7 +170,8 @@
     "AU-BOUNDARY-R048.9",
     "AU-BOUNDARY-R048.10",
     "AU-BOUNDARY-R048.11",
-    "AU-BOUNDARY-R049"
+    "AU-BOUNDARY-R049",
+    "AU-BOUNDARY-R043.11"
   ],
   "requirements": [
     {
@@ -1473,7 +1474,8 @@
         "AU-BOUNDARY-R043.7",
         "AU-BOUNDARY-R043.8",
         "AU-BOUNDARY-R043.9",
-        "AU-BOUNDARY-R043.10"
+        "AU-BOUNDARY-R043.10",
+        "AU-BOUNDARY-R043.11"
       ]
     },
     {
@@ -1646,6 +1648,8 @@
       "title": "Apply a received bounded dependency plan",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "1978fffd4de8",
+        "53e77f794766",
         "aff1b2ca7a77"
       ],
       "verified_by": [
@@ -1870,6 +1874,19 @@
         "0e44186eac39"
       ],
       "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.11",
+      "title": "Apply host-selected client tools",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/test_client_capabilities.py:101",
+        "tests/test_client_capabilities.py:119",
+        "tests/test_client_capabilities.py:132",
+        "tests/test_client_capabilities.py:142",
+        "tests/test_client_capabilities.py:155"
+      ]
     }
   ]
 }
