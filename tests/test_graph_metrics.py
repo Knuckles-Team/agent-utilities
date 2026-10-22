@@ -13,7 +13,7 @@ from agent_utilities.graph import RunPlan, RunRequest, run
 from agent_utilities.graph.metrics import MAX_REQUEST_SAMPLES, RunMetrics
 
 
-# spec: AU-BOUNDARY-R043.1
+# spec: AU-BOUNDARY-R043.12
 async def test_actual_model_calls_emit_attributed_counts_and_client_time(events):
     calls = 0
 
@@ -55,7 +55,7 @@ async def test_actual_model_calls_emit_attributed_counts_and_client_time(events)
         assert absent not in serialized
 
 
-# spec: AU-BOUNDARY-R043.1
+# spec: AU-BOUNDARY-R043.12
 async def test_failed_model_call_is_observed_without_invented_usage():
     def fail(messages, info):
         raise RuntimeError("model failed")
@@ -73,7 +73,7 @@ async def test_failed_model_call_is_observed_without_invented_usage():
     assert "model failed" not in json.dumps(result.metrics)
 
 
-# spec: AU-BOUNDARY-R043.1
+# spec: AU-BOUNDARY-R043.12
 @pytest.mark.parametrize("bad_count", [-1, True, 1.25, 9_007_199_254_740_992])
 async def test_invalid_response_counts_do_not_become_metric_values(bad_count):
     def respond(messages, info):
@@ -91,7 +91,7 @@ async def test_invalid_response_counts_do_not_become_metric_values(bad_count):
     assert sample["output_tokens"] == 2
 
 
-# spec: AU-BOUNDARY-R043.1
+# spec: AU-BOUNDARY-R043.12
 async def test_missing_model_has_zero_observed_requests():
     result = await run(RunRequest(task="test"))
     assert result.status == "failed"
@@ -99,7 +99,7 @@ async def test_missing_model_has_zero_observed_requests():
     assert result.metrics["observed_model_requests"] == 0
 
 
-# spec: AU-BOUNDARY-R043.1
+# spec: AU-BOUNDARY-R043.12
 async def test_zero_elapsed_is_not_used_as_a_generation_denominator(monkeypatch):
     import agent_utilities.graph.metrics as metrics
 
@@ -117,7 +117,7 @@ async def test_zero_elapsed_is_not_used_as_a_generation_denominator(monkeypatch)
     assert "tps" not in json.dumps(result.metrics)
 
 
-# spec: AU-BOUNDARY-R043.1
+# spec: AU-BOUNDARY-R043.12
 def test_sample_limit_reports_partial_coverage():
     from types import SimpleNamespace
 

@@ -692,3 +692,6 @@ host can obtain the existing atomic approval authority.
 ## Amendment 2026-10-22: render-receipt consumer moved from pipelines
 
 `AU-BOUNDARY-R050` was `PIPE-PAGES-R036` in pipelines. Checking a render receipt before model transport is in-run harness work, so the run loop owns it. The engine produces the receipt under EG-TYPED-PACKS-R002.10 and names this row as its dispatch consumer. The rows were SPECIFIED with no bindings, so no evidence moved.
+### Amendment 2026-10-22: explicit measurement producer ownership
+
+AU-BOUNDARY-R043.12 owns the emission implemented in agent-utilities #328. It replaces the overly broad R043.1 binding on the metric tests, not the received-plan requirement itself. EG-ORCH-VOCAB-R011 is a downstream vocabulary consumer, not the producer owner. Durable aggregation remains in EG; served composition remains in Arbora. Provider timing and live/release acceptance remain unproved.

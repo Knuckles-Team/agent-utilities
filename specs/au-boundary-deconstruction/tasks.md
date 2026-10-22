@@ -162,3 +162,6 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R043.9:** Restore completed conversation history from a host-authorized checkpoint.
 - [ ] **AU-BOUNDARY-R043.10:** Publish model and tool events through the durable host event port.
 - [ ] **AU-BOUNDARY-R043.11:** Bind host-selected client tools in the real run loop and prove bounded forwarding without local effects.
+
+- [x] Add AU-BOUNDARY-R043.12 for the existing bounded measurement producer and bind its local regression tests.
+- [ ] Qualify live-provider and served-consumer behavior separately; no such acceptance is claimed here.
