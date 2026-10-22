@@ -510,8 +510,8 @@ policy grant, storage or provider configuration change is introduced.
 This is an enforcement prerequisite for ARBORA-A2A-R001.5, not served attachment
 acceptance. Arbora must obtain the selected model's authoritative input-media
 decision and validate it before admitting a WorkItem. Its current registry has
-no such capability field or producer; an OpenAI-compatible transport alone
-is not evidence that a selected model supports images. Full acceptance still
+no such capability field or producer. A chat-completions wire transport alone
+is no evidence that a selected model supports images. Full acceptance still
 requires a supported-model journey and zero-task rejection through Arbora.
 
 ### Amendment 2026-10-20: shared measured request timing
