@@ -126,3 +126,14 @@ replace a budget. Test synchronous and asynchronous providers, invalid
 ledgers, reuse, cancellation and iterator close. A provider failure without
 a ledger must not invent consumption. Existing success and zero-default
 cases must keep their behavior.
+
+Public executor tests must retain a failed aggregate receipt in `RunFailed`
+with the same `RuntimeError` message and catch behavior. Prove equality with
+the terminal event for planning, setup, serial and dependency failures.
+Validate scalar fields and the entire public ledger. Source and caller
+mutation must not alter the retained receipt; empty usage stays empty.
+Exercise plain-dict serialization and exception copy and pickle round trips.
+Forged provider and model receipts must not provide accounting. Successful
+and stopped returns and original cancellation must remain unchanged.
+The runtime facade exports the identical run contract objects.
+Importing it must not load the graph runtime before a caller resolves those aliases.

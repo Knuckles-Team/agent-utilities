@@ -633,3 +633,31 @@ ledger in a stopped cancellation event and re-raise the original exception.
 A raw provider error or cancellation without a reported ledger keeps its
 previous behavior. AU adds no estimate or second accounting path. Model
 proposals and request metadata cannot supply a trusted failure carrier.
+
+### Failed executor receipts
+
+`run()` still returns its failed `RunResult`. The execution port raises
+`RunFailed(result)` instead of discarding that result in a plain `RuntimeError`.
+The subclass keeps the same message and catch compatibility. Its read-only
+`result`, `run_id` and `usage` properties expose one aggregate receipt.
+The allowed host boundary `agent_utilities.runtime` lazily exports the same
+`AgentRunExecutor`, `DependencyPlan`, `RunBudget`, `RunFailed`, `RunPlan`,
+`RunPlanFailure`, `RunTask`, `StopRule` and `default_run_plan` objects.
+This facade adds no implementation or policy and does not load the model
+runtime merely to import workspace capabilities.
+
+The constructor copies and validates a failed result before retaining it.
+Scalar fields keep their declared types; steps are nonnegative integers.
+Run IDs must be nonempty strings, not necessarily UUIDs. Empty usage stays
+empty. Other ledgers contain exactly the five public counters as nonnegative
+integers, excluding booleans. Total tokens must equal input plus output.
+The retained result and its usage mapping are immutable. `result.as_dict()`
+returns plain data. Exception copy and pickle round trips retain the receipt.
+
+The executor constructs this exception only from its own returned result.
+It never trusts receipt attributes on a provider or model exception. Hosts
+must recognize the typed failure and verify its expected run identity before
+copying counters. They keep the outcome failed and must not publish a partial
+answer. This receipt supplies no execution, retry or budget grant. The host
+must not add it to the same terminal ledger again. Successful and stopped
+returns, cancellation and the existing event schema remain unchanged.

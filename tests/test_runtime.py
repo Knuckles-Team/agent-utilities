@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import shutil
 import stat
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -176,3 +179,56 @@ async def test_run_shell_process_returns_exit_code_and_output(
     from agent_utilities.runtime.workspace import run_shell_process
 
     assert await run_shell_process(["bash", "-c", script], timeout) == expected
+
+
+RUNTIME_RUN_EXPORTS = (
+    "AgentRunExecutor",
+    "DependencyPlan",
+    "RunBudget",
+    "RunFailed",
+    "RunPlan",
+    "RunPlanFailure",
+    "RunTask",
+    "StopRule",
+    "default_run_plan",
+)
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("name", RUNTIME_RUN_EXPORTS)
+def test_runtime_exports_the_same_public_run_objects(name):
+    from agent_utilities import graph, runtime
+
+    assert name in runtime.__all__
+    assert name in graph.__all__
+    assert getattr(runtime, name) is getattr(graph, name)
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+def test_runtime_run_exports_are_lazy_and_cycle_safe_in_a_fresh_process():
+    script = """
+import os
+import sys
+from agent_utilities import runtime
+
+assert "agent_utilities.graph" not in sys.modules
+resolved = {name: getattr(runtime, name) for name in sys.argv[1:]}
+from agent_utilities import graph
+
+for name, exported in resolved.items():
+    assert name in runtime.__all__
+    assert exported is getattr(graph, name), name
+# This probe checks imports, not third-party interpreter-shutdown hooks.
+print("runtime aliases resolved", flush=True)
+os._exit(0)
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script, *RUNTIME_RUN_EXPORTS],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == "runtime aliases resolved"
