@@ -64,6 +64,18 @@ fresh history with only its direct dependency outputs. The output task must
 be the sole sink. Failed or stopped plans never return a partial child answer
 as a completed parent result.
 
+The trusted host can pass prior measured consumption as `RunPlan.initial_usage`
+(a `pydantic_ai.usage.RunUsage`) and `initial_elapsed_seconds`. Both default to
+zero. Keep `RunBudget` at its original bounds; do not subtract this usage in
+the host or add it to AU's result again. AU snapshots the reported request,
+tool and token counters. It includes them once in terminal aggregate usage.
+It subtracts the elapsed time once from the execution deadline. Exhausted initial
+model bounds stop before model binding or child dispatch. Prior tool usage above
+the tool limit also stops. At the exact tool limit, model-only answers remain
+allowed, but additional tools do not. Invalid counters or time
+fail closed. Model proposals, request metadata and scaffold updates cannot
+set this host-only input. Unreported token usage remains zero, not an estimate.
+
 Request and tool reservations are shared across tasks and validation retries.
 An unspecified parallel tool limit uses a finite fallback of fifty calls.
 Token limits use reported usage, including fallback attempts. In-flight token

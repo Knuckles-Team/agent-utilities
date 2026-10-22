@@ -254,6 +254,8 @@ async def _execute_dependency_plan(
                 completed(key, task.result())
         for key in sorted(pending, key=order.__getitem__):
             event("task_blocked", key, status="blocked")
+        # This seeded ledger is the whole run, not a delta to add again.
+        state.usage.clear()
         state.add_usage(budget.usage)
     if interrupted is not None:
         raise interrupted

@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from pydantic_ai import BinaryContent
+from pydantic_ai.usage import RunUsage
 
 from agent_utilities.harness.plan import PlanState
 
@@ -126,6 +127,11 @@ class RunPlan:
     toolsets; ``tool_names`` are host operations bound through the native
     toolset provider. ``dependency_plan`` opts into bounded rolling execution
     instead of serial ``steps``; the two are mutually exclusive.
+
+    ``initial_usage`` and ``initial_elapsed_seconds`` are measured consumption
+    supplied only by the trusted host, before execution (for example planning).
+    Keep ``budget`` at its original bounds: the harness charges this consumption
+    once. Model proposals and request metadata must never supply these fields.
     """
 
     model: Any
@@ -138,6 +144,8 @@ class RunPlan:
     harness: HarnessConfig = field(default_factory=HarnessConfig)
     input_media_types: tuple[str, ...] = ()
     dependency_plan: DependencyPlan | None = None
+    initial_usage: RunUsage = field(default_factory=RunUsage)
+    initial_elapsed_seconds: float = 0.0
 
 
 @dataclass
