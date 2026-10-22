@@ -171,7 +171,14 @@
     "AU-BOUNDARY-R048.10",
     "AU-BOUNDARY-R048.11",
     "AU-BOUNDARY-R049",
-    "AU-BOUNDARY-R043.11"
+    "AU-BOUNDARY-R043.11",
+    "AU-BOUNDARY-R050",
+    "AU-BOUNDARY-R050.1",
+    "AU-BOUNDARY-R050.2",
+    "AU-BOUNDARY-R050.3",
+    "AU-BOUNDARY-R050.4",
+    "AU-BOUNDARY-R050.5",
+    "AU-BOUNDARY-R050.6"
   ],
   "requirements": [
     {
@@ -1887,6 +1894,63 @@
         "tests/test_client_capabilities.py:142",
         "tests/test_client_capabilities.py:155"
       ]
+    },
+    {
+      "id": "AU-BOUNDARY-R050",
+      "title": "The run loop checks the engine render receipt before model transport (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R050.1",
+        "AU-BOUNDARY-R050.2",
+        "AU-BOUNDARY-R050.3",
+        "AU-BOUNDARY-R050.4",
+        "AU-BOUNDARY-R050.5",
+        "AU-BOUNDARY-R050.6"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R050.1",
+      "title": "Model",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R050.2",
+      "title": "Behavior",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R050.3",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R050.4",
+      "title": "Refusal",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R050.5",
+      "title": "Evidence",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R050.6",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }
