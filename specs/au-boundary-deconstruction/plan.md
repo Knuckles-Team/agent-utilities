@@ -765,3 +765,13 @@ R043.8 and R043.9.2.2 require the following genuine restore contract:
 
 This increment deliberately refuses current-run restore. It does not complete
 checkpoint publication, dependency restoration or served conversation resume.
+
+## Received text-only execution
+
+R043.13 adds a host-received constraint, not a policy decision. The initial supported protocol is exact OpenAIChatModel with OpenAIProvider and AsyncOpenAI. The SDK must have zero automatic retries. Provider defaults and per-request settings accept only a bounded max_tokens setting. The host owns and closes the client. AU creates no credentials or deployment.
+
+The constrained path uses one text step and the existing shared usage accounting. It skips inherited history, lease and scaffold hooks. Model replies cannot grant tools. Provider-reported tokens remain post-response evidence; max_tokens bounds output only. Arbora still owes explicit anonymous admission, finite per-run and in-flight limits, native ownership and durable cancellation/outcome composition before no-auth Chat can be enabled. R043.13.2 keeps those installed obligations open.
+
+The restricted run emits no inherited global event sink. Its public result retains measured usage on returned terminals. Cancellation propagates only after provider cleanup; it supplies no settlement receipt. The host must retain its full reserved quota for a cancelled or uncertain attempt. The host owns the borrowed model client and closes it after execution and drain, not while requests remain active. The request fence uses the exact absolute deadline of the enclosing executor timeout.
+
+A durable cumulative spend quota is not promised by this local text slice. If an operator configures such a quota, its owner must enforce it; process-local counters cannot satisfy a durable promise. The default acceptance requires bounded runs and in-flight capacity, not a new native spending subsystem.
