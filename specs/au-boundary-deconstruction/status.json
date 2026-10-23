@@ -183,7 +183,10 @@
     "AU-BOUNDARY-R043.9.1",
     "AU-BOUNDARY-R043.9.2",
     "AU-BOUNDARY-R043.9.2.1",
-    "AU-BOUNDARY-R043.9.2.2"
+    "AU-BOUNDARY-R043.9.2.2",
+    "AU-BOUNDARY-R043.13",
+    "AU-BOUNDARY-R043.13.1",
+    "AU-BOUNDARY-R043.13.2"
   ],
   "requirements": [
     {
@@ -1502,7 +1505,8 @@
         "AU-BOUNDARY-R043.9",
         "AU-BOUNDARY-R043.10",
         "AU-BOUNDARY-R043.11",
-        "AU-BOUNDARY-R043.12"
+        "AU-BOUNDARY-R043.12",
+        "AU-BOUNDARY-R043.13"
       ]
     },
     {
@@ -2051,6 +2055,35 @@
     {
       "id": "AU-BOUNDARY-R043.9.2.2",
       "title": "Qualify genuine checkpoint restoration and served continuation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.13",
+      "title": "Apply a received text-only execution constraint",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R043.13.1",
+        "AU-BOUNDARY-R043.13.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.13.1",
+      "title": "Enforce the constraint at the model boundary",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "d10d70401fc7"
+      ],
+      "verified_by": [
+        "tests/test_text_only.py:23"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.13.2",
+      "title": "Qualify the installed constrained execution path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
