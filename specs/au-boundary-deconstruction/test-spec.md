@@ -90,6 +90,19 @@ AU-BOUNDARY-R043.5.2: Per-run declined publication leaves local state usable, cl
 
 ## AU-BOUNDARY-R043.6 and R043.7 dependency execution
 
+Typed tool steps (AU-BOUNDARY-R043.6.1 to R043.6.7) use the same `tests/test_dependency.py` harness.
+A fake `ToolCaller` replaces any network or fleet call.
+The function model records requests. A test can therefore prove that no model ran a tool step.
+
+- `AU-BOUNDARY-R043.6.1`: `tests/test_dependency.py::test_mixed_plan_validates` accepts a mixed DAG. `test_tool_step_without_caller_refuses_before_any_task` refuses with the typed reason and starts no task. A source scan finds no MCP or HTTP client import in the dependency module.
+- `AU-BOUNDARY-R043.6.2`: `tests/test_dependency.py::test_bindings_resolve_from_prerequisite_outputs` resolves nested keys and array indexes from a tool step and a JSON prompt step. A repeat run gives byte-identical arguments. The function model records zero requests for the tool step.
+- `AU-BOUNDARY-R043.6.3`: `tests/test_dependency.py::test_unresolved_binding_is_a_typed_failure` covers each cause. `test_failed_tool_step_does_not_start_dependents_and_makes_no_model_request` proves dependents stay unstarted. It also proves the function model sees no request.
+- `AU-BOUNDARY-R043.6.4`: `tests/test_dependency.py::test_tool_step_records_resolved_arguments_and_result` checks the fields and order. `test_oversized_result_is_replaced_by_digest` checks the bound.
+- `AU-BOUNDARY-R043.6.5`: `tests/test_dependency.py::test_mixed_dag_refills_slots_in_order` runs a prompt step, a bound tool step and a prompt step that reads the result at capacity two. It checks start order, the cap and the output task.
+- `AU-BOUNDARY-R043.6.6`: `tests/test_dependency.py::test_execute_graph_routes_tool_steps_through_the_bound_caller` enters the public run API and observes the caller invoked. `test_cancel_cancels_inflight_tool_call` observes cancellation.
+- `AU-BOUNDARY-R043.6.7`: `tests/test_dependency.py::test_tool_step_end_to_end_through_run_api`.
+
+
 `tests/test_dependency.py` drives the public run API with deterministic
 FunctionModel responses and explicit event gates, with no sleeps or network.
 Cover capacity-two rolling refill, joins, deterministic output, isolated task
