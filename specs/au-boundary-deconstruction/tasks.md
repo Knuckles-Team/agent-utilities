@@ -165,3 +165,5 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 
 - [x] Add AU-BOUNDARY-R043.12 for the existing bounded measurement producer and bind its local regression tests.
 - [ ] Qualify live-provider and served-consumer behavior separately; no such acceptance is claimed here.
+
+- [ ] **AU-BOUNDARY-R043.9.1:** Validate host-bound completed text history and hydrate sequential fresh turns without prior budgets.

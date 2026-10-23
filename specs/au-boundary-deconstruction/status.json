@@ -179,7 +179,8 @@
     "AU-BOUNDARY-R050.4",
     "AU-BOUNDARY-R050.5",
     "AU-BOUNDARY-R050.6",
-    "AU-BOUNDARY-R043.12"
+    "AU-BOUNDARY-R043.12",
+    "AU-BOUNDARY-R043.9.1"
   ],
   "requirements": [
     {
@@ -1556,13 +1557,7 @@
         "8c2c8a76e6f8",
         "8fdd01e03831"
       ],
-      "verified_by": [
-        "tests/test_harness_plan.py:29",
-        "tests/test_harness_plan.py:39",
-        "tests/test_harness_plan.py:55",
-        "tests/test_harness_plan.py:9",
-        "tests/test_plan_runtime.py:116"
-      ],
+      "verified_by": [],
       "rollup_of": [
         "AU-BOUNDARY-R043.4.1",
         "AU-BOUNDARY-R043.4.2",
@@ -1644,13 +1639,7 @@
         "da8a2d9cfbaa",
         "dca34a7af5c9"
       ],
-      "verified_by": [
-        "tests/test_harness_plan.py:120",
-        "tests/test_harness_plan.py:65",
-        "tests/test_harness_plan.py:86",
-        "tests/test_host_ports.py:125",
-        "tests/test_host_ports.py:140"
-      ],
+      "verified_by": [],
       "rollup_of": [
         "AU-BOUNDARY-R043.5.1",
         "AU-BOUNDARY-R043.5.2"
@@ -1729,7 +1718,10 @@
       "title": "Carry completed conversation history into a fresh run",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R043.9.1"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043.10",
@@ -2001,6 +1993,15 @@
         "tests/test_graph_metrics.py:16",
         "tests/test_graph_metrics.py:58",
         "tests/test_graph_metrics.py:76"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.9.1",
+      "title": "Hydrate a sequential fresh turn from completed text history",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [
+        "tests/test_conversation_history.py:21"
       ]
     }
   ]

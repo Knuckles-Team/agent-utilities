@@ -695,3 +695,22 @@ host can obtain the existing atomic approval authority.
 ### Amendment 2026-10-22: explicit measurement producer ownership
 
 AU-BOUNDARY-R043.12 owns the emission implemented in agent-utilities #328. It replaces the overly broad R043.1 binding on the metric tests, not the received-plan requirement itself. EG-ORCH-VOCAB-R011 is a downstream vocabulary consumer, not the producer owner. Durable aggregation remains in EG; served composition remains in Arbora. Provider timing and live/release acceptance remain unproved.
+
+## Completed text-history hydration
+
+R043.9.1 adds `harness/conversation_history.py` for the harness-owned message
+codec. The host provider returns JSON with `version: 1`, `phase: "completed"`,
+`run_id` and `messages`. The source run must differ from the current run. The
+envelope is bounded to one MiB and 1024 messages. Each message has exactly
+`role` and `text` fields. Fresh model-message objects are constructed from
+those fields; provider state, instructions, usage and metadata are refused.
+It accepts alternating text
+user requests and assistant responses only; tool and system parts refuse.
+Arbora owns authorization and must provide only a completed prior context turn.
+AU validates the content, not the host authority. It stores nothing.
+
+The sequential executor loads history before model construction. Missing host
+providers return no history. Provider failure refuses without private details.
+A dependency plan with history refuses before any effect until equivalent
+semantics exist. R043.8 checkpoint restore and R043.9 native and served
+acceptance remain open. This increment cannot resume an interrupted run.
