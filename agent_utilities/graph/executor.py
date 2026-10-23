@@ -23,6 +23,7 @@ from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 
 from agent_utilities import host_ports
+from agent_utilities.harness.conversation_history import decode_completed_history
 from agent_utilities.harness.plan import PlanState
 from agent_utilities.harness.plan_runtime import PlanScaffold
 
@@ -203,6 +204,14 @@ async def iterate_run(
         )
         if has_initial_usage:
             state.add_usage(initial_usage)
+        content = await host_ports.read_run_history(request)
+        history = (
+            decode_completed_history(content, run_id=state.run_id)
+            if content is not None
+            else []
+        )
+        if history and run_plan.dependency_plan is not None:
+            raise ValueError("dependency-plan conversation history is unavailable")
         validate_dependency_plan(run_plan)
         attachments = _attachment_input(request, run_plan)
         if run_plan.harness.plan_scaffold == "on":
@@ -213,7 +222,6 @@ async def iterate_run(
         return
     deps = GraphDeps(state=state, plan=run_plan, config=cfg)
     state.status = "running"
-    history: list[Any] = []
     limits = _limits(run_plan)
     steps = run_plan.steps[: max(run_plan.stop.max_steps, 0)]
     shared_budget = (

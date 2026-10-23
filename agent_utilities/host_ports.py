@@ -39,7 +39,7 @@ every read port reports the empty answer, never inventing a surface of its own.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import AsyncIterator, Callable, Iterable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
@@ -497,3 +497,24 @@ async def scaffold_publication_scope(
         except Exception:
             if failure is None:
                 raise RuntimeError("scaffold publication close failed") from None
+
+
+RunHistoryProvider = Callable[[Any], Awaitable[str | None]]
+_RUN_HISTORY: RunHistoryProvider | None = None
+
+
+def register_run_history_provider(provider: RunHistoryProvider | None) -> None:
+    """Bind the host-authorized prior-turn reader, never caller metadata."""
+    global _RUN_HISTORY
+    _RUN_HISTORY = provider
+
+
+async def read_run_history(request: Any) -> str | None:
+    """Read completed history without fallback after a host refusal."""
+    provider = _RUN_HISTORY
+    if provider is None:
+        return None
+    try:
+        return await provider(request)
+    except Exception:
+        raise RuntimeError("conversation history provider failed") from None

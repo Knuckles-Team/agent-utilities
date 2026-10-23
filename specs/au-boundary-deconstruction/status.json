@@ -179,7 +179,9 @@
     "AU-BOUNDARY-R050.4",
     "AU-BOUNDARY-R050.5",
     "AU-BOUNDARY-R050.6",
-    "AU-BOUNDARY-R043.12"
+    "AU-BOUNDARY-R043.12",
+    "AU-BOUNDARY-R043.9.1",
+    "AU-BOUNDARY-R043.9.2"
   ],
   "requirements": [
     {
@@ -1729,7 +1731,11 @@
       "title": "Carry completed conversation history into a fresh run",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R043.9.1",
+        "AU-BOUNDARY-R043.9.2"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043.10",
@@ -2002,6 +2008,24 @@
         "tests/test_graph_metrics.py:58",
         "tests/test_graph_metrics.py:76"
       ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.9.1",
+      "title": "Hydrate a sequential fresh turn from completed text history",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "58ec920b1b81"
+      ],
+      "verified_by": [
+        "tests/test_conversation_history.py:21"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.9.2",
+      "title": "Complete checkpoint-backed conversation history integration",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }
