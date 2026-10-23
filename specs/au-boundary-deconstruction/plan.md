@@ -718,3 +718,50 @@ acceptance remain open. This increment cannot resume an interrupted run.
 R043.9.2 retains the parent's remaining checkpoint integration and current-run
 precedence acceptance. Its native and served checks remain pending, so the
 R043.9 rollup must not become verified from text-only R043.9.1 coverage.
+
+
+### Single-read history selection and remaining restore contract
+
+R043.9.2.1 extends the existing host port, not a client transcript store.
+The host supplies a frozen RunCheckpointSelection for one requested run.
+It must authorize caller and conversation and read one consistent native view.
+Both presence fields are mandatory. None means absent, not an unavailable read.
+A bound provider failure or malformed result never falls back to legacy history.
+A current-run checkpoint always blocks unsupported restoration before planning.
+The harness never treats its content as prior-turn history or starts over.
+Without a current checkpoint, the existing strict completed-text codec hydrates
+a fresh turn. Old plans, outputs and usage never enter that codec.
+The old history provider remains supported only when the new port is unbound.
+
+The consumer cannot establish atomicity across two independent EG reads.
+Arbora must bind a native consistent selection or a verified revision-fenced
+conversation view. Until that producer exists, it must not report a complete
+selection by stitching together unchecked current and prior snapshots.
+These harness tests prove call order and no fallback, not native atomicity.
+
+R043.8 and R043.9.2.2 require the following genuine restore contract:
+
+- Bind the checkpoint to the original admitted run and immutable received plan.
+  Include instructions, model and tool grants, attachments and plan revision
+  in the host-validated execution binding. Refuse mismatches before effects.
+- Publish an in-flight marker before each model or tool effect. Await durable
+  acknowledgement before executing. Publish completion before exposing output.
+  Native CAS, fencing and retry identity govern publication; AU stores nothing.
+- Restore only a validated completed step. An uncertain in-flight effect refuses
+  rather than replays. A lost acknowledgement requires native receipt recovery,
+  not a second effect. Tool transaction reconciliation remains host-owned.
+- Version the supported message representation. Restore actual model messages
+  and completed outputs without importing provider-private execution authority.
+  Refuse unsupported tool or multimodal history rather than silently dropping it.
+- Restore current-run cumulative usage and elapsed consumption into SharedBudget.
+  Account for new planning work exactly once and never reset a resumed budget.
+  Prior-conversation history must still start fresh budgets and outputs.
+- Preserve dependency task identities, completed outputs and causal dependencies.
+  Resume the existing bounded executor with one shared budget. Refuse any
+  uncertain task until equivalent no-replayed-effect semantics are implemented.
+- Qualify restart with the native producer and admission-bound Arbora adapter.
+  Prove owner/context isolation, same-run precedence, expired-fence refusal and
+  exact no-repeat effects. Client browsing is not successful continuation.
+
+This increment deliberately refuses current-run restore. It does not complete
+checkpoint publication, dependency restoration or served conversation resume.

@@ -170,3 +170,21 @@ history. Malformed or incomplete checkpoints must make no harness model or
 tool call. Installed EG and Arbora acceptance must restart between turns,
 continue the same authorized context and refuse a foreign context. The
 text-only R043.9.1 fixtures do not satisfy these checks.
+
+
+## Single-read checkpoint selection (R043.9.2.1)
+
+Use a real FunctionModel and capture host calls. A single immutable selection
+contains the requested run identity and both presence fields. Change the host
+registration after selection and prove the harness does not read again or mix
+providers. This simulates the consumer race; it does not prove native atomicity.
+
+Check current-run precedence with empty, malformed and in-flight content.
+Refuse before the decision provider or model binding. Never parse or fall back
+to previous history. An empty bound selection starts a fresh turn without a
+legacy read. Refused, partial, wrong-run and malformed selections make no model
+call. Provider exceptions expose no private details. Completed text uses the
+existing strict codec and one-request fresh usage limit.
+
+R043.9.2.2 retains genuine restoration and installed producer acceptance.
+Selection tests do not satisfy durable write ordering or no-replayed-tool proof.

@@ -188,6 +188,17 @@ async def iterate_run(
     cfg = dict(config or {})
     state = GraphState(run_id=request.run_id, query=request.task, mode=request.mode)
     try:
+        supplied_usage = None
+        if plan is not None:
+            supplied_usage = initial_run_usage(plan)
+            if supplied_usage.has_values() or plan.initial_elapsed_seconds:
+                state.add_usage(supplied_usage)
+        content = await host_ports.read_run_history(request)
+        history = (
+            decode_completed_history(content, run_id=state.run_id)
+            if content is not None
+            else []
+        )
         try:
             run_plan = plan or await resolve_plan(request, cfg)
         except RunPlanFailure as failure:
@@ -198,18 +209,16 @@ async def iterate_run(
                 state.status = "stopped"
                 _event(state, "run_cancelled", status="stopped", result=_result(state))
             raise failure.error from failure.error.__cause__
-        initial_usage = initial_run_usage(run_plan)
+        initial_usage = (
+            supplied_usage
+            if supplied_usage is not None
+            else initial_run_usage(run_plan)
+        )
         has_initial_usage = initial_usage.has_values() or bool(
             run_plan.initial_elapsed_seconds
         )
-        if has_initial_usage:
+        if has_initial_usage and supplied_usage is None:
             state.add_usage(initial_usage)
-        content = await host_ports.read_run_history(request)
-        history = (
-            decode_completed_history(content, run_id=state.run_id)
-            if content is not None
-            else []
-        )
         if history and run_plan.dependency_plan is not None:
             raise ValueError("dependency-plan conversation history is unavailable")
         validate_dependency_plan(run_plan)

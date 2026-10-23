@@ -169,3 +169,6 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **AU-BOUNDARY-R043.9.1:** Validate host-bound completed text history and hydrate sequential fresh turns without prior budgets.
 
 - [ ] **AU-BOUNDARY-R043.9.2:** Complete checkpoint-backed history, current-run checkpoint precedence and installed EG/Arbora restart-continuation acceptance. Depends on R043.8 and the native checkpoint producer.
+
+- [ ] **AU-BOUNDARY-R043.9.2.1:** Validate one trusted checkpoint selection before planning or harness effects. Refuse unsupported current-run restore without fallback. Preserve fresh completed-text hydration.
+- [ ] **AU-BOUNDARY-R043.9.2.2:** Implement durable checkpoint writer and safe restoration with shared budgets and dependency plans. Qualify native consistent selection and served restart acceptance.
