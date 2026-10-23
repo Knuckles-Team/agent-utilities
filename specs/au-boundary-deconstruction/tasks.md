@@ -167,3 +167,5 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] Qualify live-provider and served-consumer behavior separately; no such acceptance is claimed here.
 
 - [ ] **AU-BOUNDARY-R043.9.1:** Validate host-bound completed text history and hydrate sequential fresh turns without prior budgets.
+
+- [ ] **AU-BOUNDARY-R043.9.2:** Complete checkpoint-backed history, current-run checkpoint precedence and installed EG/Arbora restart-continuation acceptance. Depends on R043.8 and the native checkpoint producer.

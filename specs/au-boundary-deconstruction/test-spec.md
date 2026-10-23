@@ -160,3 +160,13 @@ Arbora gateway and native approval producers.
 ## AU-BOUNDARY-R043.12: measured request emission
 
 Bind all six tests in `tests/test_graph_metrics.py` to this producer row. Repeated FunctionModel requests prove attribution, response counts, client-clock timing and equal terminal-event metrics; negative cases prove no fabricated failed-request usage, invalid-count omission, zero requests without a model, no zero-duration TPS and bounded partial coverage. These deterministic tests do not measure a live provider or prove streaming coverage.
+
+## Remaining checkpoint-backed history acceptance
+
+R043.9.2 remains open. A real completed checkpoint must populate the next
+function-model request without importing prior budgets, plan or outputs.
+A current-run checkpoint must take precedence over earlier conversation
+history. Malformed or incomplete checkpoints must make no harness model or
+tool call. Installed EG and Arbora acceptance must restart between turns,
+continue the same authorized context and refuse a foreign context. The
+text-only R043.9.1 fixtures do not satisfy these checks.

@@ -714,3 +714,7 @@ providers return no history. Provider failure refuses without private details.
 A dependency plan with history refuses before any effect until equivalent
 semantics exist. R043.8 checkpoint restore and R043.9 native and served
 acceptance remain open. This increment cannot resume an interrupted run.
+
+R043.9.2 retains the parent's remaining checkpoint integration and current-run
+precedence acceptance. Its native and served checks remain pending, so the
+R043.9 rollup must not become verified from text-only R043.9.1 coverage.
