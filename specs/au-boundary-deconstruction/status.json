@@ -181,7 +181,9 @@
     "AU-BOUNDARY-R050.6",
     "AU-BOUNDARY-R043.12",
     "AU-BOUNDARY-R043.9.1",
-    "AU-BOUNDARY-R043.9.2"
+    "AU-BOUNDARY-R043.9.2",
+    "AU-BOUNDARY-R043.9.2.1",
+    "AU-BOUNDARY-R043.9.2.2"
   ],
   "requirements": [
     {
@@ -2017,12 +2019,38 @@
         "58ec920b1b81"
       ],
       "verified_by": [
-        "tests/test_conversation_history.py:21"
+        "tests/test_conversation_history.py:22"
       ]
     },
     {
       "id": "AU-BOUNDARY-R043.9.2",
       "title": "Complete checkpoint-backed conversation history integration",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "AU-BOUNDARY-R043.9.2.1",
+        "AU-BOUNDARY-R043.9.2.2"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.9.2.1",
+      "title": "Apply one host checkpoint selection before effects",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "eebf9c25dfb7"
+      ],
+      "verified_by": [
+        "tests/test_conversation_history.py:232",
+        "tests/test_conversation_history.py:274",
+        "tests/test_conversation_history.py:301",
+        "tests/test_conversation_history.py:340",
+        "tests/test_conversation_history.py:378"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.9.2.2",
+      "title": "Qualify genuine checkpoint restoration and served continuation",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
