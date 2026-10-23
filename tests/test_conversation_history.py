@@ -1,11 +1,12 @@
 """Fresh-turn hydration through the real harness with a function model."""
 
+import asyncio
 import json
 
 import pytest
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
-from pydantic_ai.usage import RequestUsage
+from pydantic_ai.usage import RequestUsage, RunUsage
 
 from agent_utilities import host_ports
 from agent_utilities.graph import (
@@ -226,3 +227,189 @@ def test_maximum_message_count_is_supported():
     value = envelope()
     value["messages"] *= 512
     assert len(decode_completed_history(json.dumps(value), run_id="current")) == 1024
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.9.2.1")
+@pytest.mark.parametrize("prior", [None, "completed"])
+async def test_checkpoint_selection_is_one_read_without_legacy_fallback(prior):
+    reads, legacy, calls = [], [], []
+    value = json.dumps(envelope()) if prior else None
+
+    async def checkpoints(request):
+        reads.append(request.run_id)
+        selected = host_ports.RunCheckpointSelection(request.run_id, None, value)
+        # A later host change cannot cause a second, mixed selection read.
+        host_ports.register_run_checkpoint_provider(None)
+        return selected
+
+    async def old_history(request):
+        legacy.append(request.run_id)
+        raise AssertionError("legacy fallback must not run")
+
+    def respond(messages, info):
+        calls.append(messages)
+        return ModelResponse(
+            parts=[TextPart("new answer")],
+            usage=RequestUsage(input_tokens=2, output_tokens=3),
+        )
+
+    host_ports.register_run_checkpoint_provider(checkpoints)
+    host_ports.register_run_history_provider(old_history)
+    result = await run(
+        RunRequest(task="new question", run_id="current"),
+        plan=RunPlan(
+            model=FunctionModel(respond),
+            steps=("new question",),
+            budget=RunBudget(request_limit=1, total_tokens_limit=10),
+        ),
+    )
+    assert result.status == "completed"
+    assert reads == ["current"] and legacy == []
+    assert len(calls) == 1 and len(calls[0]) == (3 if prior else 1)
+    assert calls[0][-1].parts[0].content == "new question"
+    assert result.usage["input_tokens"] == 2
+    assert result.usage["output_tokens"] == 3
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.9.2.1")
+@pytest.mark.parametrize("current", ["", "private malformed", '{"phase":"inflight"}'])
+async def test_current_checkpoint_precedes_history_before_planning_or_model(current):
+    effects = []
+
+    async def checkpoints(request):
+        return host_ports.RunCheckpointSelection(request.run_id, current, "bad prior")
+
+    async def old_history(request):
+        effects.append("legacy history")
+        return json.dumps(envelope())
+
+    def decide(request):
+        effects.append("planning")
+        return RunPlan(model="unused", steps=("new",))
+
+    host_ports.register_run_checkpoint_provider(checkpoints)
+    host_ports.register_run_history_provider(old_history)
+    host_ports.register_run_decision_provider(decide)
+    host_ports.register_model_provider(lambda name: effects.append("model"))
+    result = await run(RunRequest(task="new", run_id="current"))
+    assert result.status == "failed"
+    assert effects == []
+    assert "current-run checkpoint restore is unavailable" in result.error
+    assert "private" not in result.error
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.9.2.1")
+@pytest.mark.parametrize(
+    "selection",
+    [
+        None,
+        {"run_id": "current", "completed_history": None},
+        host_ports.RunCheckpointSelection("foreign", None, None),
+        host_ports.RunCheckpointSelection("current", None, None, version=True),
+        host_ports.RunCheckpointSelection("current", None, None, version=2),
+        host_ports.RunCheckpointSelection("current", None, 12),
+        host_ports.RunCheckpointSelection("current", None, "private invalid history"),
+    ],
+)
+async def test_partial_or_malformed_selection_refuses_without_fallback(selection):
+    effects = []
+
+    async def checkpoints(request):
+        return selection
+
+    async def old_history(request):
+        effects.append("legacy")
+        return json.dumps(envelope())
+
+    def respond(messages, info):
+        effects.append("model")
+        return ModelResponse(parts=[TextPart("unexpected")])
+
+    def decide(request):
+        effects.append("planning")
+        return RunPlan(model=FunctionModel(respond), steps=("new",))
+
+    host_ports.register_run_checkpoint_provider(checkpoints)
+    host_ports.register_run_history_provider(old_history)
+    host_ports.register_run_decision_provider(decide)
+    result = await run(RunRequest(task="new", run_id="current"))
+    assert result.status == "failed" and effects == []
+    assert "private" not in result.error
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.9.2.1")
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_checkpoint_provider_failure_is_private_and_does_not_plan(
+    cancelled, events
+):
+    effects = []
+
+    async def checkpoints(request):
+        if cancelled:
+            raise asyncio.CancelledError
+        raise PermissionError("private storage failure")
+
+    async def old_history(request):
+        effects.append("legacy")
+        return json.dumps(envelope())
+
+    def decide(request):
+        effects.append("planning")
+        raise AssertionError("must not plan")
+
+    host_ports.register_run_checkpoint_provider(checkpoints)
+    host_ports.register_run_decision_provider(decide)
+    host_ports.register_run_history_provider(old_history)
+    host_ports.register_model_provider(lambda name: effects.append("model"))
+    if cancelled:
+        with pytest.raises(asyncio.CancelledError):
+            await run(RunRequest(task="new", run_id="current"))
+        assert effects == []
+        assert not any(
+            event.get("type") in {"error", "graph_complete"} for event in events
+        )
+        return
+    result = await run(RunRequest(task="new", run_id="current"))
+    assert result.status == "failed" and effects == []
+    assert "run checkpoint provider failed" in result.error
+    assert "private" not in result.error
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.9.2.1")
+@pytest.mark.parametrize("case", ["current", "provider", "invalid", "success"])
+async def test_supplied_plan_usage_survives_history_refusal_exactly_once(case, events):
+    calls = []
+
+    async def checkpoints(request):
+        if case == "provider":
+            raise PermissionError("private failure")
+        return host_ports.RunCheckpointSelection(
+            request.run_id,
+            "checkpoint" if case == "current" else None,
+            "invalid" if case == "invalid" else None,
+        )
+
+    def respond(messages, info):
+        calls.append(messages)
+        return ModelResponse(
+            parts=[TextPart("answer")],
+            usage=RequestUsage(input_tokens=2, output_tokens=3),
+        )
+
+    host_ports.register_run_checkpoint_provider(checkpoints)
+    result = await run(
+        RunRequest(task="new", run_id="current"),
+        plan=RunPlan(
+            model=FunctionModel(respond),
+            steps=("new",),
+            initial_usage=RunUsage(requests=1, input_tokens=3, output_tokens=4),
+            budget=RunBudget(request_limit=2),
+        ),
+    )
+    succeeded = case == "success"
+    assert result.status == ("completed" if succeeded else "failed")
+    assert len(calls) == int(succeeded)
+    assert result.usage["requests"] == 1 + int(succeeded)
+    assert result.usage["input_tokens"] == 3 + (2 if succeeded else 0)
+    assert result.usage["output_tokens"] == 4 + (3 if succeeded else 0)
+    assert events[-1]["result"]["usage"] == result.usage

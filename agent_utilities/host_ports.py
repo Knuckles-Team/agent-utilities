@@ -509,8 +509,63 @@ def register_run_history_provider(provider: RunHistoryProvider | None) -> None:
     _RUN_HISTORY = provider
 
 
+@dataclass(frozen=True, slots=True)
+class RunCheckpointSelection:
+    """One host-authorized read, not caller-supplied execution authority.
+
+    The host binds run, caller and conversation to one consistent native read.
+    Both fields are required: None means absent, not unavailable or unchecked.
+    Completed history uses the existing version-one text envelope. Current-run
+    content is opaque until the harness can restore it without replaying effects.
+    """
+
+    run_id: str
+    current_run_checkpoint: str | None
+    completed_history: str | None
+    version: int = 1
+
+
+RunCheckpointProvider = Callable[[Any], Awaitable[RunCheckpointSelection]]
+_RUN_CHECKPOINTS: RunCheckpointProvider | None = None
+
+
+def register_run_checkpoint_provider(provider: RunCheckpointProvider | None) -> None:
+    """Bind a single consistent checkpoint selection read from the trusted host."""
+    global _RUN_CHECKPOINTS
+    _RUN_CHECKPOINTS = provider
+
+
+async def _read_checkpoint_selection(request: Any) -> str | None:
+    provider = _RUN_CHECKPOINTS
+    assert provider is not None
+    try:
+        selection = await provider(request)
+    except Exception:
+        raise RuntimeError("run checkpoint provider failed") from None
+    if (
+        not isinstance(selection, RunCheckpointSelection)
+        or type(selection.version) is not int
+        or selection.version != 1
+        or not isinstance(selection.run_id, str)
+        or not selection.run_id.strip()
+        or selection.run_id != getattr(request, "run_id", None)
+    ):
+        raise ValueError("run checkpoint selection is invalid")
+    # Presence is authoritative even for empty, malformed or in-flight content.
+    # Never reinterpret it as prior history or silently start a replacement run.
+    if selection.current_run_checkpoint is not None:
+        raise RuntimeError("current-run checkpoint restore is unavailable")
+    if selection.completed_history is not None and not isinstance(
+        selection.completed_history, str
+    ):
+        raise ValueError("run checkpoint selection is invalid")
+    return selection.completed_history
+
+
 async def read_run_history(request: Any) -> str | None:
-    """Read completed history without fallback after a host refusal."""
+    """Use one checkpoint read; legacy history is only for an unbound new port."""
+    if _RUN_CHECKPOINTS is not None:
+        return await _read_checkpoint_selection(request)
     provider = _RUN_HISTORY
     if provider is None:
         return None
