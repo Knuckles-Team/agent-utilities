@@ -148,6 +148,13 @@
     "AU-BOUNDARY-R043.5.1",
     "AU-BOUNDARY-R043.5.2",
     "AU-BOUNDARY-R043.6",
+    "AU-BOUNDARY-R043.6.1",
+    "AU-BOUNDARY-R043.6.2",
+    "AU-BOUNDARY-R043.6.3",
+    "AU-BOUNDARY-R043.6.4",
+    "AU-BOUNDARY-R043.6.5",
+    "AU-BOUNDARY-R043.6.6",
+    "AU-BOUNDARY-R043.6.7",
     "AU-BOUNDARY-R043.7",
     "AU-BOUNDARY-R043.8",
     "AU-BOUNDARY-R043.9",
@@ -1697,7 +1704,7 @@
     {
       "id": "AU-BOUNDARY-R043.6",
       "title": "Apply a received bounded dependency plan",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "1978fffd4de8",
         "53e77f794766",
@@ -1705,7 +1712,65 @@
       ],
       "verified_by": [
         "tests/test_dependency.py:28"
+      ],
+      "rollup_of": [
+        "AU-BOUNDARY-R043.6.1",
+        "AU-BOUNDARY-R043.6.2",
+        "AU-BOUNDARY-R043.6.3",
+        "AU-BOUNDARY-R043.6.4",
+        "AU-BOUNDARY-R043.6.5",
+        "AU-BOUNDARY-R043.6.6",
+        "AU-BOUNDARY-R043.6.7"
       ]
+    },
+    {
+      "id": "AU-BOUNDARY-R043.6.1",
+      "title": "Tool step model and caller port",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.6.2",
+      "title": "Deterministic binding resolution",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.6.3",
+      "title": "Typed step failure without model retry",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.6.4",
+      "title": "Per-step record",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.6.5",
+      "title": "Mixed plans share one scheduler",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.6.6",
+      "title": "Wiring",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.6.7",
+      "title": "Hot-path proof",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R043.7",

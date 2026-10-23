@@ -157,6 +157,13 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [x] **AU-BOUNDARY-R043.5.2:** Publish actual atomic scaffold revisions through an optional run-local host binding with lifecycle, isolation and refusal tests.
 
 - [x] **AU-BOUNDARY-R043.6:** Run the received DAG with bounded rolling slots.
+- [ ] **AU-BOUNDARY-R043.6.1:** Add the tool step model and the injected ToolCaller port.
+- [ ] **AU-BOUNDARY-R043.6.2:** Resolve bindings from completed outputs without a model.
+- [ ] **AU-BOUNDARY-R043.6.3:** Fail a step with a typed reason and no model retry.
+- [ ] **AU-BOUNDARY-R043.6.4:** Record resolved arguments and result per tool step.
+- [ ] **AU-BOUNDARY-R043.6.5:** Run mixed prompt and tool plans on one scheduler.
+- [ ] **AU-BOUNDARY-R043.6.6:** Wire tool steps into the dependency executor.
+- [ ] **AU-BOUNDARY-R043.6.7:** Prove tool steps through the public run API.
 - [x] **AU-BOUNDARY-R043.7:** Reserve aggregate limits and drain child lifecycle.
 - [ ] **AU-BOUNDARY-R043.8:** Compose the host checkpoint port with dependency plans and shared budgets; qualify restart against the EG native checkpoint producer.
 - [ ] **AU-BOUNDARY-R043.9:** Restore completed conversation history from a host-authorized checkpoint.

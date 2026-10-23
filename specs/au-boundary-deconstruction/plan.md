@@ -775,3 +775,13 @@ The constrained path uses one text step and the existing shared usage accounting
 The restricted run emits no inherited global event sink. Its public result retains measured usage on returned terminals. Cancellation propagates only after provider cleanup; it supplies no settlement receipt. The host must retain its full reserved quota for a cancelled or uncertain attempt. The host owns the borrowed model client and closes it after execution and drain, not while requests remain active. The request fence uses the exact absolute deadline of the enclosing executor timeout.
 
 A durable cumulative spend quota is not promised by this local text slice. If an operator configures such a quota, its owner must enforce it; process-local counters cannot satisfy a durable promise. The default acceptance requires bounded runs and in-flight capacity, not a new native spending subsystem.
+
+## Typed tool steps in dependency plans (AU-BOUNDARY-R043.6.1 to R043.6.7)
+
+A received `DependencyPlan` may hold tool steps beside prompt steps. Today the harness appends prerequisite outputs to the next prompt. The model copies values, so a value such as an incident number is not reliable. A tool step names a call and binds its arguments to prerequisite outputs by path. A value then moves by resolution, not by copying.
+
+Call path: `execute_graph`, then `_execute_dependency_plan` (`agent_utilities/graph/dependency.py:99`). For each ready task, a prompt step runs the model as before. A tool step runs the pure resolver, then the host-bound `ToolCaller`, then records the step.
+
+The engine decides the call and the binding form (`EG-DECISION-ENGINE-R134.111.8`). Arbora admits the run and supplies the governed caller (`ARBORA-RELEASE-R003.4.7`). AU holds no tool client, no authority rule and no store. It resolves, calls the port and reports.
+
+A missing path is known only at run time. It is a typed step failure and never a model retry. A failed step leaves its dependents unstarted under the drain rules of `AU-BOUNDARY-R043.7`.
