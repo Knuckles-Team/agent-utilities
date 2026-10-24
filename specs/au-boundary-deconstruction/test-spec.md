@@ -207,3 +207,10 @@ Selection tests do not satisfy durable write ordering or no-replayed-tool proof.
 `AU-BOUNDARY-R043.13.1`: `tests/test_text_only.py` exercises the real chat-completion model and run loop with simulated HTTP. It rejects tool-bearing defaults and requests, unsupported providers, SDK retries and nontext output. It checks host-hook isolation, cancellation and measured budget use.
 
 `AU-BOUNDARY-R043.13.2`: Installed native ownership, durable outcomes, restart, real provider behavior and configured admission limits remain required. Source tests do not prove them.
+
+## Child explorer acceptance (pending)
+
+- `AU-BOUNDARY-R043.14`: run two steps with a join and a separately identified child/grandchild; assert distinct dependency/containment, stable replay IDs, no inferred identity and terminal drain ordering.
+- `AU-BOUNDARY-R043.15`: use controlled model gates, not sleeps, for duplicate input and completion/cancellation races; assert one boundary application, exact target and unchanged shared budgets. Failed receipt publication must not imply safe unkeyed replay.
+- `AU-BOUNDARY-R043.16`: capture the first request of a fresh child continuation; assert child-only permitted history, new input, fresh turn counters and enclosing ceilings. Mismatched/incomplete/unsupported history refuses before any effect; current checkpoint takes precedence.
+- `AU-BOUNDARY-R043.17`: assert bounded public record kind/provenance/visibility, no private reasoning, durable publisher order and before-effect/after-effect refusal behavior. Fixtures do not prove a released host's transcript support.

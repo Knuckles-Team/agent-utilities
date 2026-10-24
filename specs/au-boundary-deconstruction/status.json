@@ -193,7 +193,11 @@
     "AU-BOUNDARY-R043.9.2.2",
     "AU-BOUNDARY-R043.13",
     "AU-BOUNDARY-R043.13.1",
-    "AU-BOUNDARY-R043.13.2"
+    "AU-BOUNDARY-R043.13.2",
+    "AU-BOUNDARY-R043.14",
+    "AU-BOUNDARY-R043.15",
+    "AU-BOUNDARY-R043.16",
+    "AU-BOUNDARY-R043.17"
   ],
   "requirements": [
     {
@@ -1513,7 +1517,11 @@
         "AU-BOUNDARY-R043.10",
         "AU-BOUNDARY-R043.11",
         "AU-BOUNDARY-R043.12",
-        "AU-BOUNDARY-R043.13"
+        "AU-BOUNDARY-R043.13",
+        "AU-BOUNDARY-R043.14",
+        "AU-BOUNDARY-R043.15",
+        "AU-BOUNDARY-R043.16",
+        "AU-BOUNDARY-R043.17"
       ]
     },
     {
@@ -2150,6 +2158,34 @@
     {
       "id": "AU-BOUNDARY-R043.13.2",
       "title": "Qualify the installed constrained execution path",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.14",
+      "title": "Emit explicit child lineage through existing run events",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.15",
+      "title": "Apply host-admitted active-child input at a safe boundary",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.16",
+      "title": "Consume selected completed-child history for a fresh turn",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "AU-BOUNDARY-R043.17",
+      "title": "Publish bounded public child records with provenance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

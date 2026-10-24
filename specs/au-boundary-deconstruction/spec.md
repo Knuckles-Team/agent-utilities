@@ -46,3 +46,10 @@ from historical AU-HARNESS-R014.1–R014.5. See the dated migration in
 [plan.md](plan.md#amendment-2026-10-18-retain-the-run-scaffold-after-the-boundary-cut)
 for immutable source provenance and the separate SDK, EG and Arbora read
 obligations. These are implementation requirements, not delivery claims.
+
+## Shared child execution explorer
+
+R043.14, R043.15, R043.16 and R043.17 specify execution-only increments
+for the shared explorer. Existing verified flat execution and completed-text
+history do not establish nested conversations, active child messaging or durable
+child transcript availability. Admission, targets and storage remain upstream.
