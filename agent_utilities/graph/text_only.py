@@ -98,6 +98,7 @@ class TextOnlyModel(WrapperModel):
         self._check_provider()
 
     def _check_provider(self) -> None:
+        from httpx import Timeout
         from openai import AsyncOpenAI
         from pydantic_ai.models.openai import OpenAIChatModel
         from pydantic_ai.providers.openai import OpenAIProvider
@@ -112,17 +113,18 @@ class TextOnlyModel(WrapperModel):
             and provider.client.max_retries == 0
         )
         timeout = provider.client.timeout
-        values = (
-            (timeout,)
-            if type(timeout) in (int, float)
-            else (timeout.connect, timeout.read, timeout.write, timeout.pool)
-        )
+        values: tuple[int | float | None, ...]
+        if type(timeout) in (int, float):
+            assert isinstance(timeout, (int, float))
+            values = (timeout,)
+        else:
+            _require(isinstance(timeout, Timeout))
+            assert isinstance(timeout, Timeout)
+            values = (timeout.connect, timeout.read, timeout.write, timeout.pool)
         for value in values:
-            _require(
-                type(value) in (int, float)
-                and math.isfinite(value)
-                and 0 < value <= self._timeout
-            )
+            _require(type(value) in (int, float))
+            assert isinstance(value, (int, float))
+            _require(math.isfinite(value) and 0 < value <= self._timeout)
         _require(not provider.client.default_query)
         _settings(self.wrapped.settings, self._ceiling)
 

@@ -128,6 +128,11 @@ async def test_real_text_loop_without_inherited_hooks(monkeypatch):
         {"responses": True},
         {"timeout": None},
         {"timeout": 0},
+        {"timeout": True},
+        {"timeout": -1},
+        {"timeout": float("nan")},
+        {"timeout": float("inf")},
+        {"timeout": httpx.Timeout(2, read=None)},
     ],
 )
 async def test_provider_effect_configuration_refuses(options):
@@ -288,5 +293,20 @@ async def test_received_request_cannot_inherit_or_substitute(received):
     try:
         result = await AgentRunExecutor().execute_text_only(received, plan=plan)
         assert result.status == "failed" and calls == []
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_timeout_subclass_keeps_existing_acceptance():
+    class DerivedTimeout(httpx.Timeout):
+        pass
+
+    client, calls, plan = fixture(timeout=DerivedTimeout(2))
+    try:
+        result = await AgentRunExecutor().execute_text_only(
+            RunRequest(task="hello"), plan=plan
+        )
+        assert result.status == "completed" and len(calls) == 1
     finally:
         await client.close()
