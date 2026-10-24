@@ -183,3 +183,10 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] `AU-BOUNDARY-R043.13` Deliver received text-only execution and installed acceptance.
 - [ ] `AU-BOUNDARY-R043.13.1` Enforce the received constraint inside the real model loop with simulated HTTP tests.
 - [ ] `AU-BOUNDARY-R043.13.2` Qualify native ownership, durable outcomes and provider execution with configured admission bounds.
+
+## Shared child execution explorer
+
+- [ ] `AU-BOUNDARY-R043.14` — Emit explicit admitted child lineage without converting step IDs to conversation targets.
+- [ ] `AU-BOUNDARY-R043.15` — Apply host-admitted active-child input at model-turn boundaries within original limits.
+- [ ] `AU-BOUNDARY-R043.16` — Consume supported selected child history for a fresh turn; keep unsupported checkpoint/dependency forms refused.
+- [ ] `AU-BOUNDARY-R043.17` — Publish permitted child records through the existing durable host event seam.

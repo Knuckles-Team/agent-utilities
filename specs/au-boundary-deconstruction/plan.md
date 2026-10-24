@@ -785,3 +785,47 @@ Call path: `execute_graph`, then `_execute_dependency_plan` (`agent_utilities/gr
 The engine decides the call and the binding form (`EG-DECISION-ENGINE-R134.111.8`). Arbora admits the run and supplies the governed caller (`ARBORA-RELEASE-R003.4.7`). AU holds no tool client, no authority rule and no store. It resolves, calls the port and reports.
 
 A missing path is known only at run time. It is a typed step failure and never a model retry. A failed step leaves its dependents unstarted under the drain rules of `AU-BOUNDARY-R043.7`.
+
+### 2026-10-24: child execution identity, input and public records
+
+The existing R043.6 dependency executor, R043.7 event ordering/draining,
+R043.8 checkpoints, R043.9 history selection and R043.10 publisher own these
+increments. Reuse `RunTask`, `DependencyPlan`, the runtime loop and host ports.
+Do not add a server, event store, planner, authority table or a second runtime.
+Arbora serves the graph and actions under `ARBORA-OPS-R021.4.8` / `.9` and
+`ARBORA-RELEASE-R003.4.12` / `.13` in its existing owner specs.
+
+Current dependency children share their parent's `run_id`; their `task_id` is
+local to that run. Recursive RLM depth and `_Env` objects provide no durable
+child identity. R043.14 records only explicit admitted identity and spawning
+references. The shared projection uses `(run_id, node_kind, local_id)` keys;
+spawned-child containment and task dependency edges are distinct. A new nested
+run needs a supplied identity and owner binding before it can be navigable.
+Nothing here makes a flat task or trace addressable as a conversation.
+
+R043.15 is an execution seam, not an inbox service. The host owns admission,
+message identity and durable idempotency/receipts. The harness checks the bound
+target and applies messages only before the next model request. It reports the
+applied event or a not-applied outcome, with uncertainty explicit after a failed
+receipt publication. Completion/cancellation does not redirect input into a new
+run. A message consumes the same shared run budget; no authority is expanded.
+
+R043.16 is distinct: an admitted continuation starts a new execution from a
+completed child's supported history. It reuses the strict history/checkpoint
+selection, applies fresh turn limits and preserves host-supplied enclosing
+ceilings. Text-only R043.9.1 does not qualify dependency or recursive history;
+R043.8 and R043.9.2.2 remain open for genuine checkpoint composition. History
+absence, unsupported form and denied access are not interchangeable with an
+empty conversation.
+
+R043.17 publishes only explicitly permitted records; a transcript is not
+reconstructed from lifecycle events. The host retains owner checks and public
+projection. Existing source usage metrics remain authoritative, with no new
+client-side token/TPS computation in this work.
+
+Implement in small slices: stable flat-step event projection first; then
+explicit nested identity and public records; then safe-boundary active input;
+then supported completed-child continuation. Qualify root-child-grandchild,
+fan-out/fan-in, replay, foreign identity, cancellation and shared budgets through
+the actual bound loop. No new row is delivered by these specifications, and no
+EG implementation or native authority work is part of this change.
