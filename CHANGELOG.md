@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- The platform config resolver no longer reads `GRAPH_OS_CONFIG_DIR`, `AGENT_UTILITIES_CONFIG_DIR`, `~/.config/graph-os` or `~/.config/agent-utilities`. Config lives under `ARBORA_CONFIG_DIR` / `~/.config/arbora` only (hard cutover).
+
 ## [3.1.0] - 2026-10-22
 
 ### Added
