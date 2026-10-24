@@ -188,3 +188,9 @@ existing strict codec and one-request fresh usage limit.
 
 R043.9.2.2 retains genuine restoration and installed producer acceptance.
 Selection tests do not satisfy durable write ordering or no-replayed-tool proof.
+
+## Received text-only execution
+
+`AU-BOUNDARY-R043.13.1`: `tests/test_text_only.py` exercises the real chat-completion model and run loop with simulated HTTP. It rejects tool-bearing defaults and requests, unsupported providers, SDK retries and nontext output. It checks host-hook isolation, cancellation and measured budget use.
+
+`AU-BOUNDARY-R043.13.2`: Installed native ownership, durable outcomes, restart, real provider behavior and configured admission limits remain required. Source tests do not prove them.

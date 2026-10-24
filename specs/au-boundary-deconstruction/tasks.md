@@ -172,3 +172,7 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 
 - [ ] **AU-BOUNDARY-R043.9.2.1:** Validate one trusted checkpoint selection before planning or harness effects. Refuse unsupported current-run restore without fallback. Preserve fresh completed-text hydration.
 - [ ] **AU-BOUNDARY-R043.9.2.2:** Implement durable checkpoint writer and safe restoration with shared budgets and dependency plans. Qualify native consistent selection and served restart acceptance.
+
+- [ ] `AU-BOUNDARY-R043.13` Deliver received text-only execution and installed acceptance.
+- [ ] `AU-BOUNDARY-R043.13.1` Enforce the received constraint inside the real model loop with simulated HTTP tests.
+- [ ] `AU-BOUNDARY-R043.13.2` Qualify native ownership, durable outcomes and provider execution with configured admission bounds.

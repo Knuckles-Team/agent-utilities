@@ -40,6 +40,12 @@ from .state import (
     RunResult,
     default_run_plan,
 )
+from .text_only import (
+    TextOnlyModel,
+    TextOnlyResponseFence,
+    no_host_scope,
+    validate_text_plan,
+)
 
 
 async def resolve_plan(request: RunRequest, config: Mapping[str, Any]) -> RunPlan:
@@ -63,8 +69,13 @@ def build_agent(
     publisher: host_ports.ScaffoldPublisher | None = None,
     metrics: RunMetrics | None = None,
     shared_budget: SharedBudget | None = None,
+    deadline: float | None = None,
 ) -> Agent[GraphDeps, Any]:
     """One pydantic-ai agent bound to the plan's model, instructions and tools."""
+    if plan.execution_constraint not in (None, "text-only"):
+        raise ValueError("unknown received execution constraint")
+    if plan.execution_constraint == "text-only":
+        validate_text_plan(plan)
     if plan.harness.plan_scaffold not in ("on", "off"):
         raise ValueError("plan_scaffold must be on or off")
     capabilities: list[Any] = (
@@ -79,6 +90,9 @@ def build_agent(
         if isinstance(plan.model, str)
         else plan.model
     )
+    if plan.execution_constraint == "text-only":
+        model = TextOnlyModel(model, plan, deadline=deadline)
+        capabilities.append(TextOnlyResponseFence(model))
     if metrics is not None:
         model = MeasuredModel(model, metrics)
     toolsets = list(plan.toolsets)
@@ -124,7 +138,9 @@ def _text(output: Any) -> str:
     return output if isinstance(output, str) else json.dumps(output, sort_keys=True)
 
 
-def _event(state: GraphState, kind: str, **fields: Any) -> dict[str, Any]:
+def _event(
+    state: GraphState, kind: str, *, publish: bool = True, **fields: Any
+) -> dict[str, Any]:
     state.event_sequence += 1
     event = {
         "type": kind,
@@ -137,7 +153,8 @@ def _event(state: GraphState, kind: str, **fields: Any) -> dict[str, Any]:
             f"agent-utilities:run:{state.run_id}:event:{state.event_sequence}",
         ).hex,
     }
-    host_ports.emit_run_event(event)
+    if publish:
+        host_ports.emit_run_event(event)
     return event
 
 
@@ -185,6 +202,11 @@ async def iterate_run(
     one terminal ``graph_complete`` (completed or stopped) or ``error``. The
     terminal event carries ``result`` (a :class:`RunResult` as a dict).
     """
+    restricted = plan is not None and plan.execution_constraint == "text-only"
+
+    def emit(state: GraphState, kind: str, **fields: Any) -> dict[str, Any]:
+        return _event(state, kind, publish=not restricted, **fields)
+
     cfg = dict(config or {})
     state = GraphState(run_id=request.run_id, query=request.task, mode=request.mode)
     try:
@@ -193,7 +215,18 @@ async def iterate_run(
             supplied_usage = initial_run_usage(plan)
             if supplied_usage.has_values() or plan.initial_elapsed_seconds:
                 state.add_usage(supplied_usage)
-        content = await host_ports.read_run_history(request)
+        if restricted:
+            assert plan is not None
+            validate_text_plan(plan)
+            if (
+                request.attachments
+                or request.context
+                or request.metadata
+                or request.allowed_tools not in (None, ())
+                or request.task != plan.steps[0]
+            ):
+                raise ValueError("text-only request cannot inherit context")
+        content = None if restricted else await host_ports.read_run_history(request)
         history = (
             decode_completed_history(content, run_id=state.run_id)
             if content is not None
@@ -207,8 +240,10 @@ async def iterate_run(
             state.add_usage(initial_run_usage(failure))
             if isinstance(failure.error, (asyncio.CancelledError, GeneratorExit)):
                 state.status = "stopped"
-                _event(state, "run_cancelled", status="stopped", result=_result(state))
+                emit(state, "run_cancelled", status="stopped", result=_result(state))
             raise failure.error from failure.error.__cause__
+        if run_plan.execution_constraint is not None and not restricted:
+            raise ValueError("restricted execution needs an explicit received plan")
         initial_usage = (
             supplied_usage
             if supplied_usage is not None
@@ -227,7 +262,7 @@ async def iterate_run(
             state.scaffold = PlanState()
     except Exception as exc:  # noqa: BLE001 - a failed plan is a failed run
         state.status, state.error = "failed", f"{type(exc).__name__}: {exc}"
-        yield _event(state, "error", error=state.error, result=_result(state))
+        yield emit(state, "error", error=state.error, result=_result(state))
         return
     deps = GraphDeps(state=state, plan=run_plan, config=cfg)
     state.status = "running"
@@ -239,7 +274,7 @@ async def iterate_run(
             max_concurrent_requests=run_plan.budget.max_concurrent_requests,
             initial_usage=initial_usage if has_initial_usage else None,
         )
-        if run_plan.dependency_plan is not None or has_initial_usage
+        if run_plan.dependency_plan is not None or has_initial_usage or restricted
         else None
     )
     try:
@@ -248,7 +283,7 @@ async def iterate_run(
             shared_budget.check_initial_consumption()
             if run_plan.initial_elapsed_seconds >= run_plan.budget.timeout_seconds:
                 raise TimeoutError
-        yield _event(
+        yield emit(
             state,
             "run_started",
             mode=state.mode,
@@ -256,12 +291,16 @@ async def iterate_run(
             if run_plan.dependency_plan is not None
             else len(run_plan.steps),
         )
-        async with host_ports.authority_keepalive_scope():
+        async with (
+            no_host_scope() if restricted else host_ports.authority_keepalive_scope()
+        ):
             async with asyncio.timeout(
                 run_plan.budget.timeout_seconds - run_plan.initial_elapsed_seconds
             ) as timeout:
-                async with host_ports.scaffold_publication_scope(
-                    request, state.scaffold
+                async with (
+                    no_host_scope()
+                    if restricted
+                    else host_ports.scaffold_publication_scope(request, state.scaffold)
                 ) as publisher:
                     agent = build_agent(
                         run_plan,
@@ -270,6 +309,7 @@ async def iterate_run(
                         publisher=publisher,
                         metrics=state.metrics,
                         shared_budget=shared_budget,
+                        deadline=timeout.when(),
                     )
                     if run_plan.dependency_plan is not None:
                         assert shared_budget is not None
@@ -285,7 +325,7 @@ async def iterate_run(
                                 cfg,
                                 attachments,
                                 shared_budget,
-                                _event,
+                                emit,
                                 deadline=deadline,
                             )
                         ) as execution:
@@ -312,7 +352,7 @@ async def iterate_run(
                             state.add_usage(result.usage)
                         text = _text(result.output)
                         state.outputs.append(text)
-                        yield _event(state, "node_transition", output=text)
+                        yield emit(state, "node_transition", output=text)
                         if any(m in text for m in run_plan.stop.stop_markers):
                             state.status = "stopped"
                             break
@@ -322,15 +362,15 @@ async def iterate_run(
         state.status, state.error = "stopped", "budget: run timed out"
     except (asyncio.CancelledError, GeneratorExit):
         state.status = "stopped"
-        _event(state, "run_cancelled", status="stopped", result=_result(state))
+        emit(state, "run_cancelled", status="stopped", result=_result(state))
         raise
     except Exception as exc:  # noqa: BLE001 - surfaced as the terminal event
         state.status, state.error = "failed", f"{type(exc).__name__}: {exc}"
-        yield _event(state, "error", error=state.error, result=_result(state))
+        yield emit(state, "error", error=state.error, result=_result(state))
         return
     if state.status == "running":
         state.status = "completed"
-    yield _event(state, "graph_complete", status=state.status, result=_result(state))
+    yield emit(state, "graph_complete", status=state.status, result=_result(state))
 
 
 def _result(state: GraphState) -> dict[str, Any]:
@@ -370,6 +410,22 @@ class AgentRunExecutor:
 
     def __init__(self, config: Mapping[str, Any] | None = None) -> None:
         self._config = dict(config or {})
+
+    async def execute_text_only(
+        self, request: RunRequest, *, plan: RunPlan
+    ) -> RunResult:
+        """Apply an explicit constrained plan without inherited host authority.
+
+        This creates no anonymous caller, admission or durable result. The host
+        must supply those boundaries and its configured admission limits.
+        The host owns the supplied client and closes it only after this call
+        and cancellation drain finish. Cancellation returns no usage receipt;
+        retain the full reservation when the outcome is unknown.
+        """
+        validate_text_plan(plan)
+        if type(request) is not RunRequest:
+            raise TypeError("text-only execution requires the public run request")
+        return await run(request, self._config, plan=plan)
 
     async def execute_agent(self, request: Any, *, session: Any = None) -> RunResult:
         run_request = RunRequest(

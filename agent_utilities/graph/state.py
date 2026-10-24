@@ -169,6 +169,9 @@ class RunPlan:
     """
 
     model: Any
+    execution_constraint: Literal["text-only"] | None = field(
+        default=None, kw_only=True
+    )
     instructions: str = ""
     steps: tuple[str, ...] = ()
     tool_names: tuple[str, ...] = ()
