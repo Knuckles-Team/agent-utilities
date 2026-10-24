@@ -17,8 +17,7 @@ Architecture:
       similarity indexes, skill graph cache
 
 Directory roots can be overridden via environment variables:
-    - ``ARBORA_CONFIG_DIR`` (legacy ``GRAPH_OS_CONFIG_DIR`` then
-      ``AGENT_UTILITIES_CONFIG_DIR`` for one release)
+    - ``ARBORA_CONFIG_DIR``
     - ``AGENT_UTILITIES_DATA_DIR``
     - ``AGENT_UTILITIES_CACHE_DIR``
 """
@@ -42,26 +41,11 @@ APP_AUTHOR = "knuckles-team"
 # harness bootstrap does not depend on an SDK release for path resolution).
 #
 # Arbora owns the platform configuration location: ``ARBORA_CONFIG_DIR``
-# or ``$XDG_CONFIG_HOME/arbora``. For one release, a file that is absent
-# there is read from the legacy locations, in order: the pre-rename graph-os
-# location (``GRAPH_OS_CONFIG_DIR`` or ``$XDG_CONFIG_HOME/graph-os``), then
-# the agent-utilities location (``AGENT_UTILITIES_CONFIG_DIR`` or
-# ``$XDG_CONFIG_HOME/agent-utilities``), and a single deprecation warning
-# names both paths. An explicit legacy setting with no ``ARBORA_CONFIG_DIR``
-# is still honoured as the directory (with the same warning) for that release.
+# or ``$XDG_CONFIG_HOME/arbora``. There is no fallback to the pre-rename
+# locations (hard cutover).
 
 PLATFORM_CONFIG_DIR_SETTING = "ARBORA_CONFIG_DIR"
-LEGACY_PLATFORM_CONFIG_DIR_SETTINGS = (
-    "GRAPH_OS_CONFIG_DIR",
-    "AGENT_UTILITIES_CONFIG_DIR",
-)
-LEGACY_PLATFORM_APP_DIRS = ("graph-os", "agent-utilities")
-LEGACY_PLATFORM_CONFIG_DIR_SETTING = LEGACY_PLATFORM_CONFIG_DIR_SETTINGS[-1]
 PLATFORM_APP_DIR = "arbora"
-LEGACY_PLATFORM_APP_DIR = LEGACY_PLATFORM_APP_DIRS[-1]
-
-_platform_logger = logging.getLogger(__name__)
-_legacy_warned = False
 
 
 def _config_home() -> Path:
@@ -74,72 +58,23 @@ def _env_dir(name: str) -> Path | None:
 
 
 def preferred_platform_config_dir() -> Path:
-    """``ARBORA_CONFIG_DIR`` or ``$XDG_CONFIG_HOME/arbora`` (no fallback)."""
+    """``ARBORA_CONFIG_DIR`` or ``$XDG_CONFIG_HOME/arbora``."""
     return _env_dir(PLATFORM_CONFIG_DIR_SETTING) or _config_home() / PLATFORM_APP_DIR
-
-
-def legacy_platform_config_dirs() -> tuple[Path, ...]:
-    """The legacy directories in fallback order (graph-os, then agent-utilities)."""
-    return tuple(
-        _env_dir(setting_name) or _config_home() / app_dir
-        for setting_name, app_dir in zip(
-            LEGACY_PLATFORM_CONFIG_DIR_SETTINGS, LEGACY_PLATFORM_APP_DIRS, strict=True
-        )
-    )
-
-
-def legacy_platform_config_dir() -> Path:
-    """``AGENT_UTILITIES_CONFIG_DIR`` or ``$XDG_CONFIG_HOME/agent-utilities``."""
-    return legacy_platform_config_dirs()[-1]
-
-
-def _warn_legacy(legacy: Path) -> None:
-    global _legacy_warned
-    if _legacy_warned:
-        return
-    _legacy_warned = True
-    _platform_logger.warning(
-        "Deprecated config location %s is in use; move the platform "
-        "configuration to %s (or set %s). The graph-os and agent-utilities "
-        "fallbacks are removed in the next release.",
-        legacy,
-        preferred_platform_config_dir(),
-        PLATFORM_CONFIG_DIR_SETTING,
-    )
 
 
 def platform_config_file(name: str) -> Path:
     """Resolve one platform config file, e.g. ``workspace.yml``.
 
-    Returns the file under :func:`preferred_platform_config_dir` when it exists
-    there; otherwise the first legacy file that exists (logging the one-time
-    deprecation warning); otherwise the preferred path, for a writer to create.
-    An explicit legacy ``GRAPH_OS_CONFIG_DIR`` or ``AGENT_UTILITIES_CONFIG_DIR``
-    without ``ARBORA_CONFIG_DIR`` resolves inside that directory.
+    Always the path under :func:`preferred_platform_config_dir`; the file may
+    not exist yet, for a writer to create.
     """
-    if not _env_dir(PLATFORM_CONFIG_DIR_SETTING):
-        for setting_name in LEGACY_PLATFORM_CONFIG_DIR_SETTINGS:
-            explicit_legacy = _env_dir(setting_name)
-            if explicit_legacy:
-                _warn_legacy(explicit_legacy)
-                return explicit_legacy / name
-    preferred = preferred_platform_config_dir() / name
-    if preferred.exists():
-        return preferred
-    for legacy_dir in legacy_platform_config_dirs():
-        legacy = legacy_dir / name
-        if legacy.exists():
-            _warn_legacy(legacy)
-            return legacy
-    return preferred
+    return preferred_platform_config_dir() / name
 
 
 def platform_config_dir(probe: str = "config.json") -> Path:
-    """The platform config directory, chosen by where ``probe`` lives.
+    """The platform config directory (``probe`` is kept for callers' symmetry).
 
-    The preferred directory wins unless ``probe`` is absent from it and present
-    in the legacy directory, in which case the legacy directory is returned and
-    the one-time deprecation warning is logged. The directory is not created.
+    The directory is not created.
     """
     return platform_config_file(probe).parent
 
@@ -149,9 +84,7 @@ def config_dir() -> Path:
 
     Default: ``~/.config/arbora/`` (``$XDG_CONFIG_HOME/arbora``)
 
-    Override via ``ARBORA_CONFIG_DIR``. For one release the legacy
-    ``AGENT_UTILITIES_CONFIG_DIR`` / ``~/.config/agent-utilities/`` is used
-    when ``config.json`` lives only there (see :func:`platform_config_dir`).
+    Override via ``ARBORA_CONFIG_DIR``.
 
     Contains:
         - ``mcp_config.json`` — MCP server discovery (cross-IDE)
