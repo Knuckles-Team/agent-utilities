@@ -417,10 +417,13 @@ async def run(
     config: Mapping[str, Any] | None = None,
     *,
     plan: RunPlan | None = None,
+    stream_observer: ModelStreamObserver | None = None,
 ) -> RunResult:
     """Drive :func:`iterate_run` to its terminal event and return the result."""
     final: dict[str, Any] = {}
-    async for event in iterate_run(request, config, plan=plan):
+    async for event in iterate_run(
+        request, config, plan=plan, stream_observer=stream_observer
+    ):
         final = event
     data = final["result"]
     return RunResult(**data)
@@ -454,7 +457,14 @@ class AgentRunExecutor:
             raise TypeError("text-only execution requires the public run request")
         return await run(request, self._config, plan=plan)
 
-    async def execute_agent(self, request: Any, *, session: Any = None) -> RunResult:
+    async def execute_agent(
+        self,
+        request: Any,
+        *,
+        session: Any = None,
+        stream_observer: ModelStreamObserver | None = None,
+    ) -> RunResult:
+        """Run the received request with an optional trusted, per-call observer."""
         run_request = RunRequest(
             task=str(request.task),
             agent_name=str(getattr(request, "agent_name", "") or ""),
@@ -467,7 +477,7 @@ class AgentRunExecutor:
             metadata={"session": session} if session is not None else {},
             attachments=tuple(getattr(request, "attachments", ())),
         )
-        result = await run(run_request, self._config)
+        result = await run(run_request, self._config, stream_observer=stream_observer)
         if result.status == "failed":
             raise RunFailed(result)
         return result

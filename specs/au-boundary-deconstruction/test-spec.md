@@ -226,3 +226,9 @@ cancellation and backpressure retain the existing failed/stopped outcomes withou
 retry. Thinking reaches only the trusted observer and never the public run sink.
 Dependency streaming refuses before model calls. These are scripted-model harness
 tests, not stdio, authenticated remote ACP or live-provider acceptance.
+
+`tests/test_run_loop.py` additionally drives both terminal `run` and the typed
+executor with native observers. FunctionModel streams prove unchanged host
+request/session mapping, native tools, received limits, private-thinking
+separation, sanitized observer failures and cancellation without retries.
+These producer tests do not qualify Arbora admission or durable continuation.

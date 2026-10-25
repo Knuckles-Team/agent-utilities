@@ -869,3 +869,15 @@ FunctionModel streaming tests qualify text deltas, tool transitions, completion
 ordering, refusal, cancellation and observer failure. These establish a real
 Pydantic streaming path with a scripted model, not external model service or
 ACP transport acceptance.
+
+### R043.11 native execution observer propagation
+
+The same optional trusted observer also passes through `run` and
+`AgentRunExecutor.execute_agent`. Existing callers retain their signatures and
+outcomes when the keyword is omitted. The executor preserves its received
+request mapping, exact host session metadata, configured native tool binding,
+limits and failure receipt; it changes neither admission nor planning. Each
+invocation owns its observer argument; no global observer or alternate run loop
+is introduced. Native event privacy and unsupported-plan refusals remain those
+of `iterate_run`. Arbora must preserve its native owner scope and public-content
+allowlist when composing this producer into an admitted central execution.
