@@ -3,7 +3,7 @@ requires = ["setuptools>=84.0.0", "wheel>=0.48.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-utilities"
+name = "meristem"
 dynamic = ["version"]
 description = "Meristem, the in-run agent harness for explicit dependency DAGs and received plans: the agent run loop, edit application, tool contracts, constraints, pre-emit gates, the developer workspace and the host ports arbora fills"
 readme = "README.md"
@@ -78,7 +78,7 @@ dev = [
 
 [tool.pipelines_hooks.public_surface]
 repository = "Knuckles-Team/agent-utilities"
-distribution = "agent-utilities"
+distribution = "meristem"
 pages_url = "https://knuckles-team.github.io/agent-utilities/"
 mcp_server = false
 
