@@ -2006,8 +2006,10 @@
     {
       "id": "AU-BOUNDARY-R043.11",
       "title": "Apply host-selected client tools",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "4b0dc4f2ae07"
+      ],
       "verified_by": [
         "tests/test_client_capabilities.py:101",
         "tests/test_client_capabilities.py:119",
@@ -2096,7 +2098,8 @@
         "58ec920b1b81"
       ],
       "verified_by": [
-        "tests/test_conversation_history.py:22"
+        "tests/test_conversation_history.py:22",
+        "tests/test_hosted_run.py:87"
       ]
     },
     {
