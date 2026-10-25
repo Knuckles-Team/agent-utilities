@@ -1860,3 +1860,153 @@ async def test_executor_task_cancellation_remains_cancelled_with_measured_usage(
         "execution_mode": "graph",
         "metrics": ONE_FAILED_MODEL_REQUEST_METRICS,
     }
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.parametrize("through_port", [False, True])
+async def test_terminal_observer_preserves_host_mapping_tools_and_privacy(
+    through_port, events
+):
+    from pydantic_ai.messages import PartStartEvent, ThinkingPart
+    from pydantic_ai.models.function import DeltaThinkingPart, DeltaToolCall
+
+    session = object()
+    received, native, tool_calls = [], [], []
+    tools = FunctionToolset()
+
+    @tools.tool
+    def native_read(ctx) -> str:
+        tool_calls.append("read")
+        return "read result"
+
+    async def stream(messages, info):
+        if messages[-1].parts[-1].part_kind == "tool-return":
+            yield {0: DeltaThinkingPart(content="private reasoning")}
+            yield "answer"
+        else:
+            yield {0: DeltaToolCall(name="native_read", json_args="{}")}
+
+    request = RunRequest(
+        task="inspect",
+        agent_name="native",
+        run_id="admitted-id",
+        context="admitted-context",
+        allowed_tools=("native_read",),
+        max_steps=1,
+        budget_tokens=500,
+        metadata={"session": session},
+    )
+
+    def decide(value):
+        received.append(value)
+        return RunPlan(
+            model=FunctionModel(stream_function=stream),
+            steps=(value.task,),
+            toolsets=(tools,),
+        )
+
+    async def observe(event):
+        native.append(event)
+
+    host_ports.register_run_decision_provider(decide)
+    if through_port:
+        result = await AgentRunExecutor().execute_agent(
+            request, session=session, stream_observer=observe
+        )
+    else:
+        result = await run(request, stream_observer=observe)
+    assert result.status == "completed" and result.output == "answer"
+    assert result.run_id == "admitted-id" and tool_calls == ["read"]
+    assert received == [request]
+    assert received[0].metadata["session"] is session
+    assert any(
+        isinstance(event, PartStartEvent) and isinstance(event.part, ThinkingPart)
+        for event in native
+    )
+    assert "private reasoning" not in str(events)
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.parametrize("through_port", [False, True])
+@pytest.mark.parametrize("outcome", ["failure", "cancel", "budget"])
+async def test_terminal_observer_keeps_failure_cancel_and_budget(
+    through_port, outcome, events
+):
+    from agent_utilities.graph import RunFailed
+
+    model_calls, observed = [], []
+
+    async def stream(messages, info):
+        model_calls.append("called")
+        yield "first"
+        yield "never retried"
+
+    async def observe(event):
+        observed.append(event)
+        if outcome == "cancel":
+            raise asyncio.CancelledError
+        raise RuntimeError("secret observer detail")
+
+    host_ports.register_run_decision_provider(
+        lambda request: RunPlan(
+            model=FunctionModel(stream_function=stream),
+            steps=(request.task,),
+            budget=RunBudget(request_limit=0 if outcome == "budget" else 2),
+        )
+    )
+    request = RunRequest(task="inspect")
+    execution = (
+        AgentRunExecutor().execute_agent(request, stream_observer=observe)
+        if through_port
+        else run(request, stream_observer=observe)
+    )
+    if outcome == "cancel":
+        with pytest.raises(asyncio.CancelledError):
+            await execution
+        assert events[-1]["type"] == "run_cancelled"
+    elif outcome == "failure" and through_port:
+        with pytest.raises(RunFailed) as caught:
+            await execution
+        assert "model stream observer failed" in caught.value.result.error
+    else:
+        result = await execution
+        assert result.status == ("stopped" if outcome == "budget" else "failed")
+    assert len(model_calls) == len(observed) == (0 if outcome == "budget" else 1)
+    assert "secret observer detail" not in str(events)
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.11")
+async def test_native_executor_observers_are_per_invocation():
+    from pydantic_ai.messages import PartStartEvent
+
+    both_entered = asyncio.Event()
+    entered, outputs = [], {"one": [], "two": []}
+
+    async def stream(messages, info):
+        label = messages[-1].parts[-1].content
+        entered.append(label)
+        if len(entered) == 2:
+            both_entered.set()
+        await both_entered.wait()
+        yield label
+
+    host_ports.register_run_decision_provider(
+        lambda request: RunPlan(
+            model=FunctionModel(stream_function=stream),
+            steps=(request.task,),
+        )
+    )
+    executor = AgentRunExecutor()
+
+    async def execute(label):
+        async def observe(event):
+            if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
+                outputs[label].append(event.part.content)
+
+        return await executor.execute_agent(
+            RunRequest(task=label), stream_observer=observe
+        )
+
+    first, second = await asyncio.gather(execute("one"), execute("two"))
+    assert [first.output, second.output] == ["one", "two"]
+    assert outputs == {"one": ["one"], "two": ["two"]}

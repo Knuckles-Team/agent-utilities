@@ -2008,6 +2008,7 @@
       "title": "Apply host-selected client tools",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "053a2899a084",
         "4b0dc4f2ae07"
       ],
       "verified_by": [
