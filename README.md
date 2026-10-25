@@ -1,8 +1,13 @@
-# Agent Utilities
+# Trellis
 
-**The in-run agent harness.** agent-utilities holds only the mechanism inside one
-agent run. It applies the decisions it is given; it does not store, decide,
+**The in-run agent harness.** Trellis supports and guides agent execution
+through explicit dependency DAGs and received ordered plans. Inspired by
+espalier-trained growth, it provides structure for execution, not model-weight
+training. It applies the decisions it is given; it does not store, decide,
 serve or connect on its own.
+
+Trellis is distributed as `agent-utilities` and imported as `agent_utilities`.
+Repository, package, CLI and API identifiers remain unchanged.
 
 [![PyPI - Version](https://img.shields.io/pypi/v/agent-utilities)](https://pypi.org/project/agent-utilities/)
 [![Build](https://github.com/Knuckles-Team/agent-utilities/actions/workflows/release.yml/badge.svg)](https://github.com/Knuckles-Team/agent-utilities/actions/workflows/release.yml)
@@ -31,7 +36,7 @@ serve or connect on its own.
 - **[arbora](https://github.com/Knuckles-Team/arbora)**: admission, auth, served
   operations (MCP, REST, A2A), messaging front-ends, the registry and the multiplexer.
   arbora hosts this harness and registers the `host_ports` providers.
-- **[agent-connector-sdk](https://github.com/Knuckles-Team/agent-connector-sdk)**:
+- **[Scion SDK](https://github.com/Knuckles-Team/agent-connector-sdk)**:
   connector contracts, transports, the A2A protocol library and connector helpers.
 
 ## Install and use
