@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-10-25
+
+### Changed
+- Correct the major version for the breaking admitted-run API introduced in #355 and included in 3.2.0. `harness.hosted_run.iterate_client_run` now requires an admitted `RunRequest` instead of a prompt string. Hosts must pass the request through unchanged, retaining its run identity and execution constraints.
+- Preserve the runtime code already published in 3.2.0; this release changes version metadata and documents the migration only. The optional native-executor observer follow-up is not included.
+
 ## [3.2.0] - 2026-10-24
 
 ### Added

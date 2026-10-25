@@ -7,7 +7,7 @@ serve or connect on its own.
 [![PyPI - Version](https://img.shields.io/pypi/v/agent-utilities)](https://pypi.org/project/agent-utilities/)
 [![Build](https://github.com/Knuckles-Team/agent-utilities/actions/workflows/release.yml/badge.svg)](https://github.com/Knuckles-Team/agent-utilities/actions/workflows/release.yml)
 
-*Version: 3.2.0*
+*Version: 4.0.0*
 
 ## What it contains
 
