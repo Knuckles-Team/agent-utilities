@@ -214,3 +214,15 @@ Selection tests do not satisfy durable write ordering or no-replayed-tool proof.
 - `AU-BOUNDARY-R043.15`: use controlled model gates, not sleeps, for duplicate input and completion/cancellation races; assert one boundary application, exact target and unchanged shared budgets. Failed receipt publication must not imply safe unkeyed replay.
 - `AU-BOUNDARY-R043.16`: capture the first request of a fresh child continuation; assert child-only permitted history, new input, fresh turn counters and enclosing ceilings. Mismatched/incomplete/unsupported history refuses before any effect; current checkpoint takes precedence.
 - `AU-BOUNDARY-R043.17`: assert bounded public record kind/provenance/visibility, no private reasoning, durable publisher order and before-effect/after-effect refusal behavior. Fixtures do not prove a released host's transcript support.
+
+### R043.11 host request and streaming seam
+
+`tests/test_hosted_run.py` drives the real sequential run loop with Pydantic AI
+FunctionModel responses and streams. It checks unchanged request identity at
+planning/history selection, malformed-history refusal, client-only tool binding,
+received limits and synchronous iterator teardown. Native text deltas and tool
+transitions reach an awaited observer before completion. Observer failure,
+cancellation and backpressure retain the existing failed/stopped outcomes without
+retry. Thinking reaches only the trusted observer and never the public run sink.
+Dependency streaming refuses before model calls. These are scripted-model harness
+tests, not stdio, authenticated remote ACP or live-provider acceptance.

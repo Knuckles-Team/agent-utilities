@@ -14,12 +14,13 @@ import asyncio
 import inspect
 import json
 import uuid
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncGenerator, AsyncIterable, Awaitable, Callable, Mapping
 from contextlib import aclosing
 from typing import Any
 
-from pydantic_ai import Agent, BinaryContent
+from pydantic_ai import Agent, BinaryContent, RunContext
 from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai.messages import AgentStreamEvent
 from pydantic_ai.usage import UsageLimits
 
 from agent_utilities import host_ports
@@ -46,6 +47,8 @@ from .text_only import (
     no_host_scope,
     validate_text_plan,
 )
+
+ModelStreamObserver = Callable[[AgentStreamEvent], Awaitable[None]]
 
 
 async def resolve_plan(request: RunRequest, config: Mapping[str, Any]) -> RunPlan:
@@ -195,13 +198,29 @@ async def iterate_run(
     config: Mapping[str, Any] | None = None,
     *,
     plan: RunPlan | None = None,
-) -> AsyncIterator[dict[str, Any]]:
+    stream_observer: ModelStreamObserver | None = None,
+) -> AsyncGenerator[dict[str, Any]]:
     """Run ``request`` step by step, yielding each event.
 
     Events: ``run_started``, one ``node_transition`` per step, then exactly
     one terminal ``graph_complete`` (completed or stopped) or ``error``. The
     terminal event carries ``result`` (a :class:`RunResult` as a dict).
+
+    ``stream_observer`` is trusted host plumbing, not a public transcript. It
+    receives native events (including private thinking/tool content) inline,
+    under the same deadline. Only ordinary sequential plans support it.
     """
+
+    async def observe(
+        _ctx: RunContext[GraphDeps], events: AsyncIterable[AgentStreamEvent]
+    ) -> None:
+        assert stream_observer is not None
+        async for event in events:
+            try:
+                await stream_observer(event)
+            except Exception:
+                raise RuntimeError("model stream observer failed") from None
+
     restricted = plan is not None and plan.execution_constraint == "text-only"
 
     def emit(state: GraphState, kind: str, **fields: Any) -> dict[str, Any]:
@@ -242,6 +261,11 @@ async def iterate_run(
                 state.status = "stopped"
                 emit(state, "run_cancelled", status="stopped", result=_result(state))
             raise failure.error from failure.error.__cause__
+        if stream_observer is not None and (
+            run_plan.dependency_plan is not None
+            or run_plan.execution_constraint is not None
+        ):
+            raise ValueError("model streaming requires an ordinary sequential plan")
         if run_plan.execution_constraint is not None and not restricted:
             raise ValueError("restricted execution needs an explicit received plan")
         initial_usage = (
@@ -342,6 +366,9 @@ async def iterate_run(
                                 deps=deps,
                                 message_history=history,
                                 usage_limits=limits,
+                                event_stream_handler=observe
+                                if stream_observer is not None
+                                else None,
                             )
                         finally:
                             if shared_budget is not None:
