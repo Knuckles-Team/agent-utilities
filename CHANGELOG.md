@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-10-24
+
+### Added
+- Constrained text-only provider execution per run (#348): the `runtime.RunRequest` run boundary with attended text-only execution limits and narrowed timeout types.
+- Bounded host conversation history for fresh sequential runs, hydrated from the host's bounded text history (#346), with host checkpoint precedence validated before run effects (#347).
+
 ### Removed
-- The platform config resolver no longer reads `GRAPH_OS_CONFIG_DIR`, `AGENT_UTILITIES_CONFIG_DIR`, `~/.config/graph-os` or `~/.config/agent-utilities`. Config lives under `ARBORA_CONFIG_DIR` / `~/.config/arbora` only (hard cutover).
+- The platform config resolver no longer reads `GRAPH_OS_CONFIG_DIR`, `AGENT_UTILITIES_CONFIG_DIR`, `~/.config/graph-os` or `~/.config/agent-utilities`. Config lives under `ARBORA_CONFIG_DIR` / `~/.config/arbora` only (hard cutover, #352).
 
 ## [3.1.0] - 2026-10-22
 
