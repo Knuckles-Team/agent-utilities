@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "agent-utilities"
 dynamic = ["version"]
-description = "Trellis, the in-run agent harness for explicit dependency DAGs and received plans: the agent run loop, edit application, tool contracts, constraints, pre-emit gates, the developer workspace and the host ports arbora fills"
+description = "Meristem, the in-run agent harness for explicit dependency DAGs and received plans: the agent run loop, edit application, tool contracts, constraints, pre-emit gates, the developer workspace and the host ports arbora fills"
 readme = "README.md"
 classifiers = [
     "Development Status :: 4 - Beta",
