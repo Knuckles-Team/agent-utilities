@@ -1,12 +1,12 @@
-# Trellis
+# Meristem
 
-**The in-run agent harness.** Trellis supports and guides agent execution
+**The in-run agent harness.** Meristem supports and guides agent execution
 through explicit dependency DAGs and received ordered plans. Inspired by
 espalier-trained growth, it provides structure for execution, not model-weight
 training. It applies the decisions it is given; it does not store, decide,
 serve or connect on its own.
 
-Trellis is distributed as `agent-utilities` and imported as `agent_utilities`.
+Meristem is distributed as `agent-utilities` and imported as `agent_utilities`.
 Repository, package, CLI and API identifiers remain unchanged.
 
 [![PyPI - Version](https://img.shields.io/pypi/v/agent-utilities)](https://pypi.org/project/agent-utilities/)
