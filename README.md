@@ -30,7 +30,7 @@ Repository, package, CLI and API identifiers remain unchanged.
 
 ## Where everything else lives
 
-- **[epistemic-graph](https://github.com/Knuckles-Team/epistemic-graph)**: facts, records,
+- **[Medulla](https://github.com/Knuckles-Team/epistemic-graph)**: facts, records,
   vocabulary, storage and queries, ingest, retrieval, reasoning, memory, decisions, and
   learning (evaluation, harness evolution, reward and trace records).
 - **[arbora](https://github.com/Knuckles-Team/arbora)**: admission, auth, served
