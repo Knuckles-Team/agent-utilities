@@ -829,3 +829,43 @@ then supported completed-child continuation. Qualify root-child-grandchild,
 fan-out/fan-in, replay, foreign identity, cancellation and shared budgets through
 the actual bound loop. No new row is delivered by these specifications, and no
 EG implementation or native authority work is part of this change.
+
+### 2026-10-25: preserve admitted requests through the client-run seam
+
+R043.11's `harness.hosted_run.iterate_client_run` must accept the host's existing
+`RunRequest`, not just its text. Reuse the same request for plan resolution and
+`iterate_run`, preserving run identity, context, attachments, limits and the
+metadata consumed by R043.9's host-authorized history provider. AU does not
+validate a caller's identity or create sessions; Arbora supplies the admitted
+request and bound client transport. Reject non-request input before calling a
+host provider. Do not infer missing authority from prompt text.
+
+Close the delegated run iterator when its consumer closes, so the existing
+cancellation and resource teardown run before this seam returns. This is the
+same harness for a central host and an explicitly launched local host; AU adds
+no listener, credential source, ACP server or alternative model loop.
+
+The Pydantic harness 0.57.0 experimental ACP adapter drives
+`AbstractAgent.run_stream_events` and owns per-session transcript history.
+Passing AU's `build_agent` directly to it would skip `iterate_run` request,
+history-selection, received-plan, timeout and event handling. This seam change
+is a producer prerequisite, not ACP adapter qualification. A later integration
+must share AU's run machinery and explicitly qualify streamed execution and
+deferred approval passes against those invariants before enabling ACP.
+
+The next R043.11 producer increment accepts an optional awaited native-model
+stream observer on that same seam and `iterate_run`. It uses Pydantic AI's
+`agent.run(event_stream_handler=...)` inside the existing timeout, tool and
+history lifecycle. Observer backpressure consumes the same run deadline;
+failure or cancellation does not retry the model or replay an effect. The
+observer is trusted host plumbing, not a public transcript: native events can
+contain thinking and private tool inputs/results. Existing public run events
+remain unchanged; Arbora must explicitly project safe ACP content.
+
+Initially this observer supports ordinary sequential runs only. Dependency and
+restricted text-only plans refuse before model execution rather than silently
+ignoring the requested observer or widening their qualified execution profile.
+FunctionModel streaming tests qualify text deltas, tool transitions, completion
+ordering, refusal, cancellation and observer failure. These establish a real
+Pydantic streaming path with a scripted model, not external model service or
+ACP transport acceptance.

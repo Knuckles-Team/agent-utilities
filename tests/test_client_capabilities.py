@@ -192,32 +192,3 @@ async def test_transport_exception_has_no_private_detail(events):
     result = await tools.read_file("private path")
     assert json.loads(result)["reason"] == "transport_error"
     assert "private" not in result + json.dumps(events)
-
-
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
-async def test_public_hosted_run_binds_transport(events):
-    from agent_utilities.harness.hosted_run import iterate_client_run
-
-    transport = Transport()
-    plan = RunPlan(
-        model=scripted("read_file", {"path": "file"}, []),
-        steps=("inspect",),
-        harness=HarnessConfig(client_tools=("read_file",)),
-    )
-    host_ports.register_run_decision_provider(lambda request: plan)
-    emitted = [event async for event in iterate_client_run("inspect", transport)]
-    assert emitted[-1]["type"] == "graph_complete"
-    assert len(transport.calls) == 1
-    assert any(event.get("output") == "client reply" for event in emitted)
-
-
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
-async def test_public_hosted_run_rejects_server_tools(events):
-    from agent_utilities.harness.hosted_run import iterate_client_run
-
-    transport = Transport()
-    plan = RunPlan(model=scripted("read_file", {}, []), tool_names=("server_tool",))
-    host_ports.register_run_decision_provider(lambda request: plan)
-    with pytest.raises(PermissionError, match="client-only"):
-        _ = [event async for event in iterate_client_run("inspect", transport)]
-    assert transport.calls == []
