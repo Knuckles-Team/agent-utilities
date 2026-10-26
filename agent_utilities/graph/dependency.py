@@ -488,6 +488,7 @@ async def _execute_dependency_plan(
     tool_terminal_cursor = 0
     step_by_task: dict[str, int] = {}
     checkpoint_acked: set[str] = set()
+    publication_failed = False
     while (
         tool_terminal_cursor < len(tool_order)
         and tool_order[tool_terminal_cursor] in completed_tasks
@@ -499,11 +500,13 @@ async def _execute_dependency_plan(
         state.add_usage(budget.usage)
 
     async def publish_durable(kind: str, content: Mapping[str, Any]) -> None:
+        nonlocal publication_failed
         if event_publisher is None:
             return
         try:
             await event_publisher.publish(kind, content)
         except Exception as exc:  # noqa: BLE001 - sanitize host details
+            publication_failed = True
             raise RuntimeError("durable run event publication failed") from exc
 
     async def publish_tool_record(
@@ -833,6 +836,8 @@ async def _execute_dependency_plan(
                     )
                 except Exception as exc:  # noqa: BLE001 - parent owns failure policy
                     failure = failure or exc
+                    if str(exc) == "durable run event publication failed":
+                        publication_failed = True
                     record = getattr(exc, "tool_step", None)
                     terminal_event(
                         "task_failed",
@@ -885,7 +890,7 @@ async def _execute_dependency_plan(
                     error_type=type(task.exception()).__name__,
                     **tool_event_fields(record),
                 )
-            else:
+            elif not publication_failed:
                 await completed(key, task.result())
         flush_tool_terminals()
         for key in sorted(pending, key=order.__getitem__):
