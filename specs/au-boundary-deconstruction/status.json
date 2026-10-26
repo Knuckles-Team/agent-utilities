@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "spec_id": "AU-BOUNDARY",
-  "owner_repo": "agent-utilities",
+  "owner_repo": "meristem",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
     "AU-BOUNDARY-R002",

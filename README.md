@@ -7,10 +7,10 @@ training. It applies the decisions it is given; it does not store, decide,
 serve or connect on its own.
 
 Meristem is distributed as `agent-utilities` and imported as `agent_utilities`.
-Repository, package, CLI and API identifiers remain unchanged.
+The repository is `meristem`. Package, CLI and API identifiers remain unchanged.
 
 [![PyPI - Version](https://img.shields.io/pypi/v/agent-utilities)](https://pypi.org/project/agent-utilities/)
-[![Build](https://github.com/Knuckles-Team/agent-utilities/actions/workflows/release.yml/badge.svg)](https://github.com/Knuckles-Team/agent-utilities/actions/workflows/release.yml)
+[![Build](https://github.com/Knuckles-Team/meristem/actions/workflows/release.yml/badge.svg)](https://github.com/Knuckles-Team/meristem/actions/workflows/release.yml)
 
 *Version: 4.0.0*
 
@@ -30,13 +30,13 @@ Repository, package, CLI and API identifiers remain unchanged.
 
 ## Where everything else lives
 
-- **[Medulla](https://github.com/Knuckles-Team/epistemic-graph)**: facts, records,
+- **[Medulla](https://github.com/Knuckles-Team/medulla)**: facts, records,
   vocabulary, storage and queries, ingest, retrieval, reasoning, memory, decisions, and
   learning (evaluation, harness evolution, reward and trace records).
 - **[arbora](https://github.com/Knuckles-Team/arbora)**: admission, auth, served
   operations (MCP, REST, A2A), messaging front-ends, the registry and the multiplexer.
   arbora hosts this harness and registers the `host_ports` providers.
-- **[Scion SDK](https://github.com/Knuckles-Team/agent-connector-sdk)**:
+- **[Scion SDK](https://github.com/Knuckles-Team/scion-sdk)**:
   connector contracts, transports, the A2A protocol library and connector helpers.
 
 ## Install and use
