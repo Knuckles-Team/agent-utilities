@@ -1712,14 +1712,19 @@
     {
       "id": "AU-BOUNDARY-R043.6",
       "title": "Apply a received bounded dependency plan",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1978fffd4de8",
         "53e77f794766",
-        "aff1b2ca7a77"
+        "aff1b2ca7a77",
+        "db3012d2e84f"
       ],
       "verified_by": [
-        "tests/test_dependency.py:28"
+        "tests/test_dependency.py:1057",
+        "tests/test_dependency.py:1084",
+        "tests/test_dependency.py:1163",
+        "tests/test_dependency.py:1188",
+        "tests/test_dependency.py:1323"
       ],
       "rollup_of": [
         "AU-BOUNDARY-R043.6.1",
@@ -1734,51 +1739,83 @@
     {
       "id": "AU-BOUNDARY-R043.6.1",
       "title": "Tool step model and caller port",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "db3012d2e84f"
+      ],
+      "verified_by": [
+        "tests/test_dependency.py:642",
+        "tests/test_dependency.py:667"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043.6.2",
       "title": "Deterministic binding resolution",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "db3012d2e84f"
+      ],
+      "verified_by": [
+        "tests/test_dependency.py:691"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043.6.3",
       "title": "Typed step failure without model retry",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "db3012d2e84f"
+      ],
+      "verified_by": [
+        "tests/test_dependency.py:736",
+        "tests/test_dependency.py:783"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043.6.4",
       "title": "Per-step record",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "db3012d2e84f"
+      ],
+      "verified_by": [
+        "tests/test_dependency.py:1057",
+        "tests/test_dependency.py:829"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043.6.5",
       "title": "Mixed plans share one scheduler",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "db3012d2e84f"
+      ],
+      "verified_by": [
+        "tests/test_dependency.py:1084"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043.6.6",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "db3012d2e84f"
+      ],
+      "verified_by": [
+        "tests/test_dependency.py:1163",
+        "tests/test_dependency.py:1188"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043.6.7",
       "title": "Hot-path proof",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "db3012d2e84f"
+      ],
+      "verified_by": [
+        "tests/test_dependency.py:1323"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043.7",
@@ -1791,11 +1828,11 @@
         "c98538fea6ae"
       ],
       "verified_by": [
-        "tests/test_dependency.py:194",
-        "tests/test_dependency.py:349",
-        "tests/test_dependency.py:821",
-        "tests/test_dependency.py:861",
-        "tests/test_dependency.py:936"
+        "tests/test_dependency.py:103",
+        "tests/test_dependency.py:1577",
+        "tests/test_dependency.py:1617",
+        "tests/test_dependency.py:1692",
+        "tests/test_dependency.py:1717"
       ]
     },
     {

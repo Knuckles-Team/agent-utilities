@@ -3,20 +3,329 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import heapq
 import json
 import math
 from collections.abc import AsyncGenerator, Callable, Mapping
+from dataclasses import dataclass
+from re import fullmatch
 from typing import Any
 
 from pydantic_ai import Agent, BinaryContent
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 
 from .budget import SharedBudget
-from .state import DependencyPlan, GraphDeps, GraphState, RunPlan, RunTask
+from .state import (
+    BindingUnresolved,
+    DependencyPlan,
+    GraphDeps,
+    GraphState,
+    RunPlan,
+    RunTask,
+    ToolCaller,
+    ToolCallerUnavailable,
+    ToolCallFailed,
+    ToolCallRefused,
+    ToolStep,
+    ToolStepResult,
+)
+
+TOOL_ARGUMENT_LIMIT = 64 * 1024
+TOOL_RESULT_LIMIT = 256 * 1024
 
 
-def validate_dependency_plan(plan: RunPlan) -> None:
+@dataclass(frozen=True, slots=True)
+class _ToolExecution:
+    output: Any
+    record: dict[str, Any]
+
+
+def _json_bytes(value: Any) -> bytes:
+    """Encode a structured value deterministically for size and digest checks."""
+    try:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ToolCallFailed("tool payload is not JSON-serializable") from exc
+
+
+def _bounded(value: Any, limit: int) -> Any:
+    """Keep a small value intact, or expose only its digest and byte count."""
+    if value is None:
+        return None
+    encoded = _json_bytes(value)
+    if len(encoded) <= limit:
+        return value
+    return {
+        "digest": hashlib.sha256(encoded).hexdigest(),
+        "bytes": len(encoded),
+    }
+
+
+def _path_tokens(path: str) -> tuple[str, ...]:
+    """Parse the dotted JSON path form, accepting ``items[0]`` as a convenience."""
+    if not path:
+        return ()
+    tokens: list[str] = []
+    for component in path.split("."):
+        if not component:
+            raise ValueError("JSON path contains an empty component")
+        remainder = component
+        while "[" in remainder:
+            prefix, suffix = remainder.split("[", 1)
+            if prefix:
+                tokens.append(prefix)
+            if "]" not in suffix:
+                raise ValueError("JSON path has an unterminated array index")
+            index, remainder = suffix.split("]", 1)
+            if not fullmatch(r"[0-9]+", index):
+                raise ValueError("JSON path array indexes must be nonnegative integers")
+            tokens.append(index)
+        if remainder:
+            tokens.append(remainder)
+    return tuple(tokens)
+
+
+def _reference_parts(
+    reference: str, direct_prerequisites: tuple[str, ...]
+) -> tuple[str, tuple[str, ...]]:
+    """Split one ``steps.<id>.output[.<path>]`` reference."""
+    if not isinstance(reference, str):
+        raise ValueError("binding reference must be a string")
+    for task_id in sorted(direct_prerequisites, key=len, reverse=True):
+        prefix = f"steps.{task_id}.output"
+        if reference == prefix:
+            return task_id, ()
+        if reference.startswith(f"{prefix}."):
+            path = reference[len(prefix) + 1 :]
+            if not path:
+                raise ValueError("JSON path is empty")
+            return task_id, _path_tokens(path)
+    raise ValueError("binding must reference a direct prerequisite output")
+
+
+def _validate_argument_value(
+    value: Any,
+    *,
+    task_id: str,
+    argument: str,
+    direct_prerequisites: tuple[str, ...],
+) -> None:
+    if isinstance(value, Mapping):
+        if "$ref" in value:
+            if set(value) != {"$ref"}:
+                raise ValueError("a binding object may contain only $ref")
+            try:
+                _reference_parts(value["$ref"], direct_prerequisites)
+            except ValueError as exc:
+                raise ValueError(
+                    f"invalid binding at {argument or '/'} for task {task_id!r}: {exc}"
+                ) from exc
+            return
+        if any(not isinstance(key, str) for key in value):
+            raise ValueError("tool argument object keys must be strings")
+        for key, child in value.items():
+            _validate_argument_value(
+                child,
+                task_id=task_id,
+                argument=f"{argument}/{key}",
+                direct_prerequisites=direct_prerequisites,
+            )
+        return
+    if isinstance(value, (list, tuple)):
+        for index, child in enumerate(value):
+            _validate_argument_value(
+                child,
+                task_id=task_id,
+                argument=f"{argument}/{index}",
+                direct_prerequisites=direct_prerequisites,
+            )
+        return
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("tool arguments must contain finite JSON numbers")
+    if value is not None and not isinstance(value, (str, int, float, bool)):
+        raise ValueError("tool arguments must contain JSON-shaped literals or bindings")
+
+
+def _lookup(value: Any, token: str) -> Any:
+    if isinstance(value, Mapping):
+        if token not in value:
+            raise KeyError(token)
+        return value[token]
+    if isinstance(value, (list, tuple)):
+        if not fullmatch(r"[0-9]+", token):
+            raise TypeError(token)
+        index = int(token)
+        if index >= len(value):
+            raise IndexError(index)
+        return value[index]
+    raise TypeError(token)
+
+
+def _resolve_reference(
+    reference: str,
+    *,
+    task_id: str,
+    argument: str,
+    outputs: Mapping[str, Any],
+    direct_prerequisites: tuple[str, ...],
+) -> Any:
+    try:
+        dependency, path = _reference_parts(reference, direct_prerequisites)
+    except ValueError as exc:
+        raise BindingUnresolved(task_id, argument, reference, str(exc)) from None
+    try:
+        value = outputs[dependency]
+    except KeyError:
+        raise BindingUnresolved(
+            task_id, argument, reference, "prerequisite output is not completed"
+        ) from None
+    if path:
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                raise BindingUnresolved(
+                    task_id,
+                    argument,
+                    reference,
+                    "prompt output is not JSON",
+                ) from None
+        for token in path:
+            try:
+                value = _lookup(value, token)
+            except KeyError:
+                raise BindingUnresolved(
+                    task_id, argument, reference, f"missing path component {token!r}"
+                ) from None
+            except (IndexError, TypeError):
+                raise BindingUnresolved(
+                    task_id,
+                    argument,
+                    reference,
+                    f"cannot traverse path component {token!r}",
+                ) from None
+    return value
+
+
+def _resolve_value(
+    value: Any,
+    *,
+    task_id: str,
+    argument: str,
+    outputs: Mapping[str, Any],
+    direct_prerequisites: tuple[str, ...],
+) -> Any:
+    if isinstance(value, Mapping):
+        if set(value) == {"$ref"}:
+            return _resolve_reference(
+                value["$ref"],
+                task_id=task_id,
+                argument=argument or "/",
+                outputs=outputs,
+                direct_prerequisites=direct_prerequisites,
+            )
+        if "$ref" in value:
+            raise BindingUnresolved(
+                task_id,
+                argument or "/",
+                str(value.get("$ref", "")),
+                "a binding object may contain only $ref",
+            )
+        return {
+            key: _resolve_value(
+                child,
+                task_id=task_id,
+                argument=f"{argument}/{key}",
+                outputs=outputs,
+                direct_prerequisites=direct_prerequisites,
+            )
+            for key, child in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [
+            _resolve_value(
+                child,
+                task_id=task_id,
+                argument=f"{argument}/{index}",
+                outputs=outputs,
+                direct_prerequisites=direct_prerequisites,
+            )
+            for index, child in enumerate(value)
+        ]
+    return value
+
+
+def resolve_tool_bindings(task: RunTask, outputs: Mapping[str, Any]) -> dict[str, Any]:
+    """Resolve a tool task's literals and completed-output references."""
+    if task.call is None:
+        raise ValueError("task has no tool call")
+    resolved = _resolve_value(
+        task.call.arguments,
+        task_id=task.task_id,
+        argument="",
+        outputs=outputs,
+        direct_prerequisites=task.depends_on,
+    )
+    if not isinstance(resolved, Mapping):
+        raise BindingUnresolved(
+            task.task_id,
+            "/",
+            "",
+            "tool arguments must resolve to an object",
+        )
+    return dict(resolved)
+
+
+def _record(
+    task: RunTask,
+    *,
+    arguments: Any,
+    outcome: str,
+    result: Any = None,
+    elapsed_seconds: float = 0.0,
+    error: str | None = None,
+    reference: str | None = None,
+) -> dict[str, Any]:
+    record: dict[str, Any] = {
+        "task_id": task.task_id,
+        "server": task.call.server if task.call is not None else "",
+        "tool": task.call.tool if task.call is not None else "",
+        "arguments": _bounded(arguments, TOOL_ARGUMENT_LIMIT),
+        "outcome": outcome,
+        "result": _bounded(result, TOOL_RESULT_LIMIT),
+        "elapsed_seconds": max(0.0, float(elapsed_seconds)),
+    }
+    if error is not None:
+        record["error"] = error
+    if reference is not None:
+        record["reference"] = reference
+    return record
+
+
+def _attach_record(error: BaseException, record: dict[str, Any]) -> BaseException:
+    error.tool_step = record  # type: ignore[attr-defined]
+    return error
+
+
+def _tool_result(value: Any) -> ToolStepResult:
+    return value if isinstance(value, ToolStepResult) else ToolStepResult(result=value)
+
+
+def _output_text(value: Any) -> str:
+    return value if isinstance(value, str) else json.dumps(value, sort_keys=True)
+
+
+def validate_dependency_plan(
+    plan: RunPlan, *, tool_caller: ToolCaller | None = None
+) -> None:
     """Refuse malformed or over-budget plans before constructing a model."""
     graph = plan.dependency_plan
     if graph is None:
@@ -56,6 +365,7 @@ def validate_dependency_plan(plan: RunPlan) -> None:
     ):
         raise ValueError("invalid dependency run timeout")
     nodes: dict[str, RunTask] = {}
+    tool_tasks: list[RunTask] = []
     for task in graph.tasks:
         if (
             not isinstance(task, RunTask)
@@ -63,13 +373,18 @@ def validate_dependency_plan(plan: RunPlan) -> None:
             or not task.task_id.strip()
             or task.task_id in nodes
             or not isinstance(task.prompt, str)
-            or not task.prompt.strip()
             or not isinstance(task.depends_on, tuple)
             or any(not isinstance(dep, str) for dep in task.depends_on)
             or len(set(task.depends_on)) != len(task.depends_on)
+            or task.call is not None
+            and not isinstance(task.call, ToolStep)
         ):
             raise ValueError("invalid or duplicate dependency task")
+        if task.call is None and not task.prompt.strip():
+            raise ValueError("prompt task must have a nonempty prompt")
         nodes[task.task_id] = task
+        if task.call is not None:
+            tool_tasks.append(task)
     if graph.output_task_id not in nodes:
         raise ValueError("output task is missing")
     indegree = {key: len(task.depends_on) for key, task in nodes.items()}
@@ -79,6 +394,22 @@ def validate_dependency_plan(plan: RunPlan) -> None:
             if dep not in nodes:
                 raise ValueError("dependency task is missing")
             children[dep].append(task.task_id)
+    for task in tool_tasks:
+        assert task.call is not None
+        if (
+            not isinstance(task.call.server, str)
+            or not task.call.server.strip()
+            or not isinstance(task.call.tool, str)
+            or not task.call.tool.strip()
+            or not isinstance(task.call.arguments, Mapping)
+        ):
+            raise ValueError("invalid tool step")
+        _validate_argument_value(
+            task.call.arguments,
+            task_id=task.task_id,
+            argument="",
+            direct_prerequisites=task.depends_on,
+        )
     ready = [key for key, count in indegree.items() if count == 0]
     visited = 0
     while ready:
@@ -94,6 +425,10 @@ def validate_dependency_plan(plan: RunPlan) -> None:
         graph.output_task_id
     }:
         raise ValueError("every task must contribute to the output task")
+    if tool_tasks and tool_caller is None:
+        raise ToolCallerUnavailable(
+            "dependency plan contains tool steps but no host ToolCaller is bound"
+        )
 
 
 async def _execute_dependency_plan(
@@ -104,6 +439,7 @@ async def _execute_dependency_plan(
     attachments: list[str | BinaryContent],
     budget: SharedBudget,
     emit: Callable[..., dict[str, Any]],
+    tool_caller: ToolCaller | None = None,
 ) -> None:
     """Refill a free slot after any successful prerequisite, not a whole wave.
 
@@ -123,8 +459,11 @@ async def _execute_dependency_plan(
     heapq.heapify(ready)
     active: dict[str, asyncio.Task[Any]] = {}
     pending = set(nodes)
-    outputs: dict[str, str] = {}
+    outputs: dict[str, Any] = {}
     interrupted: BaseException | None = None
+    tool_order = [task.task_id for task in graph.tasks if task.call is not None]
+    tool_terminal_buffer: dict[str, tuple[str, dict[str, Any]]] = {}
+    tool_terminal_cursor = 0
 
     def event(kind: str, key: str, **fields: Any) -> dict[str, Any]:
         return emit(
@@ -137,8 +476,134 @@ async def _execute_dependency_plan(
             **fields,
         )
 
+    def terminal_event(kind: str, key: str, **fields: Any) -> dict[str, Any] | None:
+        """Emit prompt terminals immediately and tool records in declaration order."""
+        nonlocal tool_terminal_cursor
+        if nodes[key].call is None:
+            return event(kind, key, **fields)
+        tool_terminal_buffer[key] = (kind, fields)
+        emitted: dict[str, Any] | None = None
+        while tool_terminal_cursor < len(tool_order):
+            ordered_key = tool_order[tool_terminal_cursor]
+            buffered = tool_terminal_buffer.pop(ordered_key, None)
+            if buffered is None:
+                break
+            buffered_kind, buffered_fields = buffered
+            emitted = event(buffered_kind, ordered_key, **buffered_fields)
+            tool_terminal_cursor += 1
+        return emitted
+
+    def tool_event_fields(record: dict[str, Any] | None) -> dict[str, Any]:
+        """Expose the bounded record both nested and as stable event fields."""
+        if record is None:
+            return {}
+        fields = {
+            "tool_step": record,
+            "server": record["server"],
+            "tool": record["tool"],
+            "arguments": record["arguments"],
+            "outcome": record["outcome"],
+            "result": record["result"],
+            "elapsed_seconds": record["elapsed_seconds"],
+        }
+        for key in ("error", "reference"):
+            if key in record:
+                fields[key] = record[key]
+        return fields
+
+    def flush_tool_terminals() -> None:
+        """Flush attempted tool terminals left behind by an earlier blocked step."""
+        for key in tool_order[tool_terminal_cursor:]:
+            buffered = tool_terminal_buffer.pop(key, None)
+            if buffered is None:
+                continue
+            kind, fields = buffered
+            event(kind, key, **fields)
+
     async def execute(task: RunTask) -> Any:
         dependency_outputs = {dep: outputs[dep] for dep in task.depends_on}
+        if task.call is not None:
+            assert tool_caller is not None
+            started = asyncio.get_running_loop().time()
+            try:
+                arguments = resolve_tool_bindings(task, outputs)
+            except BindingUnresolved as exc:
+                record = _record(
+                    task,
+                    arguments=None,
+                    outcome="failed",
+                    elapsed_seconds=asyncio.get_running_loop().time() - started,
+                    error=str(exc),
+                    reference=exc.reference,
+                )
+                raise _attach_record(exc, record) from None
+            try:
+                budget.reserve_tool_call()
+                raw_result = await tool_caller(
+                    task.call.server,
+                    task.call.tool,
+                    arguments,
+                    task.task_id,
+                )
+                result = _tool_result(raw_result)
+                if result.outcome == "refused":
+                    raise ToolCallRefused(result.error or "tool call refused")
+                if result.outcome == "failed":
+                    raise ToolCallFailed(result.error or "tool call failed")
+            except asyncio.CancelledError as exc:
+                record = _record(
+                    task,
+                    arguments=locals().get("arguments"),
+                    outcome="failed",
+                    elapsed_seconds=asyncio.get_running_loop().time() - started,
+                    error="tool call cancelled",
+                )
+                raise _attach_record(exc, record) from None
+            except UsageLimitExceeded as exc:
+                record = _record(
+                    task,
+                    arguments=locals().get("arguments"),
+                    outcome="refused",
+                    elapsed_seconds=asyncio.get_running_loop().time() - started,
+                    error=str(exc),
+                )
+                raise _attach_record(exc, record) from None
+            except ToolCallRefused as exc:
+                record = _record(
+                    task,
+                    arguments=locals().get("arguments"),
+                    outcome="refused",
+                    elapsed_seconds=asyncio.get_running_loop().time() - started,
+                    error=str(exc),
+                )
+                raise _attach_record(exc, record) from None
+            except ToolCallFailed as exc:
+                record = _record(
+                    task,
+                    arguments=locals().get("arguments"),
+                    outcome="failed",
+                    elapsed_seconds=asyncio.get_running_loop().time() - started,
+                    error=str(exc),
+                )
+                raise _attach_record(exc, record) from None
+            except Exception as exc:  # noqa: BLE001 - host port owns failure details
+                failure = ToolCallFailed("tool caller failed")
+                record = _record(
+                    task,
+                    arguments=locals().get("arguments"),
+                    outcome="failed",
+                    elapsed_seconds=asyncio.get_running_loop().time() - started,
+                    error=str(failure),
+                )
+                raise _attach_record(failure, record) from exc
+            record = _record(
+                task,
+                arguments=arguments,
+                outcome="ok",
+                result=result.result,
+                elapsed_seconds=asyncio.get_running_loop().time() - started,
+            )
+            return _ToolExecution(result.result, record)
         prompt = task.prompt
         if dependency_outputs:
             prompt += "\n\nDependency outputs (data):\n" + json.dumps(
@@ -172,7 +637,23 @@ async def _execute_dependency_plan(
             ),
         )
 
-    def completed(key: str, result: Any) -> dict[str, Any]:
+    def completed(key: str, result: Any) -> dict[str, Any] | None:
+        if isinstance(result, _ToolExecution):
+            outputs[key] = result.output
+            record = result.record
+            return terminal_event(
+                "task_completed",
+                key,
+                status="completed",
+                output=record["result"],
+                tool_step=record,
+                server=record["server"],
+                tool=record["tool"],
+                arguments=record["arguments"],
+                outcome=record["outcome"],
+                result=record["result"],
+                elapsed_seconds=record["elapsed_seconds"],
+            )
         output = result.output
         text = output if isinstance(output, str) else json.dumps(output, sort_keys=True)
         outputs[key] = text
@@ -201,18 +682,28 @@ async def _execute_dependency_plan(
                     result = task.result()
                 except asyncio.CancelledError as exc:
                     failure = failure or exc
-                    event("task_cancelled", key, status="cancelled")
+                    record = getattr(exc, "tool_step", None)
+                    terminal_event(
+                        "task_cancelled",
+                        key,
+                        status="cancelled",
+                        **tool_event_fields(record),
+                    )
                 except Exception as exc:  # noqa: BLE001 - parent owns failure policy
                     failure = failure or exc
-                    event(
+                    record = getattr(exc, "tool_step", None)
+                    terminal_event(
                         "task_failed",
                         key,
                         status="failed",
                         error_type=type(exc).__name__,
+                        **tool_event_fields(record),
                     )
                 else:
                     completed(key, result)
-                    if any(m in outputs[key] for m in plan.stop.stop_markers):
+                    if any(
+                        m in _output_text(outputs[key]) for m in plan.stop.stop_markers
+                    ):
                         state.status = "stopped"
                     for child in children[key]:
                         indegree[child] -= 1
@@ -223,7 +714,7 @@ async def _execute_dependency_plan(
             if state.status == "stopped":
                 break
         if graph.output_task_id in outputs:
-            state.outputs.append(outputs[graph.output_task_id])
+            state.outputs.append(_output_text(outputs[graph.output_task_id]))
     except BaseException as exc:
         interrupted = exc
     finally:
@@ -242,16 +733,19 @@ async def _execute_dependency_plan(
                     interrupted = interrupted or exc
         for key, task in active.items():
             if task.cancelled():
-                event("task_cancelled", key, status="cancelled")
+                terminal_event("task_cancelled", key, status="cancelled")
             elif task.exception() is not None:
-                event(
+                record = getattr(task.exception(), "tool_step", None)
+                terminal_event(
                     "task_failed",
                     key,
                     status="failed",
                     error_type=type(task.exception()).__name__,
+                    **tool_event_fields(record),
                 )
             else:
                 completed(key, task.result())
+        flush_tool_terminals()
         for key in sorted(pending, key=order.__getitem__):
             event("task_blocked", key, status="blocked")
         # This seeded ledger is the whole run, not a delta to add again.
@@ -271,6 +765,7 @@ async def iterate_dependency_plan(
     emit: Callable[..., dict[str, Any]],
     *,
     deadline: float | None,
+    tool_caller: ToolCaller | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Stream public events without making child dispatch wait for a viewer.
 
@@ -295,7 +790,14 @@ async def iterate_dependency_plan(
             # task: a reader may pause indefinitely between iterator reads.
             async with asyncio.timeout_at(deadline):
                 await _execute_dependency_plan(
-                    agent, plan, state, config, attachments, budget, enqueue
+                    agent,
+                    plan,
+                    state,
+                    config,
+                    attachments,
+                    budget,
+                    enqueue,
+                    tool_caller,
                 )
         finally:
             events.put_nowait(None)
