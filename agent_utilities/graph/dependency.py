@@ -656,6 +656,12 @@ async def _execute_dependency_plan(
 
             buffered_kind, buffered_fields = buffered
             event(buffered_kind, key, **buffered_fields)
+            if buffered_kind == "task_completed":
+                # A successful tool completed without a durable publisher has
+                # already recorded its checkpoint/result above.  Releasing
+                # its dependants still belongs to this ordered flush, while
+                # failed and cancelled terminals must never release them.
+                released.append(key)
             tool_terminal_cursor += 1
         return tuple(released)
 
