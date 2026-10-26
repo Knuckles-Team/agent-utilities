@@ -572,7 +572,9 @@ async def _execute_dependency_plan(
                 fields[key] = record[key]
         return fields
 
-    async def flush_tool_terminals(*, publish_records: bool = True) -> tuple[str, ...]:
+    async def flush_tool_terminals(
+        *, publish_records: bool = True, emit_completed: bool = True
+    ) -> tuple[str, ...]:
         """Publish buffered tool terminals in declaration order.
 
         Effects run concurrently, but a completed result is only exposed once
@@ -593,6 +595,11 @@ async def _execute_dependency_plan(
             if result is not None:
                 tool_completion_buffer.pop(key, None)
                 record = result.record
+                if not publish_records and not emit_completed:
+                    tool_terminal_buffer.pop(key, None)
+                    tool_record_buffer.pop(key, None)
+                    tool_terminal_cursor += 1
+                    continue
                 if publish_records:
                     try:
                         if checkpoint is not None and key not in checkpoint_acked:
@@ -981,7 +988,8 @@ async def _execute_dependency_plan(
                 await completed(key, task.result())
         await flush_tool_terminals(
             publish_records=not publication_failed
-            and not isinstance(interrupted, asyncio.CancelledError)
+            and not isinstance(interrupted, asyncio.CancelledError),
+            emit_completed=not publication_failed,
         )
         for key in sorted(pending, key=order.__getitem__):
             event("task_blocked", key, status="blocked")
