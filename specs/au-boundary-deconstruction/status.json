@@ -1838,9 +1838,13 @@
     {
       "id": "AU-BOUNDARY-R043.8",
       "title": "Resume a run from a host checkpoint",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "995e1533cb07"
+      ],
+      "verified_by": [
+        "tests/test_checkpoint.py:25"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043.9",
