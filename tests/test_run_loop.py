@@ -281,6 +281,38 @@ async def test_model_error_is_a_failed_terminal_event():
     assert result.status == "failed" and "model down" in (result.error or "")
 
 
+@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.parametrize("error_type", [ValueError, asyncio.CancelledError])
+async def test_shared_budget_preserves_failed_handler_exception_and_reserves_once(
+    error_type,
+):
+    from agent_utilities.graph.budget import SharedBudget
+
+    calls = []
+    original = error_type("original handler failure")
+
+    async def handler(_request_context):
+        calls.append("called")
+        raise original
+
+    budget = SharedBudget(RunBudget(request_limit=2))
+    context = SimpleNamespace(usage=RunUsage())
+
+    with pytest.raises(error_type) as caught:
+        await budget.wrap_model_request(
+            context,
+            request_context=object(),
+            handler=handler,
+        )
+
+    if error_type is ValueError:
+        assert caught.value is original
+    else:
+        assert isinstance(caught.value, asyncio.CancelledError)
+    assert calls == ["called"]
+    assert budget.usage.requests == 1
+
+
 # spec: AU-BOUNDARY-R043.1
 async def test_bundle_runs_through_execute_graph():
     graph, config = create_graph_agent(

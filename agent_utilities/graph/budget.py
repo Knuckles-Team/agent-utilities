@@ -141,15 +141,27 @@ class SharedBudget(AbstractCapability[Any]):
             self.usage.requests += 1
             before_input = ctx.usage.input_tokens
             before_output = ctx.usage.output_tokens
+            response: ModelResponse | None = None
             try:
                 response = await _request_drained(handler, request_context)
             finally:
                 # The framework records provider usage before response hooks,
                 # including billed fallback attempts and hook-induced retries.
                 # Local node usage avoids counting another child's work twice.
-                self.usage.input_tokens += ctx.usage.input_tokens - before_input
-                self.usage.output_tokens += ctx.usage.output_tokens - before_output
+                input_delta = ctx.usage.input_tokens - before_input
+                output_delta = ctx.usage.output_tokens - before_output
+                # FunctionModel and a few host adapters return RequestUsage
+                # without mutating RunContext. Preserve their reported usage
+                # while keeping the context delta authoritative when present.
+                if response is not None:
+                    if input_delta == 0 and type(response.usage.input_tokens) is int:
+                        input_delta = response.usage.input_tokens
+                    if output_delta == 0 and type(response.usage.output_tokens) is int:
+                        output_delta = response.usage.output_tokens
+                self.usage.input_tokens += input_delta
+                self.usage.output_tokens += output_delta
             self.limits.check_tokens(self.usage)
+            assert response is not None
             return response
 
     async def before_tool_execute(

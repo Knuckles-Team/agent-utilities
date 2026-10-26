@@ -42,19 +42,59 @@ def _without_scaffold_payload(messages: list[ModelMessage]) -> list[ModelMessage
     cleaned: list[ModelMessage] = []
     for message in messages:
         if isinstance(message, ModelRequest):
+            parts = [
+                _without_request_payload(part)
+                for part in message.parts
+                if not (
+                    isinstance(part, UserPromptPart)
+                    and isinstance(part.content, str)
+                    and part.content.startswith("Current run plan:")
+                )
+            ]
+            # A request containing only the prior ephemeral rendering has no
+            # durable meaning. Drop it instead of leaving an empty history turn.
+            if not parts:
+                continue
             cleaned.append(
                 replace(
                     message,
-                    parts=[_without_request_payload(part) for part in message.parts],
+                    parts=parts,
                 )
             )
         else:
-            parts = [
+            response_parts = [
                 replace(part, args={})
                 if isinstance(part, ToolCallPart) and part.tool_name == "update_plan"
                 else part
                 for part in message.parts
             ]
+            cleaned.append(replace(message, parts=response_parts))
+    return cleaned
+
+
+def _without_plan_injections(messages: list[ModelMessage]) -> list[ModelMessage]:
+    """Remove only prior ephemeral renderings from an outgoing request.
+
+    The current tool return is still part of the model's immediate request and
+    must remain visible. ``_without_scaffold_payload`` is reserved for the
+    durable run history, where both the plan arguments and observations are
+    redacted.
+    """
+    cleaned: list[ModelMessage] = []
+    for message in messages:
+        if not isinstance(message, ModelRequest):
+            cleaned.append(message)
+            continue
+        parts = [
+            part
+            for part in message.parts
+            if not (
+                isinstance(part, UserPromptPart)
+                and isinstance(part.content, str)
+                and part.content.startswith("Current run plan:")
+            )
+        ]
+        if parts:
             cleaned.append(replace(message, parts=parts))
     return cleaned
 
@@ -106,7 +146,8 @@ class PlanScaffold(AbstractCapability[Any]):
         )
         # Assignment through replace is request-only. Appending to the framework's
         # special request list would also append to persistent history.
-        return replace(request_context, messages=[*request_context.messages, injection])
+        request_messages = _without_plan_injections(list(request_context.messages))
+        return replace(request_context, messages=[*request_messages, injection])
 
     async def wrap_run(
         self, ctx: RunContext[Any], *, handler: WrapRunHandler
