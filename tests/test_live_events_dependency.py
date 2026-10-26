@@ -341,3 +341,73 @@ async def test_concurrent_tool_results_follow_declaration_and_checkpoint_order()
     assert ack_a < result_a < terminal_a
     assert ack_b < result_b < terminal_b
     assert result_a < terminal_a < ack_b < result_b < terminal_b
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.10")
+async def test_failed_tool_call_publication_suppresses_concurrent_terminals() -> None:
+    timeline: list[tuple[str, str, str]] = []
+
+    class FailA(Publisher):
+        async def publish(self, kind: str, content: dict[str, Any]) -> None:
+            if kind == "tool_call" and content.get("task_id") == "A":
+                self.attempts.append((kind, content))
+                raise OSError("private durable backend detail")
+            await super().publish(kind, content)
+
+    publisher = FailA(timeline)
+    _bind(Checkpoint(timeline), publisher)
+    host_ports.register_run_event_sink(
+        lambda event: timeline.append(
+            ("run_event", event["type"], str(event.get("task_id", "")))
+        )
+    )
+    b_started = asyncio.Event()
+    effects: list[str] = []
+
+    async def stream(messages, info):
+        yield "unreachable"
+
+    async def caller(server, tool, arguments, task_id):
+        assert task_id == "B"
+        effects.append(task_id)
+        b_started.set()
+        await asyncio.Event().wait()
+
+    host_ports.register_tool_caller(caller)
+    plan = RunPlan(
+        model=FunctionModel(stream_function=stream),
+        dependency_plan=DependencyPlan(
+            tasks=(
+                RunTask("A", call=ToolStep("host", "first")),
+                RunTask("B", call=ToolStep("host", "second")),
+                RunTask("final", "join", depends_on=("A", "B")),
+            ),
+            output_task_id="final",
+            max_concurrency=2,
+            plan_id="r04310-call-publication-failure",
+        ),
+        budget=RunBudget(request_limit=2, tool_calls_limit=2),
+    )
+
+    result_task = asyncio.create_task(
+        run(
+            RunRequest(task="publication-failure", run_id="r04310-call-failure-run"),
+            plan=plan,
+        )
+    )
+    await asyncio.wait_for(b_started.wait(), timeout=1)
+    result = await asyncio.wait_for(result_task, timeout=1)
+
+    assert result.status == "failed"
+    assert result.error == "RuntimeError: durable run event publication failed"
+    assert effects == ["B"]
+    assert [kind for kind, _ in publisher.attempts] == ["tool_call", "tool_call"]
+    assert not any(kind == "tool_result" for kind, _ in publisher.events)
+    assert not any(
+        source == "checkpoint" and kind == "completed" for source, kind, _ in timeline
+    )
+    assert not any(
+        source == "run_event"
+        and kind in {"task_failed", "task_cancelled", "task_blocked"}
+        for source, kind, _ in timeline
+    )

@@ -645,8 +645,11 @@ async def _execute_dependency_plan(
             else:
                 assert buffered is not None
                 tool_terminal_buffer.pop(key, None)
+                tool_record_buffer.pop(key, None)
+                if not emit_completed:
+                    tool_terminal_cursor += 1
+                    continue
                 if record_info is not None:
-                    tool_record_buffer.pop(key, None)
                     if publish_records:
                         record_task, record, record_step = record_info
                         await publish_tool_record(record_task, record, step=record_step)
@@ -991,8 +994,9 @@ async def _execute_dependency_plan(
             and not isinstance(interrupted, asyncio.CancelledError),
             emit_completed=not publication_failed,
         )
-        for key in sorted(pending, key=order.__getitem__):
-            event("task_blocked", key, status="blocked")
+        if not publication_failed:
+            for key in sorted(pending, key=order.__getitem__):
+                event("task_blocked", key, status="blocked")
         # This seeded ledger is the whole run, not a delta to add again.
         state.usage.clear()
         state.add_usage(budget.usage)
