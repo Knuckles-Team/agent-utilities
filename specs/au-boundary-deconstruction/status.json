@@ -1553,7 +1553,7 @@
         "tests/test_run_loop.py:130",
         "tests/test_run_loop.py:176",
         "tests/test_run_loop.py:257",
-        "tests/test_run_loop.py:311"
+        "tests/test_run_loop.py:343"
       ]
     },
     {
@@ -1577,7 +1577,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "8c2c8a76e6f8",
-        "8fdd01e03831"
+        "8fdd01e03831",
+        "98604e398c9e"
       ],
       "verified_by": [
         "tests/test_harness_plan.py:29",
@@ -1662,6 +1663,7 @@
       "title": "Produce real scaffold state for an owner-composed read",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "98604e398c9e",
         "b0d6007b022f",
         "b58060b4530b",
         "da8a2d9cfbaa",
@@ -1684,6 +1686,7 @@
       "title": "Atomic scaffold revision",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "98604e398c9e",
         "b0d6007b022f"
       ],
       "verified_by": [
@@ -1697,6 +1700,7 @@
       "title": "Publish actual scaffold revisions through a run-local host port",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "98604e398c9e",
         "b58060b4530b",
         "da8a2d9cfbaa",
         "dca34a7af5c9"
@@ -1853,6 +1857,7 @@
       "landed_in": [
         "58ec920b1b81",
         "8eb6c18d61cf",
+        "98604e398c9e",
         "eebf9c25dfb7"
       ],
       "verified_by": [
@@ -2155,7 +2160,8 @@
       "title": "Hydrate a sequential fresh turn from completed text history",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "58ec920b1b81"
+        "58ec920b1b81",
+        "98604e398c9e"
       ],
       "verified_by": [
         "tests/test_conversation_history.py:22",
