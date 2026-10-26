@@ -766,6 +766,7 @@ async def _execute_dependency_plan(
                 sync_usage()
                 checkpoint.record_completed(key, result.output)
                 await checkpoint.save("completed")
+                checkpoint_acked.add(key)
             await publish_tool_record(nodes[key], record, step=step_by_task[key])
             return terminal_event(
                 "task_completed",
@@ -789,10 +790,11 @@ async def _execute_dependency_plan(
             marker in text for marker in plan.stop.stop_markers
         ):
             state.status = "stopped"
-        if checkpoint is not None:
+        if checkpoint is not None and key not in checkpoint_acked:
             sync_usage()
             checkpoint.record_completed(key, text, list(result.all_messages()))
             await checkpoint.save("completed")
+            checkpoint_acked.add(key)
         return event("task_completed", key, status="completed", output=text)
 
     try:
