@@ -17,6 +17,7 @@ from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 
 from .budget import SharedBudget
+from .checkpoint import RunCheckpoint
 from .state import (
     BindingUnresolved,
     DependencyPlan,
@@ -440,6 +441,7 @@ async def _execute_dependency_plan(
     budget: SharedBudget,
     emit: Callable[..., dict[str, Any]],
     tool_caller: ToolCaller | None = None,
+    checkpoint: RunCheckpoint | None = None,
 ) -> None:
     """Refill a free slot after any successful prerequisite, not a whole wave.
 
@@ -455,15 +457,40 @@ async def _execute_dependency_plan(
     for node in graph.tasks:
         for dep in node.depends_on:
             children[dep].append(node.task_id)
-    ready = [order[key] for key, count in indegree.items() if count == 0]
-    heapq.heapify(ready)
     active: dict[str, asyncio.Task[Any]] = {}
-    pending = set(nodes)
-    outputs: dict[str, Any] = {}
+    completed_tasks = (
+        set(checkpoint.completed_tasks)
+        if checkpoint is not None and checkpoint.restored
+        else set()
+    )
+    outputs: dict[str, Any] = (
+        dict(checkpoint.dependency_outputs)
+        if checkpoint is not None and checkpoint.restored
+        else {}
+    )
+    for key in completed_tasks:
+        for child in children[key]:
+            indegree[child] -= 1
+    ready = [
+        order[key]
+        for key, count in indegree.items()
+        if count == 0 and key not in completed_tasks
+    ]
+    heapq.heapify(ready)
+    pending = set(nodes) - completed_tasks
     interrupted: BaseException | None = None
     tool_order = [task.task_id for task in graph.tasks if task.call is not None]
     tool_terminal_buffer: dict[str, tuple[str, dict[str, Any]]] = {}
     tool_terminal_cursor = 0
+    while (
+        tool_terminal_cursor < len(tool_order)
+        and tool_order[tool_terminal_cursor] in completed_tasks
+    ):
+        tool_terminal_cursor += 1
+
+    def sync_usage() -> None:
+        state.usage.clear()
+        state.add_usage(budget.usage)
 
     def event(kind: str, key: str, **fields: Any) -> dict[str, Any]:
         return emit(
@@ -637,10 +664,21 @@ async def _execute_dependency_plan(
             ),
         )
 
-    def completed(key: str, result: Any) -> dict[str, Any] | None:
+    async def completed(key: str, result: Any) -> dict[str, Any] | None:
         if isinstance(result, _ToolExecution):
             outputs[key] = result.output
             record = result.record
+            output_text = _output_text(result.output)
+            if key == graph.output_task_id:
+                state.outputs = [output_text]
+            if key == graph.output_task_id and any(
+                marker in output_text for marker in plan.stop.stop_markers
+            ):
+                state.status = "stopped"
+            if checkpoint is not None:
+                sync_usage()
+                checkpoint.record_completed(key, result.output)
+                await checkpoint.save("completed")
             return terminal_event(
                 "task_completed",
                 key,
@@ -657,6 +695,16 @@ async def _execute_dependency_plan(
         output = result.output
         text = output if isinstance(output, str) else json.dumps(output, sort_keys=True)
         outputs[key] = text
+        if key == graph.output_task_id:
+            state.outputs = [text]
+        if key == graph.output_task_id and any(
+            marker in text for marker in plan.stop.stop_markers
+        ):
+            state.status = "stopped"
+        if checkpoint is not None:
+            sync_usage()
+            checkpoint.record_completed(key, text, list(result.all_messages()))
+            await checkpoint.save("completed")
         return event("task_completed", key, status="completed", output=text)
 
     try:
@@ -665,6 +713,9 @@ async def _execute_dependency_plan(
                 node = graph.tasks[heapq.heappop(ready)]
                 pending.remove(node.task_id)
                 state.step += 1
+                if checkpoint is not None:
+                    sync_usage()
+                    await checkpoint.save("step_inflight", task_id=node.task_id)
                 active[node.task_id] = asyncio.create_task(
                     execute(node), name=f"run:{state.run_id}:task:{node.task_id}"
                 )
@@ -700,7 +751,7 @@ async def _execute_dependency_plan(
                         **tool_event_fields(record),
                     )
                 else:
-                    completed(key, result)
+                    await completed(key, result)
                     if any(
                         m in _output_text(outputs[key]) for m in plan.stop.stop_markers
                     ):
@@ -713,7 +764,7 @@ async def _execute_dependency_plan(
                 raise failure
             if state.status == "stopped":
                 break
-        if graph.output_task_id in outputs:
+        if graph.output_task_id in outputs and not state.outputs:
             state.outputs.append(_output_text(outputs[graph.output_task_id]))
     except BaseException as exc:
         interrupted = exc
@@ -744,7 +795,7 @@ async def _execute_dependency_plan(
                     **tool_event_fields(record),
                 )
             else:
-                completed(key, task.result())
+                await completed(key, task.result())
         flush_tool_terminals()
         for key in sorted(pending, key=order.__getitem__):
             event("task_blocked", key, status="blocked")
@@ -766,6 +817,7 @@ async def iterate_dependency_plan(
     *,
     deadline: float | None,
     tool_caller: ToolCaller | None = None,
+    checkpoint: RunCheckpoint | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Stream public events without making child dispatch wait for a viewer.
 
@@ -798,6 +850,7 @@ async def iterate_dependency_plan(
                     budget,
                     enqueue,
                     tool_caller,
+                    checkpoint,
                 )
         finally:
             events.put_nowait(None)

@@ -589,3 +589,47 @@ async def read_run_history(request: Any) -> str | None:
         return await provider(request)
     except Exception:
         raise RuntimeError("conversation history provider failed") from None
+
+
+class RunCheckpointPort(Protocol):
+    """One host-owned checkpoint transaction for an admitted run.
+
+    The harness only serializes and validates the bounded checkpoint payload.
+    The host owns the durable snapshot, revision CAS and admission fencing.
+    """
+
+    admission_identity: str
+
+    async def restore(self) -> str | None: ...
+
+    async def save(self, content: str) -> None: ...
+
+
+RunCheckpointFactory = Callable[
+    [Any, Any], contextlib.AbstractAsyncContextManager[RunCheckpointPort | None]
+]
+_CHECKPOINT_FACTORY: RunCheckpointFactory | None = None
+
+
+def register_run_checkpoint_factory(factory: RunCheckpointFactory | None) -> None:
+    """Install (or clear) the host-owned native checkpoint binder."""
+    global _CHECKPOINT_FACTORY
+    _CHECKPOINT_FACTORY = factory
+
+
+def run_checkpoint_factory_bound() -> bool:
+    """Return whether a host checkpoint transaction is available for this process."""
+    return _CHECKPOINT_FACTORY is not None
+
+
+@contextlib.asynccontextmanager
+async def run_checkpoint_scope(
+    request: Any, plan: Any
+) -> AsyncIterator[RunCheckpointPort | None]:
+    """Open the optional host checkpoint transaction for one admitted run."""
+    factory = _CHECKPOINT_FACTORY
+    if factory is None:
+        yield None
+        return
+    async with factory(request, plan) as checkpoint:
+        yield checkpoint

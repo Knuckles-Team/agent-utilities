@@ -25,6 +25,7 @@ def _clear_host_ports():
         host_ports.register_run_decision_provider,
         host_ports.register_run_history_provider,
         host_ports.register_run_checkpoint_provider,
+        host_ports.register_run_checkpoint_factory,
         host_ports.register_scaffold_publication_factory,
         host_ports.register_model_provider,
         host_ports.register_tool_caller,

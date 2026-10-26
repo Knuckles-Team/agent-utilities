@@ -29,6 +29,7 @@ from agent_utilities.harness.plan import PlanState
 from agent_utilities.harness.plan_runtime import PlanScaffold
 
 from .budget import SharedBudget, initial_run_usage
+from .checkpoint import RunCheckpoint
 from .dependency import iterate_dependency_plan, validate_dependency_plan
 from .metrics import MeasuredModel, RunMetrics
 from .state import (
@@ -245,6 +246,9 @@ async def iterate_run(
                 or request.task != plan.steps[0]
             ):
                 raise ValueError("text-only request cannot inherit context")
+        # Read the existing prior-turn selection before planning.  If the
+        # bound current-run transaction restores content, that content replaces
+        # this history; the selection port still owns current-run precedence.
         content = None if restricted else await host_ports.read_run_history(request)
         history = (
             decode_completed_history(content, run_id=state.run_id)
@@ -290,101 +294,168 @@ async def iterate_run(
         yield emit(state, "error", error=state.error, result=_result(state))
         return
     deps = GraphDeps(state=state, plan=run_plan, config=cfg)
-    state.status = "running"
     limits = _limits(run_plan)
     steps = run_plan.steps[: max(run_plan.stop.max_steps, 0)]
-    shared_budget = (
-        SharedBudget(
-            run_plan.budget,
-            max_concurrent_requests=run_plan.budget.max_concurrent_requests,
-            initial_usage=initial_usage if has_initial_usage else None,
-        )
-        if run_plan.dependency_plan is not None or has_initial_usage or restricted
-        else None
-    )
     try:
-        if has_initial_usage:
-            assert shared_budget is not None
-            shared_budget.check_initial_consumption()
-            if run_plan.initial_elapsed_seconds >= run_plan.budget.timeout_seconds:
-                raise TimeoutError
-        yield emit(
-            state,
-            "run_started",
-            mode=state.mode,
-            steps=len(run_plan.dependency_plan.tasks)
-            if run_plan.dependency_plan is not None
-            else len(run_plan.steps),
-        )
-        async with (
-            no_host_scope() if restricted else host_ports.authority_keepalive_scope()
-        ):
-            async with asyncio.timeout(
-                run_plan.budget.timeout_seconds - run_plan.initial_elapsed_seconds
-            ) as timeout:
+        async with host_ports.run_checkpoint_scope(
+            request, run_plan
+        ) as checkpoint_port:
+            checkpoint = (
+                RunCheckpoint(checkpoint_port, state, run_plan, attachments)
+                if checkpoint_port is not None
+                else None
+            )
+            if checkpoint is not None:
+                await checkpoint.restore()
+                if checkpoint.restored:
+                    # A current-run snapshot is authoritative.  It carries
+                    # cumulative usage and elapsed time; plan-provided
+                    # initial counters must not be charged a second time.
+                    initial_usage = checkpoint.usage()
+                    has_initial_usage = True
+                    history = list(checkpoint.history)
+                    if run_plan.dependency_plan is not None:
+                        history = []
+                elif run_plan.dependency_plan is None:
+                    # Preserve an authorized prior-turn history if this
+                    # transaction is new and only the current snapshot is
+                    # absent; a later restart must retain the same messages.
+                    checkpoint.history = list(history)
+            if not (checkpoint is not None and checkpoint.restored):
+                state.status = "running"
+            shared_budget = (
+                SharedBudget(
+                    run_plan.budget,
+                    max_concurrent_requests=run_plan.budget.max_concurrent_requests,
+                    initial_usage=initial_usage if has_initial_usage else None,
+                )
+                if run_plan.dependency_plan is not None
+                or has_initial_usage
+                or restricted
+                or checkpoint is not None
+                else None
+            )
+            if has_initial_usage:
+                assert shared_budget is not None
+                elapsed = (
+                    checkpoint.elapsed
+                    if checkpoint is not None and checkpoint.restored
+                    else run_plan.initial_elapsed_seconds
+                )
+                if state.status == "running":
+                    shared_budget.check_initial_consumption()
+                    if elapsed >= run_plan.budget.timeout_seconds:
+                        raise TimeoutError
+            else:
+                elapsed = 0.0
+            yield emit(
+                state,
+                "run_started",
+                mode=state.mode,
+                steps=len(run_plan.dependency_plan.tasks)
+                if run_plan.dependency_plan is not None
+                else len(run_plan.steps),
+            )
+            # A terminal completed/stopped checkpoint is already the run's
+            # result.  Do not rebuild a model or bind tool effects on restore.
+            if (
+                checkpoint is not None
+                and checkpoint.restored
+                and state.status
+                in (
+                    "completed",
+                    "stopped",
+                )
+            ):
+                pass
+            else:
                 async with (
                     no_host_scope()
                     if restricted
-                    else host_ports.scaffold_publication_scope(request, state.scaffold)
-                ) as publisher:
-                    agent = build_agent(
-                        run_plan,
-                        state.run_id,
-                        scaffold=state.scaffold,
-                        publisher=publisher,
-                        metrics=state.metrics,
-                        shared_budget=shared_budget,
-                        deadline=timeout.when(),
-                    )
-                    if run_plan.dependency_plan is not None:
-                        assert shared_budget is not None
-                        # Setup uses this same absolute deadline. Once setup
-                        # finishes, the driver owns it, not the paused viewer.
-                        deadline = timeout.when()
-                        timeout.reschedule(None)
-                        async with aclosing(
-                            iterate_dependency_plan(
-                                agent,
+                    else host_ports.authority_keepalive_scope()
+                ):
+                    async with asyncio.timeout(
+                        run_plan.budget.timeout_seconds - elapsed
+                    ) as timeout:
+                        async with (
+                            no_host_scope()
+                            if restricted
+                            else host_ports.scaffold_publication_scope(
+                                request, state.scaffold
+                            )
+                        ) as publisher:
+                            agent = build_agent(
                                 run_plan,
-                                state,
-                                cfg,
-                                attachments,
-                                shared_budget,
-                                emit,
-                                deadline=deadline,
-                                tool_caller=tool_caller,
+                                state.run_id,
+                                scaffold=state.scaffold,
+                                publisher=publisher,
+                                metrics=state.metrics,
+                                shared_budget=shared_budget,
+                                deadline=timeout.when(),
                             )
-                        ) as execution:
-                            async for event in execution:
-                                yield event
-                    for prompt in steps:
-                        state.step += 1
-                        model_input: str | list[str | BinaryContent] = prompt
-                        if state.step == 1 and attachments:
-                            model_input = [prompt, *attachments]
-                        try:
-                            result = await agent.run(
-                                model_input,
-                                deps=deps,
-                                message_history=history,
-                                usage_limits=limits,
-                                event_stream_handler=observe
-                                if stream_observer is not None
-                                else None,
-                            )
-                        finally:
-                            if shared_budget is not None:
-                                state.usage.clear()
-                                state.add_usage(shared_budget.usage)
-                        history = list(result.all_messages())
-                        if shared_budget is None:
-                            state.add_usage(result.usage)
-                        text = _text(result.output)
-                        state.outputs.append(text)
-                        yield emit(state, "node_transition", output=text)
-                        if any(m in text for m in run_plan.stop.stop_markers):
-                            state.status = "stopped"
-                            break
+                            if run_plan.dependency_plan is not None:
+                                assert shared_budget is not None
+                                # Setup uses this same absolute deadline. Once
+                                # setup finishes, the driver owns it, not the
+                                # paused viewer.
+                                deadline = timeout.when()
+                                timeout.reschedule(None)
+                                async with aclosing(
+                                    iterate_dependency_plan(
+                                        agent,
+                                        run_plan,
+                                        state,
+                                        cfg,
+                                        attachments,
+                                        shared_budget,
+                                        emit,
+                                        deadline=deadline,
+                                        tool_caller=tool_caller,
+                                        checkpoint=checkpoint,
+                                    )
+                                ) as execution:
+                                    async for event in execution:
+                                        yield event
+                            for index, prompt in enumerate(steps):
+                                if index < state.step:
+                                    continue
+                                state.step = index + 1
+                                marker = f"step:{index}"
+                                if checkpoint is not None:
+                                    await checkpoint.save(
+                                        "step_inflight", task_id=marker
+                                    )
+                                model_input: str | list[str | BinaryContent] = prompt
+                                if index == 0 and attachments:
+                                    model_input = [prompt, *attachments]
+                                try:
+                                    result = await agent.run(
+                                        model_input,
+                                        deps=deps,
+                                        message_history=history,
+                                        usage_limits=limits,
+                                        event_stream_handler=observe
+                                        if stream_observer is not None
+                                        else None,
+                                    )
+                                finally:
+                                    if shared_budget is not None:
+                                        state.usage.clear()
+                                        state.add_usage(shared_budget.usage)
+                                history = list(result.all_messages())
+                                if shared_budget is None:
+                                    state.add_usage(result.usage)
+                                text = _text(result.output)
+                                state.outputs.append(text)
+                                if any(m in text for m in run_plan.stop.stop_markers):
+                                    state.status = "stopped"
+                                if checkpoint is not None:
+                                    checkpoint.history = history
+                                    checkpoint.inflight_tasks.discard(marker)
+                                    await checkpoint.save("completed")
+                                yield emit(state, "node_transition", output=text)
+                                if state.status == "stopped":
+                                    break
     except UsageLimitExceeded as exc:
         state.status, state.error = "stopped", f"budget: {exc}"
     except TimeoutError:
