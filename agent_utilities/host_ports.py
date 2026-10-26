@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
+    from agent_utilities.graph.state import ToolStepResult
     from agent_utilities.harness.plan import PlanItem, PlanState
 
 
@@ -140,6 +141,9 @@ ToolClientFactory = Callable[..., contextlib.AbstractAsyncContextManager[ToolCli
 RunDecisionProvider = Callable[[Any], Any]
 """``(RunRequest) -> RunPlan`` (or an awaitable of it); see ``agent_utilities.graph``."""
 
+ToolCaller = Callable[[str, str, Mapping[str, Any], str], Awaitable["ToolStepResult"]]
+"""``(server, tool, arguments, task_id) -> ToolStepResult`` for one run."""
+
 ModelProvider = Callable[[str], Any]
 """``(model_id) -> pydantic-ai Model`` with the host's credentials attached."""
 
@@ -160,6 +164,7 @@ _TOOL_CLIENT: ToolClientFactory | None = None
 _CREDENTIALS: OutboundCredentialProvider | None = None
 _IDENTITY: DelegatedIdentityProvider | None = None
 _DECIDE: RunDecisionProvider | None = None
+_TOOL_CALLER: ToolCaller | None = None
 _MODELS: ModelProvider | None = None
 _EVENTS: RunEventSink | None = None
 _CYCLE: HarnessCycleProvider | None = None
@@ -169,6 +174,12 @@ def register_run_decision_provider(provider: RunDecisionProvider | None) -> None
     """Install (or clear) the host's run-plan provider."""
     global _DECIDE
     _DECIDE = provider
+
+
+def register_tool_caller(caller: ToolCaller | None) -> None:
+    """Install (or clear) the host's caller for admitted dependency tool steps."""
+    global _TOOL_CALLER
+    _TOOL_CALLER = caller
 
 
 def register_model_provider(provider: ModelProvider | None) -> None:
@@ -192,6 +203,11 @@ def register_harness_cycle_provider(provider: HarnessCycleProvider | None) -> No
 def run_decision_provider() -> RunDecisionProvider | None:
     """The host's run-plan provider, or ``None`` (the harness then uses defaults)."""
     return _DECIDE
+
+
+def tool_caller() -> ToolCaller | None:
+    """Return the host-bound dependency caller, or ``None`` without a host."""
+    return _TOOL_CALLER
 
 
 def harness_cycle_provider() -> HarnessCycleProvider | None:

@@ -280,7 +280,8 @@ async def iterate_run(
             state.add_usage(initial_usage)
         if history and run_plan.dependency_plan is not None:
             raise ValueError("dependency-plan conversation history is unavailable")
-        validate_dependency_plan(run_plan)
+        tool_caller = host_ports.tool_caller()
+        validate_dependency_plan(run_plan, tool_caller=tool_caller)
         attachments = _attachment_input(request, run_plan)
         if run_plan.harness.plan_scaffold == "on":
             state.scaffold = PlanState()
@@ -351,6 +352,7 @@ async def iterate_run(
                                 shared_budget,
                                 emit,
                                 deadline=deadline,
+                                tool_caller=tool_caller,
                             )
                         ) as execution:
                             async for event in execution:

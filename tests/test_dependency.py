@@ -21,8 +21,15 @@ from agent_utilities.graph import (
     RunRequest,
     RunTask,
     StopRule,
+    ToolStep,
+    ToolStepResult,
+    execute_graph,
     iterate_run,
     run,
+)
+from agent_utilities.graph.dependency import (
+    resolve_tool_bindings,
+    validate_dependency_plan,
 )
 
 pytestmark = pytest.mark.spec("AU-BOUNDARY-R043.6")
@@ -617,6 +624,755 @@ async def test_output_validation_retries_share_request_reservations(
     result = await run(RunRequest(task="t"), plan=plan)
     assert result.status == expected
     assert calls == request_limit and result.usage["requests"] == request_limit
+
+
+def _tool_plan(model, tasks, *, output_task_id, capacity=1, **kwargs):
+    return RunPlan(
+        model=model,
+        dependency_plan=DependencyPlan(
+            tasks=tuple(tasks),
+            output_task_id=output_task_id,
+            max_concurrency=capacity,
+            plan_id="tool-plan",
+        ),
+        **kwargs,
+    )
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.6.1")
+async def test_mixed_plan_validates():
+    async def caller(server, tool, arguments, task_id):
+        return ToolStepResult(result={"ok": True})
+
+    plan = _tool_plan(
+        "unbound",
+        (
+            RunTask("prompt", "prompt"),
+            RunTask(
+                "tool",
+                depends_on=("prompt",),
+                call=ToolStep(
+                    "incident-server",
+                    "close",
+                    {"incident": {"$ref": "steps.prompt.output.id"}},
+                ),
+            ),
+            RunTask("final", "final", ("tool",)),
+        ),
+        output_task_id="final",
+    )
+    validate_dependency_plan(plan, tool_caller=caller)
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.6.1")
+async def test_tool_step_without_caller_refuses_before_any_task(events):
+    model_calls = 0
+
+    async def model(messages, info):
+        nonlocal model_calls
+        model_calls += 1
+        return ModelResponse(parts=[TextPart("unexpected")])
+
+    plan = _tool_plan(
+        FunctionModel(model),
+        (
+            RunTask("tool", call=ToolStep("server", "tool", {"x": 1})),
+            RunTask("dependent", "dependent", ("tool",)),
+        ),
+        output_task_id="dependent",
+    )
+    result = await run(RunRequest(task="t"), plan=plan)
+    assert result.status == "failed"
+    assert "ToolCallerUnavailable" in (result.error or "")
+    assert model_calls == 0
+    assert [event["type"] for event in events] == ["error"]
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.6.2")
+async def test_bindings_resolve_from_prerequisite_outputs():
+    task = RunTask(
+        "tool",
+        depends_on=("tool-output", "prompt-output"),
+        call=ToolStep(
+            "server",
+            "lookup",
+            {
+                "whole": {"$ref": "steps.tool-output.output"},
+                "nested": {"$ref": "steps.tool-output.output.ticket.id"},
+                "array_item": {"$ref": "steps.tool-output.output.items[1].name"},
+                "prompt_id": {"$ref": "steps.prompt-output.output.payload.id"},
+                "literal": {"enabled": True, "values": [1, None, "x"]},
+            },
+        ),
+    )
+    outputs = {
+        "tool-output": {
+            "ticket": {"id": "INC-7"},
+            "items": [{"name": "first"}, {"name": "second"}],
+        },
+        "prompt-output": '{"payload":{"id":"PROMPT-3"}}',
+    }
+    first = resolve_tool_bindings(task, outputs)
+    second = resolve_tool_bindings(task, outputs)
+    assert first == second
+    assert json.dumps(first, sort_keys=True, separators=(",", ":")) == json.dumps(
+        second, sort_keys=True, separators=(",", ":")
+    )
+    assert first["nested"] == "INC-7"
+    assert first["array_item"] == "second"
+    assert first["prompt_id"] == "PROMPT-3"
+    assert first["whole"] == outputs["tool-output"]
+    assert first["literal"] == {"enabled": True, "values": [1, None, "x"]}
+
+
+@pytest.mark.parametrize(
+    ("prompt_output", "reference"),
+    [
+        ('{"payload": {"id": "ok"}}', "steps.prompt.output.payload.missing"),
+        ('{"payload": "text"}', "steps.prompt.output.payload.id"),
+        ("plain text", "steps.prompt.output.payload.id"),
+    ],
+)
+@pytest.mark.spec("AU-BOUNDARY-R043.6.3")
+async def test_unresolved_binding_is_a_typed_failure(prompt_output, reference, events):
+    model_calls = 0
+    caller_calls = 0
+
+    async def model(messages, info):
+        nonlocal model_calls
+        model_calls += 1
+        return ModelResponse(parts=[TextPart(prompt_output)])
+
+    async def caller(server, tool, arguments, task_id):
+        nonlocal caller_calls
+        caller_calls += 1
+        return ToolStepResult(result={"unexpected": True})
+
+    plan = _tool_plan(
+        FunctionModel(model),
+        (
+            RunTask("prompt", "prompt"),
+            RunTask(
+                "tool",
+                depends_on=("prompt",),
+                call=ToolStep("server", "tool", {"value": {"$ref": reference}}),
+            ),
+            RunTask("dependent", "dependent", ("tool",)),
+        ),
+        output_task_id="dependent",
+    )
+    from agent_utilities import host_ports
+
+    host_ports.register_tool_caller(caller)
+    result = await run(RunRequest(task="t"), plan=plan)
+    assert result.status == "failed" and result.output == ""
+    assert "BindingUnresolved" in (result.error or "")
+    assert model_calls == 1
+    assert caller_calls == 0
+    failed = next(event for event in events if event["type"] == "task_failed")
+    assert failed["error_type"] == "BindingUnresolved"
+    record = failed["tool_step"]
+    assert record["reference"] == reference
+    assert record["arguments"] is None
+    assert not any(
+        event["type"] == "task_started" and event["task_id"] == "dependent"
+        for event in events
+    )
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.6.3")
+async def test_failed_tool_step_does_not_start_dependents_and_makes_no_model_request(
+    events,
+):
+    model_calls = 0
+    caller_calls = 0
+
+    async def model(messages, info):
+        nonlocal model_calls
+        model_calls += 1
+        return ModelResponse(parts=[TextPart("unexpected")])
+
+    async def caller(server, tool, arguments, task_id):
+        nonlocal caller_calls
+        caller_calls += 1
+        return ToolStepResult(
+            result={"reason": "denied"}, outcome="failed", error="remote failure"
+        )
+
+    from agent_utilities import host_ports
+
+    host_ports.register_tool_caller(caller)
+    plan = _tool_plan(
+        FunctionModel(model),
+        (
+            RunTask("tool", call=ToolStep("server", "tool", {"x": 1})),
+            RunTask("dependent", "dependent", ("tool",)),
+        ),
+        output_task_id="dependent",
+    )
+    result = await run(RunRequest(task="t"), plan=plan)
+    assert result.status == "failed" and result.output == ""
+    assert "ToolCallFailed" in (result.error or "")
+    assert caller_calls == 1 and model_calls == 0
+    failed = next(event for event in events if event["type"] == "task_failed")
+    assert failed["tool_step"]["outcome"] == "failed"
+    assert any(
+        event["type"] == "task_blocked" and event["task_id"] == "dependent"
+        for event in events
+    )
+    assert not any(
+        event["type"] == "task_started" and event["task_id"] == "dependent"
+        for event in events
+    )
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.6.4")
+async def test_tool_step_records_resolved_arguments_and_result(events):
+    async def model(messages, info):
+        return ModelResponse(parts=[TextPart("finished")])
+
+    async def caller(server, tool, arguments, task_id):
+        assert (server, tool, task_id) == ("server", "lookup", "tool")
+        return ToolStepResult(result={"ticket": {"id": "INC-7"}, "closed": True})
+
+    from agent_utilities import host_ports
+
+    host_ports.register_tool_caller(caller)
+    plan = _tool_plan(
+        FunctionModel(model),
+        (
+            RunTask("tool", call=ToolStep("server", "lookup", {"id": "INC-7"})),
+            RunTask("final", "final", ("tool",)),
+        ),
+        output_task_id="final",
+    )
+    result = await run(RunRequest(task="t"), plan=plan)
+    assert result.status == "completed"
+    assert result.usage["requests"] == 1 and result.usage["tool_calls"] == 1
+    completed = next(
+        event
+        for event in events
+        if event["type"] == "task_completed" and event["task_id"] == "tool"
+    )
+    record = completed["tool_step"]
+    assert record["task_id"] == "tool"
+    assert record["server"] == "server" and record["tool"] == "lookup"
+    assert record["arguments"] == {"id": "INC-7"}
+    assert record["outcome"] == "ok"
+    assert record["result"] == {"ticket": {"id": "INC-7"}, "closed": True}
+    assert record["elapsed_seconds"] >= 0
+
+
+@pytest.mark.parametrize(
+    ("outcome", "error_type"),
+    [("refused", "ToolCallRefused"), ("failed", "ToolCallFailed")],
+)
+async def test_tool_step_refusal_and_failure_records_are_typed(
+    outcome, error_type, events
+):
+    async def model(messages, info):
+        pytest.fail("tool-only plan must not call the model")
+
+    async def caller(server, tool, arguments, task_id):
+        return ToolStepResult(outcome=outcome, error=f"{outcome} by host")
+
+    from agent_utilities import host_ports
+
+    host_ports.register_tool_caller(caller)
+    plan = _tool_plan(
+        FunctionModel(model),
+        (RunTask("tool", call=ToolStep("server", "action", {"x": 1})),),
+        output_task_id="tool",
+    )
+    result = await run(RunRequest(task="t"), plan=plan)
+    assert result.status == "failed"
+    assert error_type in (result.error or "")
+    failed = next(event for event in events if event["type"] == "task_failed")
+    record = failed["tool_step"]
+    assert record["outcome"] == outcome
+    assert record["error"] == f"{outcome} by host"
+
+
+async def test_tool_step_host_exception_records_typed_failure(events):
+    async def model(messages, info):
+        pytest.fail("tool-only plan must not call the model")
+
+    async def caller(server, tool, arguments, task_id):
+        raise RuntimeError("host transport failed")
+
+    from agent_utilities import host_ports
+
+    host_ports.register_tool_caller(caller)
+    plan = _tool_plan(
+        FunctionModel(model),
+        (RunTask("tool", call=ToolStep("server", "action", {})),),
+        output_task_id="tool",
+    )
+    result = await run(RunRequest(task="t"), plan=plan)
+    assert result.status == "failed" and "ToolCallFailed" in (result.error or "")
+    failed = next(event for event in events if event["type"] == "task_failed")
+    assert failed["error_type"] == "ToolCallFailed"
+    assert failed["tool_step"]["outcome"] == "failed"
+    assert failed["tool_step"]["error"] == "tool caller failed"
+
+
+async def test_tool_step_budget_zero_refuses_before_caller(events):
+    caller_calls = 0
+
+    async def model(messages, info):
+        pytest.fail("tool-only plan must not call the model")
+
+    async def caller(server, tool, arguments, task_id):
+        nonlocal caller_calls
+        caller_calls += 1
+        return ToolStepResult(result={"unexpected": True})
+
+    from agent_utilities import host_ports
+
+    host_ports.register_tool_caller(caller)
+    plan = _tool_plan(
+        FunctionModel(model),
+        (RunTask("tool", call=ToolStep("server", "action", {})),),
+        output_task_id="tool",
+        budget=RunBudget(tool_calls_limit=0),
+    )
+    result = await run(RunRequest(task="t"), plan=plan)
+    assert result.status == "stopped"
+    assert caller_calls == 0 and result.usage["tool_calls"] == 0
+    failed = next(event for event in events if event["type"] == "task_failed")
+    assert failed["error_type"] == "UsageLimitExceeded"
+    assert failed["tool_step"]["outcome"] == "refused"
+    assert "tool_calls_limit" in failed["tool_step"]["error"]
+
+
+async def test_tool_step_budget_one_allows_one_parallel_call(events):
+    calls = []
+
+    async def model(messages, info):
+        return ModelResponse(parts=[TextPart("joined")])
+
+    async def caller(server, tool, arguments, task_id):
+        calls.append(task_id)
+        return ToolStepResult(result={"task": task_id})
+
+    from agent_utilities import host_ports
+
+    host_ports.register_tool_caller(caller)
+    plan = _tool_plan(
+        FunctionModel(model),
+        (
+            RunTask("first", call=ToolStep("server", "first", {})),
+            RunTask("second", call=ToolStep("server", "second", {})),
+            RunTask("join", "join", ("first", "second")),
+        ),
+        output_task_id="join",
+        capacity=2,
+        budget=RunBudget(tool_calls_limit=1),
+    )
+    result = await run(RunRequest(task="t"), plan=plan)
+    assert result.status == "stopped"
+    assert len(calls) == 1 and result.usage["tool_calls"] == 1
+    assert any(event["type"] == "task_blocked" for event in events)
+
+
+async def test_tool_step_terminal_records_follow_declaration_order(events):
+    first_started = asyncio.Event()
+    second_completed = asyncio.Event()
+    release_first = asyncio.Event()
+
+    async def model(messages, info):
+        return ModelResponse(parts=[TextPart("joined")])
+
+    async def caller(server, tool, arguments, task_id):
+        if task_id == "first":
+            first_started.set()
+            await release_first.wait()
+        else:
+            second_completed.set()
+        return ToolStepResult(result={"task": task_id})
+
+    from agent_utilities import host_ports
+
+    host_ports.register_tool_caller(caller)
+    plan = _tool_plan(
+        FunctionModel(model),
+        (
+            RunTask("first", call=ToolStep("server", "wait", {})),
+            RunTask("second", call=ToolStep("server", "fast", {})),
+            RunTask("join", "join", ("first", "second")),
+        ),
+        output_task_id="join",
+        capacity=2,
+    )
+    parent = asyncio.create_task(run(RunRequest(task="t"), plan=plan))
+    await reached(first_started)
+    await reached(second_completed)
+    assert not any(
+        event["type"] == "task_completed" and event["task_id"] == "second"
+        for event in events
+    )
+    release_first.set()
+    result = await parent
+    assert result.status == "completed"
+    records = [
+        event["task_id"]
+        for event in events
+        if event["type"] == "task_completed" and "tool_step" in event
+    ]
+    assert records == ["first", "second"]
+
+
+async def test_oversized_arguments_are_replaced_by_digest(events):
+    captured = []
+
+    async def model(messages, info):
+        pytest.fail("tool-only plan must not call the model")
+
+    async def caller(server, tool, arguments, task_id):
+        captured.append(arguments)
+        return ToolStepResult(result={"ok": True})
+
+    from agent_utilities import host_ports
+
+    host_ports.register_tool_caller(caller)
+    plan = _tool_plan(
+        FunctionModel(model),
+        (
+            RunTask(
+                "tool",
+                call=ToolStep("server", "large", {"payload": "x" * (64 * 1024)}),
+            ),
+        ),
+        output_task_id="tool",
+    )
+    result = await run(RunRequest(task="t"), plan=plan)
+    assert result.status == "completed" and captured
+    completed = next(event for event in events if event["type"] == "task_completed")
+    record = completed["tool_step"]["arguments"]
+    assert set(record) == {"digest", "bytes"}
+    assert record["bytes"] > 64 * 1024
+    assert len(record["digest"]) == 64
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.6.4")
+async def test_oversized_result_is_replaced_by_digest(events):
+    oversized = {"payload": "x" * (256 * 1024)}
+
+    async def model(messages, info):
+        pytest.fail("tool-only plan must not call the model")
+
+    async def caller(server, tool, arguments, task_id):
+        return ToolStepResult(result=oversized)
+
+    from agent_utilities import host_ports
+
+    host_ports.register_tool_caller(caller)
+    plan = _tool_plan(
+        FunctionModel(model),
+        (RunTask("tool", call=ToolStep("server", "large", {"x": 1})),),
+        output_task_id="tool",
+    )
+    result = await run(RunRequest(task="t"), plan=plan)
+    assert result.status == "completed"
+    completed = next(event for event in events if event["type"] == "task_completed")
+    record = completed["tool_step"]["result"]
+    assert set(record) == {"digest", "bytes"}
+    assert record["bytes"] > 256 * 1024
+    assert len(record["digest"]) == 64
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.6.5")
+async def test_mixed_dag_refills_slots_in_order(events):
+    started = []
+    model_calls = []
+    active = 0
+    peak = 0
+    a_started = asyncio.Event()
+    a_release = asyncio.Event()
+    c_started = asyncio.Event()
+    c_release = asyncio.Event()
+    join_started = asyncio.Event()
+
+    async def model(messages, info):
+        nonlocal active, peak
+        prompt = messages[-1].parts[-1].content
+        key = prompt.split("\n", 1)[0]
+        started.append(key)
+        model_calls.append(key)
+        active += 1
+        peak = max(peak, active)
+        try:
+            if key == "A":
+                a_started.set()
+                await a_release.wait()
+            elif key == "C":
+                c_started.set()
+                await c_release.wait()
+            else:
+                join_started.set()
+            return ModelResponse(parts=[TextPart(f"result:{key}")])
+        finally:
+            active -= 1
+
+    async def caller(server, tool, arguments, task_id):
+        nonlocal active
+        started.append(task_id)
+        active += 1
+        try:
+            return ToolStepResult(result={"value": "tool-result"})
+        finally:
+            active -= 1
+
+    from agent_utilities import host_ports
+
+    host_ports.register_tool_caller(caller)
+    plan = _tool_plan(
+        FunctionModel(model),
+        (
+            RunTask("A", "A"),
+            RunTask("tool", call=ToolStep("server", "lookup", {"x": 1})),
+            RunTask("C", "C", ("tool",)),
+            RunTask("join", "join", ("A", "C")),
+        ),
+        output_task_id="join",
+        capacity=2,
+    )
+    parent = asyncio.create_task(run(RunRequest(task="t"), plan=plan))
+    try:
+        await reached(a_started)
+        await reached(c_started)
+        assert not join_started.is_set()
+        assert not a_release.is_set()
+        assert peak <= 2
+        assert [
+            event["task_id"] for event in events if event["type"] == "task_started"
+        ][:3] == ["A", "tool", "C"]
+        c_release.set()
+        a_release.set()
+        result = await parent
+    finally:
+        if not parent.done():
+            parent.cancel()
+        await asyncio.gather(parent, return_exceptions=True)
+    assert result.status == "completed" and result.output == "result:join"
+    assert model_calls == ["A", "C", "join"]
+    assert peak <= 2
+    assert events[-1]["type"] == "graph_complete"
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.6.6")
+async def test_execute_graph_routes_tool_steps_through_the_bound_caller():
+    calls = []
+
+    async def model(messages, info):
+        return ModelResponse(parts=[TextPart("done")])
+
+    async def caller(server, tool, arguments, task_id):
+        calls.append((server, tool, dict(arguments), task_id))
+        return ToolStepResult(result={"ok": True})
+
+    from agent_utilities import host_ports
+
+    plan = _tool_plan(
+        FunctionModel(model),
+        (RunTask("tool", call=ToolStep("server", "lookup", {"x": 1})),),
+        output_task_id="tool",
+    )
+    host_ports.register_run_decision_provider(lambda request: plan)
+    host_ports.register_tool_caller(caller)
+    result = await execute_graph(None, None, "query")
+    assert result["status"] == "completed"
+    assert calls == [("server", "lookup", {"x": 1}, "tool")]
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.6.6")
+async def test_cancel_cancels_inflight_tool_call(events):
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def model(messages, info):
+        pytest.fail("tool-only plan must not call the model")
+
+    async def caller(server, tool, arguments, task_id):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    from agent_utilities import host_ports
+
+    host_ports.register_tool_caller(caller)
+    plan = _tool_plan(
+        FunctionModel(model),
+        (RunTask("tool", call=ToolStep("server", "wait", {})),),
+        output_task_id="tool",
+    )
+    parent = asyncio.create_task(run(RunRequest(task="t"), plan=plan))
+    await reached(started)
+    parent.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await parent
+    assert cancelled.is_set()
+    assert events[-1]["type"] == "run_cancelled"
+    assert any(event["type"] == "task_cancelled" for event in events)
+
+
+async def test_tool_deadline_drains_caller_before_terminal_event(monkeypatch):
+    entered = asyncio.Event()
+    drained = asyncio.Event()
+    deadlines = []
+    setup_deadlines = []
+    timeout_factory, at_factory = asyncio.timeout, asyncio.timeout_at
+
+    def setup_timeout(delay):
+        scope = timeout_factory(delay)
+        setup_deadlines.append(scope.when())
+        return scope
+
+    def driver_timeout(deadline):
+        scope = at_factory(None)
+        deadlines.append((deadline, scope))
+        return scope
+
+    monkeypatch.setattr(asyncio, "timeout", setup_timeout)
+    monkeypatch.setattr(asyncio, "timeout_at", driver_timeout)
+    events = []
+    host_ports.register_run_event_sink(events.append)
+
+    async def model(messages, info):
+        pytest.fail("deadline tool plan must not call the model")
+
+    async def caller(server, tool, arguments, task_id):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            drained.set()
+
+    host_ports.register_tool_caller(caller)
+    plan = _tool_plan(
+        FunctionModel(model),
+        (
+            RunTask("tool", call=ToolStep("server", "wait", {})),
+            RunTask("dependent", "dependent", ("tool",)),
+        ),
+        output_task_id="dependent",
+        capacity=1,
+        budget=RunBudget(timeout_seconds=600),
+    )
+    stream = iterate_run(RunRequest(task="t"), plan=plan)
+    try:
+        assert (await anext(stream))["type"] == "run_started"
+        assert (await anext(stream))["type"] == "task_started"
+        await reached(entered)
+        assert len(deadlines) == 1 and deadlines[0][0] == setup_deadlines[0]
+        deadlines[0][1].reschedule(asyncio.get_running_loop().time())
+        await reached(drained)
+        remaining = [event async for event in stream]
+    finally:
+        await stream.aclose()
+    assert remaining[-1]["type"] == "graph_complete"
+    assert remaining[-1]["result"]["status"] == "stopped"
+    assert "timed out" in remaining[-1]["result"]["error"]
+    assert [event["type"] for event in events] == [
+        "run_started",
+        "task_started",
+        "task_cancelled",
+        "task_blocked",
+        "graph_complete",
+    ]
+
+
+async def test_repeated_cancellation_cannot_detach_tool_caller(events):
+    entered, cleaning, finish, cleaned = (asyncio.Event() for _ in range(4))
+
+    async def model(messages, info):
+        pytest.fail("tool-only plan must not call the model")
+
+    async def caller(server, tool, arguments, task_id):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleaning.set()
+            await finish.wait()
+            cleaned.set()
+
+    host_ports.register_tool_caller(caller)
+    plan = _tool_plan(
+        FunctionModel(model),
+        (RunTask("tool", call=ToolStep("server", "wait", {})),),
+        output_task_id="tool",
+    )
+    parent = asyncio.create_task(run(RunRequest(task="t"), plan=plan))
+    await reached(entered)
+    parent.cancel()
+    await reached(cleaning)
+    parent.cancel()
+    assert not parent.done()
+    assert not any(event["type"] == "run_cancelled" for event in events)
+    finish.set()
+    with pytest.raises(asyncio.CancelledError):
+        await parent
+    assert cleaned.is_set()
+    assert events[-1]["type"] == "run_cancelled"
+    assert events.count(events[-1]) == 1
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.6.7")
+async def test_tool_step_end_to_end_through_run_api(events):
+    model_inputs = []
+    calls = []
+
+    async def model(messages, info):
+        prompt = messages[-1].parts[-1].content
+        model_inputs.append(prompt)
+        if prompt == "source":
+            return ModelResponse(parts=[TextPart('{"incident":{"id":"INC-7"}}')])
+        return ModelResponse(parts=[TextPart("finished")])
+
+    async def caller(server, tool, arguments, task_id):
+        calls.append((server, tool, dict(arguments), task_id))
+        return ToolStepResult(result={"status": "closed", "incident": arguments["id"]})
+
+    from agent_utilities import host_ports
+
+    host_ports.register_tool_caller(caller)
+    plan = _tool_plan(
+        FunctionModel(model),
+        (
+            RunTask("source", "source"),
+            RunTask(
+                "tool",
+                depends_on=("source",),
+                call=ToolStep(
+                    "incident-server",
+                    "close",
+                    {"id": {"$ref": "steps.source.output.incident.id"}},
+                ),
+            ),
+            RunTask("final", "final", ("tool",)),
+        ),
+        output_task_id="final",
+        capacity=2,
+    )
+    result = await run(RunRequest(task="t"), plan=plan)
+    assert result.status == "completed" and result.output == "finished"
+    assert calls == [("incident-server", "close", {"id": "INC-7"}, "tool")]
+    assert len(model_inputs) == 2
+    assert "closed" in model_inputs[1] and "INC-7" in model_inputs[1]
+    assert result.usage["requests"] == 2 and result.usage["tool_calls"] == 1
+    tool_event = next(
+        event
+        for event in events
+        if event["type"] == "task_completed" and event["task_id"] == "tool"
+    )
+    assert tool_event["tool_step"]["arguments"] == {"id": "INC-7"}
+    assert tool_event["tool_step"]["result"] == {
+        "status": "closed",
+        "incident": "INC-7",
+    }
 
 
 async def test_tool_validation_retry_cannot_reset_shared_tool_limit():

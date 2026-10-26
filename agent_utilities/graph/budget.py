@@ -109,9 +109,14 @@ class SharedBudget(AbstractCapability[Any]):
             raise UsageLimitExceeded(
                 f"Initial usage exhausts the total_tokens_limit of {token_limit}"
             )
-        # An exact tool cap still allows a model-only answer. Only prior usage
-        # above the cap refuses the run; before_tool_execute rejects new tools.
-        self.limits.check_before_tool_call(self.usage)
+        # An exact tool cap still allows a model-only answer. Pydantic AI's
+        # generic check treats zero as an unspecified limit, so enforce the
+        # received bound explicitly for both prior and new host calls.
+        limit = self.limits.tool_calls_limit
+        if limit is not None and self.usage.tool_calls > limit:
+            raise UsageLimitExceeded(
+                f"Initial usage exceeds the tool_calls_limit of {limit}"
+            )
 
     async def wrap_model_request(
         self,
@@ -162,3 +167,12 @@ class SharedBudget(AbstractCapability[Any]):
             )
         self.usage.tool_calls += 1
         return args
+
+    def reserve_tool_call(self) -> None:
+        """Reserve one host-bound dependency call before it can have an effect."""
+        limit = self.limits.tool_calls_limit
+        if limit is not None and self.usage.tool_calls >= limit:
+            raise UsageLimitExceeded(
+                f"The next tool call would exceed the tool_calls_limit of {limit}"
+            )
+        self.usage.tool_calls += 1

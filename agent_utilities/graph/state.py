@@ -10,7 +10,7 @@ request and the graph configuration only.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
@@ -109,6 +109,97 @@ class HarnessConfig:
     client_tool_limits: ClientToolLimits | None = None
 
 
+ToolOutcome = Literal["ok", "refused", "failed"]
+
+
+@dataclass(frozen=True, slots=True)
+class ToolStep:
+    """One host-bound call in a received dependency plan.
+
+    The harness only carries the declared server, tool and JSON-shaped
+    arguments. The host owns the caller, transport, credentials and policy.
+    """
+
+    server: str
+    tool: str
+    arguments: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class ToolStepResult:
+    """Structured result returned by a host-bound :class:`ToolCaller`."""
+
+    result: Any = None
+    outcome: ToolOutcome = "ok"
+    error: str | None = None
+
+    def __post_init__(self) -> None:
+        # Accept the natural ``ToolStepResult("ok", value)`` positional form
+        # as well as the named ``result=..., outcome=...`` form. The latter is
+        # the stable wire shape; this small normalization keeps host adapters
+        # from having to coordinate constructor ordering.
+        if self.outcome not in ("ok", "refused", "failed"):
+            if isinstance(self.result, str) and self.result in (
+                "ok",
+                "refused",
+                "failed",
+            ):
+                positional_outcome = self.result
+                positional_result = self.outcome
+                object.__setattr__(self, "result", positional_result)
+                object.__setattr__(self, "outcome", positional_outcome)
+            else:
+                raise ValueError("tool result outcome must be ok, refused or failed")
+        if self.error is not None and not isinstance(self.error, str):
+            raise ValueError("tool result error must be a string or None")
+
+    @property
+    def status(self) -> ToolOutcome:
+        """Compatibility spelling for callers that use status terminology."""
+
+        return self.outcome
+
+    @property
+    def output(self) -> Any:
+        """Compatibility spelling for the structured result value."""
+
+        return self.result
+
+
+ToolCaller = Callable[[str, str, Mapping[str, Any], str], Awaitable[ToolStepResult]]
+
+
+class ToolCallerUnavailable(RuntimeError):
+    """A tool-step plan was received without a host-bound caller."""
+
+
+class BindingUnresolved(RuntimeError):
+    """A tool-step argument could not resolve from a completed prerequisite."""
+
+    def __init__(
+        self,
+        task_id: str,
+        argument: str,
+        reference: str,
+        reason: str,
+    ) -> None:
+        self.task_id = task_id
+        self.argument = argument
+        self.reference = reference
+        self.reason = reason
+        super().__init__(
+            f"task {task_id!r} argument {argument!r}: {reason} ({reference})"
+        )
+
+
+class ToolCallRefused(RuntimeError):
+    """The host-bound caller refused a declared tool step."""
+
+
+class ToolCallFailed(RuntimeError):
+    """The host-bound caller failed a declared tool step."""
+
+
 @dataclass(frozen=True)
 class RunRequest:
     """What the caller asks for. The host turns it into a :class:`RunPlan`."""
@@ -132,8 +223,9 @@ class RunTask:
     """One received task and its direct prerequisites, not a planning decision."""
 
     task_id: str
-    prompt: str
+    prompt: str = ""
     depends_on: tuple[str, ...] = ()
+    call: ToolStep | None = None
 
 
 @dataclass(frozen=True)
@@ -220,7 +312,7 @@ class GraphDeps:
     plan: RunPlan
     config: Mapping[str, Any] = field(default_factory=dict)
     task_id: str | None = None
-    dependency_outputs: Mapping[str, str] = field(default_factory=dict)
+    dependency_outputs: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -375,6 +467,7 @@ def default_run_plan(request: RunRequest, config: Mapping[str, Any]) -> RunPlan:
 
 
 __all__ = [
+    "BindingUnresolved",
     "DependencyPlan",
     "GraphDeps",
     "GraphState",
@@ -388,5 +481,12 @@ __all__ = [
     "RunStatus",
     "RunTask",
     "StopRule",
+    "ToolCaller",
+    "ToolCallerUnavailable",
+    "ToolCallFailed",
+    "ToolCallRefused",
+    "ToolOutcome",
+    "ToolStep",
+    "ToolStepResult",
     "default_run_plan",
 ]
