@@ -141,6 +141,7 @@ class SharedBudget(AbstractCapability[Any]):
             self.usage.requests += 1
             before_input = ctx.usage.input_tokens
             before_output = ctx.usage.output_tokens
+            response: ModelResponse | None = None
             try:
                 response = await _request_drained(handler, request_context)
             finally:
@@ -160,6 +161,7 @@ class SharedBudget(AbstractCapability[Any]):
                 self.usage.input_tokens += input_delta
                 self.usage.output_tokens += output_delta
             self.limits.check_tokens(self.usage)
+            assert response is not None
             return response
 
     async def before_tool_execute(
