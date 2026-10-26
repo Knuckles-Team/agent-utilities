@@ -485,6 +485,13 @@ async def _execute_dependency_plan(
     interrupted: BaseException | None = None
     tool_order = [task.task_id for task in graph.tasks if task.call is not None]
     tool_terminal_buffer: dict[str, tuple[str, dict[str, Any]]] = {}
+    # A tool effect may finish out of declaration order when the graph has
+    # more than one active slot.  Keep its bounded result here until the
+    # declaration terminal cursor reaches it.  This preserves parallel host
+    # effects while making checkpoint ACKs, durable tool_result records, and
+    # terminal run events one ordered publication sequence.
+    tool_completion_buffer: dict[str, _ToolExecution] = {}
+    tool_record_buffer: dict[str, tuple[RunTask, dict[str, Any], int]] = {}
     tool_terminal_cursor = 0
     step_by_task: dict[str, int] = {}
     checkpoint_acked: set[str] = set()
@@ -542,20 +549,10 @@ async def _execute_dependency_plan(
 
     def terminal_event(kind: str, key: str, **fields: Any) -> dict[str, Any] | None:
         """Emit prompt terminals immediately and tool records in declaration order."""
-        nonlocal tool_terminal_cursor
         if nodes[key].call is None:
             return event(kind, key, **fields)
         tool_terminal_buffer[key] = (kind, fields)
-        emitted: dict[str, Any] | None = None
-        while tool_terminal_cursor < len(tool_order):
-            ordered_key = tool_order[tool_terminal_cursor]
-            buffered = tool_terminal_buffer.pop(ordered_key, None)
-            if buffered is None:
-                break
-            buffered_kind, buffered_fields = buffered
-            emitted = event(buffered_kind, ordered_key, **buffered_fields)
-            tool_terminal_cursor += 1
-        return emitted
+        return None
 
     def tool_event_fields(record: dict[str, Any] | None) -> dict[str, Any]:
         """Expose the bounded record both nested and as stable event fields."""
@@ -575,14 +572,82 @@ async def _execute_dependency_plan(
                 fields[key] = record[key]
         return fields
 
-    def flush_tool_terminals() -> None:
-        """Flush attempted tool terminals left behind by an earlier blocked step."""
-        for key in tool_order[tool_terminal_cursor:]:
-            buffered = tool_terminal_buffer.pop(key, None)
-            if buffered is None:
-                continue
-            kind, fields = buffered
-            event(kind, key, **fields)
+    async def flush_tool_terminals(*, publish_records: bool = True) -> tuple[str, ...]:
+        """Publish buffered tool terminals in declaration order.
+
+        Effects run concurrently, but a completed result is only exposed once
+        every earlier declared tool has reached its own terminal publication.
+        The checkpoint ACK intentionally precedes the durable result and the
+        public terminal event for each step.
+        """
+        nonlocal tool_terminal_cursor
+        released: list[str] = []
+        while tool_terminal_cursor < len(tool_order):
+            key = tool_order[tool_terminal_cursor]
+            result = tool_completion_buffer.get(key)
+            buffered = tool_terminal_buffer.get(key)
+            record_info = tool_record_buffer.get(key)
+            if result is None and buffered is None:
+                break
+
+            if result is not None:
+                tool_completion_buffer.pop(key, None)
+                record = result.record
+                if publish_records:
+                    try:
+                        if checkpoint is not None and key not in checkpoint_acked:
+                            sync_usage()
+                            checkpoint.record_completed(key, result.output)
+                            await checkpoint.save("completed")
+                            checkpoint_acked.add(key)
+                        output_text = _output_text(result.output)
+                        if key == graph.output_task_id:
+                            state.outputs = [output_text]
+                            if any(
+                                marker in output_text
+                                for marker in plan.stop.stop_markers
+                            ):
+                                state.status = "stopped"
+                        await publish_tool_record(
+                            nodes[key], record, step=step_by_task[key]
+                        )
+                    except BaseException:
+                        # Do not expose a terminal event after a durable
+                        # publication failure; the failed record remains
+                        # uncertain and must be retried from its checkpoint.
+                        tool_terminal_buffer.pop(key, None)
+                        raise
+                if buffered is None:
+                    buffered = (
+                        "task_completed",
+                        {
+                            "status": "completed",
+                            "output": record["result"],
+                            "tool_step": record,
+                            "server": record["server"],
+                            "tool": record["tool"],
+                            "arguments": record["arguments"],
+                            "outcome": record["outcome"],
+                            "result": record["result"],
+                            "elapsed_seconds": record["elapsed_seconds"],
+                        },
+                    )
+                tool_terminal_buffer.pop(key, None)
+                if publish_records:
+                    released.append(key)
+            else:
+                assert buffered is not None
+                tool_terminal_buffer.pop(key, None)
+                if record_info is not None:
+                    tool_record_buffer.pop(key, None)
+                    if publish_records:
+                        record_task, record, record_step = record_info
+                        await publish_tool_record(record_task, record, step=record_step)
+
+            buffered_kind, buffered_fields = buffered
+            event(buffered_kind, key, **buffered_fields)
+            tool_terminal_cursor += 1
+        return tuple(released)
 
     async def execute(task: RunTask) -> Any:
         dependency_outputs = {dep: outputs[dep] for dep in task.depends_on}
@@ -601,7 +666,7 @@ async def _execute_dependency_plan(
                     error=str(exc),
                     reference=exc.reference,
                 )
-                await publish_tool_record(task, record, step=task_step)
+                tool_record_buffer[task.task_id] = (task, record, task_step)
                 raise _attach_record(exc, record) from None
             try:
                 budget.reserve_tool_call()
@@ -645,7 +710,7 @@ async def _execute_dependency_plan(
                     elapsed_seconds=asyncio.get_running_loop().time() - started,
                     error=str(exc),
                 )
-                await publish_tool_record(task, record, step=task_step)
+                tool_record_buffer[task.task_id] = (task, record, task_step)
                 raise _attach_record(exc, record) from None
             except ToolCallRefused as exc:
                 record = _record(
@@ -655,7 +720,7 @@ async def _execute_dependency_plan(
                     elapsed_seconds=asyncio.get_running_loop().time() - started,
                     error=str(exc),
                 )
-                await publish_tool_record(task, record, step=task_step)
+                tool_record_buffer[task.task_id] = (task, record, task_step)
                 raise _attach_record(exc, record) from None
             except ToolCallFailed as exc:
                 record = _record(
@@ -665,7 +730,7 @@ async def _execute_dependency_plan(
                     elapsed_seconds=asyncio.get_running_loop().time() - started,
                     error=str(exc),
                 )
-                await publish_tool_record(task, record, step=task_step)
+                tool_record_buffer[task.task_id] = (task, record, task_step)
                 raise _attach_record(exc, record) from None
             except RuntimeError as exc:
                 if str(exc) == "durable run event publication failed":
@@ -678,7 +743,7 @@ async def _execute_dependency_plan(
                     elapsed_seconds=asyncio.get_running_loop().time() - started,
                     error=str(failure),
                 )
-                await publish_tool_record(task, record, step=task_step)
+                tool_record_buffer[task.task_id] = (task, record, task_step)
                 raise _attach_record(failure, record) from exc
             except Exception as exc:  # noqa: BLE001 - host port owns failure details
                 failure = ToolCallFailed("tool caller failed")
@@ -689,7 +754,7 @@ async def _execute_dependency_plan(
                     elapsed_seconds=asyncio.get_running_loop().time() - started,
                     error=str(failure),
                 )
-                await publish_tool_record(task, record, step=task_step)
+                tool_record_buffer[task.task_id] = (task, record, task_step)
                 raise _attach_record(failure, record) from exc
             record = _record(
                 task,
@@ -754,24 +819,42 @@ async def _execute_dependency_plan(
             ),
         )
 
-    async def completed(key: str, result: Any) -> dict[str, Any] | None:
+    async def completed(key: str, result: Any) -> tuple[str, ...]:
         if isinstance(result, _ToolExecution):
             outputs[key] = result.output
             record = result.record
             output_text = _output_text(result.output)
             if key == graph.output_task_id:
                 state.outputs = [output_text]
-            if key == graph.output_task_id and any(
-                marker in output_text for marker in plan.stop.stop_markers
+            if (
+                event_publisher is None
+                and key == graph.output_task_id
+                and any(marker in output_text for marker in plan.stop.stop_markers)
             ):
                 state.status = "stopped"
+            if event_publisher is not None:
+                tool_completion_buffer[key] = result
+                terminal_event(
+                    "task_completed",
+                    key,
+                    status="completed",
+                    output=record["result"],
+                    tool_step=record,
+                    server=record["server"],
+                    tool=record["tool"],
+                    arguments=record["arguments"],
+                    outcome=record["outcome"],
+                    result=record["result"],
+                    elapsed_seconds=record["elapsed_seconds"],
+                )
+                return await flush_tool_terminals()
             if checkpoint is not None and key not in checkpoint_acked:
                 sync_usage()
                 checkpoint.record_completed(key, result.output)
                 await checkpoint.save("completed")
                 checkpoint_acked.add(key)
             await publish_tool_record(nodes[key], record, step=step_by_task[key])
-            return terminal_event(
+            terminal_event(
                 "task_completed",
                 key,
                 status="completed",
@@ -784,6 +867,7 @@ async def _execute_dependency_plan(
                 result=record["result"],
                 elapsed_seconds=record["elapsed_seconds"],
             )
+            return await flush_tool_terminals()
         output = result.output
         text = output if isinstance(output, str) else json.dumps(output, sort_keys=True)
         outputs[key] = text
@@ -798,7 +882,8 @@ async def _execute_dependency_plan(
             checkpoint.record_completed(key, text, list(result.all_messages()))
             await checkpoint.save("completed")
             checkpoint_acked.add(key)
-        return event("task_completed", key, status="completed", output=text)
+        event("task_completed", key, status="completed", output=text)
+        return (key,)
 
     try:
         while ready or active:
@@ -847,15 +932,17 @@ async def _execute_dependency_plan(
                         **tool_event_fields(record),
                     )
                 else:
-                    await completed(key, result)
-                    if any(
-                        m in _output_text(outputs[key]) for m in plan.stop.stop_markers
-                    ):
-                        state.status = "stopped"
-                    for child in children[key]:
-                        indegree[child] -= 1
-                        if indegree[child] == 0:
-                            heapq.heappush(ready, order[child])
+                    released = await completed(key, result)
+                    for released_key in released:
+                        if any(
+                            m in _output_text(outputs[released_key])
+                            for m in plan.stop.stop_markers
+                        ):
+                            state.status = "stopped"
+                        for child in children[released_key]:
+                            indegree[child] -= 1
+                            if indegree[child] == 0:
+                                heapq.heappush(ready, order[child])
             if failure is not None:
                 raise failure
             if state.status == "stopped":
@@ -892,7 +979,10 @@ async def _execute_dependency_plan(
                 )
             elif not publication_failed:
                 await completed(key, task.result())
-        flush_tool_terminals()
+        await flush_tool_terminals(
+            publish_records=not publication_failed
+            and not isinstance(interrupted, asyncio.CancelledError)
+        )
         for key in sorted(pending, key=order.__getitem__):
             event("task_blocked", key, status="blocked")
         # This seeded ledger is the whole run, not a delta to add again.

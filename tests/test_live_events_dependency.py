@@ -250,3 +250,94 @@ async def test_publisher_scope_closes_when_run_is_cancelled() -> None:
     await asyncio.gather(task, return_exceptions=True)
     assert closed.is_set()
     assert publisher.events == []
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.10")
+async def test_concurrent_tool_results_follow_declaration_and_checkpoint_order() -> (
+    None
+):
+    timeline: list[tuple[str, str, str]] = []
+    checkpoint = Checkpoint(timeline)
+    publisher = Publisher(timeline)
+    _bind(checkpoint, publisher)
+    host_ports.register_run_event_sink(
+        lambda event: timeline.append(
+            ("run_event", event["type"], str(event.get("task_id", "")))
+        )
+    )
+    a_started = asyncio.Event()
+    b_finished = asyncio.Event()
+    release_a = asyncio.Event()
+
+    async def stream(messages, info):
+        yield "joined"
+
+    async def caller(server, tool, arguments, task_id):
+        assert server == "host"
+        if task_id == "A":
+            a_started.set()
+            await release_a.wait()
+        else:
+            assert task_id == "B"
+            b_finished.set()
+        return ToolStepResult(result=task_id)
+
+    host_ports.register_tool_caller(caller)
+    plan = RunPlan(
+        model=FunctionModel(stream_function=stream),
+        dependency_plan=DependencyPlan(
+            tasks=(
+                RunTask("A", call=ToolStep("host", "slow")),
+                RunTask("B", call=ToolStep("host", "fast")),
+                RunTask("final", "join", depends_on=("A", "B")),
+            ),
+            output_task_id="final",
+            max_concurrency=2,
+            plan_id="r04310-concurrent-order",
+        ),
+        budget=RunBudget(request_limit=4, tool_calls_limit=2),
+    )
+
+    task = asyncio.create_task(
+        run(
+            RunRequest(task="concurrent", run_id="r04310-concurrent-run"),
+            plan=plan,
+        )
+    )
+    await asyncio.wait_for(b_finished.wait(), timeout=1)
+    assert a_started.is_set()
+    assert [
+        content["task_id"]
+        for kind, content in publisher.events
+        if kind == "tool_result"
+    ] == []
+    release_a.set()
+    result = await asyncio.wait_for(task, timeout=1)
+
+    assert result.status == "completed"
+    assert result.output == "joined"
+    assert [
+        content["task_id"] for kind, content in publisher.events if kind == "tool_call"
+    ] == ["A", "B"]
+    assert [
+        content["task_id"]
+        for kind, content in publisher.events
+        if kind == "tool_result"
+    ] == ["A", "B"]
+    result_a = _at(timeline, "durable", "tool_result", "A")
+    result_b = _at(timeline, "durable", "tool_result", "B")
+    terminal_a = _at(timeline, "run_event", "task_completed", "A")
+    terminal_b = _at(timeline, "run_event", "task_completed", "B")
+    ack_a = next(
+        index
+        for index, item in enumerate(timeline)
+        if item[0] == "checkpoint" and item[2] == "A"
+    )
+    ack_b = next(
+        index
+        for index, item in enumerate(timeline)
+        if item[0] == "checkpoint" and item[2] == "A,B" and index < result_b
+    )
+    assert ack_a < result_a < terminal_a
+    assert ack_b < result_b < terminal_b
+    assert result_a < terminal_a < ack_b < result_b < terminal_b
