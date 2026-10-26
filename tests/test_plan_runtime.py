@@ -57,6 +57,7 @@ async def test_received_decision_gates_tool_and_injection(mode):
 @pytest.mark.spec("AU-BOUNDARY-R043.4.2")
 @pytest.mark.spec("AU-BOUNDARY-R043.4.3")
 @pytest.mark.spec("AU-BOUNDARY-R043.4.5")
+@pytest.mark.spec("AU-BOUNDARY-R043.4")
 async def test_two_updates_reach_each_request_but_never_stored_history(monkeypatch):
     captured = []
     histories = []
