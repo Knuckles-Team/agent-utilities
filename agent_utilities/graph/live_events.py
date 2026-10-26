@@ -7,8 +7,8 @@ before allowing the model run to continue.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterable, Mapping
-from typing import Any, Protocol
+from collections.abc import AsyncIterable
+from typing import Any
 
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
@@ -20,13 +20,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_core import to_jsonable_python
 
-
-class DurableRunEventPublisher(Protocol):
-    """Host-owned durable writer injected into one run step."""
-
-    async def publish(self, kind: str, content: Mapping[str, Any]) -> None:
-        """Persist one validated public model/tool observation."""
-        ...
+from agent_utilities.host_ports import DurableRunEventPublisher
 
 
 def _projection(event: Any) -> tuple[str, dict[str, Any]] | None:

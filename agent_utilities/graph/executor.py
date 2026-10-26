@@ -30,6 +30,7 @@ from agent_utilities.harness.plan_runtime import PlanScaffold
 
 from .budget import SharedBudget, initial_run_usage
 from .dependency import iterate_dependency_plan, validate_dependency_plan
+from .live_events import run_step
 from .metrics import MeasuredModel, RunMetrics
 from .state import (
     GraphDeps,
@@ -323,10 +324,19 @@ async def iterate_run(
                 run_plan.budget.timeout_seconds - run_plan.initial_elapsed_seconds
             ) as timeout:
                 async with (
-                    no_host_scope()
-                    if restricted
-                    else host_ports.scaffold_publication_scope(request, state.scaffold)
-                ) as publisher:
+                    (
+                        no_host_scope()
+                        if restricted
+                        else host_ports.scaffold_publication_scope(
+                            request, state.scaffold
+                        )
+                    ) as publisher,
+                    (
+                        no_host_scope()
+                        if restricted
+                        else host_ports.durable_run_event_scope(request)
+                    ) as event_publisher,
+                ):
                     agent = build_agent(
                         run_plan,
                         state.run_id,
@@ -363,14 +373,17 @@ async def iterate_run(
                         if state.step == 1 and attachments:
                             model_input = [prompt, *attachments]
                         try:
-                            result = await agent.run(
+                            result = await run_step(
+                                agent,
                                 model_input,
+                                publisher=event_publisher,
+                                step=state.step,
+                                stream_observer=observe
+                                if stream_observer is not None
+                                else None,
                                 deps=deps,
                                 message_history=history,
                                 usage_limits=limits,
-                                event_stream_handler=observe
-                                if stream_observer is not None
-                                else None,
                             )
                         finally:
                             if shared_budget is not None:

@@ -150,6 +150,20 @@ ModelProvider = Callable[[str], Any]
 RunEventSink = Callable[[Mapping[str, Any]], None]
 """Receives one run event (a JSON-shaped mapping) in emission order."""
 
+
+class DurableRunEventPublisher(Protocol):
+    """One host-owned durable writer bound to the admitted run."""
+
+    async def publish(self, kind: str, content: Mapping[str, Any]) -> None:
+        """Persist one validated public model/tool observation."""
+        ...
+
+
+DurableRunEventFactory = Callable[
+    [Any], contextlib.AbstractAsyncContextManager[DurableRunEventPublisher | None]
+]
+"""Build one optional durable event publisher for a run request."""
+
 HarnessCycleProvider = Callable[..., Any]
 """``(request, plan, *, task_class, graph, config, root, mode) ->
 CycleOutcome`` (or an awaitable of it): the host drives one
@@ -167,6 +181,7 @@ _DECIDE: RunDecisionProvider | None = None
 _TOOL_CALLER: ToolCaller | None = None
 _MODELS: ModelProvider | None = None
 _EVENTS: RunEventSink | None = None
+_DURABLE_RUN_EVENTS: DurableRunEventFactory | None = None
 _CYCLE: HarnessCycleProvider | None = None
 
 
@@ -192,6 +207,18 @@ def register_run_event_sink(sink: RunEventSink | None) -> None:
     """Install (or clear) the host's run event sink."""
     global _EVENTS
     _EVENTS = sink
+
+
+def register_durable_run_event_factory(
+    factory: DurableRunEventFactory | None,
+) -> None:
+    """Install (or clear) the host binder for durable run-event writes.
+
+    The request is only the host's binding key. AU does not derive authority,
+    create a local event store, or open a transport from request metadata.
+    """
+    global _DURABLE_RUN_EVENTS
+    _DURABLE_RUN_EVENTS = factory
 
 
 def register_harness_cycle_provider(provider: HarnessCycleProvider | None) -> None:
@@ -228,6 +255,19 @@ def emit_run_event(event: Mapping[str, Any]) -> None:
     """Send one run event to the host sink; a no-op without a host."""
     if _EVENTS is not None:
         _EVENTS(event)
+
+
+@contextlib.asynccontextmanager
+async def durable_run_event_scope(
+    request: Any,
+) -> AsyncIterator[DurableRunEventPublisher | None]:
+    """Open the optional host-owned durable event port for one run."""
+    factory = _DURABLE_RUN_EVENTS
+    if factory is None:
+        yield None
+        return
+    async with factory(request) as publisher:
+        yield publisher
 
 
 def register_native_toolset_provider(provider: NativeToolsetProvider | None) -> None:
