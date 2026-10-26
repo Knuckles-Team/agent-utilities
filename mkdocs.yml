@@ -1,0 +1,5 @@
+site_name: Meristem
+site_url: https://knuckles-team.github.io/meristem/
+docs_dir: pages
+nav:
+  - Home: index.md

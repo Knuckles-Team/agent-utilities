@@ -1,0 +1,29 @@
+name: Pages
+
+# Rebuild the canonical Pages snapshot for every main revision and on demand.
+# The reusable publisher owns the dashboard rendering and deployment.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  pages:
+    name: Deploy GitHub Pages
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@490076d94f465da0f9396f69d5f4193bd8c20d8c
+    with:
+      content_source: pages
+      shared_theme_enabled: true
+      spec_dashboard_enabled: true
+      spec_dashboard_config: .config/spec-dashboard.json
