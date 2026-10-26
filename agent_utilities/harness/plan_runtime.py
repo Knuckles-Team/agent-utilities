@@ -62,13 +62,13 @@ def _without_scaffold_payload(messages: list[ModelMessage]) -> list[ModelMessage
                 )
             )
         else:
-            parts = [
+            response_parts = [
                 replace(part, args={})
                 if isinstance(part, ToolCallPart) and part.tool_name == "update_plan"
                 else part
                 for part in message.parts
             ]
-            cleaned.append(replace(message, parts=parts))
+            cleaned.append(replace(message, parts=response_parts))
     return cleaned
 
 
