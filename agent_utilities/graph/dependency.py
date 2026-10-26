@@ -16,8 +16,11 @@ from pydantic_ai import Agent, BinaryContent
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 
+from agent_utilities.host_ports import DurableRunEventPublisher
+
 from .budget import SharedBudget
 from .checkpoint import RunCheckpoint
+from .live_events import run_step
 from .state import (
     BindingUnresolved,
     DependencyPlan,
@@ -442,6 +445,7 @@ async def _execute_dependency_plan(
     emit: Callable[..., dict[str, Any]],
     tool_caller: ToolCaller | None = None,
     checkpoint: RunCheckpoint | None = None,
+    event_publisher: DurableRunEventPublisher | None = None,
 ) -> None:
     """Refill a free slot after any successful prerequisite, not a whole wave.
 
@@ -482,6 +486,8 @@ async def _execute_dependency_plan(
     tool_order = [task.task_id for task in graph.tasks if task.call is not None]
     tool_terminal_buffer: dict[str, tuple[str, dict[str, Any]]] = {}
     tool_terminal_cursor = 0
+    step_by_task: dict[str, int] = {}
+    checkpoint_acked: set[str] = set()
     while (
         tool_terminal_cursor < len(tool_order)
         and tool_order[tool_terminal_cursor] in completed_tasks
@@ -491,6 +497,34 @@ async def _execute_dependency_plan(
     def sync_usage() -> None:
         state.usage.clear()
         state.add_usage(budget.usage)
+
+    async def publish_durable(kind: str, content: Mapping[str, Any]) -> None:
+        if event_publisher is None:
+            return
+        try:
+            await event_publisher.publish(kind, content)
+        except Exception as exc:  # noqa: BLE001 - sanitize host details
+            raise RuntimeError("durable run event publication failed") from exc
+
+    async def publish_tool_record(
+        task: RunTask, record: Mapping[str, Any], *, step: int
+    ) -> None:
+        """Publish the same bounded record that the terminal run event carries."""
+        content: dict[str, Any] = {
+            "step": step,
+            "task_id": task.task_id,
+            "tool_call_id": task.task_id,
+            "name": record["tool"],
+            "server": record["server"],
+            "arguments": record["arguments"],
+            "result": record["result"],
+            "outcome": record["outcome"],
+            "elapsed_seconds": record["elapsed_seconds"],
+        }
+        for key in ("error", "reference"):
+            if key in record:
+                content[key] = record[key]
+        await publish_durable("tool_result", content)
 
     def event(kind: str, key: str, **fields: Any) -> dict[str, Any]:
         return emit(
@@ -549,6 +583,7 @@ async def _execute_dependency_plan(
 
     async def execute(task: RunTask) -> Any:
         dependency_outputs = {dep: outputs[dep] for dep in task.depends_on}
+        task_step = step_by_task[task.task_id]
         if task.call is not None:
             assert tool_caller is not None
             started = asyncio.get_running_loop().time()
@@ -563,9 +598,22 @@ async def _execute_dependency_plan(
                     error=str(exc),
                     reference=exc.reference,
                 )
+                await publish_tool_record(task, record, step=task_step)
                 raise _attach_record(exc, record) from None
             try:
                 budget.reserve_tool_call()
+                await publish_durable(
+                    "tool_call",
+                    {
+                        "step": task_step,
+                        "task_id": task.task_id,
+                        "tool_call_id": task.task_id,
+                        "name": task.call.tool,
+                        "server": task.call.server,
+                        "arguments": _bounded(arguments, TOOL_ARGUMENT_LIMIT),
+                        "args_valid": True,
+                    },
+                )
                 raw_result = await tool_caller(
                     task.call.server,
                     task.call.tool,
@@ -594,6 +642,7 @@ async def _execute_dependency_plan(
                     elapsed_seconds=asyncio.get_running_loop().time() - started,
                     error=str(exc),
                 )
+                await publish_tool_record(task, record, step=task_step)
                 raise _attach_record(exc, record) from None
             except ToolCallRefused as exc:
                 record = _record(
@@ -603,6 +652,7 @@ async def _execute_dependency_plan(
                     elapsed_seconds=asyncio.get_running_loop().time() - started,
                     error=str(exc),
                 )
+                await publish_tool_record(task, record, step=task_step)
                 raise _attach_record(exc, record) from None
             except ToolCallFailed as exc:
                 record = _record(
@@ -612,7 +662,21 @@ async def _execute_dependency_plan(
                     elapsed_seconds=asyncio.get_running_loop().time() - started,
                     error=str(exc),
                 )
+                await publish_tool_record(task, record, step=task_step)
                 raise _attach_record(exc, record) from None
+            except RuntimeError as exc:
+                if str(exc) == "durable run event publication failed":
+                    raise
+                failure = ToolCallFailed("tool caller failed")
+                record = _record(
+                    task,
+                    arguments=locals().get("arguments"),
+                    outcome="failed",
+                    elapsed_seconds=asyncio.get_running_loop().time() - started,
+                    error=str(failure),
+                )
+                await publish_tool_record(task, record, step=task_step)
+                raise _attach_record(failure, record) from exc
             except Exception as exc:  # noqa: BLE001 - host port owns failure details
                 failure = ToolCallFailed("tool caller failed")
                 record = _record(
@@ -622,6 +686,7 @@ async def _execute_dependency_plan(
                     elapsed_seconds=asyncio.get_running_loop().time() - started,
                     error=str(failure),
                 )
+                await publish_tool_record(task, record, step=task_step)
                 raise _attach_record(failure, record) from exc
             record = _record(
                 task,
@@ -656,8 +721,30 @@ async def _execute_dependency_plan(
         model_input: str | list[str | BinaryContent] = prompt
         if order[task.task_id] == 0 and attachments:
             model_input = [prompt, *attachments]
-        return await agent.run(
+
+        async def after_prompt(result: Any) -> None:
+            if checkpoint is None:
+                return
+            sync_usage()
+            text = _output_text(result.output)
+            outputs[task.task_id] = text
+            if task.task_id == graph.output_task_id:
+                state.outputs = [text]
+            if task.task_id == graph.output_task_id and any(
+                marker in text for marker in plan.stop.stop_markers
+            ):
+                state.status = "stopped"
+            checkpoint.record_completed(task.task_id, text, list(result.all_messages()))
+            await checkpoint.save("completed")
+            checkpoint_acked.add(task.task_id)
+
+        return await run_step(
+            agent,
             model_input,
+            publisher=event_publisher,
+            step=task_step,
+            event_fields={"task_id": task.task_id},
+            after_result=after_prompt,
             deps=deps,
             usage_limits=UsageLimits(
                 request_limit=None, tool_calls_limit=budget.limits.tool_calls_limit
@@ -675,10 +762,11 @@ async def _execute_dependency_plan(
                 marker in output_text for marker in plan.stop.stop_markers
             ):
                 state.status = "stopped"
-            if checkpoint is not None:
+            if checkpoint is not None and key not in checkpoint_acked:
                 sync_usage()
                 checkpoint.record_completed(key, result.output)
                 await checkpoint.save("completed")
+            await publish_tool_record(nodes[key], record, step=step_by_task[key])
             return terminal_event(
                 "task_completed",
                 key,
@@ -713,6 +801,7 @@ async def _execute_dependency_plan(
                 node = graph.tasks[heapq.heappop(ready)]
                 pending.remove(node.task_id)
                 state.step += 1
+                step_by_task[node.task_id] = state.step
                 if checkpoint is not None:
                     sync_usage()
                     await checkpoint.save("step_inflight", task_id=node.task_id)
@@ -818,6 +907,7 @@ async def iterate_dependency_plan(
     deadline: float | None,
     tool_caller: ToolCaller | None = None,
     checkpoint: RunCheckpoint | None = None,
+    event_publisher: DurableRunEventPublisher | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Stream public events without making child dispatch wait for a viewer.
 
@@ -851,6 +941,7 @@ async def iterate_dependency_plan(
                     enqueue,
                     tool_caller,
                     checkpoint,
+                    event_publisher,
                 )
         finally:
             events.put_nowait(None)

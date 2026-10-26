@@ -7,8 +7,8 @@ before allowing the model run to continue.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterable, Mapping
-from typing import Any, Protocol
+from collections.abc import AsyncIterable, Awaitable, Callable, Mapping
+from typing import Any
 
 from pydantic_ai.messages import (
     FunctionToolCallEvent,
@@ -20,13 +20,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_core import to_jsonable_python
 
-
-class DurableRunEventPublisher(Protocol):
-    """Host-owned durable writer injected into one run step."""
-
-    async def publish(self, kind: str, content: Mapping[str, Any]) -> None:
-        """Persist one validated public model/tool observation."""
-        ...
+from agent_utilities.host_ports import DurableRunEventPublisher
 
 
 def _projection(event: Any) -> tuple[str, dict[str, Any]] | None:
@@ -67,6 +61,8 @@ async def run_step(
     publisher: DurableRunEventPublisher | None,
     step: int,
     stream_observer: Any = None,
+    after_result: Callable[[Any], Awaitable[None]] | None = None,
+    event_fields: Mapping[str, Any] | None = None,
     **kwargs: Any,
 ) -> Any:
     """Run exactly once, awaiting durable publication of each public event.
@@ -78,7 +74,12 @@ async def run_step(
     publication failure aborts after that effect and never retries it.
     """
     if publisher is None and stream_observer is None:
-        return await agent.run(prompt, **kwargs)
+        result = await agent.run(prompt, **kwargs)
+        if after_result is not None:
+            await after_result(result)
+        return result
+
+    fields = dict(event_fields or {})
 
     async def receive(context: Any, events: AsyncIterable[Any]) -> None:
         async def projected_events() -> AsyncIterable[Any]:
@@ -87,7 +88,9 @@ async def run_step(
                 if publisher is not None and projected is not None:
                     kind, content = projected
                     try:
-                        await publisher.publish(kind, {"step": step, **content})
+                        await publisher.publish(
+                            kind, {"step": step, **fields, **content}
+                        )
                     except Exception as exc:
                         raise RuntimeError(
                             "durable run event publication failed"
@@ -105,12 +108,15 @@ async def run_step(
         event_stream_handler=receive,
         **kwargs,
     )
+    if after_result is not None:
+        await after_result(result)
     if publisher is not None:
         try:
             # This is a model-step observation, not a committed WorkItem
             # terminal event; only the host's native commit establishes that.
             await publisher.publish(
-                "state", {"step": step, "state": "model_step_completed"}
+                "state",
+                {"step": step, **fields, "state": "model_step_completed"},
             )
         except Exception as exc:
             raise RuntimeError("durable run event publication failed") from exc

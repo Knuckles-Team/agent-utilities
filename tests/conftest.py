@@ -30,6 +30,7 @@ def _clear_host_ports():
         host_ports.register_model_provider,
         host_ports.register_tool_caller,
         host_ports.register_run_event_sink,
+        host_ports.register_durable_run_event_factory,
         host_ports.register_harness_cycle_provider,
         host_ports.register_native_toolset_provider,
         host_ports.register_remote_toolset_provider,

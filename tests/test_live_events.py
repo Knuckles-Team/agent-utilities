@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 import pytest
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.toolsets import FunctionToolset
 
+from agent_utilities import host_ports
+from agent_utilities.graph import RunPlan, RunRequest, run
 from agent_utilities.graph.live_events import run_step
 
 
@@ -20,6 +24,92 @@ class Publisher:
         if kind == self.fail_kind:
             raise OSError("private durable backend detail")
         self.events.append((kind, content))
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.10")
+async def test_executor_binds_one_publisher_before_exposing_model_output() -> None:
+    bindings: list[str] = []
+    publisher = Publisher()
+
+    @asynccontextmanager
+    async def scope(request):
+        bindings.append(request.run_id)
+        yield publisher
+
+    host_ports.register_durable_run_event_factory(scope)
+
+    async def stream(messages, info):
+        yield "answer"
+
+    result = await run(
+        RunRequest(task="hello", run_id="run"),
+        plan=RunPlan(model=FunctionModel(stream_function=stream), steps=("hello",)),
+    )
+
+    assert result.status == "completed"
+    assert result.output == "answer"
+    assert bindings == ["run"]
+    assert [kind for kind, _ in publisher.events] == ["text_delta", "state"]
+    assert publisher.events[-1] == (
+        "state",
+        {"step": 1, "state": "model_step_completed"},
+    )
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.10")
+async def test_executor_stops_before_tool_effect_on_call_publication_failure() -> None:
+    effects: list[int] = []
+    toolset = FunctionToolset()
+
+    @toolset.tool_plain
+    async def effect(value: int) -> str:
+        effects.append(value)
+        return f"observed:{value}"
+
+    async def stream(messages, info):
+        yield {
+            0: DeltaToolCall(
+                name="effect", json_args='{"value":7}', tool_call_id="call-one"
+            )
+        }
+
+    publisher = Publisher("tool_call")
+
+    @asynccontextmanager
+    async def scope(request):
+        yield publisher
+
+    host_ports.register_durable_run_event_factory(scope)
+    result = await run(
+        RunRequest(task="do", run_id="run"),
+        plan=RunPlan(
+            model=FunctionModel(stream_function=stream),
+            steps=("do",),
+            toolsets=(toolset,),
+        ),
+    )
+
+    assert result.status == "failed"
+    assert result.error == "RuntimeError: durable run event publication failed"
+    assert effects == []
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.10")
+async def test_executor_without_host_publisher_keeps_ordinary_path() -> None:
+    calls: list[list] = []
+
+    def ordinary(messages, info):
+        calls.append(messages)
+        return ModelResponse(parts=[TextPart("ordinary")])
+
+    result = await run(
+        RunRequest(task="hello", run_id="run"),
+        plan=RunPlan(model=FunctionModel(ordinary), steps=("hello",)),
+    )
+
+    assert result.status == "completed"
+    assert result.output == "ordinary"
+    assert len(calls) == 1
 
 
 @pytest.mark.spec("AU-BOUNDARY-R043.10")

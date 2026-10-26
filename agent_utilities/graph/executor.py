@@ -31,6 +31,7 @@ from agent_utilities.harness.plan_runtime import PlanScaffold
 from .budget import SharedBudget, initial_run_usage
 from .checkpoint import RunCheckpoint
 from .dependency import iterate_dependency_plan, validate_dependency_plan
+from .live_events import run_step
 from .metrics import MeasuredModel, RunMetrics
 from .state import (
     GraphDeps,
@@ -378,12 +379,19 @@ async def iterate_run(
                         run_plan.budget.timeout_seconds - elapsed
                     ) as timeout:
                         async with (
-                            no_host_scope()
-                            if restricted
-                            else host_ports.scaffold_publication_scope(
-                                request, state.scaffold
-                            )
-                        ) as publisher:
+                            (
+                                no_host_scope()
+                                if restricted
+                                else host_ports.scaffold_publication_scope(
+                                    request, state.scaffold
+                                )
+                            ) as publisher,
+                            (
+                                no_host_scope()
+                                if restricted
+                                else host_ports.durable_run_event_scope(request)
+                            ) as event_publisher,
+                        ):
                             agent = build_agent(
                                 run_plan,
                                 state.run_id,
@@ -412,6 +420,7 @@ async def iterate_run(
                                         deadline=deadline,
                                         tool_caller=tool_caller,
                                         checkpoint=checkpoint,
+                                        event_publisher=event_publisher,
                                     )
                                 ) as execution:
                                     async for event in execution:
@@ -428,31 +437,46 @@ async def iterate_run(
                                 model_input: str | list[str | BinaryContent] = prompt
                                 if index == 0 and attachments:
                                     model_input = [prompt, *attachments]
+
+                                async def after_result(result: Any) -> None:
+                                    nonlocal history
+                                    if shared_budget is not None:
+                                        state.usage.clear()
+                                        state.add_usage(shared_budget.usage)
+                                    history = list(result.all_messages())
+                                    if shared_budget is None:
+                                        state.add_usage(result.usage)
+                                    text = _text(result.output)
+                                    state.outputs.append(text)
+                                    if any(
+                                        marker in text
+                                        for marker in run_plan.stop.stop_markers
+                                    ):
+                                        state.status = "stopped"
+                                    if checkpoint is not None:
+                                        checkpoint.history = history
+                                        checkpoint.inflight_tasks.discard(marker)
+                                        await checkpoint.save("completed")
+
                                 try:
-                                    result = await agent.run(
+                                    result = await run_step(
+                                        agent,
                                         model_input,
+                                        publisher=event_publisher,
+                                        step=state.step,
+                                        stream_observer=observe
+                                        if stream_observer is not None
+                                        else None,
+                                        after_result=after_result,
                                         deps=deps,
                                         message_history=history,
                                         usage_limits=limits,
-                                        event_stream_handler=observe
-                                        if stream_observer is not None
-                                        else None,
                                     )
                                 finally:
                                     if shared_budget is not None:
                                         state.usage.clear()
                                         state.add_usage(shared_budget.usage)
-                                history = list(result.all_messages())
-                                if shared_budget is None:
-                                    state.add_usage(result.usage)
                                 text = _text(result.output)
-                                state.outputs.append(text)
-                                if any(m in text for m in run_plan.stop.stop_markers):
-                                    state.status = "stopped"
-                                if checkpoint is not None:
-                                    checkpoint.history = history
-                                    checkpoint.inflight_tasks.discard(marker)
-                                    await checkpoint.save("completed")
                                 yield emit(state, "node_transition", output=text)
                                 if state.status == "stopped":
                                     break
