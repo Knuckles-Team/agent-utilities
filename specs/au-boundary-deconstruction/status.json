@@ -1849,9 +1849,19 @@
     {
       "id": "AU-BOUNDARY-R043.9",
       "title": "Carry completed conversation history into a fresh run",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "58ec920b1b81",
+        "8eb6c18d61cf",
+        "eebf9c25dfb7"
+      ],
+      "verified_by": [
+        "tests/test_checkpoint_r043922.py:25",
+        "tests/test_conversation_history.py:22",
+        "tests/test_conversation_history.py:232",
+        "tests/test_conversation_history.py:274",
+        "tests/test_conversation_history.py:301"
+      ],
       "rollup_of": [
         "AU-BOUNDARY-R043.9.1",
         "AU-BOUNDARY-R043.9.2"
@@ -1860,9 +1870,17 @@
     {
       "id": "AU-BOUNDARY-R043.10",
       "title": "Publish model and tool events through a durable host port",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "ff206c28ae62"
+      ],
+      "verified_by": [
+        "tests/test_live_events.py:115",
+        "tests/test_live_events.py:138",
+        "tests/test_live_events.py:199",
+        "tests/test_live_events.py:29",
+        "tests/test_live_events.py:59"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R044",
@@ -2147,9 +2165,18 @@
     {
       "id": "AU-BOUNDARY-R043.9.2",
       "title": "Complete checkpoint-backed conversation history integration",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8eb6c18d61cf",
+        "eebf9c25dfb7"
+      ],
+      "verified_by": [
+        "tests/test_checkpoint_r043922.py:25",
+        "tests/test_conversation_history.py:232",
+        "tests/test_conversation_history.py:274",
+        "tests/test_conversation_history.py:301",
+        "tests/test_conversation_history.py:340"
+      ],
       "rollup_of": [
         "AU-BOUNDARY-R043.9.2.1",
         "AU-BOUNDARY-R043.9.2.2"
@@ -2173,9 +2200,13 @@
     {
       "id": "AU-BOUNDARY-R043.9.2.2",
       "title": "Qualify genuine checkpoint restoration and served continuation",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "8eb6c18d61cf"
+      ],
+      "verified_by": [
+        "tests/test_checkpoint_r043922.py:25"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043.13",
