@@ -144,7 +144,14 @@ async def test_recursive_lineage_requires_explicit_child_identity_and_preserves_
 
 
 @pytest.mark.spec("AU-BOUNDARY-R043.14")
-async def test_recursive_lineage_omits_nested_publication_without_identity(events):
+@pytest.mark.parametrize(
+    "child_identity_provider",
+    [None, lambda parent, question: None],
+    ids=["provider-absent", "provider-refuses"],
+)
+async def test_recursive_lineage_refuses_missing_identity_before_dispatch(
+    events, child_identity_provider
+):
     def root(messages, info):
         if any(
             getattr(part, "part_kind", "") == "tool-return"
@@ -153,17 +160,25 @@ async def test_recursive_lineage_omits_nested_publication_without_identity(event
             return ModelResponse(parts=[TextPart("done")])
         return ModelResponse(parts=[ToolCallPart("sub_query", {"question": "child"})])
 
+    child_calls = []
+
+    def child(messages, info):
+        child_calls.append(messages)
+        return ModelResponse(parts=[TextPart("child")])
+
     result = await run_rlm(
         "root",
         config=RLMConfig(
             model=FunctionModel(root),
-            sub_model=TestModel(call_tools=[], custom_output_text="child"),
+            sub_model=FunctionModel(child),
         ),
         lineage=LineageBinding("root-run", "run", "root"),
-        child_identity_provider=lambda parent, question: None,
+        child_identity_provider=child_identity_provider,
     )
 
-    assert result["ok"] and result["result"] == "done"
+    assert not result["ok"]
+    assert "lineage-bound child requires" in result["error"]
+    assert child_calls == []
     assert [event["type"] for event in events] == ["run_started"]
 
 

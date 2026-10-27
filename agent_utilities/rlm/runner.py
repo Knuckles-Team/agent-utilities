@@ -120,26 +120,30 @@ def _agent(
         if ctx.deps.depth + 1 >= ctx.deps.config.max_depth:
             return "refused: maximum recursion depth reached"
         child_lineage: LineageBinding | None = None
-        if (
-            ctx.deps.lineage is not None
-            and ctx.deps.child_identity_provider is not None
-        ):
+        if ctx.deps.lineage is not None:
+            if ctx.deps.child_identity_provider is None:
+                raise LineageIdentityError(
+                    "lineage-bound child requires an admitted identity provider"
+                )
             child_lineage = ctx.deps.child_identity_provider(ctx.deps.lineage, question)
-            if child_lineage is not None:
-                if not isinstance(child_lineage, LineageBinding):
-                    raise LineageIdentityError(
-                        "child identity provider returned an invalid binding"
-                    )
-                relationship = lineage_relationship(
-                    "spawn", ctx.deps.lineage, child_lineage
+            if child_lineage is None:
+                raise LineageIdentityError(
+                    "lineage-bound child requires an explicit identity"
                 )
-                _emit_lineage(
-                    ctx.deps,
-                    "child_spawned",
-                    relationships=(relationship,),
-                    child_run_id=child_lineage.run_id,
-                    child_node=child_lineage.local_id,
+            if not isinstance(child_lineage, LineageBinding):
+                raise LineageIdentityError(
+                    "child identity provider returned an invalid binding"
                 )
+            relationship = lineage_relationship(
+                "spawn", ctx.deps.lineage, child_lineage
+            )
+            _emit_lineage(
+                ctx.deps,
+                "child_spawned",
+                relationships=(relationship,),
+                child_run_id=child_lineage.run_id,
+                child_node=child_lineage.local_id,
+            )
         child = _Env(
             text=ctx.deps.text[start : end or None],
             depth=ctx.deps.depth + 1,
