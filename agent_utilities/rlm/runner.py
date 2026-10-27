@@ -12,6 +12,7 @@ the model and budget (see :func:`agent_utilities.graph.resolve_plan`).
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,6 +22,12 @@ from pydantic_ai.usage import UsageLimits
 from agent_utilities import host_ports
 from agent_utilities.graph.budget import SharedBudget
 from agent_utilities.graph.executor import resolve_plan
+from agent_utilities.graph.live_events import (
+    LineageBinding,
+    LineageIdentityError,
+    emit_lineage_event,
+    lineage_relationship,
+)
 from agent_utilities.graph.state import RunBudget, RunRequest
 
 from .telemetry import SandboxFatalError, classify_failure
@@ -54,6 +61,32 @@ class _Env:
     depth: int
     config: RLMConfig
     budget: SharedBudget
+    lineage: LineageBinding | None = None
+    child_identity_provider: (
+        Callable[[LineageBinding, str], LineageBinding | None] | None
+    ) = None
+    event_sequence: int = 0
+
+
+def _emit_lineage(
+    env: _Env,
+    kind: str,
+    *,
+    relationships: tuple[dict[str, Any], ...] = (),
+    **fields: Any,
+) -> dict[str, Any] | None:
+    """Publish one event only when the host supplied an explicit identity."""
+
+    if env.lineage is None:
+        return None
+    env.event_sequence += 1
+    return emit_lineage_event(
+        kind,
+        env.lineage,
+        env.event_sequence,
+        relationships=relationships,
+        **fields,
+    )
 
 
 def _model(value: Any) -> Any:
@@ -86,12 +119,40 @@ def _agent(
         """Answer ``question`` over input[start:end] with a child run."""
         if ctx.deps.depth + 1 >= ctx.deps.config.max_depth:
             return "refused: maximum recursion depth reached"
+        child_lineage: LineageBinding | None = None
+        if ctx.deps.lineage is not None:
+            if ctx.deps.child_identity_provider is None:
+                raise LineageIdentityError(
+                    "lineage-bound child requires an admitted identity provider"
+                )
+            child_lineage = ctx.deps.child_identity_provider(ctx.deps.lineage, question)
+            if child_lineage is None:
+                raise LineageIdentityError(
+                    "lineage-bound child requires an explicit identity"
+                )
+            if not isinstance(child_lineage, LineageBinding):
+                raise LineageIdentityError(
+                    "child identity provider returned an invalid binding"
+                )
+            relationship = lineage_relationship(
+                "spawn", ctx.deps.lineage, child_lineage
+            )
+            _emit_lineage(
+                ctx.deps,
+                "child_spawned",
+                relationships=(relationship,),
+                child_run_id=child_lineage.run_id,
+                child_node=child_lineage.local_id,
+            )
         child = _Env(
             text=ctx.deps.text[start : end or None],
             depth=ctx.deps.depth + 1,
             config=ctx.deps.config,
             budget=ctx.deps.budget,
+            lineage=child_lineage,
+            child_identity_provider=ctx.deps.child_identity_provider,
         )
+        _emit_lineage(child, "child_started")
         out = await _run_drained(question, child, str)
         return str(out)
 
@@ -161,6 +222,9 @@ async def run_rlm(
     *,
     config: RLMConfig | None = None,
     output_type: Any = str,
+    lineage: LineageBinding | None = None,
+    child_identity_provider: Callable[[LineageBinding, str], LineageBinding | None]
+    | None = None,
 ) -> dict[str, Any]:
     """Run one recursive task over ``input_text``.
 
@@ -192,7 +256,19 @@ async def run_rlm(
             ),
             max_concurrent_requests=cfg.max_concurrent_requests,
         )
-        env = _Env(text=input_text, depth=0, config=cfg, budget=budget)
+        if lineage is not None and not isinstance(lineage, LineageBinding):
+            raise TypeError("lineage must be a LineageBinding when supplied")
+        if child_identity_provider is not None and lineage is None:
+            raise ValueError("child identity provider requires a root lineage")
+        env = _Env(
+            text=input_text,
+            depth=0,
+            config=cfg,
+            budget=budget,
+            lineage=lineage,
+            child_identity_provider=child_identity_provider,
+        )
+        _emit_lineage(env, "run_started")
         async with asyncio.timeout(cfg.timeout_seconds):
             value = await _run_drained(task, env, output_type)
     except SandboxFatalError:
@@ -219,4 +295,8 @@ async def run_rlm(
     }
 
 
-__all__ = ["ROOT_INSTRUCTIONS", "RLMConfig", "run_rlm"]
+__all__ = [
+    "ROOT_INSTRUCTIONS",
+    "RLMConfig",
+    "run_rlm",
+]

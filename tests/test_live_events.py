@@ -12,7 +12,12 @@ from pydantic_ai.toolsets import FunctionToolset
 
 from agent_utilities import host_ports
 from agent_utilities.graph import RunPlan, RunRequest, run
-from agent_utilities.graph.live_events import run_step
+from agent_utilities.graph.live_events import (
+    LineageBinding,
+    LineageIdentityError,
+    lineage_relationship,
+    run_step,
+)
 
 
 class Publisher:
@@ -24,6 +29,49 @@ class Publisher:
         if kind == self.fail_kind:
             raise OSError("private durable backend detail")
         self.events.append((kind, content))
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.14")
+def test_lineage_relationships_use_explicit_keys_and_fail_closed() -> None:
+    root = LineageBinding("run-root", "run", "same-name", plan_id="plan")
+    child = LineageBinding(
+        "run-child",
+        "run",
+        "same-name",
+        plan_id="plan",
+        parent_run_id="run-root",
+        parent_node="same-name",
+    )
+    grandchild = LineageBinding(
+        "run-grandchild",
+        "run",
+        "same-name",
+        plan_id="plan",
+        parent_run_id="run-child",
+        parent_node="same-name",
+    )
+    spawn = lineage_relationship("spawn", root, child)
+    nested_spawn = lineage_relationship("spawn", child, grandchild)
+    dependency = lineage_relationship(
+        "dependency",
+        LineageBinding("run-root", "step", "same-name", plan_id="plan"),
+        LineageBinding("run-root", "step", "join", plan_id="plan"),
+    )
+
+    assert root.key == ("run-root", "run", "same-name")
+    assert child.key == ("run-child", "run", "same-name")
+    assert spawn["type"] == nested_spawn["type"] == "spawn"
+    assert lineage_relationship("spawn", root, child)["edge_id"] == spawn["edge_id"]
+    assert spawn["edge_id"] != nested_spawn["edge_id"]
+    assert dependency["type"] == "dependency"
+    assert dependency["edge_id"] != spawn["edge_id"]
+
+    with pytest.raises(LineageIdentityError):
+        lineage_relationship(
+            "spawn",
+            root,
+            LineageBinding("unbound", "run", "same-name"),
+        )
 
 
 @pytest.mark.spec("AU-BOUNDARY-R043.10")
