@@ -2247,8 +2247,10 @@
     {
       "id": "AU-BOUNDARY-R043.14",
       "title": "Emit explicit child lineage through existing run events",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "fb8b61e51e82"
+      ],
       "verified_by": [
         "tests/test_live_events.py:34",
         "tests/test_live_events_dependency.py:181",
