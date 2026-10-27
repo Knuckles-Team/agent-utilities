@@ -20,7 +20,12 @@ from agent_utilities.host_ports import DurableRunEventPublisher
 
 from .budget import SharedBudget
 from .checkpoint import RunCheckpoint
-from .live_events import run_step
+from .live_events import (
+    LineageBinding,
+    lineage_event_fields,
+    lineage_relationship,
+    run_step,
+)
 from .state import (
     BindingUnresolved,
     DependencyPlan,
@@ -537,6 +542,25 @@ async def _execute_dependency_plan(
         await publish_durable("tool_result", content)
 
     def event(kind: str, key: str, **fields: Any) -> dict[str, Any]:
+        target = LineageBinding(
+            run_id=state.run_id,
+            node_kind="step",
+            local_id=key,
+            plan_id=graph.plan_id or None,
+        )
+        dependencies = tuple(
+            lineage_relationship(
+                "dependency",
+                LineageBinding(
+                    run_id=state.run_id,
+                    node_kind="step",
+                    local_id=dependency,
+                    plan_id=graph.plan_id or None,
+                ),
+                target,
+            )
+            for dependency in nodes[key].depends_on
+        )
         return emit(
             state,
             kind,
@@ -544,6 +568,7 @@ async def _execute_dependency_plan(
             parent_run_id=state.run_id,
             plan_id=graph.plan_id,
             depends_on=list(nodes[key].depends_on),
+            **lineage_event_fields(target, dependencies),
             **fields,
         )
 

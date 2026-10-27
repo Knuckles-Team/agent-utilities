@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
+from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 
 from agent_utilities import host_ports
@@ -175,6 +176,44 @@ async def test_dependency_events_follow_checkpoint_ack_and_carry_tool_record() -
     tool_terminal = _at(timeline, "run_event", "task_completed", "tool")
     assert tool_inflight < tool_started < tool_call < tool_ack < tool_result_index
     assert tool_result_index < tool_terminal
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.14")
+async def test_dependency_events_keep_step_keys_and_dependency_edges_distinct() -> None:
+    events: list[dict[str, Any]] = []
+    host_ports.register_run_event_sink(events.append)
+
+    async def stream(messages, info):
+        return ModelResponse(parts=[TextPart(str(messages[-1].parts[-1].content))])
+
+    plan = RunPlan(
+        model=FunctionModel(stream),
+        dependency_plan=DependencyPlan(
+            tasks=(
+                RunTask("same-name", "first"),
+                RunTask("peer", "peer"),
+                RunTask("join", "join", ("same-name", "peer")),
+            ),
+            output_task_id="join",
+            plan_id="r04314-plan",
+        ),
+    )
+    result = await run(
+        RunRequest(task="dag", run_id="r04314-run"),
+        plan=plan,
+    )
+
+    assert result.status == "completed"
+    joined = [event for event in events if event.get("task_id") == "join"]
+    assert joined and all(event["node_kind"] == "step" for event in joined)
+    relationships = joined[0]["lineage_relationships"]
+    assert {edge["type"] for edge in relationships} == {"dependency"}
+    assert {edge["target"]["local_id"] for edge in relationships} == {"join"}
+    assert {edge["source"]["local_id"] for edge in relationships} == {
+        "same-name",
+        "peer",
+    }
+    assert len({edge["edge_id"] for edge in relationships}) == 2
 
 
 @pytest.mark.spec("AU-BOUNDARY-R043.10")

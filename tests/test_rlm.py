@@ -9,6 +9,7 @@ from pydantic_ai.models.test import TestModel
 
 from agent_utilities import host_ports
 from agent_utilities.graph import RunPlan
+from agent_utilities.graph.live_events import LineageBinding
 from agent_utilities.rlm import RLMConfig, SandboxFatalError, classify_failure, run_rlm
 from agent_utilities.rlm.telemetry import dominant_failure
 
@@ -70,6 +71,100 @@ async def test_root_reads_slices_and_recurses():
     out = await run_rlm("t", "abcdefgh", config=RLMConfig(model=root, sub_model=child))
     assert out["ok"] and out["result"] == "child-answer"
     assert out["usage"]["requests"] >= 3 and out["max_depth"] == 3
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.14")
+async def test_recursive_lineage_requires_explicit_child_identity_and_preserves_edges(
+    events,
+):
+    def root(messages, info):
+        if any(
+            getattr(part, "part_kind", "") == "tool-return"
+            for part in messages[-1].parts
+        ):
+            return ModelResponse(parts=[TextPart("root-answer")])
+        return ModelResponse(parts=[ToolCallPart("sub_query", {"question": "child"})])
+
+    def child(messages, info):
+        if any(
+            getattr(part, "part_kind", "") == "tool-return"
+            for part in messages[-1].parts
+        ):
+            return ModelResponse(parts=[TextPart("child-answer")])
+        return ModelResponse(
+            parts=[ToolCallPart("sub_query", {"question": "grandchild"})]
+        )
+
+    identities = iter(
+        (
+            LineageBinding(
+                "child-run",
+                "run",
+                "same-name",
+                plan_id="plan",
+                parent_run_id="root-run",
+                parent_node="same-name",
+            ),
+            LineageBinding(
+                "grandchild-run",
+                "run",
+                "same-name",
+                plan_id="plan",
+                parent_run_id="child-run",
+                parent_node="same-name",
+            ),
+        )
+    )
+
+    def child_identity(parent, question):
+        return next(identities)
+
+    result = await run_rlm(
+        "root",
+        config=RLMConfig(
+            model=FunctionModel(root),
+            sub_model=FunctionModel(child),
+            max_depth=3,
+        ),
+        lineage=LineageBinding("root-run", "run", "same-name", plan_id="plan"),
+        child_identity_provider=child_identity,
+    )
+
+    assert result["ok"] and result["result"] == "root-answer"
+    starts = [event for event in events if event["type"] == "run_started"]
+    spawns = [event for event in events if event["type"] == "child_spawned"]
+    assert [event["run_id"] for event in starts] == ["root-run"]
+    assert [event["run_id"] for event in spawns] == ["root-run", "child-run"]
+    assert spawns[0]["lineage_relationships"][0]["type"] == "spawn"
+    assert spawns[0]["lineage_relationships"][0]["target"]["run_id"] == ("child-run")
+    assert spawns[1]["lineage_relationships"][0]["target"]["run_id"] == (
+        "grandchild-run"
+    )
+    assert starts[0]["event_id"] != spawns[0]["event_id"]
+
+
+@pytest.mark.spec("AU-BOUNDARY-R043.14")
+async def test_recursive_lineage_omits_nested_publication_without_identity(events):
+    def root(messages, info):
+        if any(
+            getattr(part, "part_kind", "") == "tool-return"
+            for part in messages[-1].parts
+        ):
+            return ModelResponse(parts=[TextPart("done")])
+        return ModelResponse(parts=[ToolCallPart("sub_query", {"question": "child"})])
+
+    result = await run_rlm(
+        "root",
+        config=RLMConfig(
+            model=FunctionModel(root),
+            sub_model=TestModel(call_tools=[], custom_output_text="child"),
+        ),
+        lineage=LineageBinding("root-run", "run", "root"),
+        child_identity_provider=lambda parent, question: None,
+    )
+
+    assert result["ok"] and result["result"] == "done"
+    assert [event["type"] for event in events] == ["run_started"]
 
 
 # spec: AU-BOUNDARY-R043.3
