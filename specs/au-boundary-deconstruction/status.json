@@ -1564,11 +1564,11 @@
         "e7ce34331f28"
       ],
       "verified_by": [
-        "tests/test_rlm.py:107",
-        "tests/test_rlm.py:20",
-        "tests/test_rlm.py:64",
-        "tests/test_rlm.py:75",
-        "tests/test_rlm.py:82"
+        "tests/test_rlm.py:185",
+        "tests/test_rlm.py:192",
+        "tests/test_rlm.py:208",
+        "tests/test_rlm.py:21",
+        "tests/test_rlm.py:217"
       ]
     },
     {
@@ -1880,11 +1880,11 @@
         "ff206c28ae62"
       ],
       "verified_by": [
-        "tests/test_live_events.py:115",
-        "tests/test_live_events.py:138",
-        "tests/test_live_events.py:199",
-        "tests/test_live_events.py:29",
-        "tests/test_live_events.py:59"
+        "tests/test_live_events.py:107",
+        "tests/test_live_events.py:145",
+        "tests/test_live_events.py:163",
+        "tests/test_live_events.py:186",
+        "tests/test_live_events.py:247"
       ]
     },
     {
@@ -2247,9 +2247,17 @@
     {
       "id": "AU-BOUNDARY-R043.14",
       "title": "Emit explicit child lineage through existing run events",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "c2960d1e249b",
+        "e1bb8bbf619d"
+      ],
+      "verified_by": [
+        "tests/test_live_events.py:34",
+        "tests/test_live_events_dependency.py:181",
+        "tests/test_rlm.py:146",
+        "tests/test_rlm.py:76"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043.15",
