@@ -818,6 +818,19 @@ R043.8 and R043.9.2.2 remain open for genuine checkpoint composition. History
 absence, unsupported form and denied access are not interchangeable with an
 empty conversation.
 
+For a host-admitted group executing in one live event loop, the execution
+mechanism may receive the same `LiveSharedBudget` object for each run. Every
+model request and tool effect reserves against that one object; per-run views
+report fresh local counters. The host binds membership and the common deadline,
+closes the authority, and drains in-flight work. It supplies an already received
+plan; the shared path refuses plan-provider calls and seeded usage so it cannot
+silently omit prior planning charges. This in-process capability is not a
+durable owner ledger: it refuses checkpoints and cannot cross a process restart
+or event loop. With a finite token limit, model calls serialize because
+token usage arrives only with the response; a single response may itself exceed
+the remaining allowance. Cross-process admission and hard pre-response token
+reservations therefore remain unqualified.
+
 R043.17 publishes only explicitly permitted records; a transcript is not
 reconstructed from lifecycle events. The host retains owner checks and public
 projection. Existing source usage metrics remain authoritative, with no new

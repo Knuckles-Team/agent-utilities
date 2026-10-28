@@ -28,7 +28,7 @@ from agent_utilities.harness.conversation_history import decode_completed_histor
 from agent_utilities.harness.plan import PlanState
 from agent_utilities.harness.plan_runtime import PlanScaffold
 
-from .budget import SharedBudget, initial_run_usage
+from .budget import LiveSharedBudget, SharedBudget, initial_run_usage
 from .checkpoint import RunCheckpoint
 from .dependency import iterate_dependency_plan, validate_dependency_plan
 from .live_events import run_step
@@ -201,6 +201,7 @@ async def iterate_run(
     *,
     plan: RunPlan | None = None,
     stream_observer: ModelStreamObserver | None = None,
+    shared_execution: LiveSharedBudget | None = None,
 ) -> AsyncGenerator[dict[str, Any]]:
     """Run ``request`` step by step, yielding each event.
 
@@ -231,6 +232,8 @@ async def iterate_run(
     cfg = dict(config or {})
     state = GraphState(run_id=request.run_id, query=request.task, mode=request.mode)
     try:
+        if shared_execution is not None and plan is None:
+            raise ValueError("shared execution requires an explicit received plan")
         supplied_usage = None
         if plan is not None:
             supplied_usage = initial_run_usage(plan)
@@ -283,6 +286,13 @@ async def iterate_run(
         )
         if has_initial_usage and supplied_usage is None:
             state.add_usage(initial_usage)
+        if shared_execution is not None:
+            if not isinstance(shared_execution, LiveSharedBudget):
+                raise TypeError("shared execution budget is invalid")
+            if has_initial_usage or restricted:
+                raise ValueError(
+                    "shared execution cannot restore usage or use restricted execution"
+                )
         if history and run_plan.dependency_plan is not None:
             raise ValueError("dependency-plan conversation history is unavailable")
         tool_caller = host_ports.tool_caller()
@@ -301,11 +311,15 @@ async def iterate_run(
         async with host_ports.run_checkpoint_scope(
             request, run_plan
         ) as checkpoint_port:
+            if checkpoint_port is not None and shared_execution is not None:
+                raise ValueError("shared execution cannot use a durable checkpoint")
             checkpoint = (
                 RunCheckpoint(checkpoint_port, state, run_plan, attachments)
                 if checkpoint_port is not None
                 else None
             )
+            if shared_execution is not None:
+                shared_execution.require(run_plan.budget)
             if checkpoint is not None:
                 await checkpoint.restore()
                 if checkpoint.restored:
@@ -325,6 +339,8 @@ async def iterate_run(
             if not (checkpoint is not None and checkpoint.restored):
                 state.status = "running"
             shared_budget = (
+                shared_execution.run_view() if shared_execution else None
+            ) or (
                 SharedBudget(
                     run_plan.budget,
                     max_concurrent_requests=run_plan.budget.max_concurrent_requests,
@@ -375,9 +391,19 @@ async def iterate_run(
                     if restricted
                     else host_ports.authority_keepalive_scope()
                 ):
-                    async with asyncio.timeout(
-                        run_plan.budget.timeout_seconds - elapsed
-                    ) as timeout:
+                    scope_deadline = (
+                        asyncio.get_running_loop().time()
+                        + run_plan.budget.timeout_seconds
+                        - elapsed
+                    )
+                    if shared_execution is not None:
+                        scope_deadline = min(scope_deadline, shared_execution.deadline)
+                    timeout_scope = (
+                        asyncio.timeout_at(scope_deadline)
+                        if shared_execution is not None
+                        else asyncio.timeout(run_plan.budget.timeout_seconds - elapsed)
+                    )
+                    async with timeout_scope as timeout:
                         async with (
                             (
                                 no_host_scope()
@@ -515,11 +541,16 @@ async def run(
     *,
     plan: RunPlan | None = None,
     stream_observer: ModelStreamObserver | None = None,
+    shared_execution: LiveSharedBudget | None = None,
 ) -> RunResult:
     """Drive :func:`iterate_run` to its terminal event and return the result."""
     final: dict[str, Any] = {}
     async for event in iterate_run(
-        request, config, plan=plan, stream_observer=stream_observer
+        request,
+        config,
+        plan=plan,
+        stream_observer=stream_observer,
+        shared_execution=shared_execution,
     ):
         final = event
     data = final["result"]
@@ -560,8 +591,10 @@ class AgentRunExecutor:
         *,
         session: Any = None,
         stream_observer: ModelStreamObserver | None = None,
+        shared_execution: LiveSharedBudget | None = None,
+        plan: RunPlan | None = None,
     ) -> RunResult:
-        """Run the received request with an optional trusted, per-call observer."""
+        """Run a request using trusted, per-call host capabilities."""
         run_request = RunRequest(
             task=str(request.task),
             agent_name=str(getattr(request, "agent_name", "") or ""),
@@ -574,7 +607,13 @@ class AgentRunExecutor:
             metadata={"session": session} if session is not None else {},
             attachments=tuple(getattr(request, "attachments", ())),
         )
-        result = await run(run_request, self._config, stream_observer=stream_observer)
+        result = await run(
+            run_request,
+            self._config,
+            plan=plan,
+            stream_observer=stream_observer,
+            shared_execution=shared_execution,
+        )
         if result.status == "failed":
             raise RunFailed(result)
         return result
