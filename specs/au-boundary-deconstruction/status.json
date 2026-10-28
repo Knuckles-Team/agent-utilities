@@ -1508,7 +1508,7 @@
       ],
       "verified_by": [
         "tests/gates/test_boundary_coverage_guard.py:24",
-        "tests/gates/test_boundary_coverage_guard.py:35"
+        "tests/gates/test_boundary_coverage_guard.py:37"
       ]
     },
     {

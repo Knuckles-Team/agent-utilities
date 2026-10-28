@@ -50,19 +50,11 @@ def check(root: Path) -> list[str]:
         raise ValueError("package directory is missing")
     directories: set[str] = set()
     for first in package.iterdir():
-        if (
-            not first.is_dir()
-            or first.name.startswith(".")
-            or first.name == "__pycache__"
-        ):
+        if not first.is_dir() or first.name == "__pycache__":
             continue
         directories.add(first.relative_to(root).as_posix())
         for second in first.iterdir():
-            if (
-                second.is_dir()
-                and not second.name.startswith(".")
-                and second.name != "__pycache__"
-            ):
+            if second.is_dir() and second.name != "__pycache__":
                 directories.add(second.relative_to(root).as_posix())
     return [
         *(f"unlisted directory: {path}" for path in sorted(directories - rows.keys())),

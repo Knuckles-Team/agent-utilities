@@ -25,8 +25,10 @@ def checkout(tmp_path: Path) -> Path:
 def test_inventory_rejects_unlisted_and_stale_directories(checkout: Path) -> None:
     assert check(checkout) == []
     (checkout / "agent_utilities/unlisted").mkdir()
+    (checkout / "agent_utilities/.hidden").mkdir()
     (checkout / "agent_utilities/harness").rmdir()
     assert check(checkout) == [
+        "unlisted directory: agent_utilities/.hidden",
         "unlisted directory: agent_utilities/unlisted",
         "stale directory: agent_utilities/harness",
     ]
