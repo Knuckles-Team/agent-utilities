@@ -2,12 +2,20 @@
 # (https://github.com/Knuckles-Team/pipelines/blob/main/reference/precommit-standard.md,
 # templates/pre-commit.yaml). Install both stages with
 #   pre-commit install --config .config/pre-commit.yaml --hook-type pre-commit --hook-type pre-push
-# The hooks need no repository scripts: every entry is a pinned remote hook.
+# The owner guard also checks the repository's current component registry.
 # Only fast checks on the change live here; release.yml runs the spec gates,
 # mypy, the test suite and the wheel build.
 default_install_hook_types: [pre-commit, pre-push]
 default_stages: [pre-commit]
 repos:
+- repo: local
+  hooks:
+  - id: boundary-owners
+    name: boundary owner registry
+    entry: python scripts/check_boundary_owners.py
+    language: system
+    pass_filenames: false
+    always_run: true
 # --- pre-commit: hygiene on staged files ------------------------------------
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0

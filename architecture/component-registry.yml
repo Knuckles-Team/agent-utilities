@@ -1,0 +1,71 @@
+{
+  "schema": "au-boundary-owners/v1",
+  "owners": {
+    "meristem": {
+      "modules": [
+        "agent_utilities/__init__.py",
+        "agent_utilities/__main__.py",
+        "agent_utilities/_version.py",
+        "agent_utilities/core/__init__.py",
+        "agent_utilities/core/paths.py",
+        "agent_utilities/graph/__init__.py",
+        "agent_utilities/graph/budget.py",
+        "agent_utilities/graph/builder.py",
+        "agent_utilities/graph/checkpoint.py",
+        "agent_utilities/graph/dependency.py",
+        "agent_utilities/graph/executor.py",
+        "agent_utilities/graph/live_events.py",
+        "agent_utilities/graph/metrics.py",
+        "agent_utilities/graph/runner.py",
+        "agent_utilities/graph/state.py",
+        "agent_utilities/graph/text_only.py",
+        "agent_utilities/harness/__init__.py",
+        "agent_utilities/harness/client_capabilities.py",
+        "agent_utilities/harness/constraint_engine.py",
+        "agent_utilities/harness/contract_validator.py",
+        "agent_utilities/harness/conversation_history.py",
+        "agent_utilities/harness/edit_engine.py",
+        "agent_utilities/harness/harness_cycle.py",
+        "agent_utilities/harness/hosted_run.py",
+        "agent_utilities/harness/plan.py",
+        "agent_utilities/harness/plan_runtime.py",
+        "agent_utilities/harness/quality_gates.py",
+        "agent_utilities/host_ports.py",
+        "agent_utilities/rlm/__init__.py",
+        "agent_utilities/rlm/runner.py",
+        "agent_utilities/rlm/telemetry.py",
+        "agent_utilities/runtime/__init__.py",
+        "agent_utilities/runtime/bridge.py",
+        "agent_utilities/runtime/browser_tier.py",
+        "agent_utilities/runtime/computer_use_tier.py",
+        "agent_utilities/runtime/docker_workspace.py",
+        "agent_utilities/runtime/events.py",
+        "agent_utilities/runtime/local_workspace.py",
+        "agent_utilities/runtime/provenance.py",
+        "agent_utilities/runtime/workspace.py"
+      ]
+    },
+    "arbora": {
+      "prefixes": [
+        "agent_utilities/deployment",
+        "agent_utilities/gateway",
+        "agent_utilities/mcp",
+        "agent_utilities/messaging/backends",
+        "agent_utilities/messaging/service.py"
+      ]
+    },
+    "scion-sdk": {
+      "prefixes": [
+        "agent_utilities/base_utilities.py",
+        "agent_utilities/protocols/source_connectors",
+        "agent_utilities/protocols/universal_connector.py"
+      ]
+    },
+    "medulla": {
+      "prefixes": [
+        "agent_utilities/knowledge_graph",
+        "agent_utilities/control_plane"
+      ]
+    }
+  }
+}

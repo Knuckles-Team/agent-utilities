@@ -1451,12 +1451,15 @@
     {
       "id": "AU-BOUNDARY-R038",
       "title": "Add a cross-owner component registry and path guard",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "8821aee3c37f",
         "aa5eba73e0f7"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_owner_guard.py:41",
+        "tests/gates/test_boundary_owner_guard.py:64"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R040",

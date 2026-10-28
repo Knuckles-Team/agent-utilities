@@ -958,3 +958,15 @@ invalid or absent selected payload refuses before planning; it is not an empty
 history. Current-run checkpoint precedence is unchanged. The host remains
 responsible for authorization and consistent native selection. This local seam
 alone does not qualify installed Arbora or native owner acceptance.
+
+### R038 current owner guard
+
+The current harness tree has a checked-in component registry with an explicit
+Meristem Python-module inventory and foreign-owner boundary seeds for Arbora,
+Scion SDK and Medulla. `scripts/check_boundary_owners.py` checks the inventory
+and console-script targets, and rejects a registered module if it also falls
+under a foreign seed. It runs in the local hook and hosted gates. Hermetic
+checkout fixtures exercise wrong-owner module and script additions, unlisted
+modules and stale inventory entries. The registry must be updated when an
+owner decision or harness module changes; it does not assert behavioral
+parity for the separate relocation requirements.
