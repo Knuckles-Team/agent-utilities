@@ -1024,3 +1024,13 @@ Python imports, resolves package-relative imports, exercises injected callers,
 and refuses unresolved dynamic imports. An empty current set does not prove
 that the removed capabilities were replaced: R028.2.2, R028.6.2, R028.7.2 and
 R028.8.2 retain the corresponding EG consumer and CI-gate acceptance.
+
+### R018–R022 current duplicate inventories
+
+The current harness tree has none of the exact EG-duplicate paths listed by
+R018.1–R022.1. The restored typed inventory names those paths, including the
+R018 wildcard and R022 package directories, and compares the recorded empty
+sets with the tree. Its fixture demonstrates that both an unrecorded addition
+and a recorded path's removal fail. These inventories document Meristem's
+current tree only; the R018.2–R022.2 owner-client parity and cutover proof
+remain separate and open.
