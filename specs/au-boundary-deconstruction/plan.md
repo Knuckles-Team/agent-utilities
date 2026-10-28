@@ -945,3 +945,16 @@ real TLS discovery, token verification and shutdown. The optional macOS Intel
 and Windows ARM installation legs remain unqualified because the pinned engine
 distribution lacks wheels for those platforms. This owner decision does not
 assert end-to-end certification-flow parity or close the other R002 children.
+
+### Completed child history selection contract
+
+The checkpoint provider may bind a completed child using `CompletedChildBinding`
+with child ID, conversation ID, predecessor run ID, and history revision, each
+a nonempty string of at most 512 UTF-8 bytes. The same trusted selection supplies a version-one completed child JSON envelope with
+those four fields and the bounded alternating text messages. The harness checks
+all four fields against the separate selection binding, validates the existing
+completed-text codec, and rejects a predecessor equal to the current run. An
+invalid or absent selected payload refuses before planning; it is not an empty
+history. Current-run checkpoint precedence is unchanged. The host remains
+responsible for authorization and consistent native selection. This local seam
+alone does not qualify installed Arbora or native owner acceptance.

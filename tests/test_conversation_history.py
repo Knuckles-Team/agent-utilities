@@ -413,3 +413,129 @@ async def test_supplied_plan_usage_survives_history_refusal_exactly_once(case, e
     assert result.usage["input_tokens"] == 3 + (2 if succeeded else 0)
     assert result.usage["output_tokens"] == 4 + (3 if succeeded else 0)
     assert events[-1]["result"]["usage"] == result.usage
+
+
+@pytest.mark.parametrize(
+    "mismatch",
+    [
+        None,
+        "child_id",
+        "conversation_id",
+        "predecessor_run_id",
+        "history_revision",
+        "phase",
+    ],
+)
+async def test_selected_child_history_is_bound_before_model(mismatch):
+    binding = host_ports.CompletedChildBinding(
+        "child", "conversation", "prior", "revision"
+    )
+    value = {
+        "version": 1,
+        "phase": "completed",
+        "child_id": "child",
+        "conversation_id": "conversation",
+        "predecessor_run_id": "prior",
+        "history_revision": "revision",
+        "messages": envelope()["messages"],
+    }
+    if mismatch:
+        value[mismatch] = "foreign"
+
+    async def select(request):
+        return host_ports.RunCheckpointSelection(
+            request.run_id, None, json.dumps(value), completed_child=binding
+        )
+
+    calls = []
+
+    def respond(messages, info):
+        calls.append(messages)
+        return ModelResponse(parts=[TextPart("answer")])
+
+    host_ports.register_run_checkpoint_provider(select)
+    result = await run(
+        RunRequest(task="new question", run_id="current"),
+        plan=RunPlan(model=FunctionModel(respond), steps=("new question",)),
+    )
+    if mismatch:
+        assert result.status == "failed"
+        assert not calls
+    else:
+        assert result.status == "completed"
+        assert [message.parts[0].content for message in calls[0]] == [
+            "earlier question",
+            "earlier answer",
+            "new question",
+        ]
+
+
+@pytest.mark.parametrize("current", [None, "checkpoint"])
+async def test_missing_child_history_and_current_checkpoint_fail_closed(current):
+    async def select(request):
+        return host_ports.RunCheckpointSelection(
+            request.run_id,
+            current,
+            None,
+            completed_child=host_ports.CompletedChildBinding(
+                "child", "conversation", "prior", "revision"
+            ),
+        )
+
+    calls = []
+
+    def respond(messages, info):
+        calls.append(messages)
+        return ModelResponse(parts=[TextPart("unexpected")])
+
+    host_ports.register_run_checkpoint_provider(select)
+    result = await run(
+        RunRequest(task="new", run_id="current"),
+        plan=RunPlan(model=FunctionModel(respond), steps=("new",)),
+    )
+    assert result.status == "failed"
+    assert not calls
+    assert (
+        "current-run checkpoint restore is unavailable"
+        if current
+        else "completed child history is invalid"
+    ) in result.error
+
+
+@pytest.mark.parametrize(
+    "field", ["child_id", "conversation_id", "predecessor_run_id", "history_revision"]
+)
+async def test_oversized_child_binding_refuses_before_model(field):
+    values = {
+        "child_id": "child",
+        "conversation_id": "conversation",
+        "predecessor_run_id": "prior",
+        "history_revision": "revision",
+    }
+    values[field] = "é" * 257
+    binding = host_ports.CompletedChildBinding(**values)
+
+    async def select(request):
+        payload = {
+            "version": 1,
+            "phase": "completed",
+            **values,
+            "messages": envelope()["messages"],
+        }
+        return host_ports.RunCheckpointSelection(
+            request.run_id, None, json.dumps(payload), completed_child=binding
+        )
+
+    calls = []
+
+    def respond(messages, info):
+        calls.append(messages)
+        return ModelResponse(parts=[TextPart("unexpected")])
+
+    host_ports.register_run_checkpoint_provider(select)
+    result = await run(
+        RunRequest(task="new", run_id="current"),
+        plan=RunPlan(model=FunctionModel(respond), steps=("new",)),
+    )
+    assert result.status == "failed"
+    assert not calls
