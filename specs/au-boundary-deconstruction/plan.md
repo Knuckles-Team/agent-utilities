@@ -989,3 +989,29 @@ development and release procedure, and remains in Meristem as recorded in
 skill ownership test enumerates the current directories and checks each kept
 skill has its own named definition; the coverage guard rejects unrecorded or
 stale directories.
+
+### R006.1 connector import census restored
+
+The current-tree census at `scripts/check_connector_import_census.py` inspects
+Python source in F–J or T–Z connector checkouts for the five named retired
+import prefixes. It reports static imports and resolvable import aliases,
+including literal dynamic imports. Nonliteral dynamic imports and `exec` or
+`eval` are reported as unresolved; an unreadable, invalid or empty source
+checkout cannot be classified clean. This instrument is not proof against
+every possible runtime-generated import, and it does not certify a connector
+migration or a live engine receipt.
+
+A read-only run on the historical F–J checkouts classified
+[github-agent `e9670d2db2cd`](https://github.com/Knuckles-Team/github-agent/tree/e9670d2db2cd9bda0b729c13b8bf53f9c4c546e6)
+without a named banned import and found `agent_utilities.core.config` in
+[fan-manager `b726413efddf`](https://github.com/Knuckles-Team/fan-manager/blob/b726413efddfe1d9604836037f99ea8820b03a09/fan_manager/kg_control.py).
+Fan-manager also contains unresolved dynamic imports, which are reported with
+file and line rather than treated as clean. The hermetic tests exercise the
+classifications, nonliteral dynamic imports and failure paths without requiring
+fleet checkouts in CI. A T–Z run found no named banned imports or unresolved
+dynamic imports in [technitium-dns-mcp `25c5119db21c`](https://github.com/Knuckles-Team/technitium-dns-mcp/tree/25c5119db21ca9743e41fa4846b837b6e60ff4a2),
+and found `agent_utilities.mcp.context_helpers` in historical
+[twenty-mcp `641a89c457c8`](https://github.com/Knuckles-Team/twenty-mcp/blob/641a89c457c885b9b4347f805ab87d0b491e2118/twenty_mcp/mcp/mcp_graphql.py).
+The latter also has unresolved dynamic imports. Technitium's older revision
+and other current packages likewise remain indeterminate when their dynamic
+imports cannot be resolved; they are not silently classified clean.

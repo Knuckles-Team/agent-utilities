@@ -324,13 +324,15 @@
     {
       "id": "AU-BOUNDARY-R006",
       "title": "Migrate connector packages F-J onto the SDK",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "105559f760c3",
         "5a00da215c55",
         "fe5ca4e239ec"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_connector_import_census.py:18"
+      ],
       "rollup_of": [
         "AU-BOUNDARY-R006.1"
       ]
@@ -338,13 +340,15 @@
     {
       "id": "AU-BOUNDARY-R006.1",
       "title": "Ship AU's F-J connector import-census gate",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "105559f760c3",
         "5a00da215c55",
         "fe5ca4e239ec"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_connector_import_census.py:18"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R007",
@@ -405,11 +409,13 @@
     {
       "id": "AU-BOUNDARY-R009",
       "title": "Migrate connector packages T-Z onto the SDK",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5a00da215c55"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_connector_import_census.py:32"
+      ],
       "rollup_of": [
         "AU-BOUNDARY-R009.1"
       ]
@@ -417,11 +423,13 @@
     {
       "id": "AU-BOUNDARY-R009.1",
       "title": "Ship AU's T-Z connector import-census gate",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5a00da215c55"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_connector_import_census.py:32"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R010",
