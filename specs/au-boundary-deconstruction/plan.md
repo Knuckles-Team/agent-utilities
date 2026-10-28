@@ -899,7 +899,7 @@ allowlist when composing this producer into an admitted central execution.
 The connector-facing home for `to_boolean`, `to_integer`, `to_list`, and
 `to_dict` is Scion SDK's
 [`agent_connector_sdk.utilities`](https://github.com/Knuckles-Team/scion-sdk/blob/0f7c71778e3d5fd3d30ee9faa2da7a7e1b5279fa/agent_connector_sdk/utilities.py),
-owned by `SDK-CONNECTOR-CONTROL-R780.5`. The SDK is the sole connector
+owned by [`SDK-CONNECTOR-CONTROL-R780.5`](https://github.com/Knuckles-Team/scion-sdk/blob/0f7c71778e3d5fd3d30ee9faa2da7a7e1b5279fa/specs/SDK-CONNECTOR-CONTROL/requirements.md). The SDK is the sole connector
 helper authority; Meristem does not restore a duplicate toolkit.
 
 This owner decision does not establish `AU-BOUNDARY-R010.4` parity. The SDK

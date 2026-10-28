@@ -270,7 +270,9 @@
       "title": "Record the arbora owner of the ephemeral loopback OIDC certification authority",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_owner_decisions.py:11"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R002.3.2",
@@ -521,7 +523,9 @@
       "title": "Decide target module for type coercion helpers (to_boolean, to_integer, to_list, and to_dict) currently in `base_utilities.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_owner_decisions.py:35"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R010.4",
