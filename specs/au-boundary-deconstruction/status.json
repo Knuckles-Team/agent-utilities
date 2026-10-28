@@ -1451,12 +1451,16 @@
     {
       "id": "AU-BOUNDARY-R038",
       "title": "Add a cross-owner component registry and path guard",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "8821aee3c37f",
-        "aa5eba73e0f7"
+        "aa5eba73e0f7",
+        "ea6e360274ec"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_owner_guard.py:41",
+        "tests/gates/test_boundary_owner_guard.py:64"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R040",
@@ -1494,14 +1498,18 @@
     {
       "id": "AU-BOUNDARY-R042",
       "title": "Every package directory has one recorded disposition",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2456745c1e4d",
         "29d80148b462",
         "8821aee3c37f",
-        "a4079bc8d2ed"
+        "a4079bc8d2ed",
+        "a7d93c91e6ce"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_coverage_guard.py:24",
+        "tests/gates/test_boundary_coverage_guard.py:37"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043",
@@ -2061,9 +2069,13 @@
     {
       "id": "AU-BOUNDARY-R048.11",
       "title": "Assign an owner to the skill-content directories under `skills/`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e217f6629296"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_skill_ownership.py:10"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R049",

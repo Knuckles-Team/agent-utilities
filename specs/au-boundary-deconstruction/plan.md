@@ -958,3 +958,34 @@ invalid or absent selected payload refuses before planning; it is not an empty
 history. Current-run checkpoint precedence is unchanged. The host remains
 responsible for authorization and consistent native selection. This local seam
 alone does not qualify installed Arbora or native owner acceptance.
+
+### R038 current owner guard
+
+The current harness tree has a checked-in component registry with an explicit
+Meristem Python-module inventory and foreign-owner boundary seeds for Arbora,
+Scion SDK and Medulla. `scripts/check_boundary_owners.py` checks the inventory
+and console-script targets, and rejects a registered module if it also falls
+under a foreign seed. It runs in the local hook and hosted gates. Hermetic
+checkout fixtures exercise wrong-owner module and script additions, unlisted
+modules and stale inventory entries. The registry must be updated when an
+owner decision or harness module changes; it does not assert behavioral
+parity for the separate relocation requirements.
+
+### R042 current directory coverage
+
+`coverage.md` lists each present directory at the first two package levels,
+its disposition and its owner. The local and hosted coverage guard checks
+that inventory against the tree, rejects duplicate or undecided rows and
+requires an appropriate destination. Hermetic fixtures demonstrate unlisted
+and stale directory failures. This current-tree inventory does not by itself
+prove behavioral parity for earlier moves to other repositories.
+
+### R048.11 current skill-content owner
+
+The current tree contains one skill-content directory,
+`agent_utilities/skills/agent-utilities-development/`. It is the repository's
+development and release procedure, and remains in Meristem as recorded in
+`coverage.md`. No current skill-content directory is being relocated. The
+skill ownership test enumerates the current directories and checks each kept
+skill has its own named definition; the coverage guard rejects unrecorded or
+stale directories.
