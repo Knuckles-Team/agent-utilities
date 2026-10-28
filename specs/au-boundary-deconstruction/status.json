@@ -1135,7 +1135,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "32bdd70f5ea4",
-        "4a5540dd2e3d"
+        "4a5540dd2e3d",
+        "f1330cb52a4d"
       ],
       "verified_by": [
         "tests/gates/test_r028x_module_census.py:44"
@@ -1209,7 +1210,8 @@
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4",
-        "4a5540dd2e3d"
+        "4a5540dd2e3d",
+        "f1330cb52a4d"
       ],
       "verified_by": [
         "tests/gates/test_r028x_module_census.py:51"
@@ -1244,7 +1246,8 @@
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4",
-        "4a5540dd2e3d"
+        "4a5540dd2e3d",
+        "f1330cb52a4d"
       ],
       "verified_by": [
         "tests/gates/test_r028x_module_census.py:58"
@@ -1279,7 +1282,8 @@
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4",
-        "4a5540dd2e3d"
+        "4a5540dd2e3d",
+        "f1330cb52a4d"
       ],
       "verified_by": [
         "tests/gates/test_r028x_module_census.py:65"
