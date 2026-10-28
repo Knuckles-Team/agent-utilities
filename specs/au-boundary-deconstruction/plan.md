@@ -970,3 +970,12 @@ checkout fixtures exercise wrong-owner module and script additions, unlisted
 modules and stale inventory entries. The registry must be updated when an
 owner decision or harness module changes; it does not assert behavioral
 parity for the separate relocation requirements.
+
+### R042 current directory coverage
+
+`coverage.md` lists each present directory at the first two package levels,
+its disposition and its owner. The local and hosted coverage guard checks
+that inventory against the tree, rejects duplicate or undecided rows and
+requires an appropriate destination. Hermetic fixtures demonstrate unlisted
+and stale directory failures. This current-tree inventory does not by itself
+prove behavioral parity for earlier moves to other repositories.

@@ -1498,14 +1498,17 @@
     {
       "id": "AU-BOUNDARY-R042",
       "title": "Every package directory has one recorded disposition",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "2456745c1e4d",
         "29d80148b462",
         "8821aee3c37f",
         "a4079bc8d2ed"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_coverage_guard.py:24",
+        "tests/gates/test_boundary_coverage_guard.py:35"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R043",

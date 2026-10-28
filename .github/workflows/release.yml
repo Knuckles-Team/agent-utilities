@@ -55,6 +55,8 @@ jobs:
         run: uv sync --locked --group dev
       - name: boundary owner registry
         run: uv run --no-sync python scripts/check_boundary_owners.py
+      - name: boundary directory coverage
+        run: uv run --no-sync python scripts/check_boundary_coverage.py
       - name: ruff check
         run: uv run --no-sync ruff check .
       - name: ruff format
