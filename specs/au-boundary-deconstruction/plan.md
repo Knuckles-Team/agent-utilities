@@ -881,3 +881,54 @@ invocation owns its observer argument; no global observer or alternate run loop
 is introduced. Native event privacy and unsupported-plan refusals remain those
 of `iterate_run`. Arbora must preserve its native owner scope and public-content
 allowlist when composing this producer into an admitted central execution.
+### AU-BOUNDARY-R010.3: value-helper owner
+
+The connector-facing home for `to_boolean`, `to_integer`, `to_list`, and
+`to_dict` is Scion SDK's
+[`agent_connector_sdk.utilities`](https://github.com/Knuckles-Team/scion-sdk/blob/0f7c71778e3d5fd3d30ee9faa2da7a7e1b5279fa/agent_connector_sdk/utilities.py),
+owned by `SDK-CONNECTOR-CONTROL-R780.5`. The SDK is the sole connector
+helper authority; Meristem does not restore a duplicate toolkit.
+
+This owner decision does not establish `AU-BOUNDARY-R010.4` parity. The SDK
+deliberately does not expand ambient environment references in coercion and
+restricts list and mapping inputs; the former Meristem helpers did expand
+ambient references and accepted a wider JSON surface. The owning SDK and
+consumer contracts must resolve those differences with behavior-level evidence
+before the parity requirement can close. Explicit mapping-based expansion is
+separately owned by `SDK-CONNECTOR-CONTROL-R780.12` and is not implicit
+coercion parity.
+
+### AU-BOUNDARY-R005.2: current connector wiring
+
+At Ansible Tower revision
+[`4c51708027e4`](https://github.com/Knuckles-Team/ansible-tower-mcp/tree/4c51708027e412ae28b662ee7471e09ad1f7c28a),
+the production package and dependency declaration no longer contain the
+listed Meristem imports or `native_ingest`. Its
+[`kg_ingest.py`](https://github.com/Knuckles-Team/ansible-tower-mcp/blob/4c51708027e412ae28b662ee7471e09ad1f7c28a/ansible_tower_mcp/kg_ingest.py)
+uses the SDK's `KnowledgeIngest` service. Its
+[`test_kg_ingest.py`](https://github.com/Knuckles-Team/ansible-tower-mcp/blob/4c51708027e412ae28b662ee7471e09ad1f7c28a/tests/test_kg_ingest.py)
+uses a fake final transport, so it is not the real engine read/write receipt
+required by R005.2.
+
+The same tracked-Python text census found no listed Meristem imports or
+`native_ingest` references at the inspected revisions of
+[Audiobookshelf](https://github.com/Knuckles-Team/audiobookshelf-mcp/tree/28f426777c2c7fa4ba07bf78b377608285e990aa),
+[CISO Assistant](https://github.com/Knuckles-Team/ciso-assistant-api/tree/6ff3f1eee2b772df793cc30f29855c31470d5730),
+and [Data Science](https://github.com/Knuckles-Team/data-science-mcp/tree/f03b94f79f4097d8153997311547a52ff9cca1e9).
+Each has SDK ingest integration in production source. This is a text census,
+not proof of every dynamic dependency or of real SDK/engine read and write
+receipts. R005.2 remains open until those receipts are established for all
+four connectors.
+### AU-BOUNDARY-R002.3.1: certification authority owner
+
+Arbora owns the ephemeral loopback certification authority under
+[`ARBORA-HOST-R027.1`](https://github.com/Knuckles-Team/arbora/blob/ebe832a9cfb5cdd86c88ef444d7e43f1713689e8/specs/host-composition-boundary/requirements.md).
+Its merged [`arbora.certification.oidc`](https://github.com/Knuckles-Team/arbora/blob/ebe832a9cfb5cdd86c88ef444d7e43f1713689e8/arbora/certification/oidc.py)
+exports `EphemeralLoopbackOidcAuthority`, `AUTHORITY_MODE`,
+`DEFAULT_TOKEN_TTL_SECONDS` and `validated_token_ttl_seconds`. Arbora's
+fixture and script are covered by `ARBORA-HOST-R027.2` and `.3`; their
+[merged PR checks](https://github.com/Knuckles-Team/arbora/pull/526) include
+real TLS discovery, token verification and shutdown. The optional macOS Intel
+and Windows ARM installation legs remain unqualified because the pinned engine
+distribution lacks wheels for those platforms. This owner decision does not
+assert end-to-end certification-flow parity or close the other R002 children.
