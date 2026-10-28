@@ -10,6 +10,7 @@
 | AU-BOUNDARY-R028 split by code root (EG-REPO-INGEST-R003) | AU-BOUNDARY-R028.1, AU-BOUNDARY-R028.2, AU-BOUNDARY-R028.3, AU-BOUNDARY-R028.4, AU-BOUNDARY-R028.5, AU-BOUNDARY-R028.6, AU-BOUNDARY-R028.7, AU-BOUNDARY-R028.8 | TODO | each child's own files deleted (or reported blocked pending an EG client) and the import census passes |
 | R028 consumer and owner proof | AU-BOUNDARY-R028.2.2, AU-BOUNDARY-R028.6.2, AU-BOUNDARY-R028.7.2, AU-BOUNDARY-R028.8.2 | TODO | real EG consumer or CI gate proof for each removed capability |
 | Usage and governance cut | AU-BOUNDARY-R036, AU-BOUNDARY-R037 | TODO | EG durable usage and repository-manager governance parity |
+| Relocation owner proof | AU-BOUNDARY-R036.2, AU-BOUNDARY-R037.2, AU-BOUNDARY-R040.2, AU-BOUNDARY-R044.2, AU-BOUNDARY-R045.2, AU-BOUNDARY-R047.2 | TODO | each parent row's real owner, recovery, parity and census evidence |
 | Fabricated-data finance module removal | AU-BOUNDARY-R041 | TODO | import census shows no listed module and no caller |
 | Inventory completeness check | AU-BOUNDARY-R042 | TODO | tree-versus-inventory test fails on an unlisted directory, an undecided row or a stale path |
 | Agent run loop | AU-BOUNDARY-R043 | TODO | run-loop and recursive-loop behaviour tests |

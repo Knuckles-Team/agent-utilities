@@ -12,6 +12,14 @@ Run focused tests for each cut, then `python3 scripts/uv_workspace.py run --all-
 
 Quality acceptance includes zero newly duplicated code under jscpd and dupehound, no unexplained CCCC complexity regression, KISS review of every added layer, type/lint clean, and no bypassed normal hook. Scanner findings must be compared against the exact base and final head rather than waived because the repository already has debt.
 
+## Relocation inventory and owner evidence
+
+The R036.1, R037.1, R040.1, R044.1, R045.1 and R047.1 tests check the
+current recorded path inventory and detect additions or removals. Their
+respective `.2` rows retain the parent requirements' real owner, recovery,
+parity and caller-census evidence. An absent AU path is not a replacement
+receipt.
+
 ## R028 importer and consumer evidence
 
 The four R028 importer-set tests fail when a new current-harness importer is
