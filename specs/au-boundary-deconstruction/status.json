@@ -2069,9 +2069,13 @@
     {
       "id": "AU-BOUNDARY-R048.11",
       "title": "Assign an owner to the skill-content directories under `skills/`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "e217f6629296"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_skill_ownership.py:10"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R049",
