@@ -267,8 +267,10 @@
     {
       "id": "AU-BOUNDARY-R002.3.3",
       "title": "Delete `scripts/certification/loopback_oidc.py` and `tests/unit/scripts/test_loopback_oidc.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0cea617db628"
+      ],
       "verified_by": [
         "tests/test_retired_loopback_oidc.py:11"
       ]
@@ -283,8 +285,10 @@
     {
       "id": "AU-BOUNDARY-R002.3.5",
       "title": "Delete `agent_utilities/deployment/certification_oidc.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0cea617db628"
+      ],
       "verified_by": [
         "tests/gates/test_boundary_r002_3_certification_oidc_deleted.py:11"
       ]
