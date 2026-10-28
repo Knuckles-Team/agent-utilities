@@ -197,6 +197,12 @@ async def probe_candidates(
     state. A probe whose run produces no trace refuses the tick with
     ``probe_trace_missing``.
     """
+    if any(
+        (candidate.seed, candidate.model_ref, candidate.budget_ref)
+        != (seed, model_ref, budget_ref)
+        for candidate in candidates
+    ):
+        raise CycleRefusal("probe_trace_missing")
     digest = conditions_digest(
         task=task, seed=seed, model_ref=model_ref, budget_ref=budget_ref
     )

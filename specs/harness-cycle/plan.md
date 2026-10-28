@@ -74,3 +74,23 @@ They prove the AU step logic and the closed port. They do not prove host registr
 `AU-HARNESS-CYCLE-R001.10` owns persistence through the released EG client.
 `AU-HARNESS-CYCLE-R001.11` owns the host-registered tick. The host registration row belongs to arbora.
 The arbora row waits for the release of EG-ORCH-VOCAB-R801.2, EG-ORCH-VOCAB-R802 and EG-DECISION-ENGINE-R803.
+
+## Probe-condition evidence gap
+
+The R001.3 test currently proves that probe records carry the same digest of
+requested values, not that each host-admitted run actually uses those values.
+In `test_probe_shares_conditions_and_records_trace`, the requested model is
+`model-1`, while the host decision returns a `FunctionModel`; the test does
+not compare the admitted budget or model settings with the digest inputs.
+`execute_graph` passes the requested model and seed metadata to the host, but
+`resolve_plan` accepts the host's returned `RunPlan` without binding it to the
+probe's budget reference or verifying a seed. Thus the recorded `VERIFIED`
+row is unit evidence for digest propagation only; it is not proof of identical
+served probe conditions.
+
+Before enabling a host provider, bind each probe to an owner-admitted plan and
+verify the actual model identity, supported seed settings, complete enforced
+budget and candidate version before model or tool effects. A digest over
+requested inputs alone cannot establish those facts. Add an effect-counting
+regression for a substituted model, seed or budget and an installed hosted
+journey that reads the real admitted conditions and traces; otherwise abstain.
