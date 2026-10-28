@@ -1015,3 +1015,12 @@ and found `agent_utilities.mcp.context_helpers` in historical
 The latter also has unresolved dynamic imports. Technitium's older revision
 and other current packages likewise remain indeterminate when their dynamic
 imports cannot be resolved; they are not silently classified clean.
+
+### R028 current importer censuses
+
+The R028.2.1, R028.6.1, R028.7.1 and R028.8.1 production-importer
+sets are empty in the current harness tree. The restored census scans current
+Python imports, resolves package-relative imports, exercises injected callers,
+and refuses unresolved dynamic imports. An empty current set does not prove
+that the removed capabilities were replaced: R028.2.2, R028.6.2, R028.7.2 and
+R028.8.2 retain the corresponding EG consumer and CI-gate acceptance.

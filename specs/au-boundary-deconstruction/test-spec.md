@@ -12,6 +12,13 @@ Run focused tests for each cut, then `python3 scripts/uv_workspace.py run --all-
 
 Quality acceptance includes zero newly duplicated code under jscpd and dupehound, no unexplained CCCC complexity regression, KISS review of every added layer, type/lint clean, and no bypassed normal hook. Scanner findings must be compared against the exact base and final head rather than waived because the repository already has debt.
 
+## R028 importer and consumer evidence
+
+The four R028 importer-set tests fail when a new current-harness importer is
+added and refuse unresolved dynamic imports. They do not establish the
+replacement capabilities. R028.2.2, R028.6.2, R028.7.2 and R028.8.2 each
+retain their parent consumer or EG CI-gate proof as separate acceptance.
+
 ## F-J and T-Z migration acceptance
 
 `AU-BOUNDARY-R006.2` and `AU-BOUNDARY-R009.2` require a complete,
