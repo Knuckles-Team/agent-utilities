@@ -232,6 +232,7 @@
       "title": "Record what actually landed for the deployment/skill-certification retirement",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "9ddf47adc3ba",
         "db29b2da626e"
       ],
       "verified_by": [
@@ -500,7 +501,8 @@
       "title": "Record what actually landed for the connector-toolkit deletion",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "635f38f64aca"
+        "635f38f64aca",
+        "9ddf47adc3ba"
       ],
       "verified_by": [
         "tests/gates/test_boundary_history.py:61"
