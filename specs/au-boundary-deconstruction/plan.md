@@ -979,3 +979,13 @@ that inventory against the tree, rejects duplicate or undecided rows and
 requires an appropriate destination. Hermetic fixtures demonstrate unlisted
 and stale directory failures. This current-tree inventory does not by itself
 prove behavioral parity for earlier moves to other repositories.
+
+### R048.11 current skill-content owner
+
+The current tree contains one skill-content directory,
+`agent_utilities/skills/agent-utilities-development/`. It is the repository's
+development and release procedure, and remains in Meristem as recorded in
+`coverage.md`. No current skill-content directory is being relocated. The
+skill ownership test enumerates the current directories and checks each kept
+skill has its own named definition; the coverage guard rejects unrecorded or
+stale directories.
