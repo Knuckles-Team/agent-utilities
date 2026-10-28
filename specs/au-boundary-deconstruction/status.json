@@ -100,15 +100,19 @@
     "AU-BOUNDARY-R028.1",
     "AU-BOUNDARY-R028.2",
     "AU-BOUNDARY-R028.2.1",
+    "AU-BOUNDARY-R028.2.2",
     "AU-BOUNDARY-R028.3",
     "AU-BOUNDARY-R028.4",
     "AU-BOUNDARY-R028.5",
     "AU-BOUNDARY-R028.6",
     "AU-BOUNDARY-R028.6.1",
+    "AU-BOUNDARY-R028.6.2",
     "AU-BOUNDARY-R028.7",
     "AU-BOUNDARY-R028.7.1",
+    "AU-BOUNDARY-R028.7.2",
     "AU-BOUNDARY-R028.8",
     "AU-BOUNDARY-R028.8.1",
+    "AU-BOUNDARY-R028.8.2",
     "AU-BOUNDARY-R029",
     "AU-BOUNDARY-R030",
     "AU-BOUNDARY-R030.1",
@@ -862,11 +866,14 @@
     {
       "id": "AU-BOUNDARY-R018.1",
       "title": "Ship a typed inventory of the AU-BOUNDARY-R018 facade modules",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "7cd36e18e97d",
         "8b325ddf1818"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:112"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R018.2",
@@ -892,12 +899,15 @@
     {
       "id": "AU-BOUNDARY-R019.1",
       "title": "Ship a typed inventory of the AU-BOUNDARY-R019 facade modules",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "0fbe4bf46720",
+        "7cd36e18e97d",
         "8b325ddf1818"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:117"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R019.2",
@@ -924,11 +934,14 @@
     {
       "id": "AU-BOUNDARY-R020.1",
       "title": "Ship a typed inventory of the AU-BOUNDARY-R020 durable-work modules",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "7cd36e18e97d",
         "8b325ddf1818"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:122"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R020.2",
@@ -955,11 +968,14 @@
     {
       "id": "AU-BOUNDARY-R021.1",
       "title": "Ship a typed inventory of the AU-BOUNDARY-R021 tenancy/admission modules",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "7cd36e18e97d",
         "8b325ddf1818"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:127"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R021.2",
@@ -985,11 +1001,14 @@
     {
       "id": "AU-BOUNDARY-R022.1",
       "title": "Ship a typed inventory of the AU-BOUNDARY-R022 reasoning/analytics modules",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "7cd36e18e97d",
         "8b325ddf1818"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:132"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R022.2",
@@ -1079,7 +1098,7 @@
     {
       "id": "AU-BOUNDARY-R028",
       "title": "Move remaining graph standardization and security modules to EG (rollup)",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "21bf66b122de",
         "26b087dd3b2f",
@@ -1114,24 +1133,35 @@
     {
       "id": "AU-BOUNDARY-R028.2",
       "title": "Retire `kg/infra/{placement_optimizer,inventory_collector}.py`",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "32bdd70f5ea4",
         "4a5540dd2e3d"
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R028.2.1"
+        "AU-BOUNDARY-R028.2.1",
+        "AU-BOUNDARY-R028.2.2"
       ]
     },
     {
       "id": "AU-BOUNDARY-R028.2.1",
       "title": "Pin the `kg/infra` production-importer set",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "32bdd70f5ea4",
-        "4a5540dd2e3d"
+        "4a5540dd2e3d",
+        "f1330cb52a4d"
       ],
+      "verified_by": [
+        "tests/gates/test_r028x_module_census.py:44"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R028.2.2",
+      "title": "Qualify the infra cutover",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -1176,7 +1206,7 @@
     {
       "id": "AU-BOUNDARY-R028.6",
       "title": "Retire `observability/{trace_ontology,self_ingest,audit_logger}.py`",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4",
@@ -1184,24 +1214,35 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R028.6.1"
+        "AU-BOUNDARY-R028.6.1",
+        "AU-BOUNDARY-R028.6.2"
       ]
     },
     {
       "id": "AU-BOUNDARY-R028.6.1",
       "title": "Pin the `observability/{trace_ontology,self_ingest,audit_logger}` production-importer set",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4",
-        "4a5540dd2e3d"
+        "4a5540dd2e3d",
+        "f1330cb52a4d"
       ],
+      "verified_by": [
+        "tests/gates/test_r028x_module_census.py:51"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R028.6.2",
+      "title": "Qualify observability consumer cutover",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R028.7",
       "title": "Retire `governance/relational_authority.py` and `.json`",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4",
@@ -1209,24 +1250,35 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R028.7.1"
+        "AU-BOUNDARY-R028.7.1",
+        "AU-BOUNDARY-R028.7.2"
       ]
     },
     {
       "id": "AU-BOUNDARY-R028.7.1",
       "title": "Pin the `governance/relational_authority` importer set",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4",
-        "4a5540dd2e3d"
+        "4a5540dd2e3d",
+        "f1330cb52a4d"
       ],
+      "verified_by": [
+        "tests/gates/test_r028x_module_census.py:58"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R028.7.2",
+      "title": "Qualify the relational-authority replacement",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R028.8",
       "title": "Retire `kg/research/placement_mining.py`",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4",
@@ -1234,18 +1286,29 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R028.8.1"
+        "AU-BOUNDARY-R028.8.1",
+        "AU-BOUNDARY-R028.8.2"
       ]
     },
     {
       "id": "AU-BOUNDARY-R028.8.1",
       "title": "Pin the `kg/research/placement_mining` production-importer set",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4",
-        "4a5540dd2e3d"
+        "4a5540dd2e3d",
+        "f1330cb52a4d"
       ],
+      "verified_by": [
+        "tests/gates/test_r028x_module_census.py:65"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R028.8.2",
+      "title": "Qualify placement-mining consumer cutover",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {

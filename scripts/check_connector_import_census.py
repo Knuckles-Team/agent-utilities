@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import importlib.util
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,8 +31,8 @@ SKIP = {
 RANGES = {"fj": ("f", "j"), "tz": ("t", "z")}
 
 
-def _banned(name: str) -> bool:
-    return any(name == prefix or name.startswith(prefix + ".") for prefix in BANNED)
+def _banned(name: str, prefixes: tuple[str, ...]) -> bool:
+    return any(name == prefix or name.startswith(prefix + ".") for prefix in prefixes)
 
 
 def _attribute_name(node: ast.AST, aliases: dict[str, str]) -> str | None:
@@ -51,7 +52,17 @@ class Finding:
     unresolved: tuple[str, ...]
 
 
-def inspect_file(path: Path) -> Finding:
+def _from_module(node: ast.ImportFrom, package: str | None) -> str | None:
+    if not node.level:
+        return node.module
+    if package is None:
+        return None
+    return importlib.util.resolve_name("." * node.level + (node.module or ""), package)
+
+
+def inspect_file(
+    path: Path, prefixes: tuple[str, ...] = BANNED, *, package: str | None = None
+) -> Finding:
     """Inspect one file; unreadable or invalid source is an error, never clean."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     hits: set[str] = set()
@@ -62,18 +73,18 @@ def inspect_file(path: Path) -> Finding:
             for alias in node.names:
                 if alias.asname:
                     aliases[alias.asname] = alias.name
-        elif isinstance(node, ast.ImportFrom) and node.module:
+        elif isinstance(node, ast.ImportFrom) and _from_module(node, package):
+            module = _from_module(node, package)
             for alias in node.names:
-                aliases[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+                aliases[alias.asname or alias.name] = f"{module}.{alias.name}"
     for node in ast.walk(tree):
         names: list[str] = []
         if isinstance(node, ast.Import):
             names.extend(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            names.extend(
-                (node.module, *(f"{node.module}.{alias.name}" for alias in node.names))
-            )
-            if node.module == "agent_utilities" and any(
+        elif isinstance(node, ast.ImportFrom) and _from_module(node, package):
+            module = _from_module(node, package)
+            names.extend((module, *(f"{module}.{alias.name}" for alias in node.names)))
+            if module == "agent_utilities" and any(
                 alias.name == "*" for alias in node.names
             ):
                 unresolved.add(f"{path}:{node.lineno}")
@@ -115,15 +126,18 @@ def inspect_file(path: Path) -> Finding:
                 and len(node.args) >= 2
             ):
                 parent = _attribute_name(node.args[0], aliases)
-                if parent and (
-                    parent == "agent_utilities" or parent.startswith("agent_utilities.")
+                if parent and any(
+                    prefix == parent
+                    or prefix.startswith(parent + ".")
+                    or parent.startswith(prefix + ".")
+                    for prefix in prefixes
                 ):
                     attr = node.args[1]
                     if isinstance(attr, ast.Constant) and isinstance(attr.value, str):
                         names.append(f"{parent}.{attr.value}")
                     else:
                         unresolved.add(f"{path}:{node.lineno}")
-        hits.update(name for name in names if _banned(name))
+        hits.update(name for name in names if _banned(name, prefixes))
     return Finding(tuple(sorted(hits)), tuple(sorted(unresolved)))
 
 
