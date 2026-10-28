@@ -1053,3 +1053,15 @@ undecided entries in local hooks and hosted CI. This is a current-tree
 inventory, not proof that the historical file-level moves preserved behavior
 or that every earlier requirement's descriptive scope has been resolved;
 R046 remains open for those acceptance checks.
+
+### R002.1 and R010.1 time-scoped evidence
+
+The original deployment merge `fca0c5ee42b3` retained both the backends and
+OIDC files. `db29b2da626e` later removed the backends file, and
+`55e4f61a681f` removed the OIDC file. The toolkit gate commit `2456745c1e4d`
+changed only gate-related paths while `base_utilities.py` still existed;
+`55e4f61a681f` later removed it. The historical gate verifies the actual
+commit ancestry, changes and checked-head absence using a full Git history.
+Its fixture tests reject missing original files, missing deletions and a
+non-gate-only commit. These historical facts do not establish certification
+flow parity, helper parity or completed connector migrations.

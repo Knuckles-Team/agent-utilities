@@ -230,11 +230,13 @@
     {
       "id": "AU-BOUNDARY-R002.1",
       "title": "Record what actually landed for the deployment/skill-certification retirement",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "db29b2da626e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_history.py:49"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R002.2",
@@ -496,11 +498,13 @@
     {
       "id": "AU-BOUNDARY-R010.1",
       "title": "Record what actually landed for the connector-toolkit deletion",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "635f38f64aca"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_history.py:61"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R010.2",
