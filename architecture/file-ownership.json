@@ -1,0 +1,215 @@
+{
+  "schema": "au-file-owners/v1",
+  "files": [
+    {
+      "path": "agent_utilities/__init__.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/__main__.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/_version.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/core/__init__.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/core/paths.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/graph/__init__.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/graph/budget.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/graph/builder.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/graph/checkpoint.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/graph/dependency.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/graph/executor.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/graph/live_events.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/graph/metrics.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/graph/runner.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/graph/state.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/graph/text_only.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/harness/__init__.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/harness/client_capabilities.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/harness/constraint_engine.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/harness/contract_validator.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/harness/conversation_history.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/harness/edit_engine.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/harness/harness_cycle.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/harness/hosted_run.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/harness/plan.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/harness/plan_runtime.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/harness/quality_gates.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/host_ports.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/py.typed",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/rlm/__init__.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/rlm/runner.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/rlm/telemetry.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/runtime/__init__.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/runtime/bridge.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/runtime/browser_tier.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/runtime/computer_use_tier.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/runtime/docker_workspace.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/runtime/events.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/runtime/local_workspace.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/runtime/provenance.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/runtime/workspace.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
+      "path": "agent_utilities/skills/agent-utilities-development/SKILL.md",
+      "disposition": "keep",
+      "owner": "meristem"
+    }
+  ]
+}

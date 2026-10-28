@@ -133,11 +133,14 @@
     "AU-BOUNDARY-R035",
     "AU-BOUNDARY-R036",
     "AU-BOUNDARY-R036.1",
+    "AU-BOUNDARY-R036.2",
     "AU-BOUNDARY-R037",
     "AU-BOUNDARY-R037.1",
+    "AU-BOUNDARY-R037.2",
     "AU-BOUNDARY-R038",
     "AU-BOUNDARY-R040",
     "AU-BOUNDARY-R040.1",
+    "AU-BOUNDARY-R040.2",
     "AU-BOUNDARY-R041",
     "AU-BOUNDARY-R042",
     "AU-BOUNDARY-R043",
@@ -167,11 +170,14 @@
     "AU-BOUNDARY-R043.10",
     "AU-BOUNDARY-R044",
     "AU-BOUNDARY-R044.1",
+    "AU-BOUNDARY-R044.2",
     "AU-BOUNDARY-R045",
     "AU-BOUNDARY-R045.1",
+    "AU-BOUNDARY-R045.2",
     "AU-BOUNDARY-R046",
     "AU-BOUNDARY-R047",
     "AU-BOUNDARY-R047.1",
+    "AU-BOUNDARY-R047.2",
     "AU-BOUNDARY-R048",
     "AU-BOUNDARY-R048.1",
     "AU-BOUNDARY-R048.2",
@@ -1497,44 +1503,66 @@
     {
       "id": "AU-BOUNDARY-R036",
       "title": "Move the usage fact store to EG",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "795afc53f54d",
         "8ea6bd529b0f"
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R036.1"
+        "AU-BOUNDARY-R036.1",
+        "AU-BOUNDARY-R036.2"
       ]
     },
     {
       "id": "AU-BOUNDARY-R036.1",
       "title": "Pin the usage-store relocation inventory",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
         "795afc53f54d"
       ],
+      "verified_by": [
+        "tests/gates/test_boundary_r036_r047_relocation_census.py:53"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R036.2",
+      "title": "Qualify durable usage facts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R037",
       "title": "Move development-governance tooling to repository-manager",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "795afc53f54d"
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R037.1"
+        "AU-BOUNDARY-R037.1",
+        "AU-BOUNDARY-R037.2"
       ]
     },
     {
       "id": "AU-BOUNDARY-R037.1",
       "title": "Pin the governance-tooling relocation inventory",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
         "795afc53f54d"
       ],
+      "verified_by": [
+        "tests/gates/test_boundary_r036_r047_relocation_census.py:58"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R037.2",
+      "title": "Qualify governance recovery",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -1554,22 +1582,33 @@
     {
       "id": "AU-BOUNDARY-R040",
       "title": "Move agent memory and the learning engine to EG",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "795afc53f54d"
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R040.1"
+        "AU-BOUNDARY-R040.1",
+        "AU-BOUNDARY-R040.2"
       ]
     },
     {
       "id": "AU-BOUNDARY-R040.1",
       "title": "Pin the agent-memory relocation inventory",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
         "795afc53f54d"
       ],
+      "verified_by": [
+        "tests/gates/test_boundary_r036_r047_relocation_census.py:63"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R040.2",
+      "title": "Qualify memory migration",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -1995,43 +2034,65 @@
     {
       "id": "AU-BOUNDARY-R044",
       "title": "Fleet, scaling and deployment modules leave orchestration",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "795afc53f54d"
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R044.1"
+        "AU-BOUNDARY-R044.1",
+        "AU-BOUNDARY-R044.2"
       ]
     },
     {
       "id": "AU-BOUNDARY-R044.1",
       "title": "Pin the orchestration relocation inventory",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
         "795afc53f54d"
       ],
+      "verified_by": [
+        "tests/gates/test_boundary_r036_r047_relocation_census.py:68"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R044.2",
+      "title": "Qualify orchestration cutover",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R045",
       "title": "Unplaced knowledge-graph packages receive file-level owners",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "795afc53f54d"
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R045.1"
+        "AU-BOUNDARY-R045.1",
+        "AU-BOUNDARY-R045.2"
       ]
     },
     {
       "id": "AU-BOUNDARY-R045.1",
       "title": "Pin the unplaced knowledge_graph package relocation inventory",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
         "795afc53f54d"
       ],
+      "verified_by": [
+        "tests/gates/test_boundary_r036_r047_relocation_census.py:73"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R045.2",
+      "title": "Qualify knowledge-graph file ownership",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
@@ -2046,23 +2107,34 @@
     {
       "id": "AU-BOUNDARY-R047",
       "title": "Engine-facing adapters and caches are thin clients or removed",
-      "delivery_state": "LANDED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "795afc53f54d",
         "fed30c0982ae"
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R047.1"
+        "AU-BOUNDARY-R047.1",
+        "AU-BOUNDARY-R047.2"
       ]
     },
     {
       "id": "AU-BOUNDARY-R047.1",
       "title": "Pin the engine-facing-adapter relocation inventory",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
         "795afc53f54d"
       ],
+      "verified_by": [
+        "tests/gates/test_boundary_r036_r047_relocation_census.py:78"
+      ]
+    },
+    {
+      "id": "AU-BOUNDARY-R047.2",
+      "title": "Qualify adapter cutover",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {

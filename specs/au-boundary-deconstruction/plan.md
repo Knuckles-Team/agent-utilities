@@ -1034,3 +1034,22 @@ sets with the tree. Its fixture demonstrates that both an unrecorded addition
 and a recorded path's removal fail. These inventories document Meristem's
 current tree only; the R018.2–R022.2 owner-client parity and cutover proof
 remain separate and open.
+
+### Current relocation inventories
+
+The paths listed by R036.1, R037.1, R040.1, R044.1, R045.1 and R047.1 are
+absent from the current harness tree. The restored typed inventory records
+that current state and checks additions and removals with a fixture. It does
+not prove that the destination preserved behavior: the corresponding `.2`
+rows retain the owner-side recovery, parity and caller evidence required by
+each parent.
+
+### R046 current tracked-file ownership prerequisite
+
+`architecture/file-ownership.json` gives each currently tracked Meristem
+package file an explicit disposition and owner. The file-owner guard compares
+it with Git's tracked package files and refuses missing, stale, duplicate or
+undecided entries in local hooks and hosted CI. This is a current-tree
+inventory, not proof that the historical file-level moves preserved behavior
+or that every earlier requirement's descriptive scope has been resolved;
+R046 remains open for those acceptance checks.
