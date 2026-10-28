@@ -1519,6 +1519,7 @@
       "title": "Pin the usage-store relocation inventory",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
         "795afc53f54d"
       ],
       "verified_by": [
@@ -1550,6 +1551,7 @@
       "title": "Pin the governance-tooling relocation inventory",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
         "795afc53f54d"
       ],
       "verified_by": [
@@ -1595,6 +1597,7 @@
       "title": "Pin the agent-memory relocation inventory",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
         "795afc53f54d"
       ],
       "verified_by": [
@@ -2046,6 +2049,7 @@
       "title": "Pin the orchestration relocation inventory",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
         "795afc53f54d"
       ],
       "verified_by": [
@@ -2077,6 +2081,7 @@
       "title": "Pin the unplaced knowledge_graph package relocation inventory",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
         "795afc53f54d"
       ],
       "verified_by": [
@@ -2118,6 +2123,7 @@
       "title": "Pin the engine-facing-adapter relocation inventory",
       "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
         "795afc53f54d"
       ],
       "verified_by": [
