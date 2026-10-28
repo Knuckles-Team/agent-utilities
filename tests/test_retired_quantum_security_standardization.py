@@ -9,7 +9,8 @@ additionally be unreferenced anywhere in the source tree.
 
 The importer census scans every top-level package directory present in the
 checkout (the ``agent_utilities`` package today; any sibling package dir that
-appears later is picked up automatically).  The test tree itself is excluded.
+appears later is picked up automatically). Tests and generated build output are
+excluded.
 """
 
 from __future__ import annotations
@@ -26,7 +27,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PACKAGE_DIRS = [
     d
     for d in sorted(REPO_ROOT.iterdir())
-    if d.is_dir() and d.name != "tests" and d.name != ".git" and any(d.rglob("*.py"))
+    if d.is_dir()
+    and d.name not in {"tests", "build", "dist"}
+    and not d.name.startswith(".")
+    and any(d.rglob("*.py"))
 ]
 
 

@@ -267,9 +267,13 @@
     {
       "id": "AU-BOUNDARY-R002.3.3",
       "title": "Delete `scripts/certification/loopback_oidc.py` and `tests/unit/scripts/test_loopback_oidc.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0cea617db628"
+      ],
+      "verified_by": [
+        "tests/test_retired_loopback_oidc.py:11"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R002.3.4",
@@ -281,9 +285,13 @@
     {
       "id": "AU-BOUNDARY-R002.3.5",
       "title": "Delete `agent_utilities/deployment/certification_oidc.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0cea617db628"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r002_3_certification_oidc_deleted.py:11"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R005",
@@ -1074,7 +1082,7 @@
         "8982373bbd88"
       ],
       "verified_by": [
-        "tests/test_retired_quantum_security_standardization.py:116"
+        "tests/test_retired_quantum_security_standardization.py:120"
       ]
     },
     {
@@ -1110,7 +1118,7 @@
         "8edddc8b0a00"
       ],
       "verified_by": [
-        "tests/test_retired_quantum_security_standardization.py:140"
+        "tests/test_retired_quantum_security_standardization.py:144"
       ]
     },
     {
@@ -1124,7 +1132,7 @@
         "9fec85433f51"
       ],
       "verified_by": [
-        "tests/test_retired_quantum_security_standardization.py:163"
+        "tests/test_retired_quantum_security_standardization.py:167"
       ]
     },
     {
@@ -1136,7 +1144,7 @@
         "4d0883da01d2"
       ],
       "verified_by": [
-        "tests/test_retired_quantum_security_standardization.py:191"
+        "tests/test_retired_quantum_security_standardization.py:195"
       ]
     },
     {
