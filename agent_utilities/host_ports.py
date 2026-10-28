@@ -566,6 +566,16 @@ def register_run_history_provider(provider: RunHistoryProvider | None) -> None:
 
 
 @dataclass(frozen=True, slots=True)
+class CompletedChildBinding:
+    """Host-authorized identity of a completed child's selected history."""
+
+    child_id: str
+    conversation_id: str
+    predecessor_run_id: str
+    history_revision: str
+
+
+@dataclass(frozen=True, slots=True)
 class RunCheckpointSelection:
     """One host-authorized read, not caller-supplied execution authority.
 
@@ -579,6 +589,7 @@ class RunCheckpointSelection:
     current_run_checkpoint: str | None
     completed_history: str | None
     version: int = 1
+    completed_child: CompletedChildBinding | None = None
 
 
 RunCheckpointProvider = Callable[[Any], Awaitable[RunCheckpointSelection]]
@@ -615,6 +626,14 @@ async def _read_checkpoint_selection(request: Any) -> str | None:
         selection.completed_history, str
     ):
         raise ValueError("run checkpoint selection is invalid")
+    if selection.completed_child is not None:
+        from agent_utilities.harness.conversation_history import child_history_envelope
+
+        return child_history_envelope(
+            selection.completed_history,
+            selection.completed_child,
+            run_id=selection.run_id,
+        )
     return selection.completed_history
 
 

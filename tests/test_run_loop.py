@@ -2042,3 +2042,327 @@ async def test_native_executor_observers_are_per_invocation():
     first, second = await asyncio.gather(execute("one"), execute("two"))
     assert [first.output, second.output] == ["one", "two"]
     assert outputs == {"one": ["one"], "two": ["two"]}
+
+
+async def test_live_shared_budget_charges_parent_and_child_once():
+    from agent_utilities.graph import LiveSharedBudget
+
+    calls: list[int] = []
+    budget = RunBudget(request_limit=1)
+    shared = LiveSharedBudget(budget, deadline=asyncio.get_running_loop().time() + 10)
+    plan = plan_of(echo_model(calls), budget=budget)
+    first = await run(RunRequest(task="parent"), plan=plan, shared_execution=shared)
+    second = await run(RunRequest(task="child"), plan=plan, shared_execution=shared)
+    assert first.status == "completed"
+    assert second.status == "stopped"
+    assert len(calls) == 1
+    assert shared.usage.requests == 1
+
+
+async def test_live_shared_budget_refuses_changed_plan_and_closed_scope():
+    from agent_utilities.graph import LiveSharedBudget
+
+    calls: list[int] = []
+    budget = RunBudget(request_limit=2)
+    shared = LiveSharedBudget(budget, deadline=asyncio.get_running_loop().time() + 10)
+    widened = plan_of(echo_model(calls), budget=RunBudget(request_limit=3))
+    assert (
+        await run(RunRequest(task="child"), plan=widened, shared_execution=shared)
+    ).status == "failed"
+    shared.close()
+    original = plan_of(echo_model(calls), budget=budget)
+    assert (
+        await run(RunRequest(task="child"), plan=original, shared_execution=shared)
+    ).status == "failed"
+    assert calls == []
+
+
+async def test_live_shared_budget_reserves_before_parallel_child_dispatch():
+    from agent_utilities.graph import LiveSharedBudget
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls: list[str] = []
+
+    async def respond(messages, info):
+        calls.append("model")
+        started.set()
+        await release.wait()
+        return ModelResponse(parts=[TextPart("done")])
+
+    budget = RunBudget(request_limit=1)
+    shared = LiveSharedBudget(budget, deadline=asyncio.get_running_loop().time() + 10)
+    plan = plan_of(FunctionModel(respond), budget=budget)
+    parent = asyncio.create_task(
+        run(RunRequest(task="parent"), plan=plan, shared_execution=shared)
+    )
+    try:
+        await asyncio.wait_for(started.wait(), 0.5)
+        child = await run(RunRequest(task="child"), plan=plan, shared_execution=shared)
+        assert child.status == "stopped"
+        assert calls == ["model"]
+    finally:
+        release.set()
+        await parent
+
+
+async def test_live_shared_budget_keeps_run_usage_separate():
+    from agent_utilities.graph import LiveSharedBudget
+
+    budget = RunBudget(request_limit=2)
+    shared = LiveSharedBudget(budget, deadline=asyncio.get_running_loop().time() + 10)
+    plan = plan_of(echo_model(), budget=budget)
+    parent = await run(RunRequest(task="parent"), plan=plan, shared_execution=shared)
+    child = await run(RunRequest(task="child"), plan=plan, shared_execution=shared)
+    assert parent.usage["requests"] == child.usage["requests"] == 1
+    assert shared.usage.requests == 2
+
+
+async def test_live_shared_budget_serializes_finite_token_allowance():
+    from agent_utilities.graph import LiveSharedBudget
+
+    started, release, child_started = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    calls: list[str] = []
+
+    async def respond(messages, info):
+        calls.append("model")
+        started.set()
+        await release.wait()
+        return ModelResponse(
+            parts=[TextPart("done")], usage=RequestUsage(input_tokens=1)
+        )
+
+    def observe(event):
+        if event["type"] == "run_started" and event["run_id"] == "child":
+            child_started.set()
+
+    host_ports.register_run_event_sink(observe)
+    budget = RunBudget(request_limit=5, total_tokens_limit=1)
+    shared = LiveSharedBudget(budget, deadline=asyncio.get_running_loop().time() + 10)
+    plan = plan_of(FunctionModel(respond), budget=budget)
+    parent = asyncio.create_task(
+        run(
+            RunRequest(task="parent", run_id="parent"),
+            plan=plan,
+            shared_execution=shared,
+        )
+    )
+    child = None
+    try:
+        await asyncio.wait_for(started.wait(), 0.5)
+        child = asyncio.create_task(
+            run(
+                RunRequest(task="child", run_id="child"),
+                plan=plan,
+                shared_execution=shared,
+            )
+        )
+        await asyncio.wait_for(child_started.wait(), 0.5)
+        release.set()
+        parent_result, child_result = await asyncio.gather(parent, child)
+        assert parent_result.status == "completed"
+        assert child_result.status == "stopped"
+        assert calls == ["model"]
+    finally:
+        release.set()
+        await asyncio.gather(
+            *(task for task in (parent, child) if task is not None),
+            return_exceptions=True,
+        )
+        host_ports.register_run_event_sink(None)
+
+
+async def test_live_shared_budget_charges_tool_effects_across_runs():
+    from agent_utilities.graph import LiveSharedBudget
+
+    effects: list[str] = []
+    toolset = FunctionToolset()
+
+    @toolset.tool_plain
+    async def effect() -> str:
+        effects.append("effect")
+        return "done"
+
+    budget = RunBudget(request_limit=5, tool_calls_limit=1)
+    shared = LiveSharedBudget(budget, deadline=asyncio.get_running_loop().time() + 10)
+    plan = plan_of(tool_model("effect"), toolsets=(toolset,), budget=budget)
+    parent = await run(RunRequest(task="parent"), plan=plan, shared_execution=shared)
+    child = await run(RunRequest(task="child"), plan=plan, shared_execution=shared)
+    assert parent.status == "completed"
+    assert child.status == "stopped"
+    assert effects == ["effect"]
+    assert parent.usage["tool_calls"] == 1
+    assert child.usage["tool_calls"] == 0
+    assert shared.usage.tool_calls == 1
+
+
+async def test_live_shared_budget_refuses_checkpoint_and_seeded_usage():
+    import contextlib
+
+    from agent_utilities.graph import LiveSharedBudget
+
+    calls: list[int] = []
+    budget = RunBudget(request_limit=2)
+    shared = LiveSharedBudget(budget, deadline=asyncio.get_running_loop().time() + 10)
+    seeded = plan_of(
+        echo_model(calls), budget=budget, initial_usage=RunUsage(requests=1)
+    )
+    result = await run(RunRequest(task="child"), plan=seeded, shared_execution=shared)
+    assert result.status == "failed"
+
+    @contextlib.asynccontextmanager
+    async def checkpoint(_request, _plan):
+        yield object()
+
+    host_ports.register_run_checkpoint_factory(checkpoint)
+    plan = plan_of(echo_model(calls), budget=budget)
+    result = await run(RunRequest(task="child"), plan=plan, shared_execution=shared)
+    assert result.status == "failed"
+    assert "cannot use a durable checkpoint" in result.error
+    assert calls == []
+    assert shared.usage.requests == 0
+
+
+async def test_native_executor_consumes_the_host_shared_budget():
+    from agent_utilities.runtime import LiveSharedBudget
+
+    calls: list[int] = []
+    budget = RunBudget(request_limit=1)
+    shared = LiveSharedBudget(budget, deadline=asyncio.get_running_loop().time() + 10)
+    plan = plan_of(echo_model(calls), budget=budget)
+    executor = AgentRunExecutor()
+    parent = await executor.execute_agent(
+        RunRequest(task="parent"), shared_execution=shared, plan=plan
+    )
+    child = await executor.execute_agent(
+        RunRequest(task="child"), shared_execution=shared, plan=plan
+    )
+    assert parent.status == "completed"
+    assert child.status == "stopped"
+    assert len(calls) == 1
+
+
+async def test_live_shared_budget_keeps_concurrent_child_usage_local():
+    from agent_utilities.graph import LiveSharedBudget
+
+    both_started, release = asyncio.Event(), asyncio.Event()
+    started: list[str] = []
+
+    async def respond(messages, info):
+        started.append(messages[-1].parts[-1].content)
+        if len(started) == 2:
+            both_started.set()
+        await release.wait()
+        return ModelResponse(parts=[TextPart("done")])
+
+    budget = RunBudget(request_limit=2)
+    shared = LiveSharedBudget(budget, deadline=asyncio.get_running_loop().time() + 10)
+    plan = plan_of(FunctionModel(respond), budget=budget)
+    executions = [
+        asyncio.create_task(
+            run(RunRequest(task=label), plan=plan, shared_execution=shared)
+        )
+        for label in ("parent", "child")
+    ]
+    try:
+        await asyncio.wait_for(both_started.wait(), 0.5)
+        release.set()
+        results = await asyncio.gather(*executions)
+        assert [result.status for result in results] == ["completed", "completed"]
+        assert [result.usage["requests"] for result in results] == [1, 1]
+        assert shared.usage.requests == 2
+    finally:
+        release.set()
+        await asyncio.gather(*executions, return_exceptions=True)
+
+
+async def test_live_shared_budget_refuses_unaccounted_plan_provider():
+    from agent_utilities.runtime import LiveSharedBudget
+
+    provider_calls: list[str] = []
+    budget = RunBudget(request_limit=2)
+    shared = LiveSharedBudget(budget, deadline=asyncio.get_running_loop().time() + 10)
+
+    def provider(_request):
+        provider_calls.append("decision")
+        return plan_of(echo_model(), budget=budget)
+
+    host_ports.register_run_decision_provider(provider)
+    result = await run(RunRequest(task="child"), shared_execution=shared)
+    assert result.status == "failed"
+    assert provider_calls == []
+    assert shared.usage.requests == 0
+
+
+async def test_live_shared_budget_refuses_expired_and_foreign_loop():
+    from agent_utilities.runtime import LiveSharedBudget
+
+    calls: list[int] = []
+    budget = RunBudget(request_limit=2)
+    expired = LiveSharedBudget(budget, deadline=asyncio.get_running_loop().time() - 1)
+    plan = plan_of(echo_model(calls), budget=budget)
+    assert (
+        await run(RunRequest(task="child"), plan=plan, shared_execution=expired)
+    ).status == "stopped"
+
+    live = LiveSharedBudget(budget, deadline=asyncio.get_running_loop().time() + 10)
+    foreign = await asyncio.to_thread(
+        lambda: asyncio.run(
+            run(RunRequest(task="child"), plan=plan, shared_execution=live)
+        )
+    )
+    assert foreign.status == "failed"
+    assert calls == []
+
+
+async def test_live_shared_budget_revocation_blocks_a_waiting_child():
+    from agent_utilities.runtime import LiveSharedBudget
+
+    started, release, child_started = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    calls: list[str] = []
+
+    async def respond(messages, info):
+        calls.append("model")
+        started.set()
+        await release.wait()
+        return ModelResponse(parts=[TextPart("done")])
+
+    def observe(event):
+        if event["type"] == "run_started" and event["run_id"] == "child":
+            child_started.set()
+
+    host_ports.register_run_event_sink(observe)
+    budget = RunBudget(request_limit=5, max_concurrent_requests=1)
+    shared = LiveSharedBudget(budget, deadline=asyncio.get_running_loop().time() + 10)
+    plan = plan_of(FunctionModel(respond), budget=budget)
+    parent = asyncio.create_task(
+        run(
+            RunRequest(task="parent", run_id="parent"),
+            plan=plan,
+            shared_execution=shared,
+        )
+    )
+    child = None
+    try:
+        await asyncio.wait_for(started.wait(), 0.5)
+        child = asyncio.create_task(
+            run(
+                RunRequest(task="child", run_id="child"),
+                plan=plan,
+                shared_execution=shared,
+            )
+        )
+        await asyncio.wait_for(child_started.wait(), 0.5)
+        shared.close()
+        release.set()
+        parent_result, child_result = await asyncio.gather(parent, child)
+        assert parent_result.status == "completed"
+        assert child_result.status == "failed"
+        assert calls == ["model"]
+    finally:
+        release.set()
+        await asyncio.gather(
+            *(task for task in (parent, child) if task is not None),
+            return_exceptions=True,
+        )
+        host_ports.register_run_event_sink(None)

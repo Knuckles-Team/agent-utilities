@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from agent_utilities.graph import (
         AgentRunExecutor,
         DependencyPlan,
+        LiveSharedBudget,
         RunBudget,
         RunFailed,
         RunPlan,
@@ -45,6 +46,7 @@ from .workspace import DevWorkspace, PolicyGate, WorkspaceBackend
 _RUN_EXPORTS = (
     "AgentRunExecutor",
     "DependencyPlan",
+    "LiveSharedBudget",
     "RunBudget",
     "RunFailed",
     "RunPlan",
@@ -58,6 +60,7 @@ _RUN_EXPORTS = (
 __all__ = [
     "AgentRunExecutor",
     "DependencyPlan",
+    "LiveSharedBudget",
     "RunBudget",
     "RunFailed",
     "RunPlan",
