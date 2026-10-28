@@ -1454,7 +1454,8 @@
       "delivery_state": "VERIFIED",
       "landed_in": [
         "8821aee3c37f",
-        "aa5eba73e0f7"
+        "aa5eba73e0f7",
+        "ea6e360274ec"
       ],
       "verified_by": [
         "tests/gates/test_boundary_owner_guard.py:41",
