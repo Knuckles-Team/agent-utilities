@@ -18,6 +18,7 @@
     "AU-BOUNDARY-R005.2",
     "AU-BOUNDARY-R006",
     "AU-BOUNDARY-R006.1",
+    "AU-BOUNDARY-R006.2",
     "AU-BOUNDARY-R007",
     "AU-BOUNDARY-R007.1",
     "AU-BOUNDARY-R007.2",
@@ -26,6 +27,7 @@
     "AU-BOUNDARY-R008.2",
     "AU-BOUNDARY-R009",
     "AU-BOUNDARY-R009.1",
+    "AU-BOUNDARY-R009.2",
     "AU-BOUNDARY-R010",
     "AU-BOUNDARY-R010.1",
     "AU-BOUNDARY-R010.2",
@@ -324,17 +326,17 @@
     {
       "id": "AU-BOUNDARY-R006",
       "title": "Migrate connector packages F-J onto the SDK",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "105559f760c3",
         "5a00da215c55",
+        "f4706f7dc30d",
         "fe5ca4e239ec"
       ],
-      "verified_by": [
-        "tests/gates/test_connector_import_census.py:18"
-      ],
+      "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R006.1"
+        "AU-BOUNDARY-R006.1",
+        "AU-BOUNDARY-R006.2"
       ]
     },
     {
@@ -344,11 +346,19 @@
       "landed_in": [
         "105559f760c3",
         "5a00da215c55",
+        "f4706f7dc30d",
         "fe5ca4e239ec"
       ],
       "verified_by": [
         "tests/gates/test_connector_import_census.py:18"
       ]
+    },
+    {
+      "id": "AU-BOUNDARY-R006.2",
+      "title": "Complete and qualify F-J connector migration",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R007",
@@ -409,15 +419,15 @@
     {
       "id": "AU-BOUNDARY-R009",
       "title": "Migrate connector packages T-Z onto the SDK",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
-        "5a00da215c55"
+        "5a00da215c55",
+        "f4706f7dc30d"
       ],
-      "verified_by": [
-        "tests/gates/test_connector_import_census.py:32"
-      ],
+      "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R009.1"
+        "AU-BOUNDARY-R009.1",
+        "AU-BOUNDARY-R009.2"
       ]
     },
     {
@@ -425,11 +435,19 @@
       "title": "Ship AU's T-Z connector import-census gate",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "5a00da215c55"
+        "5a00da215c55",
+        "f4706f7dc30d"
       ],
       "verified_by": [
         "tests/gates/test_connector_import_census.py:32"
       ]
+    },
+    {
+      "id": "AU-BOUNDARY-R009.2",
+      "title": "Complete and qualify T-Z connector migration and templates",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "AU-BOUNDARY-R010",

@@ -110,7 +110,9 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 ## Decomposition children (tracked)
 
 - [ ] **AU-BOUNDARY-R006.1:** Ship AU's F-J connector import-census gate
+- [ ] **AU-BOUNDARY-R006.2:** Qualify each F-J migration with resolved census and real receipts
 - [ ] **AU-BOUNDARY-R009.1:** Ship AU's T-Z connector import-census gate
+- [ ] **AU-BOUNDARY-R009.2:** Qualify each T-Z migration and generated template with resolved census and real receipts
 - [ ] **AU-BOUNDARY-R016.1:** Gate AU's retained config.py against duplicate environment readers
 - [x] **AU-BOUNDARY-R018.1:** Ship a typed inventory of the AU-BOUNDARY-R018 facade modules
 - [ ] **AU-BOUNDARY-R018.2:** Delete the AU-BOUNDARY-R018 facade modules

@@ -12,6 +12,14 @@ Run focused tests for each cut, then `python3 scripts/uv_workspace.py run --all-
 
 Quality acceptance includes zero newly duplicated code under jscpd and dupehound, no unexplained CCCC complexity regression, KISS review of every added layer, type/lint clean, and no bypassed normal hook. Scanner findings must be compared against the exact base and final head rather than waived because the repository already has debt.
 
+## F-J and T-Z migration acceptance
+
+`AU-BOUNDARY-R006.2` and `AU-BOUNDARY-R009.2` require a complete,
+revision-pinned fleet inventory, a resolved census for each package, and real
+SDK/graph read and write receipts for each migrated package. R009.2 also
+requires the retargeted generated templates to satisfy the same checks. A
+fixture census or an indeterminate dynamic import is not a migration receipt.
+
 ## AU-BOUNDARY-R049 governed write-back
 
 | Proof | Test |
