@@ -119,6 +119,33 @@ def _probe_candidates() -> list[HarnessCandidate]:
     ]
 
 
+@pytest.mark.parametrize("field", ["seed", "model_ref", "budget_ref"])
+async def test_probe_rejects_inconsistent_candidates_before_any_run(
+    field: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def unexpected_run(*args, **kwargs):
+        raise AssertionError("a mismatched candidate must not start a probe")
+
+    monkeypatch.setattr(
+        "agent_utilities.harness.harness_cycle.execute_graph", unexpected_run
+    )
+    candidates = _probe_candidates()
+    candidates[1] = dataclasses.replace(candidates[1], **{field: "different"})
+
+    with pytest.raises(CycleRefusal, match="probe_trace_missing"):
+        await probe_candidates(
+            graph=object(),
+            config=None,
+            task="classify",
+            seed="seed-1",
+            model_ref="model-1",
+            budget_ref="budget-1",
+            run_id="run-1",
+            current_version_ref="v-0",
+            candidates=candidates,
+        )
+
+
 @pytest.mark.spec("AU-HARNESS-CYCLE-R001.3")
 async def test_probe_shares_conditions_and_records_trace() -> None:
     def model(messages, info):
