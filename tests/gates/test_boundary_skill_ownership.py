@@ -22,5 +22,10 @@ def test_every_current_skill_is_recorded_and_has_a_skill_definition() -> None:
         assert f"| `{relative}` | keep | meristem |" in coverage
         skill = (directory / "SKILL.md").read_text()
         assert skill.startswith("---\n")
-        assert f"\nname: {directory.name}\n" in skill
-        assert "\ndescription: " in skill.split("---", 2)[1]
+        frontmatter = skill.split("---", 2)
+        assert len(frontmatter) == 3
+        fields = dict(
+            line.split(":", 1) for line in frontmatter[1].splitlines() if ":" in line
+        )
+        assert fields.get("name", "").strip() == directory.name
+        assert fields.get("description", "").strip()
