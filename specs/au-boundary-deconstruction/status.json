@@ -398,8 +398,10 @@
     {
       "id": "AU-BOUNDARY-R007.1",
       "title": "K-O connector import census lands, naming its own blind spot",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "058226114f34"
+      ],
       "verified_by": [
         "tests/gates/test_boundary_history.py:119"
       ]
@@ -428,8 +430,10 @@
     {
       "id": "AU-BOUNDARY-R008.1",
       "title": "P-S connector import census lands, naming its own blind spot",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "058226114f34"
+      ],
       "verified_by": [
         "tests/gates/test_boundary_history.py:133"
       ]
