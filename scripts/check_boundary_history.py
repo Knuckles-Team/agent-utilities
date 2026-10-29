@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -14,6 +15,11 @@ HARNESS_CUT = "55e4f61a681f798680f1311ee2add721492b4a95"
 BACKENDS = "agent_utilities/deployment/backends.py"
 OIDC = "agent_utilities/deployment/certification_oidc.py"
 BASE = "agent_utilities/base_utilities.py"
+FLEET_CENSUS = "79dc21bab"
+FLEET_MERGE = "d4f26bc0e"
+HARNESS_MERGE = "a754f1299033"
+FLEET_ARTIFACT = "specs/au-boundary-deconstruction/fleet-census-20261009.md"
+FLEET_STATUS = "specs/au-boundary-deconstruction/status.json"
 
 
 def _git(root: Path, *args: str) -> str:
@@ -75,11 +81,45 @@ def check_toolkit(root: Path, original: str, cut: str, head: str) -> None:
         raise ValueError("retired toolkit file exists at head")
 
 
+def check_fleet_census(
+    root: Path, census: str, merge: str, wrong: str, head: str
+) -> None:
+    """Check the historical A-E census without asserting current fleet parity."""
+    for revision in (census, merge, wrong):
+        _ancestor(root, revision, head)
+    _ancestor(root, census, merge)
+    if not _exists(root, census, FLEET_ARTIFACT) or not _exists(
+        root, head, FLEET_ARTIFACT
+    ):
+        raise ValueError("historical fleet census artifact is missing")
+    census_text = _git(root, "show", f"{census}:{FLEET_ARTIFACT}")
+    if (
+        "R005 (connector packages A–E)" not in census_text
+        or "sanctioned SDK-gap" not in census_text
+    ):
+        raise ValueError("historical A-E census or its exclusion is missing")
+    status = json.loads(_git(root, "show", f"{census}:{FLEET_STATUS}"))
+    row = next(
+        item for item in status["requirements"] if item["id"] == "AU-BOUNDARY-R005"
+    )
+    if row["delivery_state"] != "LANDED" or not any(
+        item.get("commit", "").startswith(wrong) for item in row.get("evidence", [])
+    ):
+        raise ValueError("historical A-E status attribution differs")
+    changed = _git(root, "diff", "--name-only", f"{wrong}^1", wrong).splitlines()
+    if "agent_utilities/harness/generative_model_policy.py" not in changed or any(
+        not path.startswith(("agent_utilities/harness/", "tests/harness/"))
+        for path in changed
+    ):
+        raise ValueError("attributed revision is not the unrelated harness change")
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     try:
         check_deployment(root, DEPLOYMENT, BACKENDS_DELETION, HARNESS_CUT, "HEAD")
         check_toolkit(root, TOOLKIT_GATE, HARNESS_CUT, "HEAD")
+        check_fleet_census(root, FLEET_CENSUS, FLEET_MERGE, HARNESS_MERGE, "HEAD")
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"boundary history evidence invalid: {exc}", file=sys.stderr)
         return 1
