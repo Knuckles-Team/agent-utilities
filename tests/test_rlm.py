@@ -453,3 +453,87 @@ async def test_recursive_fallback_refuses_oversized_batch_before_child_fanout(
     )
     assert result["ok"] is False and children == 0
     assert "tool_calls_limit" in result["error"]
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "child",
+        "current",
+        "missing_lineage",
+        "factory",
+        "empty",
+        "legacy",
+        "empty_with_legacy",
+        "provider_failure",
+    ],
+)
+async def test_recursive_history_selection_refuses_before_model(case):
+    import json
+
+    calls = []
+    selections = []
+    legacy_calls = []
+
+    def model(messages, info):
+        calls.append(messages)
+        return ModelResponse(parts=[TextPart("answer")])
+
+    async def select(request):
+        selections.append(request.run_id)
+        if case == "provider_failure":
+            raise PermissionError("private provider details")
+        if case in {"empty", "empty_with_legacy"}:
+            return host_ports.RunCheckpointSelection(request.run_id, None, None)
+        return host_ports.RunCheckpointSelection(
+            request.run_id,
+            "checkpoint" if case == "current" else None,
+            json.dumps(
+                {
+                    "version": 1,
+                    "phase": "completed",
+                    "child_id": "child",
+                    "conversation_id": "conversation",
+                    "predecessor_run_id": "prior",
+                    "history_revision": "revision",
+                    "messages": [
+                        {"role": "user", "text": "earlier"},
+                        {"role": "assistant", "text": "answer"},
+                    ],
+                }
+            ),
+            completed_child=host_ports.CompletedChildBinding(
+                "child", "conversation", "prior", "revision"
+            ),
+        )
+
+    async def legacy(request):
+        legacy_calls.append(request.run_id)
+        return "legacy history"
+
+    if case == "factory":
+        host_ports.register_run_checkpoint_factory(lambda *_: None)
+    elif case == "legacy":
+        host_ports.register_run_history_provider(legacy)
+    else:
+        host_ports.register_run_checkpoint_provider(select)
+        if case == "empty_with_legacy":
+            host_ports.register_run_history_provider(legacy)
+    lineage = (
+        None if case == "missing_lineage" else LineageBinding("run", "root", "root")
+    )
+    result = await run_rlm(
+        "task", config=RLMConfig(model=FunctionModel(model)), lineage=lineage
+    )
+    if case in {"empty", "empty_with_legacy"}:
+        assert result["ok"] is True
+        assert len(calls) == 1 and selections == ["run"]
+        assert legacy_calls == []
+    else:
+        assert result["ok"] is False
+        assert calls == []
+        assert selections == (
+            ["run"] if case in {"child", "current", "provider_failure"} else []
+        )
+        assert legacy_calls == (["run"] if case == "legacy" else [])
+        assert "private provider details" not in result["error"]

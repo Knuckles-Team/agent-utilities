@@ -602,9 +602,9 @@ def register_run_checkpoint_provider(provider: RunCheckpointProvider | None) -> 
     _RUN_CHECKPOINTS = provider
 
 
-async def _read_checkpoint_selection(request: Any) -> str | None:
-    provider = _RUN_CHECKPOINTS
-    assert provider is not None
+async def _read_checkpoint_selection(
+    request: Any, provider: RunCheckpointProvider
+) -> str | None:
     try:
         selection = await provider(request)
     except Exception:
@@ -639,13 +639,31 @@ async def _read_checkpoint_selection(request: Any) -> str | None:
 
 async def read_run_history(request: Any) -> str | None:
     """Use one checkpoint read; legacy history is only for an unbound new port."""
-    if _RUN_CHECKPOINTS is not None:
-        return await _read_checkpoint_selection(request)
+    checkpoint_provider = _RUN_CHECKPOINTS
+    if checkpoint_provider is not None:
+        return await _read_checkpoint_selection(request, checkpoint_provider)
     provider = _RUN_HISTORY
     if provider is None:
         return None
     try:
         return await provider(request)
+    except Exception:
+        raise RuntimeError("conversation history provider failed") from None
+
+
+async def read_recursive_run_history(request: Any | None) -> str | None:
+    """Read one bound selection only for an explicitly identified recursive run."""
+    checkpoint_provider = _RUN_CHECKPOINTS
+    history_provider = _RUN_HISTORY
+    if checkpoint_provider is None and history_provider is None:
+        return None
+    if request is None:
+        raise ValueError("recursive history selection needs admitted lineage")
+    if checkpoint_provider is not None:
+        return await _read_checkpoint_selection(request, checkpoint_provider)
+    assert history_provider is not None
+    try:
+        return await history_provider(request)
     except Exception:
         raise RuntimeError("conversation history provider failed") from None
 
