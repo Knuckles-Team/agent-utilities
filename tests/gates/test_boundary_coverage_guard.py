@@ -21,7 +21,7 @@ def checkout(tmp_path: Path) -> Path:
     return tmp_path
 
 
-@pytest.mark.spec("AU-BOUNDARY-R042")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R042")
 def test_inventory_rejects_unlisted_and_stale_directories(checkout: Path) -> None:
     assert check(checkout) == []
     (checkout / "agent_utilities/unlisted").mkdir()
@@ -34,7 +34,7 @@ def test_inventory_rejects_unlisted_and_stale_directories(checkout: Path) -> Non
     ]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R042")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R042")
 @pytest.mark.parametrize(
     "row",
     [

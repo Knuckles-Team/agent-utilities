@@ -38,7 +38,7 @@ def test_owner_guard_accepts_registered_harness(checkout: Path) -> None:
     assert check(checkout) == []
 
 
-@pytest.mark.spec("AU-BOUNDARY-R038")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R038")
 @pytest.mark.parametrize(
     ("path", "owner"),
     [
@@ -61,7 +61,7 @@ def test_owner_guard_rejects_foreign_module_even_if_registered(
     assert f"{owner}-owned module in meristem: {path}" in check(checkout)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R038")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R038")
 def test_owner_guard_rejects_wrong_owner_script_and_unregistered_module(
     checkout: Path,
 ) -> None:

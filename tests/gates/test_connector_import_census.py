@@ -15,7 +15,7 @@ def _source(root: Path, package: str, contents: str) -> None:
     path.write_text(contents)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R006.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R006.1")
 def test_fj_census_classifies_clean_and_banned_imports(tmp_path: Path) -> None:
     _source(tmp_path, "github-agent", "import json\n")
     _source(
@@ -29,7 +29,7 @@ def test_fj_census_classifies_clean_and_banned_imports(tmp_path: Path) -> None:
     assert "agent_utilities.core.config" in result["fan-manager"].hits
 
 
-@pytest.mark.spec("AU-BOUNDARY-R009.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R009.1")
 def test_tz_census_classifies_static_imports_and_unknown_dynamic(
     tmp_path: Path,
 ) -> None:

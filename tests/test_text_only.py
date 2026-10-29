@@ -20,7 +20,7 @@ from agent_utilities.runtime import (
     StopRule,
 )
 
-pytestmark = pytest.mark.spec("AU-BOUNDARY-R043.13.1")
+pytestmark = pytest.mark.spec("MERISTEM-BOUNDARY-R043.13.1")
 
 
 def fixture(

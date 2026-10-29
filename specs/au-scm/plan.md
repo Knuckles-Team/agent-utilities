@@ -1,4 +1,4 @@
-# AU-SCM — Design and implementation plan
+# MERISTEM-SCM — Design and implementation plan
 
 Governing spec: [spec.md](spec.md).
 
@@ -28,7 +28,7 @@ virtual workspace. The gate step runs the fast gates through
 changeset through the `ChangesetSubmitter` port. arbora registers the
 provider over the repository-manager connector tools (`source.commit`,
 `source.land`; ARBORA-OPS-R848). The conflict step reacts to
-`SOURCE_CONFLICT{paths}` (EG-SCM-R003). It re-reads the new head,
+`SOURCE_CONFLICT{paths}` (MEDULLA-SCM-R003). It re-reads the new head,
 re-applies the pending edits and resubmits. The retry bound is a
 received value with a default and maximum of 3 rebases. Exhaustion refuses with
 `conflict_retry_exhausted`.
@@ -80,7 +80,7 @@ repository gates in `.config/pre-commit.yaml` and `release.yml`.
 ## Risks, alternatives, and decisions
 
 The loop and the server risk drift on conflict semantics. The decision:
-the server owns acceptance and the rebase judgment (EG-SCM-R003). The
+the server owns acceptance and the rebase judgment (MEDULLA-SCM-R003). The
 loop owns only the re-application of its own edits. The rejected
 alternative kept a local merge inside the loop. It fails the
 no-duplicate-authority check. The retry bound stops an unbounded loop.
@@ -91,5 +91,5 @@ back to the caller.
 ## Symbol-level edits (R002)
 
 The harness sends a symbol edit instead of a file write when the file has a parser. The engine
-projects the edit to bytes and confirms it by a re-parse (EG-SCM-R013). The harness only applies
+projects the edit to bytes and confirms it by a re-parse (MEDULLA-SCM-R013). The harness only applies
 the answer: it retries a stale base once and returns a round-trip refusal to the model.

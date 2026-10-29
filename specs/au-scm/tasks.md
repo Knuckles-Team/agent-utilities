@@ -1,4 +1,4 @@
-# AU-SCM — Implementation tasks
+# MERISTEM-SCM — Implementation tasks
 
 Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Rows: [requirements.md](requirements.md).
 
@@ -11,4 +11,4 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Rows: [requireme
 - [ ] Add the served proof and the focused unit tests; run the gates.
 - [ ] Update `status.json` only after the required gates pass on the merged revision.
 
-- [ ] **AU-SCM-R002:** Symbol-level edits in the run loop.
+- [ ] **MERISTEM-SCM-R002:** Symbol-level edits in the run loop.

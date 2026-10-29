@@ -64,9 +64,9 @@ def _importers_of(module: str) -> list[str]:
     return hits
 
 
-@pytest.mark.spec("AU-BOUNDARY-R002.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R002.2")
 def test_deployment_package_and_backends_module_deleted() -> None:
-    """AU-BOUNDARY-R002.2: ``deployment/backends.py`` and ``deployment/`` are gone.
+    """MERISTEM-BOUNDARY-R002.2: ``deployment/backends.py`` and ``deployment/`` are gone.
 
     Acceptance: the file and its production imports are gone. Proves the
     path is absent from the tree and that no remaining source imports
@@ -83,7 +83,7 @@ def test_deployment_package_and_backends_module_deleted() -> None:
 
 
 def test_legacy_sparql_backend_and_setup_path_deleted() -> None:
-    """AU-BOUNDARY-R032 census: the legacy SPARQL backend and setup path are gone.
+    """MERISTEM-BOUNDARY-R032 census: the legacy SPARQL backend and setup path are gone.
 
     Proves the "no runtime or command-line caller remains" half of the row's
     acceptance: the retired paths are absent, no remaining source imports
@@ -119,9 +119,9 @@ def test_legacy_sparql_backend_and_setup_path_deleted() -> None:
     )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R048.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R048.1")
 def test_images_directory_absent() -> None:
-    """AU-BOUNDARY-R048.1: ``agent_utilities/images/`` no longer exists.
+    """MERISTEM-BOUNDARY-R048.1: ``agent_utilities/images/`` no longer exists.
 
     The directory was already deleted/relocated before this cut; the
     acceptance is that ``agent_utilities/images`` yields no path on main.

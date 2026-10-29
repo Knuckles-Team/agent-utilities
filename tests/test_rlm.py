@@ -18,7 +18,7 @@ class SandboxRejected(Exception):
     pass
 
 
-# spec: AU-BOUNDARY-R043.3
+# spec: MERISTEM-BOUNDARY-R043.3
 @pytest.mark.parametrize(
     ("exc", "expected"),
     [
@@ -62,7 +62,7 @@ def scripted(*calls: tuple[str, dict]) -> FunctionModel:
     return FunctionModel(fn)
 
 
-# spec: AU-BOUNDARY-R043.3
+# spec: MERISTEM-BOUNDARY-R043.3
 async def test_root_reads_slices_and_recurses():
     root = scripted(
         ("read_input", {"start": 2, "end": 5}), ("sub_query", {"question": "q"})
@@ -73,7 +73,7 @@ async def test_root_reads_slices_and_recurses():
     assert out["usage"]["requests"] >= 3 and out["max_depth"] == 3
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.14")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.14")
 async def test_recursive_lineage_requires_explicit_child_identity_and_preserves_edges(
     events,
 ):
@@ -143,7 +143,7 @@ async def test_recursive_lineage_requires_explicit_child_identity_and_preserves_
     assert starts[0]["event_id"] != spawns[0]["event_id"]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.14")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.14")
 @pytest.mark.parametrize(
     "child_identity_provider",
     [None, lambda parent, question: None],
@@ -182,14 +182,14 @@ async def test_recursive_lineage_refuses_missing_identity_before_dispatch(
     assert [event["type"] for event in events] == ["run_started"]
 
 
-# spec: AU-BOUNDARY-R043.3
+# spec: MERISTEM-BOUNDARY-R043.3
 async def test_read_input_is_capped_by_the_slice_limit():
     root = scripted(("read_input", {"start": 0, "end": 100}))
     out = await run_rlm("t", "x" * 50, config=RLMConfig(model=root, max_slice_chars=4))
     assert out["result"] == "xxxx"
 
 
-# spec: AU-BOUNDARY-R043.3
+# spec: MERISTEM-BOUNDARY-R043.3
 @pytest.mark.parametrize("max_depth", [0, 1])
 async def test_recursion_stops_at_max_depth(max_depth):
     root = scripted(("sub_query", {"question": "q"}))
@@ -205,7 +205,7 @@ async def test_model_failure_returns_a_typed_failure():
     assert (out["ok"], out["failure_class"]) == (False, "sandbox_exec_timeout")
 
 
-# spec: AU-BOUNDARY-R043.3
+# spec: MERISTEM-BOUNDARY-R043.3
 async def test_fatal_failure_propagates():
     def boom(messages, info):
         raise SandboxFatalError("dead")
@@ -214,7 +214,7 @@ async def test_fatal_failure_propagates():
         await run_rlm("t", config=RLMConfig(model=FunctionModel(boom)))
 
 
-# spec: AU-BOUNDARY-R043.3
+# spec: MERISTEM-BOUNDARY-R043.3
 async def test_without_a_model_the_host_plan_supplies_it():
     host_ports.register_run_decision_provider(
         lambda req: RunPlan(
@@ -230,7 +230,7 @@ async def test_without_any_model_the_run_fails():
     assert out["ok"] is False and "no model" in out["error"]
 
 
-# spec: AU-BOUNDARY-R043.7
+# spec: MERISTEM-BOUNDARY-R043.7
 async def test_recursive_requests_refill_slots_without_holding_parent_permits():
     import asyncio
 
@@ -289,7 +289,7 @@ async def test_recursive_requests_refill_slots_without_holding_parent_permits():
     assert active == 0
 
 
-# spec: AU-BOUNDARY-R043.7
+# spec: MERISTEM-BOUNDARY-R043.7
 @pytest.mark.parametrize("cancel", [False, True])
 async def test_nested_recursion_capacity_one_finishes_or_drains_on_cancel(cancel):
     import asyncio
@@ -341,7 +341,7 @@ async def test_nested_recursion_capacity_one_finishes_or_drains_on_cancel(cancel
     assert drained.is_set()
 
 
-# spec: AU-BOUNDARY-R043.7
+# spec: MERISTEM-BOUNDARY-R043.7
 @pytest.mark.parametrize(
     "request_limit,tool_limit,expected_calls", [(0, 10, 0), (1, 10, 1), (5, 2, 1)]
 )
@@ -368,7 +368,7 @@ async def test_recursive_shared_budget_and_batch_refusal(
     assert len(calls) == expected_calls
 
 
-# spec: AU-BOUNDARY-R043.7
+# spec: MERISTEM-BOUNDARY-R043.7
 async def test_host_zero_request_limit_is_not_widened_to_fallback():
     from agent_utilities.graph import RunBudget
 
@@ -381,7 +381,7 @@ async def test_host_zero_request_limit_is_not_widened_to_fallback():
     assert (await run_rlm("t"))["ok"] is False
 
 
-# spec: AU-BOUNDARY-R043.7
+# spec: MERISTEM-BOUNDARY-R043.7
 async def test_repeated_recursive_cancellation_waits_for_async_child_cleanup():
     import asyncio
 
@@ -426,7 +426,7 @@ async def test_repeated_recursive_cancellation_waits_for_async_child_cleanup():
         await asyncio.gather(parent, return_exceptions=True)
 
 
-# spec: AU-BOUNDARY-R043.7
+# spec: MERISTEM-BOUNDARY-R043.7
 @pytest.mark.parametrize("tool_limit", [None, 50])
 async def test_recursive_fallback_refuses_oversized_batch_before_child_fanout(
     tool_limit,

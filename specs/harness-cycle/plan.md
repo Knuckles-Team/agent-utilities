@@ -1,4 +1,4 @@
-# AU-HARNESS-CYCLE — Design and implementation plan
+# MERISTEM-HARNESS-CYCLE — Design and implementation plan
 
 Governing spec: [spec.md](spec.md).
 
@@ -21,9 +21,9 @@ cycle port beside them.
 One module owns the loop: `agent_utilities/harness/harness_cycle.py`.
 The loop is one tick: propose, probe, compose, persist, reflect. Each
 step is one function with one refusal path. The module holds no store
-and no ranking. It queries the library (EG-ORCH-VOCAB-R802.3). It
+and no ranking. It queries the library (MEDULLA-ORCH-VOCAB-R802.3). It
 enters the probes through `execute_graph`. It delegates the
-composition to the engine (EG-DECISION-ENGINE-R803). It writes through
+composition to the engine (MEDULLA-DECISION-ENGINE-R803). It writes through
 the generated-client envelopes. arbora drives the tick through the
 `HarnessCycleProvider` port. Without a registered provider the port
 fails closed, as every other port does.
@@ -35,15 +35,15 @@ references, not content. The probe runs under an identical task, seed,
 model and budget, and the conditions digest binds them. The compose
 call is one served `Decide` under the `HARNESS_CONTRAST` question kind.
 The persist step writes three graph facts: the adopted component
-version (EG-ORCH-VOCAB-R801.2), the contrast and the lesson
-(EG-ORCH-VOCAB-R802.1). The in-run harness switch reuses `apply_edits`
+version (MEDULLA-ORCH-VOCAB-R801.2), the contrast and the lesson
+(MEDULLA-ORCH-VOCAB-R802.1). The in-run harness switch reuses `apply_edits`
 at `agent_utilities/harness/edit_engine.py:457`.
 
 ## Live integration path
 
 arbora registers `HarnessCycleProvider` at startup and drives one tick
 per task. The tick reads the candidate budget k from the stage
-allocation in the run decision (EG-DECISION-ENGINE-R136.3). The
+allocation in the run decision (MEDULLA-DECISION-ENGINE-R136.3). The
 reflect step reports the outcome through the existing `RunEventSink`,
 and arbora writes the trace into epistemic-graph.
 
@@ -60,7 +60,7 @@ the changed code through the repository gates in
 ## Risks, alternatives, and decisions
 
 The cycle can drift from the engine on the contrast semantics. The
-decision: the engine owns the composition (EG-DECISION-ENGINE-R803),
+decision: the engine owns the composition (MEDULLA-DECISION-ENGINE-R803),
 and the cycle owns only probe scheduling and persistence. The rejected
 alternative kept a local ranking inside the cycle. It fails the
 no-duplicate-authority check, because the measured contrast is the
@@ -71,9 +71,9 @@ only authority.
 `drive_cycle_tick` has no production caller. No host registers a `HarnessCycleProvider` yet.
 Superseded evidence: the unit tests of R001.5 and R001.8 run against fake persist and decide ports.
 They prove the AU step logic and the closed port. They do not prove host registration or engine envelopes.
-`AU-HARNESS-CYCLE-R001.10` owns persistence through the released EG client.
-`AU-HARNESS-CYCLE-R001.11` owns the host-registered tick. The host registration row belongs to arbora.
-The arbora row waits for the release of EG-ORCH-VOCAB-R801.2, EG-ORCH-VOCAB-R802 and EG-DECISION-ENGINE-R803.
+`MERISTEM-HARNESS-CYCLE-R001.10` owns persistence through the released EG client.
+`MERISTEM-HARNESS-CYCLE-R001.11` owns the host-registered tick. The host registration row belongs to arbora.
+The arbora row waits for the release of MEDULLA-ORCH-VOCAB-R801.2, MEDULLA-ORCH-VOCAB-R802 and MEDULLA-DECISION-ENGINE-R803.
 
 ## Probe-condition evidence gap
 
@@ -99,7 +99,7 @@ journey that reads the real admitted conditions and traces; otherwise abstain.
 
 The current probe traces contain usage counters and completion status, not
 owner-authenticated retry count, tool-selection quality, evaluation score or
-cost. The cycle must not convert those proxies into EG-ORCH-VOCAB-R802 Q32
+cost. The cycle must not convert those proxies into MEDULLA-ORCH-VOCAB-R802 Q32
 measurements or treat a missing baseline as a measured run. Until the owner
 supplies a verified measurement contract, `measure_contrasts` and the cycle
 refuse with `measurement_unavailable` before calling Decide or persisting an

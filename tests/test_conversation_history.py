@@ -19,7 +19,7 @@ from agent_utilities.graph import (
 )
 from agent_utilities.harness.conversation_history import decode_completed_history
 
-pytestmark = pytest.mark.spec("AU-BOUNDARY-R043.9.1")
+pytestmark = pytest.mark.spec("MERISTEM-BOUNDARY-R043.9.1")
 
 
 def envelope():
@@ -229,7 +229,7 @@ def test_maximum_message_count_is_supported():
     assert len(decode_completed_history(json.dumps(value), run_id="current")) == 1024
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.9.2.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.9.2.1")
 @pytest.mark.parametrize("prior", [None, "completed"])
 async def test_checkpoint_selection_is_one_read_without_legacy_fallback(prior):
     reads, legacy, calls = [], [], []
@@ -271,7 +271,7 @@ async def test_checkpoint_selection_is_one_read_without_legacy_fallback(prior):
     assert result.usage["output_tokens"] == 3
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.9.2.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.9.2.1")
 @pytest.mark.parametrize("current", ["", "private malformed", '{"phase":"inflight"}'])
 async def test_current_checkpoint_precedes_history_before_planning_or_model(current):
     effects = []
@@ -298,7 +298,7 @@ async def test_current_checkpoint_precedes_history_before_planning_or_model(curr
     assert "private" not in result.error
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.9.2.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.9.2.1")
 @pytest.mark.parametrize(
     "selection",
     [
@@ -337,7 +337,7 @@ async def test_partial_or_malformed_selection_refuses_without_fallback(selection
     assert "private" not in result.error
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.9.2.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.9.2.1")
 @pytest.mark.parametrize("cancelled", [False, True])
 async def test_checkpoint_provider_failure_is_private_and_does_not_plan(
     cancelled, events
@@ -375,7 +375,7 @@ async def test_checkpoint_provider_failure_is_private_and_does_not_plan(
     assert "private" not in result.error
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.9.2.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.9.2.1")
 @pytest.mark.parametrize("case", ["current", "provider", "invalid", "success"])
 async def test_supplied_plan_usage_survives_history_refusal_exactly_once(case, events):
     calls = []

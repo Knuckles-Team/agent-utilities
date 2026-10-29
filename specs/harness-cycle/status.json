@@ -1,49 +1,49 @@
 {
   "schema_version": 2,
-  "spec_id": "AU-HARNESS-CYCLE",
+  "spec_id": "MERISTEM-HARNESS-CYCLE",
   "owner_repo": "meristem",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "AU-HARNESS-CYCLE-R001",
-    "AU-HARNESS-CYCLE-R001.1",
-    "AU-HARNESS-CYCLE-R001.2",
-    "AU-HARNESS-CYCLE-R001.3",
-    "AU-HARNESS-CYCLE-R001.4",
-    "AU-HARNESS-CYCLE-R001.5",
-    "AU-HARNESS-CYCLE-R001.6",
-    "AU-HARNESS-CYCLE-R001.7",
-    "AU-HARNESS-CYCLE-R001.8",
-    "AU-HARNESS-CYCLE-R001.9",
-    "AU-HARNESS-CYCLE-R001.10",
-    "AU-HARNESS-CYCLE-R001.11",
-    "AU-HARNESS-CYCLE-R001.12",
-    "AU-HARNESS-CYCLE-R001.13"
+    "MERISTEM-HARNESS-CYCLE-R001",
+    "MERISTEM-HARNESS-CYCLE-R001.1",
+    "MERISTEM-HARNESS-CYCLE-R001.2",
+    "MERISTEM-HARNESS-CYCLE-R001.3",
+    "MERISTEM-HARNESS-CYCLE-R001.4",
+    "MERISTEM-HARNESS-CYCLE-R001.5",
+    "MERISTEM-HARNESS-CYCLE-R001.6",
+    "MERISTEM-HARNESS-CYCLE-R001.7",
+    "MERISTEM-HARNESS-CYCLE-R001.8",
+    "MERISTEM-HARNESS-CYCLE-R001.9",
+    "MERISTEM-HARNESS-CYCLE-R001.10",
+    "MERISTEM-HARNESS-CYCLE-R001.11",
+    "MERISTEM-HARNESS-CYCLE-R001.12",
+    "MERISTEM-HARNESS-CYCLE-R001.13"
   ],
   "requirements": [
     {
-      "id": "AU-HARNESS-CYCLE-R001",
+      "id": "MERISTEM-HARNESS-CYCLE-R001",
       "title": "Harness evolution cycle (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "AU-HARNESS-CYCLE-R001.1",
-        "AU-HARNESS-CYCLE-R001.2",
-        "AU-HARNESS-CYCLE-R001.3",
-        "AU-HARNESS-CYCLE-R001.4",
-        "AU-HARNESS-CYCLE-R001.5",
-        "AU-HARNESS-CYCLE-R001.6",
-        "AU-HARNESS-CYCLE-R001.7",
-        "AU-HARNESS-CYCLE-R001.8",
-        "AU-HARNESS-CYCLE-R001.9",
-        "AU-HARNESS-CYCLE-R001.10",
-        "AU-HARNESS-CYCLE-R001.11",
-        "AU-HARNESS-CYCLE-R001.12",
-        "AU-HARNESS-CYCLE-R001.13"
+        "MERISTEM-HARNESS-CYCLE-R001.1",
+        "MERISTEM-HARNESS-CYCLE-R001.2",
+        "MERISTEM-HARNESS-CYCLE-R001.3",
+        "MERISTEM-HARNESS-CYCLE-R001.4",
+        "MERISTEM-HARNESS-CYCLE-R001.5",
+        "MERISTEM-HARNESS-CYCLE-R001.6",
+        "MERISTEM-HARNESS-CYCLE-R001.7",
+        "MERISTEM-HARNESS-CYCLE-R001.8",
+        "MERISTEM-HARNESS-CYCLE-R001.9",
+        "MERISTEM-HARNESS-CYCLE-R001.10",
+        "MERISTEM-HARNESS-CYCLE-R001.11",
+        "MERISTEM-HARNESS-CYCLE-R001.12",
+        "MERISTEM-HARNESS-CYCLE-R001.13"
       ]
     },
     {
-      "id": "AU-HARNESS-CYCLE-R001.1",
+      "id": "MERISTEM-HARNESS-CYCLE-R001.1",
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -54,7 +54,7 @@
       ]
     },
     {
-      "id": "AU-HARNESS-CYCLE-R001.2",
+      "id": "MERISTEM-HARNESS-CYCLE-R001.2",
       "title": "Propose",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -65,7 +65,7 @@
       ]
     },
     {
-      "id": "AU-HARNESS-CYCLE-R001.3",
+      "id": "MERISTEM-HARNESS-CYCLE-R001.3",
       "title": "Probe",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -75,7 +75,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-HARNESS-CYCLE-R001.4",
+      "id": "MERISTEM-HARNESS-CYCLE-R001.4",
       "title": "Compose",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -84,7 +84,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-HARNESS-CYCLE-R001.5",
+      "id": "MERISTEM-HARNESS-CYCLE-R001.5",
       "title": "Persist",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -93,7 +93,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-HARNESS-CYCLE-R001.6",
+      "id": "MERISTEM-HARNESS-CYCLE-R001.6",
       "title": "Reflect",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -104,7 +104,7 @@
       ]
     },
     {
-      "id": "AU-HARNESS-CYCLE-R001.7",
+      "id": "MERISTEM-HARNESS-CYCLE-R001.7",
       "title": "Refusal",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -113,7 +113,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-HARNESS-CYCLE-R001.8",
+      "id": "MERISTEM-HARNESS-CYCLE-R001.8",
       "title": "Wiring",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -125,28 +125,28 @@
       ]
     },
     {
-      "id": "AU-HARNESS-CYCLE-R001.9",
+      "id": "MERISTEM-HARNESS-CYCLE-R001.9",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-HARNESS-CYCLE-R001.10",
+      "id": "MERISTEM-HARNESS-CYCLE-R001.10",
       "title": "Persist through the released client",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-HARNESS-CYCLE-R001.11",
+      "id": "MERISTEM-HARNESS-CYCLE-R001.11",
       "title": "Host registration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-HARNESS-CYCLE-R001.12",
+      "id": "MERISTEM-HARNESS-CYCLE-R001.12",
       "title": "Measurement safety refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -159,7 +159,7 @@
       ]
     },
     {
-      "id": "AU-HARNESS-CYCLE-R001.13",
+      "id": "MERISTEM-HARNESS-CYCLE-R001.13",
       "title": "Probe admission refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [

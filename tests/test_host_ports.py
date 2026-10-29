@@ -94,7 +94,7 @@ def test_clean_tool_name(prefix, server, tool, expected):
     assert hp.clean_tool_name(prefix, server, tool) == expected
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.5.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.5.2")
 async def test_scaffold_publisher_is_inactive_before_host_close():
     from contextlib import asynccontextmanager
 
@@ -122,7 +122,7 @@ async def test_scaffold_publisher_is_inactive_before_host_close():
     assert published == [0, 1]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.5.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.5.2")
 @pytest.mark.parametrize("bound,enabled", [(False, True), (True, False)])
 async def test_absent_or_disabled_scaffold_has_no_publication_binding(bound, enabled):
     from agent_utilities.harness.plan import PlanState
@@ -137,7 +137,7 @@ async def test_absent_or_disabled_scaffold_has_no_publication_binding(bound, ena
         assert publisher is None
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.5.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.5.2")
 async def test_cancellation_during_publication_closes_host_scope():
     import asyncio
     from contextlib import asynccontextmanager
@@ -172,7 +172,7 @@ async def test_cancellation_during_publication_closes_host_scope():
     assert closed == [True]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.5.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.5.2")
 @pytest.mark.parametrize("cancelled", [False, True])
 async def test_host_close_failure_preserves_body_failure(cancelled):
     import asyncio
@@ -199,7 +199,7 @@ async def test_host_close_failure_preserves_body_failure(cancelled):
     assert caught.value is failure
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.5.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.5.2")
 async def test_failed_publication_keeps_accepted_revision():
     from contextlib import asynccontextmanager
 
@@ -224,7 +224,7 @@ async def test_failed_publication_keeps_accepted_revision():
     assert state.read_versioned() == (1, accepted)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.5.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.5.2")
 @pytest.mark.parametrize("outcome", ["success", "error", "cancel"])
 async def test_optional_host_binding_can_decline_one_run_and_still_close(outcome):
     import asyncio

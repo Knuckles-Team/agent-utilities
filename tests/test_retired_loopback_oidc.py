@@ -8,7 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R002.3.3")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R002.3.3")
 def test_retired_loopback_oidc_has_no_entry_point_or_imports():
     assert not (ROOT / "scripts/certification/loopback_oidc.py").exists()
     assert not (ROOT / "tests/unit/scripts/test_loopback_oidc.py").exists()

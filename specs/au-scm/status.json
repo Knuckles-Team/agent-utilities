@@ -1,22 +1,22 @@
 {
   "schema_version": 2,
-  "spec_id": "AU-SCM",
+  "spec_id": "MERISTEM-SCM",
   "owner_repo": "meristem",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "AU-SCM-R001",
-    "AU-SCM-R002"
+    "MERISTEM-SCM-R001",
+    "MERISTEM-SCM-R002"
   ],
   "requirements": [
     {
-      "id": "AU-SCM-R001",
+      "id": "MERISTEM-SCM-R001",
       "title": "Development loop on changesets",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-SCM-R002",
+      "id": "MERISTEM-SCM-R002",
       "title": "Symbol-level edits in the run loop",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

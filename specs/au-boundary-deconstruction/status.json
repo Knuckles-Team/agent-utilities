@@ -1,219 +1,219 @@
 {
   "schema_version": 2,
-  "spec_id": "AU-BOUNDARY",
+  "spec_id": "MERISTEM-BOUNDARY",
   "owner_repo": "meristem",
   "delivery_state": "SPECIFIED",
   "requirement_ids": [
-    "AU-BOUNDARY-R002",
-    "AU-BOUNDARY-R002.1",
-    "AU-BOUNDARY-R002.2",
-    "AU-BOUNDARY-R002.3",
-    "AU-BOUNDARY-R002.3.1",
-    "AU-BOUNDARY-R002.3.2",
-    "AU-BOUNDARY-R002.3.3",
-    "AU-BOUNDARY-R002.3.4",
-    "AU-BOUNDARY-R002.3.5",
-    "AU-BOUNDARY-R005",
-    "AU-BOUNDARY-R005.1",
-    "AU-BOUNDARY-R005.2",
-    "AU-BOUNDARY-R006",
-    "AU-BOUNDARY-R006.1",
-    "AU-BOUNDARY-R006.2",
-    "AU-BOUNDARY-R007",
-    "AU-BOUNDARY-R007.1",
-    "AU-BOUNDARY-R007.2",
-    "AU-BOUNDARY-R008",
-    "AU-BOUNDARY-R008.1",
-    "AU-BOUNDARY-R008.2",
-    "AU-BOUNDARY-R009",
-    "AU-BOUNDARY-R009.1",
-    "AU-BOUNDARY-R009.2",
-    "AU-BOUNDARY-R010",
-    "AU-BOUNDARY-R010.1",
-    "AU-BOUNDARY-R010.2",
-    "AU-BOUNDARY-R010.3",
-    "AU-BOUNDARY-R010.4",
-    "AU-BOUNDARY-R010.5",
-    "AU-BOUNDARY-R010.6",
-    "AU-BOUNDARY-R010.7",
-    "AU-BOUNDARY-R010.8",
-    "AU-BOUNDARY-R010.9",
-    "AU-BOUNDARY-R010.10",
-    "AU-BOUNDARY-R010.11",
-    "AU-BOUNDARY-R010.12",
-    "AU-BOUNDARY-R010.13",
-    "AU-BOUNDARY-R010.14",
-    "AU-BOUNDARY-R010.15",
-    "AU-BOUNDARY-R010.17",
-    "AU-BOUNDARY-R010.18",
-    "AU-BOUNDARY-R010.19",
-    "AU-BOUNDARY-R010.20",
-    "AU-BOUNDARY-R010.21",
-    "AU-BOUNDARY-R010.22",
-    "AU-BOUNDARY-R010.24",
-    "AU-BOUNDARY-R010.25",
-    "AU-BOUNDARY-R011",
-    "AU-BOUNDARY-R011.1",
-    "AU-BOUNDARY-R011.2",
-    "AU-BOUNDARY-R011.2.1",
-    "AU-BOUNDARY-R011.2.2",
-    "AU-BOUNDARY-R011.2.3",
-    "AU-BOUNDARY-R011.2.4",
-    "AU-BOUNDARY-R011.2.5",
-    "AU-BOUNDARY-R011.3",
-    "AU-BOUNDARY-R011.4",
-    "AU-BOUNDARY-R011.5",
-    "AU-BOUNDARY-R012",
-    "AU-BOUNDARY-R014",
-    "AU-BOUNDARY-R014.1",
-    "AU-BOUNDARY-R014.2",
-    "AU-BOUNDARY-R015",
-    "AU-BOUNDARY-R015.1",
-    "AU-BOUNDARY-R015.2",
-    "AU-BOUNDARY-R016",
-    "AU-BOUNDARY-R016.1",
-    "AU-BOUNDARY-R017",
-    "AU-BOUNDARY-R018",
-    "AU-BOUNDARY-R018.1",
-    "AU-BOUNDARY-R018.2",
-    "AU-BOUNDARY-R019",
-    "AU-BOUNDARY-R019.1",
-    "AU-BOUNDARY-R019.2",
-    "AU-BOUNDARY-R020",
-    "AU-BOUNDARY-R020.1",
-    "AU-BOUNDARY-R020.2",
-    "AU-BOUNDARY-R021",
-    "AU-BOUNDARY-R021.1",
-    "AU-BOUNDARY-R021.2",
-    "AU-BOUNDARY-R022",
-    "AU-BOUNDARY-R022.1",
-    "AU-BOUNDARY-R022.2",
-    "AU-BOUNDARY-R023",
-    "AU-BOUNDARY-R024",
-    "AU-BOUNDARY-R024.1",
-    "AU-BOUNDARY-R024.2",
-    "AU-BOUNDARY-R024.3",
-    "AU-BOUNDARY-R025",
-    "AU-BOUNDARY-R026",
-    "AU-BOUNDARY-R027",
-    "AU-BOUNDARY-R028",
-    "AU-BOUNDARY-R028.1",
-    "AU-BOUNDARY-R028.2",
-    "AU-BOUNDARY-R028.2.1",
-    "AU-BOUNDARY-R028.2.2",
-    "AU-BOUNDARY-R028.3",
-    "AU-BOUNDARY-R028.4",
-    "AU-BOUNDARY-R028.5",
-    "AU-BOUNDARY-R028.6",
-    "AU-BOUNDARY-R028.6.1",
-    "AU-BOUNDARY-R028.6.2",
-    "AU-BOUNDARY-R028.7",
-    "AU-BOUNDARY-R028.7.1",
-    "AU-BOUNDARY-R028.7.2",
-    "AU-BOUNDARY-R028.8",
-    "AU-BOUNDARY-R028.8.1",
-    "AU-BOUNDARY-R028.8.2",
-    "AU-BOUNDARY-R029",
-    "AU-BOUNDARY-R030",
-    "AU-BOUNDARY-R030.1",
-    "AU-BOUNDARY-R030.2",
-    "AU-BOUNDARY-R030.3",
-    "AU-BOUNDARY-R030.4",
-    "AU-BOUNDARY-R030.5",
-    "AU-BOUNDARY-R030.6",
-    "AU-BOUNDARY-R030.7",
-    "AU-BOUNDARY-R030.8",
-    "AU-BOUNDARY-R030.9",
-    "AU-BOUNDARY-R030.9.1",
-    "AU-BOUNDARY-R030.9.2",
-    "AU-BOUNDARY-R031",
-    "AU-BOUNDARY-R032",
-    "AU-BOUNDARY-R033",
-    "AU-BOUNDARY-R034",
-    "AU-BOUNDARY-R035",
-    "AU-BOUNDARY-R036",
-    "AU-BOUNDARY-R036.1",
-    "AU-BOUNDARY-R036.2",
-    "AU-BOUNDARY-R037",
-    "AU-BOUNDARY-R037.1",
-    "AU-BOUNDARY-R037.2",
-    "AU-BOUNDARY-R038",
-    "AU-BOUNDARY-R040",
-    "AU-BOUNDARY-R040.1",
-    "AU-BOUNDARY-R040.2",
-    "AU-BOUNDARY-R041",
-    "AU-BOUNDARY-R042",
-    "AU-BOUNDARY-R043",
-    "AU-BOUNDARY-R043.1",
-    "AU-BOUNDARY-R043.2",
-    "AU-BOUNDARY-R043.3",
-    "AU-BOUNDARY-R043.4",
-    "AU-BOUNDARY-R043.4.1",
-    "AU-BOUNDARY-R043.4.2",
-    "AU-BOUNDARY-R043.4.3",
-    "AU-BOUNDARY-R043.4.4",
-    "AU-BOUNDARY-R043.4.5",
-    "AU-BOUNDARY-R043.5",
-    "AU-BOUNDARY-R043.5.1",
-    "AU-BOUNDARY-R043.5.2",
-    "AU-BOUNDARY-R043.6",
-    "AU-BOUNDARY-R043.6.1",
-    "AU-BOUNDARY-R043.6.2",
-    "AU-BOUNDARY-R043.6.3",
-    "AU-BOUNDARY-R043.6.4",
-    "AU-BOUNDARY-R043.6.5",
-    "AU-BOUNDARY-R043.6.6",
-    "AU-BOUNDARY-R043.6.7",
-    "AU-BOUNDARY-R043.7",
-    "AU-BOUNDARY-R043.8",
-    "AU-BOUNDARY-R043.9",
-    "AU-BOUNDARY-R043.10",
-    "AU-BOUNDARY-R044",
-    "AU-BOUNDARY-R044.1",
-    "AU-BOUNDARY-R044.2",
-    "AU-BOUNDARY-R045",
-    "AU-BOUNDARY-R045.1",
-    "AU-BOUNDARY-R045.2",
-    "AU-BOUNDARY-R046",
-    "AU-BOUNDARY-R047",
-    "AU-BOUNDARY-R047.1",
-    "AU-BOUNDARY-R047.2",
-    "AU-BOUNDARY-R048",
-    "AU-BOUNDARY-R048.1",
-    "AU-BOUNDARY-R048.2",
-    "AU-BOUNDARY-R048.3",
-    "AU-BOUNDARY-R048.4",
-    "AU-BOUNDARY-R048.5",
-    "AU-BOUNDARY-R048.6",
-    "AU-BOUNDARY-R048.8",
-    "AU-BOUNDARY-R048.9",
-    "AU-BOUNDARY-R048.10",
-    "AU-BOUNDARY-R048.11",
-    "AU-BOUNDARY-R049",
-    "AU-BOUNDARY-R043.11",
-    "AU-BOUNDARY-R050",
-    "AU-BOUNDARY-R050.1",
-    "AU-BOUNDARY-R050.2",
-    "AU-BOUNDARY-R050.3",
-    "AU-BOUNDARY-R050.4",
-    "AU-BOUNDARY-R050.5",
-    "AU-BOUNDARY-R050.6",
-    "AU-BOUNDARY-R043.12",
-    "AU-BOUNDARY-R043.9.1",
-    "AU-BOUNDARY-R043.9.2",
-    "AU-BOUNDARY-R043.9.2.1",
-    "AU-BOUNDARY-R043.9.2.2",
-    "AU-BOUNDARY-R043.13",
-    "AU-BOUNDARY-R043.13.1",
-    "AU-BOUNDARY-R043.13.2",
-    "AU-BOUNDARY-R043.14",
-    "AU-BOUNDARY-R043.15",
-    "AU-BOUNDARY-R043.16",
-    "AU-BOUNDARY-R043.17"
+    "MERISTEM-BOUNDARY-R002",
+    "MERISTEM-BOUNDARY-R002.1",
+    "MERISTEM-BOUNDARY-R002.2",
+    "MERISTEM-BOUNDARY-R002.3",
+    "MERISTEM-BOUNDARY-R002.3.1",
+    "MERISTEM-BOUNDARY-R002.3.2",
+    "MERISTEM-BOUNDARY-R002.3.3",
+    "MERISTEM-BOUNDARY-R002.3.4",
+    "MERISTEM-BOUNDARY-R002.3.5",
+    "MERISTEM-BOUNDARY-R005",
+    "MERISTEM-BOUNDARY-R005.1",
+    "MERISTEM-BOUNDARY-R005.2",
+    "MERISTEM-BOUNDARY-R006",
+    "MERISTEM-BOUNDARY-R006.1",
+    "MERISTEM-BOUNDARY-R006.2",
+    "MERISTEM-BOUNDARY-R007",
+    "MERISTEM-BOUNDARY-R007.1",
+    "MERISTEM-BOUNDARY-R007.2",
+    "MERISTEM-BOUNDARY-R008",
+    "MERISTEM-BOUNDARY-R008.1",
+    "MERISTEM-BOUNDARY-R008.2",
+    "MERISTEM-BOUNDARY-R009",
+    "MERISTEM-BOUNDARY-R009.1",
+    "MERISTEM-BOUNDARY-R009.2",
+    "MERISTEM-BOUNDARY-R010",
+    "MERISTEM-BOUNDARY-R010.1",
+    "MERISTEM-BOUNDARY-R010.2",
+    "MERISTEM-BOUNDARY-R010.3",
+    "MERISTEM-BOUNDARY-R010.4",
+    "MERISTEM-BOUNDARY-R010.5",
+    "MERISTEM-BOUNDARY-R010.6",
+    "MERISTEM-BOUNDARY-R010.7",
+    "MERISTEM-BOUNDARY-R010.8",
+    "MERISTEM-BOUNDARY-R010.9",
+    "MERISTEM-BOUNDARY-R010.10",
+    "MERISTEM-BOUNDARY-R010.11",
+    "MERISTEM-BOUNDARY-R010.12",
+    "MERISTEM-BOUNDARY-R010.13",
+    "MERISTEM-BOUNDARY-R010.14",
+    "MERISTEM-BOUNDARY-R010.15",
+    "MERISTEM-BOUNDARY-R010.17",
+    "MERISTEM-BOUNDARY-R010.18",
+    "MERISTEM-BOUNDARY-R010.19",
+    "MERISTEM-BOUNDARY-R010.20",
+    "MERISTEM-BOUNDARY-R010.21",
+    "MERISTEM-BOUNDARY-R010.22",
+    "MERISTEM-BOUNDARY-R010.24",
+    "MERISTEM-BOUNDARY-R010.25",
+    "MERISTEM-BOUNDARY-R011",
+    "MERISTEM-BOUNDARY-R011.1",
+    "MERISTEM-BOUNDARY-R011.2",
+    "MERISTEM-BOUNDARY-R011.2.1",
+    "MERISTEM-BOUNDARY-R011.2.2",
+    "MERISTEM-BOUNDARY-R011.2.3",
+    "MERISTEM-BOUNDARY-R011.2.4",
+    "MERISTEM-BOUNDARY-R011.2.5",
+    "MERISTEM-BOUNDARY-R011.3",
+    "MERISTEM-BOUNDARY-R011.4",
+    "MERISTEM-BOUNDARY-R011.5",
+    "MERISTEM-BOUNDARY-R012",
+    "MERISTEM-BOUNDARY-R014",
+    "MERISTEM-BOUNDARY-R014.1",
+    "MERISTEM-BOUNDARY-R014.2",
+    "MERISTEM-BOUNDARY-R015",
+    "MERISTEM-BOUNDARY-R015.1",
+    "MERISTEM-BOUNDARY-R015.2",
+    "MERISTEM-BOUNDARY-R016",
+    "MERISTEM-BOUNDARY-R016.1",
+    "MERISTEM-BOUNDARY-R017",
+    "MERISTEM-BOUNDARY-R018",
+    "MERISTEM-BOUNDARY-R018.1",
+    "MERISTEM-BOUNDARY-R018.2",
+    "MERISTEM-BOUNDARY-R019",
+    "MERISTEM-BOUNDARY-R019.1",
+    "MERISTEM-BOUNDARY-R019.2",
+    "MERISTEM-BOUNDARY-R020",
+    "MERISTEM-BOUNDARY-R020.1",
+    "MERISTEM-BOUNDARY-R020.2",
+    "MERISTEM-BOUNDARY-R021",
+    "MERISTEM-BOUNDARY-R021.1",
+    "MERISTEM-BOUNDARY-R021.2",
+    "MERISTEM-BOUNDARY-R022",
+    "MERISTEM-BOUNDARY-R022.1",
+    "MERISTEM-BOUNDARY-R022.2",
+    "MERISTEM-BOUNDARY-R023",
+    "MERISTEM-BOUNDARY-R024",
+    "MERISTEM-BOUNDARY-R024.1",
+    "MERISTEM-BOUNDARY-R024.2",
+    "MERISTEM-BOUNDARY-R024.3",
+    "MERISTEM-BOUNDARY-R025",
+    "MERISTEM-BOUNDARY-R026",
+    "MERISTEM-BOUNDARY-R027",
+    "MERISTEM-BOUNDARY-R028",
+    "MERISTEM-BOUNDARY-R028.1",
+    "MERISTEM-BOUNDARY-R028.2",
+    "MERISTEM-BOUNDARY-R028.2.1",
+    "MERISTEM-BOUNDARY-R028.2.2",
+    "MERISTEM-BOUNDARY-R028.3",
+    "MERISTEM-BOUNDARY-R028.4",
+    "MERISTEM-BOUNDARY-R028.5",
+    "MERISTEM-BOUNDARY-R028.6",
+    "MERISTEM-BOUNDARY-R028.6.1",
+    "MERISTEM-BOUNDARY-R028.6.2",
+    "MERISTEM-BOUNDARY-R028.7",
+    "MERISTEM-BOUNDARY-R028.7.1",
+    "MERISTEM-BOUNDARY-R028.7.2",
+    "MERISTEM-BOUNDARY-R028.8",
+    "MERISTEM-BOUNDARY-R028.8.1",
+    "MERISTEM-BOUNDARY-R028.8.2",
+    "MERISTEM-BOUNDARY-R029",
+    "MERISTEM-BOUNDARY-R030",
+    "MERISTEM-BOUNDARY-R030.1",
+    "MERISTEM-BOUNDARY-R030.2",
+    "MERISTEM-BOUNDARY-R030.3",
+    "MERISTEM-BOUNDARY-R030.4",
+    "MERISTEM-BOUNDARY-R030.5",
+    "MERISTEM-BOUNDARY-R030.6",
+    "MERISTEM-BOUNDARY-R030.7",
+    "MERISTEM-BOUNDARY-R030.8",
+    "MERISTEM-BOUNDARY-R030.9",
+    "MERISTEM-BOUNDARY-R030.9.1",
+    "MERISTEM-BOUNDARY-R030.9.2",
+    "MERISTEM-BOUNDARY-R031",
+    "MERISTEM-BOUNDARY-R032",
+    "MERISTEM-BOUNDARY-R033",
+    "MERISTEM-BOUNDARY-R034",
+    "MERISTEM-BOUNDARY-R035",
+    "MERISTEM-BOUNDARY-R036",
+    "MERISTEM-BOUNDARY-R036.1",
+    "MERISTEM-BOUNDARY-R036.2",
+    "MERISTEM-BOUNDARY-R037",
+    "MERISTEM-BOUNDARY-R037.1",
+    "MERISTEM-BOUNDARY-R037.2",
+    "MERISTEM-BOUNDARY-R038",
+    "MERISTEM-BOUNDARY-R040",
+    "MERISTEM-BOUNDARY-R040.1",
+    "MERISTEM-BOUNDARY-R040.2",
+    "MERISTEM-BOUNDARY-R041",
+    "MERISTEM-BOUNDARY-R042",
+    "MERISTEM-BOUNDARY-R043",
+    "MERISTEM-BOUNDARY-R043.1",
+    "MERISTEM-BOUNDARY-R043.2",
+    "MERISTEM-BOUNDARY-R043.3",
+    "MERISTEM-BOUNDARY-R043.4",
+    "MERISTEM-BOUNDARY-R043.4.1",
+    "MERISTEM-BOUNDARY-R043.4.2",
+    "MERISTEM-BOUNDARY-R043.4.3",
+    "MERISTEM-BOUNDARY-R043.4.4",
+    "MERISTEM-BOUNDARY-R043.4.5",
+    "MERISTEM-BOUNDARY-R043.5",
+    "MERISTEM-BOUNDARY-R043.5.1",
+    "MERISTEM-BOUNDARY-R043.5.2",
+    "MERISTEM-BOUNDARY-R043.6",
+    "MERISTEM-BOUNDARY-R043.6.1",
+    "MERISTEM-BOUNDARY-R043.6.2",
+    "MERISTEM-BOUNDARY-R043.6.3",
+    "MERISTEM-BOUNDARY-R043.6.4",
+    "MERISTEM-BOUNDARY-R043.6.5",
+    "MERISTEM-BOUNDARY-R043.6.6",
+    "MERISTEM-BOUNDARY-R043.6.7",
+    "MERISTEM-BOUNDARY-R043.7",
+    "MERISTEM-BOUNDARY-R043.8",
+    "MERISTEM-BOUNDARY-R043.9",
+    "MERISTEM-BOUNDARY-R043.10",
+    "MERISTEM-BOUNDARY-R044",
+    "MERISTEM-BOUNDARY-R044.1",
+    "MERISTEM-BOUNDARY-R044.2",
+    "MERISTEM-BOUNDARY-R045",
+    "MERISTEM-BOUNDARY-R045.1",
+    "MERISTEM-BOUNDARY-R045.2",
+    "MERISTEM-BOUNDARY-R046",
+    "MERISTEM-BOUNDARY-R047",
+    "MERISTEM-BOUNDARY-R047.1",
+    "MERISTEM-BOUNDARY-R047.2",
+    "MERISTEM-BOUNDARY-R048",
+    "MERISTEM-BOUNDARY-R048.1",
+    "MERISTEM-BOUNDARY-R048.2",
+    "MERISTEM-BOUNDARY-R048.3",
+    "MERISTEM-BOUNDARY-R048.4",
+    "MERISTEM-BOUNDARY-R048.5",
+    "MERISTEM-BOUNDARY-R048.6",
+    "MERISTEM-BOUNDARY-R048.8",
+    "MERISTEM-BOUNDARY-R048.9",
+    "MERISTEM-BOUNDARY-R048.10",
+    "MERISTEM-BOUNDARY-R048.11",
+    "MERISTEM-BOUNDARY-R049",
+    "MERISTEM-BOUNDARY-R043.11",
+    "MERISTEM-BOUNDARY-R050",
+    "MERISTEM-BOUNDARY-R050.1",
+    "MERISTEM-BOUNDARY-R050.2",
+    "MERISTEM-BOUNDARY-R050.3",
+    "MERISTEM-BOUNDARY-R050.4",
+    "MERISTEM-BOUNDARY-R050.5",
+    "MERISTEM-BOUNDARY-R050.6",
+    "MERISTEM-BOUNDARY-R043.12",
+    "MERISTEM-BOUNDARY-R043.9.1",
+    "MERISTEM-BOUNDARY-R043.9.2",
+    "MERISTEM-BOUNDARY-R043.9.2.1",
+    "MERISTEM-BOUNDARY-R043.9.2.2",
+    "MERISTEM-BOUNDARY-R043.13",
+    "MERISTEM-BOUNDARY-R043.13.1",
+    "MERISTEM-BOUNDARY-R043.13.2",
+    "MERISTEM-BOUNDARY-R043.14",
+    "MERISTEM-BOUNDARY-R043.15",
+    "MERISTEM-BOUNDARY-R043.16",
+    "MERISTEM-BOUNDARY-R043.17"
   ],
   "requirements": [
     {
-      "id": "AU-BOUNDARY-R002",
+      "id": "MERISTEM-BOUNDARY-R002",
       "title": "Retire AU's deployment and skill-certification tooling",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -222,13 +222,13 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R002.1",
-        "AU-BOUNDARY-R002.2",
-        "AU-BOUNDARY-R002.3"
+        "MERISTEM-BOUNDARY-R002.1",
+        "MERISTEM-BOUNDARY-R002.2",
+        "MERISTEM-BOUNDARY-R002.3"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R002.1",
+      "id": "MERISTEM-BOUNDARY-R002.1",
       "title": "Record what actually landed for the deployment/skill-certification retirement",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -240,7 +240,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R002.2",
+      "id": "MERISTEM-BOUNDARY-R002.2",
       "title": "Delete `agent_utilities/deployment/backends.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -252,21 +252,21 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R002.3",
+      "id": "MERISTEM-BOUNDARY-R002.3",
       "title": "ROLLUP: delete `agent_utilities/deployment/certification_oidc.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R002.3.1",
-        "AU-BOUNDARY-R002.3.2",
-        "AU-BOUNDARY-R002.3.3",
-        "AU-BOUNDARY-R002.3.4",
-        "AU-BOUNDARY-R002.3.5"
+        "MERISTEM-BOUNDARY-R002.3.1",
+        "MERISTEM-BOUNDARY-R002.3.2",
+        "MERISTEM-BOUNDARY-R002.3.3",
+        "MERISTEM-BOUNDARY-R002.3.4",
+        "MERISTEM-BOUNDARY-R002.3.5"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R002.3.1",
+      "id": "MERISTEM-BOUNDARY-R002.3.1",
       "title": "Record the arbora owner of the ephemeral loopback OIDC certification authority",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -277,14 +277,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R002.3.2",
+      "id": "MERISTEM-BOUNDARY-R002.3.2",
       "title": "Repoint or remove the `certification_oidc` import in `agent_utilities/deployment/skill_validation.py` and `agent_utilities/deployment/skill_validation_assets.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R002.3.3",
+      "id": "MERISTEM-BOUNDARY-R002.3.3",
       "title": "Delete `scripts/certification/loopback_oidc.py` and `tests/unit/scripts/test_loopback_oidc.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -295,14 +295,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R002.3.4",
+      "id": "MERISTEM-BOUNDARY-R002.3.4",
       "title": "Remove `agent_utilities/deployment/certification_oidc.py` from the path lists in `scripts/check_http_egress_boundary.py` and `scripts/release/check_release_wheel.py`, and its docstring mention in `scripts/security/check_http_egress_boundary_gate.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R002.3.5",
+      "id": "MERISTEM-BOUNDARY-R002.3.5",
       "title": "Delete `agent_utilities/deployment/certification_oidc.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -313,7 +313,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R005",
+      "id": "MERISTEM-BOUNDARY-R005",
       "title": "Migrate connector packages A-E onto the SDK",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -322,12 +322,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R005.1",
-        "AU-BOUNDARY-R005.2"
+        "MERISTEM-BOUNDARY-R005.1",
+        "MERISTEM-BOUNDARY-R005.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R005.1",
+      "id": "MERISTEM-BOUNDARY-R005.1",
       "title": "A-E connector import census lands, naming its own blind spot",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -338,14 +338,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R005.2",
+      "id": "MERISTEM-BOUNDARY-R005.2",
       "title": "Fix the A-E census blind spot and finish the migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R006",
+      "id": "MERISTEM-BOUNDARY-R006",
       "title": "Migrate connector packages F-J onto the SDK",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -356,12 +356,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R006.1",
-        "AU-BOUNDARY-R006.2"
+        "MERISTEM-BOUNDARY-R006.1",
+        "MERISTEM-BOUNDARY-R006.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R006.1",
+      "id": "MERISTEM-BOUNDARY-R006.1",
       "title": "Ship AU's F-J connector import-census gate",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -375,14 +375,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R006.2",
+      "id": "MERISTEM-BOUNDARY-R006.2",
       "title": "Complete and qualify F-J connector migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R007",
+      "id": "MERISTEM-BOUNDARY-R007",
       "title": "Migrate connector packages K-O onto the SDK",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -391,12 +391,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R007.1",
-        "AU-BOUNDARY-R007.2"
+        "MERISTEM-BOUNDARY-R007.1",
+        "MERISTEM-BOUNDARY-R007.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R007.1",
+      "id": "MERISTEM-BOUNDARY-R007.1",
       "title": "K-O connector import census lands, naming its own blind spot",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -407,14 +407,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R007.2",
+      "id": "MERISTEM-BOUNDARY-R007.2",
       "title": "Fix the K-O census blind spot and finish the migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R008",
+      "id": "MERISTEM-BOUNDARY-R008",
       "title": "Migrate connector packages P-S onto the SDK",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -423,12 +423,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R008.1",
-        "AU-BOUNDARY-R008.2"
+        "MERISTEM-BOUNDARY-R008.1",
+        "MERISTEM-BOUNDARY-R008.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R008.1",
+      "id": "MERISTEM-BOUNDARY-R008.1",
       "title": "P-S connector import census lands, naming its own blind spot",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -439,14 +439,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R008.2",
+      "id": "MERISTEM-BOUNDARY-R008.2",
       "title": "Fix the P-S census blind spot and finish the migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R009",
+      "id": "MERISTEM-BOUNDARY-R009",
       "title": "Migrate connector packages T-Z onto the SDK",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -455,12 +455,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R009.1",
-        "AU-BOUNDARY-R009.2"
+        "MERISTEM-BOUNDARY-R009.1",
+        "MERISTEM-BOUNDARY-R009.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R009.1",
+      "id": "MERISTEM-BOUNDARY-R009.1",
       "title": "Ship AU's T-Z connector import-census gate",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -472,14 +472,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R009.2",
+      "id": "MERISTEM-BOUNDARY-R009.2",
       "title": "Complete and qualify T-Z connector migration and templates",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010",
+      "id": "MERISTEM-BOUNDARY-R010",
       "title": "Delete AU's SDK-duplicated connector toolkit",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -487,33 +487,33 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R010.1",
-        "AU-BOUNDARY-R010.2",
-        "AU-BOUNDARY-R010.3",
-        "AU-BOUNDARY-R010.4",
-        "AU-BOUNDARY-R010.5",
-        "AU-BOUNDARY-R010.6",
-        "AU-BOUNDARY-R010.7",
-        "AU-BOUNDARY-R010.8",
-        "AU-BOUNDARY-R010.9",
-        "AU-BOUNDARY-R010.10",
-        "AU-BOUNDARY-R010.11",
-        "AU-BOUNDARY-R010.12",
-        "AU-BOUNDARY-R010.13",
-        "AU-BOUNDARY-R010.14",
-        "AU-BOUNDARY-R010.15",
-        "AU-BOUNDARY-R010.17",
-        "AU-BOUNDARY-R010.18",
-        "AU-BOUNDARY-R010.19",
-        "AU-BOUNDARY-R010.20",
-        "AU-BOUNDARY-R010.21",
-        "AU-BOUNDARY-R010.22",
-        "AU-BOUNDARY-R010.24",
-        "AU-BOUNDARY-R010.25"
+        "MERISTEM-BOUNDARY-R010.1",
+        "MERISTEM-BOUNDARY-R010.2",
+        "MERISTEM-BOUNDARY-R010.3",
+        "MERISTEM-BOUNDARY-R010.4",
+        "MERISTEM-BOUNDARY-R010.5",
+        "MERISTEM-BOUNDARY-R010.6",
+        "MERISTEM-BOUNDARY-R010.7",
+        "MERISTEM-BOUNDARY-R010.8",
+        "MERISTEM-BOUNDARY-R010.9",
+        "MERISTEM-BOUNDARY-R010.10",
+        "MERISTEM-BOUNDARY-R010.11",
+        "MERISTEM-BOUNDARY-R010.12",
+        "MERISTEM-BOUNDARY-R010.13",
+        "MERISTEM-BOUNDARY-R010.14",
+        "MERISTEM-BOUNDARY-R010.15",
+        "MERISTEM-BOUNDARY-R010.17",
+        "MERISTEM-BOUNDARY-R010.18",
+        "MERISTEM-BOUNDARY-R010.19",
+        "MERISTEM-BOUNDARY-R010.20",
+        "MERISTEM-BOUNDARY-R010.21",
+        "MERISTEM-BOUNDARY-R010.22",
+        "MERISTEM-BOUNDARY-R010.24",
+        "MERISTEM-BOUNDARY-R010.25"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R010.1",
+      "id": "MERISTEM-BOUNDARY-R010.1",
       "title": "Record what actually landed for the connector-toolkit deletion",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -525,166 +525,166 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R010.2",
-      "title": "RETIRED: superseded by AU-BOUNDARY-R010.3...AU-BOUNDARY-R010.25",
+      "id": "MERISTEM-BOUNDARY-R010.2",
+      "title": "RETIRED: superseded by MERISTEM-BOUNDARY-R010.3...MERISTEM-BOUNDARY-R010.25",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "superseded by AU-BOUNDARY-R010.3...AU-BOUNDARY-R010.25"
+      "retired_reason": "superseded by MERISTEM-BOUNDARY-R010.3...MERISTEM-BOUNDARY-R010.25"
     },
     {
-      "id": "AU-BOUNDARY-R010.3",
+      "id": "MERISTEM-BOUNDARY-R010.3",
       "title": "Decide target module for type coercion helpers (to_boolean, to_integer, to_list, and to_dict) currently in `base_utilities.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "430612c76482"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_owner_decisions.py:35"
+        "tests/gates/test_boundary_owner_decisions.py:37"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R010.4",
-      "title": "Add type coercion helpers (to_boolean, to_integer, to_list, and to_dict) to the module decided in AU-BOUNDARY-R010.3",
+      "id": "MERISTEM-BOUNDARY-R010.4",
+      "title": "Add type coercion helpers (to_boolean, to_integer, to_list, and to_dict) to the module decided in MERISTEM-BOUNDARY-R010.3",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.5",
+      "id": "MERISTEM-BOUNDARY-R010.5",
       "title": "Decide target module for env/host helpers (expand_env_vars, is_loopback_url, retrieve_package_name, advertised_self_hosts, and get_library_file_path) currently in `base_utilities.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.6",
-      "title": "Add env/host helpers (expand_env_vars, is_loopback_url, retrieve_package_name, advertised_self_hosts, and get_library_file_path) to the module decided in AU-BOUNDARY-R010.5",
+      "id": "MERISTEM-BOUNDARY-R010.6",
+      "title": "Add env/host helpers (expand_env_vars, is_loopback_url, retrieve_package_name, advertised_self_hosts, and get_library_file_path) to the module decided in MERISTEM-BOUNDARY-R010.5",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.7",
+      "id": "MERISTEM-BOUNDARY-R010.7",
       "title": "Decide target module for model persistence helpers (safe_save_model and safe_load_model) currently in `base_utilities.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.8",
-      "title": "Add model persistence helpers (safe_save_model and safe_load_model) to the module decided in AU-BOUNDARY-R010.7",
+      "id": "MERISTEM-BOUNDARY-R010.8",
+      "title": "Add model persistence helpers (safe_save_model and safe_load_model) to the module decided in MERISTEM-BOUNDARY-R010.7",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.9",
+      "id": "MERISTEM-BOUNDARY-R010.9",
       "title": "Decide target module for patch helpers (the Patch* family) currently in `base_utilities.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.10",
-      "title": "Add patch helpers (the Patch* family) to the module decided in AU-BOUNDARY-R010.9",
+      "id": "MERISTEM-BOUNDARY-R010.10",
+      "title": "Add patch helpers (the Patch* family) to the module decided in MERISTEM-BOUNDARY-R010.9",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.11",
+      "id": "MERISTEM-BOUNDARY-R010.11",
       "title": "Decide target module for core runtime helpers (Result, ModuleInfo, get_missing_imports, require_optional_import, get_logger, and ensure_package_installed) currently in `base_utilities.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.12",
-      "title": "Add core runtime helpers (Result, ModuleInfo, get_missing_imports, require_optional_import, get_logger, and ensure_package_installed) to the module decided in AU-BOUNDARY-R010.11",
+      "id": "MERISTEM-BOUNDARY-R010.12",
+      "title": "Add core runtime helpers (Result, ModuleInfo, get_missing_imports, require_optional_import, get_logger, and ensure_package_installed) to the module decided in MERISTEM-BOUNDARY-R010.11",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.13",
+      "id": "MERISTEM-BOUNDARY-R010.13",
       "title": "Repoint agent_utilities/core/config.py and agent_utilities/core/_env.py off `base_utilities.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.14",
+      "id": "MERISTEM-BOUNDARY-R010.14",
       "title": "Repoint agent_utilities/knowledge_graph/core/chunked_drain.py and agent_utilities/knowledge_graph/core/source_sync.py off `base_utilities.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.15",
+      "id": "MERISTEM-BOUNDARY-R010.15",
       "title": "Repoint agent_utilities/observability/custom_observability.py and agent_utilities/observability/__init__.py off `base_utilities.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.17",
+      "id": "MERISTEM-BOUNDARY-R010.17",
       "title": "Repoint agent_utilities/agent/factory.py off `base_utilities.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.18",
+      "id": "MERISTEM-BOUNDARY-R010.18",
       "title": "Repoint agent_utilities/graph/builder.py off `base_utilities.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.19",
+      "id": "MERISTEM-BOUNDARY-R010.19",
       "title": "Repoint agent_utilities/httpsupport/client.py off `base_utilities.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.20",
+      "id": "MERISTEM-BOUNDARY-R010.20",
       "title": "Repoint agent_utilities/__init__.py off `base_utilities.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.21",
+      "id": "MERISTEM-BOUNDARY-R010.21",
       "title": "Repoint agent_utilities/protocols/source_connectors/registry.py off `base_utilities.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.22",
+      "id": "MERISTEM-BOUNDARY-R010.22",
       "title": "Repoint agent_utilities/rlm/config.py off `base_utilities.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.24",
+      "id": "MERISTEM-BOUNDARY-R010.24",
       "title": "Repoint agent_utilities/tools/tool_registry.py off `base_utilities.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R010.25",
+      "id": "MERISTEM-BOUNDARY-R010.25",
       "title": "Delete `agent_utilities/base_utilities.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R011",
+      "id": "MERISTEM-BOUNDARY-R011",
       "title": "Delete AU's source lifecycle and certification code",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -692,15 +692,15 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R011.1",
-        "AU-BOUNDARY-R011.2",
-        "AU-BOUNDARY-R011.3",
-        "AU-BOUNDARY-R011.4",
-        "AU-BOUNDARY-R011.5"
+        "MERISTEM-BOUNDARY-R011.1",
+        "MERISTEM-BOUNDARY-R011.2",
+        "MERISTEM-BOUNDARY-R011.3",
+        "MERISTEM-BOUNDARY-R011.4",
+        "MERISTEM-BOUNDARY-R011.5"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R011.1",
+      "id": "MERISTEM-BOUNDARY-R011.1",
       "title": "RETIRED: nothing landed; the remaining scope lives in the sibling rows",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -708,77 +708,77 @@
       "retired_reason": "nothing landed; the remaining scope lives in the sibling rows"
     },
     {
-      "id": "AU-BOUNDARY-R011.2",
-      "title": "ROLLUP: superseded by AU-BOUNDARY-R011.2.1...AU-BOUNDARY-R011.2.5",
+      "id": "MERISTEM-BOUNDARY-R011.2",
+      "title": "ROLLUP: superseded by MERISTEM-BOUNDARY-R011.2.1...MERISTEM-BOUNDARY-R011.2.5",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R011.2.1",
-        "AU-BOUNDARY-R011.2.2",
-        "AU-BOUNDARY-R011.2.3",
-        "AU-BOUNDARY-R011.2.4",
-        "AU-BOUNDARY-R011.2.5"
+        "MERISTEM-BOUNDARY-R011.2.1",
+        "MERISTEM-BOUNDARY-R011.2.2",
+        "MERISTEM-BOUNDARY-R011.2.3",
+        "MERISTEM-BOUNDARY-R011.2.4",
+        "MERISTEM-BOUNDARY-R011.2.5"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R011.2.1",
+      "id": "MERISTEM-BOUNDARY-R011.2.1",
       "title": "Add the read-only multi-database connector (SQL and MongoDB: `read`, `health_check`, `introspect`) to `agent-connector-sdk`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R011.2.2",
+      "id": "MERISTEM-BOUNDARY-R011.2.2",
       "title": "Repoint `protocols/source_connectors/connectors/database.py` to the SDK database connector",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R011.2.3",
+      "id": "MERISTEM-BOUNDARY-R011.2.3",
       "title": "Repoint `tools/db_tools.py` to the SDK database connector",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R011.2.4",
+      "id": "MERISTEM-BOUNDARY-R011.2.4",
       "title": "Repoint `tests/unit/protocols/test_database_connector_connection_profile.py` and `tests/unit/test_db_tools.py` to the SDK connector, and delete `tests/unit/protocols/test_universal_connector.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R011.2.5",
+      "id": "MERISTEM-BOUNDARY-R011.2.5",
       "title": "Delete `protocols/universal_connector.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R011.3",
+      "id": "MERISTEM-BOUNDARY-R011.3",
       "title": "Delete the `protocols/source_connectors/",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R011.4",
+      "id": "MERISTEM-BOUNDARY-R011.4",
       "title": "Delete `knowledge_graph/integrations/connector_certification.py`, `connector_certification_cli.py`, and `connector_source_attestation.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R011.5",
+      "id": "MERISTEM-BOUNDARY-R011.5",
       "title": "Delete `knowledge_graph/ontology/connector_manifest.py`, `connector_manifest_gate.py`, and `connector_manifests/",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R012",
+      "id": "MERISTEM-BOUNDARY-R012",
       "title": "Delete the second EG projection and leftover shims",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -788,7 +788,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R014",
+      "id": "MERISTEM-BOUNDARY-R014",
       "title": "Move arbora boundary modules out of AU",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -800,12 +800,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R014.1",
-        "AU-BOUNDARY-R014.2"
+        "MERISTEM-BOUNDARY-R014.1",
+        "MERISTEM-BOUNDARY-R014.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R014.1",
+      "id": "MERISTEM-BOUNDARY-R014.1",
       "title": "RETIRED: nothing landed; the remaining scope lives in the sibling rows",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -813,14 +813,14 @@
       "retired_reason": "nothing landed; the remaining scope lives in the sibling rows"
     },
     {
-      "id": "AU-BOUNDARY-R014.2",
+      "id": "MERISTEM-BOUNDARY-R014.2",
       "title": "Move `knowledge_graph/readiness.py` to arbora",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R015",
+      "id": "MERISTEM-BOUNDARY-R015",
       "title": "Move the agent HTTP and A2A/ACP host out of AU",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -828,12 +828,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R015.1",
-        "AU-BOUNDARY-R015.2"
+        "MERISTEM-BOUNDARY-R015.1",
+        "MERISTEM-BOUNDARY-R015.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R015.1",
+      "id": "MERISTEM-BOUNDARY-R015.1",
       "title": "RETIRED: nothing landed. The remaining scope lives in the sibling rows",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -841,14 +841,14 @@
       "retired_reason": "nothing landed. The remaining scope lives in the sibling rows"
     },
     {
-      "id": "AU-BOUNDARY-R015.2",
+      "id": "MERISTEM-BOUNDARY-R015.2",
       "title": "Delete `protocols/a2a_epistemic.py` and drop the `agent-utilities-acp` script",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R016",
+      "id": "MERISTEM-BOUNDARY-R016",
       "title": "Split AU's monolithic configuration module",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -858,11 +858,11 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R016.1"
+        "MERISTEM-BOUNDARY-R016.1"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R016.1",
+      "id": "MERISTEM-BOUNDARY-R016.1",
       "title": "Gate AU's retained config.py against duplicate environment readers",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -872,7 +872,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R017",
+      "id": "MERISTEM-BOUNDARY-R017",
       "title": "Split messaging behavior and authority across AU, arbora, and EG",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -882,7 +882,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R018",
+      "id": "MERISTEM-BOUNDARY-R018",
       "title": "Replace the AU graph engine facade with the EG client",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -891,13 +891,13 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R018.1",
-        "AU-BOUNDARY-R018.2"
+        "MERISTEM-BOUNDARY-R018.1",
+        "MERISTEM-BOUNDARY-R018.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R018.1",
-      "title": "Ship a typed inventory of the AU-BOUNDARY-R018 facade modules",
+      "id": "MERISTEM-BOUNDARY-R018.1",
+      "title": "Ship a typed inventory of the MERISTEM-BOUNDARY-R018 facade modules",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "7cd36e18e97d",
@@ -908,14 +908,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R018.2",
-      "title": "Delete the AU-BOUNDARY-R018 facade modules",
+      "id": "MERISTEM-BOUNDARY-R018.2",
+      "title": "Delete the MERISTEM-BOUNDARY-R018 facade modules",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R019",
+      "id": "MERISTEM-BOUNDARY-R019",
       "title": "Replace AU's graph-compute and state facades with the EG client",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -924,13 +924,13 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R019.1",
-        "AU-BOUNDARY-R019.2"
+        "MERISTEM-BOUNDARY-R019.1",
+        "MERISTEM-BOUNDARY-R019.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R019.1",
-      "title": "Ship a typed inventory of the AU-BOUNDARY-R019 facade modules",
+      "id": "MERISTEM-BOUNDARY-R019.1",
+      "title": "Ship a typed inventory of the MERISTEM-BOUNDARY-R019 facade modules",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0fbe4bf46720",
@@ -942,14 +942,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R019.2",
-      "title": "Delete the AU-BOUNDARY-R019 facade modules",
+      "id": "MERISTEM-BOUNDARY-R019.2",
+      "title": "Delete the MERISTEM-BOUNDARY-R019 facade modules",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R020",
+      "id": "MERISTEM-BOUNDARY-R020",
       "title": "Move durable work, queues, and state to EG",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -959,13 +959,13 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R020.1",
-        "AU-BOUNDARY-R020.2"
+        "MERISTEM-BOUNDARY-R020.1",
+        "MERISTEM-BOUNDARY-R020.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R020.1",
-      "title": "Ship a typed inventory of the AU-BOUNDARY-R020 durable-work modules",
+      "id": "MERISTEM-BOUNDARY-R020.1",
+      "title": "Ship a typed inventory of the MERISTEM-BOUNDARY-R020 durable-work modules",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "7cd36e18e97d",
@@ -976,14 +976,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R020.2",
-      "title": "Move the AU-BOUNDARY-R020 durable-work modules and drop their scripts",
+      "id": "MERISTEM-BOUNDARY-R020.2",
+      "title": "Move the MERISTEM-BOUNDARY-R020 durable-work modules and drop their scripts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R021",
+      "id": "MERISTEM-BOUNDARY-R021",
       "title": "Move graph tenancy, topology, and admission to EG",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -993,13 +993,13 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R021.1",
-        "AU-BOUNDARY-R021.2"
+        "MERISTEM-BOUNDARY-R021.1",
+        "MERISTEM-BOUNDARY-R021.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R021.1",
-      "title": "Ship a typed inventory of the AU-BOUNDARY-R021 tenancy/admission modules",
+      "id": "MERISTEM-BOUNDARY-R021.1",
+      "title": "Ship a typed inventory of the MERISTEM-BOUNDARY-R021 tenancy/admission modules",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "7cd36e18e97d",
@@ -1010,14 +1010,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R021.2",
-      "title": "Delete the AU-BOUNDARY-R021 tenancy/admission modules",
+      "id": "MERISTEM-BOUNDARY-R021.2",
+      "title": "Delete the MERISTEM-BOUNDARY-R021 tenancy/admission modules",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R022",
+      "id": "MERISTEM-BOUNDARY-R022",
       "title": "Retire AU's reasoning and graph-analytics duplicates",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1026,13 +1026,13 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R022.1",
-        "AU-BOUNDARY-R022.2"
+        "MERISTEM-BOUNDARY-R022.1",
+        "MERISTEM-BOUNDARY-R022.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R022.1",
-      "title": "Ship a typed inventory of the AU-BOUNDARY-R022 reasoning/analytics modules",
+      "id": "MERISTEM-BOUNDARY-R022.1",
+      "title": "Ship a typed inventory of the MERISTEM-BOUNDARY-R022 reasoning/analytics modules",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "7cd36e18e97d",
@@ -1043,14 +1043,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R022.2",
-      "title": "Delete the AU-BOUNDARY-R022 reasoning/analytics modules",
+      "id": "MERISTEM-BOUNDARY-R022.2",
+      "title": "Delete the MERISTEM-BOUNDARY-R022 reasoning/analytics modules",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R023",
+      "id": "MERISTEM-BOUNDARY-R023",
       "title": "Split ingestion commit and derivation into EG",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1060,7 +1060,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R024",
+      "id": "MERISTEM-BOUNDARY-R024",
       "title": "Move enterprise source synchronization to the SDK",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1069,13 +1069,13 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R024.1",
-        "AU-BOUNDARY-R024.2",
-        "AU-BOUNDARY-R024.3"
+        "MERISTEM-BOUNDARY-R024.1",
+        "MERISTEM-BOUNDARY-R024.2",
+        "MERISTEM-BOUNDARY-R024.3"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R024.1",
+      "id": "MERISTEM-BOUNDARY-R024.1",
       "title": "RETIRED: nothing landed. The remaining scope lives in the sibling rows",
       "delivery_state": "RETIRED",
       "landed_in": [],
@@ -1083,21 +1083,21 @@
       "retired_reason": "nothing landed. The remaining scope lives in the sibling rows"
     },
     {
-      "id": "AU-BOUNDARY-R024.2",
+      "id": "MERISTEM-BOUNDARY-R024.2",
       "title": "Move `knowledge_graph/core/source_sync.py` to the agent connector SDK as a runner",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R024.3",
+      "id": "MERISTEM-BOUNDARY-R024.3",
       "title": "Move `knowledge_graph/governance_import.py` to the SDK",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R025",
+      "id": "MERISTEM-BOUNDARY-R025",
       "title": "Move document, conversation, and feed sources to the SDK",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1107,7 +1107,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R026",
+      "id": "MERISTEM-BOUNDARY-R026",
       "title": "Move vendor enrichment extractors and write-back to the SDK",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1118,7 +1118,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R027",
+      "id": "MERISTEM-BOUNDARY-R027",
       "title": "Move deterministic enrichment and derivation to EG",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1128,7 +1128,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R028",
+      "id": "MERISTEM-BOUNDARY-R028",
       "title": "Move remaining graph standardization and security modules to EG (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1140,18 +1140,18 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R028.1",
-        "AU-BOUNDARY-R028.2",
-        "AU-BOUNDARY-R028.3",
-        "AU-BOUNDARY-R028.4",
-        "AU-BOUNDARY-R028.5",
-        "AU-BOUNDARY-R028.6",
-        "AU-BOUNDARY-R028.7",
-        "AU-BOUNDARY-R028.8"
+        "MERISTEM-BOUNDARY-R028.1",
+        "MERISTEM-BOUNDARY-R028.2",
+        "MERISTEM-BOUNDARY-R028.3",
+        "MERISTEM-BOUNDARY-R028.4",
+        "MERISTEM-BOUNDARY-R028.5",
+        "MERISTEM-BOUNDARY-R028.6",
+        "MERISTEM-BOUNDARY-R028.7",
+        "MERISTEM-BOUNDARY-R028.8"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R028.1",
+      "id": "MERISTEM-BOUNDARY-R028.1",
       "title": "Retire `kg/standardization/{cohorts,consolidation,standards}.py` (excludes `drift.py`)",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1163,7 +1163,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R028.2",
+      "id": "MERISTEM-BOUNDARY-R028.2",
       "title": "Retire `kg/infra/{placement_optimizer,inventory_collector}.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1172,12 +1172,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R028.2.1",
-        "AU-BOUNDARY-R028.2.2"
+        "MERISTEM-BOUNDARY-R028.2.1",
+        "MERISTEM-BOUNDARY-R028.2.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R028.2.1",
+      "id": "MERISTEM-BOUNDARY-R028.2.1",
       "title": "Pin the `kg/infra` production-importer set",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1190,14 +1190,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R028.2.2",
+      "id": "MERISTEM-BOUNDARY-R028.2.2",
       "title": "Qualify the infra cutover",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R028.3",
+      "id": "MERISTEM-BOUNDARY-R028.3",
       "title": "Retire `kg/quantum/{budget,__init__}.py` and `observability/quantum_trace.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1210,7 +1210,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R028.4",
+      "id": "MERISTEM-BOUNDARY-R028.4",
       "title": "Retire `kg/security/{cognitive_trap_defense,policy_ingestor,graph_validator,rule_ingestor}.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1224,7 +1224,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R028.5",
+      "id": "MERISTEM-BOUNDARY-R028.5",
       "title": "Retire `protocols/enterprise/{__init__,read_models}.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1236,7 +1236,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R028.6",
+      "id": "MERISTEM-BOUNDARY-R028.6",
       "title": "Retire `observability/{trace_ontology,self_ingest,audit_logger}.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1246,12 +1246,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R028.6.1",
-        "AU-BOUNDARY-R028.6.2"
+        "MERISTEM-BOUNDARY-R028.6.1",
+        "MERISTEM-BOUNDARY-R028.6.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R028.6.1",
+      "id": "MERISTEM-BOUNDARY-R028.6.1",
       "title": "Pin the `observability/{trace_ontology,self_ingest,audit_logger}` production-importer set",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1265,14 +1265,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R028.6.2",
+      "id": "MERISTEM-BOUNDARY-R028.6.2",
       "title": "Qualify observability consumer cutover",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R028.7",
+      "id": "MERISTEM-BOUNDARY-R028.7",
       "title": "Retire `governance/relational_authority.py` and `.json`",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1282,12 +1282,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R028.7.1",
-        "AU-BOUNDARY-R028.7.2"
+        "MERISTEM-BOUNDARY-R028.7.1",
+        "MERISTEM-BOUNDARY-R028.7.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R028.7.1",
+      "id": "MERISTEM-BOUNDARY-R028.7.1",
       "title": "Pin the `governance/relational_authority` importer set",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1301,14 +1301,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R028.7.2",
+      "id": "MERISTEM-BOUNDARY-R028.7.2",
       "title": "Qualify the relational-authority replacement",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R028.8",
+      "id": "MERISTEM-BOUNDARY-R028.8",
       "title": "Retire `kg/research/placement_mining.py`",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1318,12 +1318,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R028.8.1",
-        "AU-BOUNDARY-R028.8.2"
+        "MERISTEM-BOUNDARY-R028.8.1",
+        "MERISTEM-BOUNDARY-R028.8.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R028.8.1",
+      "id": "MERISTEM-BOUNDARY-R028.8.1",
       "title": "Pin the `kg/research/placement_mining` production-importer set",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1337,14 +1337,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R028.8.2",
+      "id": "MERISTEM-BOUNDARY-R028.8.2",
       "title": "Qualify placement-mining consumer cutover",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R029",
+      "id": "MERISTEM-BOUNDARY-R029",
       "title": "Move the ontology object model to EG",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1354,7 +1354,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R030",
+      "id": "MERISTEM-BOUNDARY-R030",
       "title": "Move hand-written ontology emitters behind EG pack compilation",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1366,26 +1366,26 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R030.1",
-        "AU-BOUNDARY-R030.2",
-        "AU-BOUNDARY-R030.3",
-        "AU-BOUNDARY-R030.4",
-        "AU-BOUNDARY-R030.5",
-        "AU-BOUNDARY-R030.6",
-        "AU-BOUNDARY-R030.7",
-        "AU-BOUNDARY-R030.8",
-        "AU-BOUNDARY-R030.9"
+        "MERISTEM-BOUNDARY-R030.1",
+        "MERISTEM-BOUNDARY-R030.2",
+        "MERISTEM-BOUNDARY-R030.3",
+        "MERISTEM-BOUNDARY-R030.4",
+        "MERISTEM-BOUNDARY-R030.5",
+        "MERISTEM-BOUNDARY-R030.6",
+        "MERISTEM-BOUNDARY-R030.7",
+        "MERISTEM-BOUNDARY-R030.8",
+        "MERISTEM-BOUNDARY-R030.9"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R030.1",
+      "id": "MERISTEM-BOUNDARY-R030.1",
       "title": "Record what has already landed for the emitter cutover",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R030.2",
+      "id": "MERISTEM-BOUNDARY-R030.2",
       "title": "Wire `scripts/generate_connector_manifests.py` off the local manifest compiler",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1394,7 +1394,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R030.3",
+      "id": "MERISTEM-BOUNDARY-R030.3",
       "title": "Wire `scripts/update_ontology_lock.py` off the local manifest compiler",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1403,7 +1403,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R030.4",
+      "id": "MERISTEM-BOUNDARY-R030.4",
       "title": "Wire `scripts/generate_native_connector_manifest.py` off the local manifest compiler",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1412,7 +1412,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R030.5",
+      "id": "MERISTEM-BOUNDARY-R030.5",
       "title": "Wire `agent_utilities/knowledge_graph/domain_packs/pack_loader.py` off the local manifest compiler",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1421,7 +1421,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R030.6",
+      "id": "MERISTEM-BOUNDARY-R030.6",
       "title": "Delete `agent_utilities/knowledge_graph/ontology/manifest_compiler.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1433,7 +1433,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R030.7",
+      "id": "MERISTEM-BOUNDARY-R030.7",
       "title": "Add `agent_utilities/knowledge_graph/core/ontology_publisher.py`",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1442,41 +1442,41 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R030.8",
-      "title": "RETIRED: superseded by AU-SEMANTIC-R021.2/R021.4",
+      "id": "MERISTEM-BOUNDARY-R030.8",
+      "title": "RETIRED: superseded by MERISTEM-SEMANTIC-R021.2/R021.4",
       "delivery_state": "RETIRED",
       "landed_in": [
         "d330871d37af"
       ],
       "verified_by": [],
-      "retired_reason": "superseded by AU-SEMANTIC-R021.2/R021.4"
+      "retired_reason": "superseded by MERISTEM-SEMANTIC-R021.2/R021.4"
     },
     {
-      "id": "AU-BOUNDARY-R030.9",
-      "title": "RETIRED: superseded by AU-SEMANTIC-R021.2/R021.4",
+      "id": "MERISTEM-BOUNDARY-R030.9",
+      "title": "RETIRED: superseded by MERISTEM-SEMANTIC-R021.2/R021.4",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "superseded by AU-SEMANTIC-R021.2/R021.4"
+      "retired_reason": "superseded by MERISTEM-SEMANTIC-R021.2/R021.4"
     },
     {
-      "id": "AU-BOUNDARY-R030.9.1",
-      "title": "RETIRED: superseded by AU-SEMANTIC-R021.2/R021.4",
+      "id": "MERISTEM-BOUNDARY-R030.9.1",
+      "title": "RETIRED: superseded by MERISTEM-SEMANTIC-R021.2/R021.4",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "superseded by AU-SEMANTIC-R021.2/R021.4"
+      "retired_reason": "superseded by MERISTEM-SEMANTIC-R021.2/R021.4"
     },
     {
-      "id": "AU-BOUNDARY-R030.9.2",
-      "title": "RETIRED: superseded by AU-SEMANTIC-R021.2/R021.4",
+      "id": "MERISTEM-BOUNDARY-R030.9.2",
+      "title": "RETIRED: superseded by MERISTEM-SEMANTIC-R021.2/R021.4",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "superseded by AU-SEMANTIC-R021.2/R021.4"
+      "retired_reason": "superseded by MERISTEM-SEMANTIC-R021.2/R021.4"
     },
     {
-      "id": "AU-BOUNDARY-R031",
+      "id": "MERISTEM-BOUNDARY-R031",
       "title": "Replace AU's graph-schema DTOs with EG-generated types",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1486,7 +1486,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R032",
+      "id": "MERISTEM-BOUNDARY-R032",
       "title": "Delete AU's legacy SPARQL backend and setup path",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1496,7 +1496,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R033",
+      "id": "MERISTEM-BOUNDARY-R033",
       "title": "Move external graph and database federation to EG",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1506,7 +1506,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R034",
+      "id": "MERISTEM-BOUNDARY-R034",
       "title": "Move retrieval engines to EG",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1516,7 +1516,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R035",
+      "id": "MERISTEM-BOUNDARY-R035",
       "title": "Re-home the schema-drift package before it lands",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -1527,7 +1527,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R036",
+      "id": "MERISTEM-BOUNDARY-R036",
       "title": "Move the usage fact store to EG",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1536,12 +1536,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R036.1",
-        "AU-BOUNDARY-R036.2"
+        "MERISTEM-BOUNDARY-R036.1",
+        "MERISTEM-BOUNDARY-R036.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R036.1",
+      "id": "MERISTEM-BOUNDARY-R036.1",
       "title": "Pin the usage-store relocation inventory",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1553,14 +1553,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R036.2",
+      "id": "MERISTEM-BOUNDARY-R036.2",
       "title": "Qualify durable usage facts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R037",
+      "id": "MERISTEM-BOUNDARY-R037",
       "title": "Move development-governance tooling to repository-manager",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1568,12 +1568,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R037.1",
-        "AU-BOUNDARY-R037.2"
+        "MERISTEM-BOUNDARY-R037.1",
+        "MERISTEM-BOUNDARY-R037.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R037.1",
+      "id": "MERISTEM-BOUNDARY-R037.1",
       "title": "Pin the governance-tooling relocation inventory",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1585,14 +1585,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R037.2",
+      "id": "MERISTEM-BOUNDARY-R037.2",
       "title": "Qualify governance recovery",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R038",
+      "id": "MERISTEM-BOUNDARY-R038",
       "title": "Add a cross-owner component registry and path guard",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1606,7 +1606,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R040",
+      "id": "MERISTEM-BOUNDARY-R040",
       "title": "Move agent memory and the learning engine to EG",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1614,12 +1614,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R040.1",
-        "AU-BOUNDARY-R040.2"
+        "MERISTEM-BOUNDARY-R040.1",
+        "MERISTEM-BOUNDARY-R040.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R040.1",
+      "id": "MERISTEM-BOUNDARY-R040.1",
       "title": "Pin the agent-memory relocation inventory",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1631,14 +1631,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R040.2",
+      "id": "MERISTEM-BOUNDARY-R040.2",
       "title": "Qualify memory migration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R041",
+      "id": "MERISTEM-BOUNDARY-R041",
       "title": "Finance modules that produced fabricated data are removed",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1650,7 +1650,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R042",
+      "id": "MERISTEM-BOUNDARY-R042",
       "title": "Every package directory has one recorded disposition",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1666,7 +1666,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043",
+      "id": "MERISTEM-BOUNDARY-R043",
       "title": "The agent run loop stays in Agent Utilities",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -1675,27 +1675,27 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R043.1",
-        "AU-BOUNDARY-R043.2",
-        "AU-BOUNDARY-R043.3",
-        "AU-BOUNDARY-R043.4",
-        "AU-BOUNDARY-R043.5",
-        "AU-BOUNDARY-R043.6",
-        "AU-BOUNDARY-R043.7",
-        "AU-BOUNDARY-R043.8",
-        "AU-BOUNDARY-R043.9",
-        "AU-BOUNDARY-R043.10",
-        "AU-BOUNDARY-R043.11",
-        "AU-BOUNDARY-R043.12",
-        "AU-BOUNDARY-R043.13",
-        "AU-BOUNDARY-R043.14",
-        "AU-BOUNDARY-R043.15",
-        "AU-BOUNDARY-R043.16",
-        "AU-BOUNDARY-R043.17"
+        "MERISTEM-BOUNDARY-R043.1",
+        "MERISTEM-BOUNDARY-R043.2",
+        "MERISTEM-BOUNDARY-R043.3",
+        "MERISTEM-BOUNDARY-R043.4",
+        "MERISTEM-BOUNDARY-R043.5",
+        "MERISTEM-BOUNDARY-R043.6",
+        "MERISTEM-BOUNDARY-R043.7",
+        "MERISTEM-BOUNDARY-R043.8",
+        "MERISTEM-BOUNDARY-R043.9",
+        "MERISTEM-BOUNDARY-R043.10",
+        "MERISTEM-BOUNDARY-R043.11",
+        "MERISTEM-BOUNDARY-R043.12",
+        "MERISTEM-BOUNDARY-R043.13",
+        "MERISTEM-BOUNDARY-R043.14",
+        "MERISTEM-BOUNDARY-R043.15",
+        "MERISTEM-BOUNDARY-R043.16",
+        "MERISTEM-BOUNDARY-R043.17"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.1",
+      "id": "MERISTEM-BOUNDARY-R043.1",
       "title": "The run loop applies a received run plan",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1712,7 +1712,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.2",
+      "id": "MERISTEM-BOUNDARY-R043.2",
       "title": "The run loop has a documented fallback plan and fails closed",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1727,7 +1727,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.3",
+      "id": "MERISTEM-BOUNDARY-R043.3",
       "title": "The recursive run loop enforces a received depth and budget",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1742,7 +1742,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.4",
+      "id": "MERISTEM-BOUNDARY-R043.4",
       "title": "Restore the model-edited run scaffold",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1758,15 +1758,15 @@
         "tests/test_plan_runtime.py:117"
       ],
       "rollup_of": [
-        "AU-BOUNDARY-R043.4.1",
-        "AU-BOUNDARY-R043.4.2",
-        "AU-BOUNDARY-R043.4.3",
-        "AU-BOUNDARY-R043.4.4",
-        "AU-BOUNDARY-R043.4.5"
+        "MERISTEM-BOUNDARY-R043.4.1",
+        "MERISTEM-BOUNDARY-R043.4.2",
+        "MERISTEM-BOUNDARY-R043.4.3",
+        "MERISTEM-BOUNDARY-R043.4.4",
+        "MERISTEM-BOUNDARY-R043.4.5"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.4.1",
+      "id": "MERISTEM-BOUNDARY-R043.4.1",
       "title": "One run's scaffold state",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1781,7 +1781,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.4.2",
+      "id": "MERISTEM-BOUNDARY-R043.4.2",
       "title": "Gated update tool",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1794,7 +1794,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.4.3",
+      "id": "MERISTEM-BOUNDARY-R043.4.3",
       "title": "Request-only injection",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1807,7 +1807,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.4.4",
+      "id": "MERISTEM-BOUNDARY-R043.4.4",
       "title": "No planner authority",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1818,7 +1818,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.4.5",
+      "id": "MERISTEM-BOUNDARY-R043.4.5",
       "title": "End-to-end scaffold proof",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1829,7 +1829,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.5",
+      "id": "MERISTEM-BOUNDARY-R043.5",
       "title": "Produce real scaffold state for an owner-composed read",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1847,12 +1847,12 @@
         "tests/test_host_ports.py:140"
       ],
       "rollup_of": [
-        "AU-BOUNDARY-R043.5.1",
-        "AU-BOUNDARY-R043.5.2"
+        "MERISTEM-BOUNDARY-R043.5.1",
+        "MERISTEM-BOUNDARY-R043.5.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.5.1",
+      "id": "MERISTEM-BOUNDARY-R043.5.1",
       "title": "Atomic scaffold revision",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1866,7 +1866,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.5.2",
+      "id": "MERISTEM-BOUNDARY-R043.5.2",
       "title": "Publish actual scaffold revisions through a run-local host port",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1884,7 +1884,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.6",
+      "id": "MERISTEM-BOUNDARY-R043.6",
       "title": "Apply a received bounded dependency plan",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1901,17 +1901,17 @@
         "tests/test_dependency.py:1323"
       ],
       "rollup_of": [
-        "AU-BOUNDARY-R043.6.1",
-        "AU-BOUNDARY-R043.6.2",
-        "AU-BOUNDARY-R043.6.3",
-        "AU-BOUNDARY-R043.6.4",
-        "AU-BOUNDARY-R043.6.5",
-        "AU-BOUNDARY-R043.6.6",
-        "AU-BOUNDARY-R043.6.7"
+        "MERISTEM-BOUNDARY-R043.6.1",
+        "MERISTEM-BOUNDARY-R043.6.2",
+        "MERISTEM-BOUNDARY-R043.6.3",
+        "MERISTEM-BOUNDARY-R043.6.4",
+        "MERISTEM-BOUNDARY-R043.6.5",
+        "MERISTEM-BOUNDARY-R043.6.6",
+        "MERISTEM-BOUNDARY-R043.6.7"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.6.1",
+      "id": "MERISTEM-BOUNDARY-R043.6.1",
       "title": "Tool step model and caller port",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1923,7 +1923,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.6.2",
+      "id": "MERISTEM-BOUNDARY-R043.6.2",
       "title": "Deterministic binding resolution",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1934,7 +1934,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.6.3",
+      "id": "MERISTEM-BOUNDARY-R043.6.3",
       "title": "Typed step failure without model retry",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1946,7 +1946,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.6.4",
+      "id": "MERISTEM-BOUNDARY-R043.6.4",
       "title": "Per-step record",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1958,7 +1958,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.6.5",
+      "id": "MERISTEM-BOUNDARY-R043.6.5",
       "title": "Mixed plans share one scheduler",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1969,7 +1969,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.6.6",
+      "id": "MERISTEM-BOUNDARY-R043.6.6",
       "title": "Wiring",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1981,7 +1981,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.6.7",
+      "id": "MERISTEM-BOUNDARY-R043.6.7",
       "title": "Hot-path proof",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -1992,7 +1992,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.7",
+      "id": "MERISTEM-BOUNDARY-R043.7",
       "title": "Account and drain parallel work",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2010,7 +2010,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.8",
+      "id": "MERISTEM-BOUNDARY-R043.8",
       "title": "Resume a run from a host checkpoint",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2021,7 +2021,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.9",
+      "id": "MERISTEM-BOUNDARY-R043.9",
       "title": "Carry completed conversation history into a fresh run",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2038,12 +2038,12 @@
         "tests/test_conversation_history.py:301"
       ],
       "rollup_of": [
-        "AU-BOUNDARY-R043.9.1",
-        "AU-BOUNDARY-R043.9.2"
+        "MERISTEM-BOUNDARY-R043.9.1",
+        "MERISTEM-BOUNDARY-R043.9.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.10",
+      "id": "MERISTEM-BOUNDARY-R043.10",
       "title": "Publish model and tool events through a durable host port",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2058,7 +2058,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R044",
+      "id": "MERISTEM-BOUNDARY-R044",
       "title": "Fleet, scaling and deployment modules leave orchestration",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -2066,12 +2066,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R044.1",
-        "AU-BOUNDARY-R044.2"
+        "MERISTEM-BOUNDARY-R044.1",
+        "MERISTEM-BOUNDARY-R044.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R044.1",
+      "id": "MERISTEM-BOUNDARY-R044.1",
       "title": "Pin the orchestration relocation inventory",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2083,14 +2083,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R044.2",
+      "id": "MERISTEM-BOUNDARY-R044.2",
       "title": "Qualify orchestration cutover",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R045",
+      "id": "MERISTEM-BOUNDARY-R045",
       "title": "Unplaced knowledge-graph packages receive file-level owners",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -2098,12 +2098,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R045.1",
-        "AU-BOUNDARY-R045.2"
+        "MERISTEM-BOUNDARY-R045.1",
+        "MERISTEM-BOUNDARY-R045.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R045.1",
+      "id": "MERISTEM-BOUNDARY-R045.1",
       "title": "Pin the unplaced knowledge_graph package relocation inventory",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2115,14 +2115,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R045.2",
+      "id": "MERISTEM-BOUNDARY-R045.2",
       "title": "Qualify knowledge-graph file ownership",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R046",
+      "id": "MERISTEM-BOUNDARY-R046",
       "title": "Partly covered packages list every file with its owner",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -2131,7 +2131,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R047",
+      "id": "MERISTEM-BOUNDARY-R047",
       "title": "Engine-facing adapters and caches are thin clients or removed",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -2140,12 +2140,12 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R047.1",
-        "AU-BOUNDARY-R047.2"
+        "MERISTEM-BOUNDARY-R047.1",
+        "MERISTEM-BOUNDARY-R047.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R047.1",
+      "id": "MERISTEM-BOUNDARY-R047.1",
       "title": "Pin the engine-facing-adapter relocation inventory",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2157,14 +2157,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R047.2",
+      "id": "MERISTEM-BOUNDARY-R047.2",
       "title": "Qualify adapter cutover",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R048",
+      "id": "MERISTEM-BOUNDARY-R048",
       "title": "Domain models, shapes, assets and skill content are placed",
       "delivery_state": "SPECIFIED",
       "landed_in": [
@@ -2173,20 +2173,20 @@
       ],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R048.1",
-        "AU-BOUNDARY-R048.2",
-        "AU-BOUNDARY-R048.3",
-        "AU-BOUNDARY-R048.4",
-        "AU-BOUNDARY-R048.5",
-        "AU-BOUNDARY-R048.6",
-        "AU-BOUNDARY-R048.8",
-        "AU-BOUNDARY-R048.9",
-        "AU-BOUNDARY-R048.10",
-        "AU-BOUNDARY-R048.11"
+        "MERISTEM-BOUNDARY-R048.1",
+        "MERISTEM-BOUNDARY-R048.2",
+        "MERISTEM-BOUNDARY-R048.3",
+        "MERISTEM-BOUNDARY-R048.4",
+        "MERISTEM-BOUNDARY-R048.5",
+        "MERISTEM-BOUNDARY-R048.6",
+        "MERISTEM-BOUNDARY-R048.8",
+        "MERISTEM-BOUNDARY-R048.9",
+        "MERISTEM-BOUNDARY-R048.10",
+        "MERISTEM-BOUNDARY-R048.11"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R048.1",
+      "id": "MERISTEM-BOUNDARY-R048.1",
       "title": "`images/` is already relocated",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2198,63 +2198,63 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R048.2",
+      "id": "MERISTEM-BOUNDARY-R048.2",
       "title": "Relocate `domains/government/`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R048.3",
+      "id": "MERISTEM-BOUNDARY-R048.3",
       "title": "Relocate `domains/hr/`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R048.4",
+      "id": "MERISTEM-BOUNDARY-R048.4",
       "title": "Relocate `domains/law/`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R048.5",
+      "id": "MERISTEM-BOUNDARY-R048.5",
       "title": "Relocate `domains/medical/`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R048.6",
+      "id": "MERISTEM-BOUNDARY-R048.6",
       "title": "Relocate `models/domains/`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R048.8",
+      "id": "MERISTEM-BOUNDARY-R048.8",
       "title": "Assign an owner to `ontology/shapes/`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R048.9",
+      "id": "MERISTEM-BOUNDARY-R048.9",
       "title": "Assign an owner to `data/`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R048.10",
+      "id": "MERISTEM-BOUNDARY-R048.10",
       "title": "Assign an owner to `protocols/voice_supply_chain/`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R048.11",
+      "id": "MERISTEM-BOUNDARY-R048.11",
       "title": "Assign an owner to the skill-content directories under `skills/`",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2265,7 +2265,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R049",
+      "id": "MERISTEM-BOUNDARY-R049",
       "title": "Every AU write-back sink runs through the SDK governed write-back contract",
       "delivery_state": "LANDED",
       "landed_in": [
@@ -2275,7 +2275,7 @@
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R043.11",
+      "id": "MERISTEM-BOUNDARY-R043.11",
       "title": "Apply host-selected client tools",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2291,64 +2291,64 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R050",
+      "id": "MERISTEM-BOUNDARY-R050",
       "title": "The run loop checks the engine render receipt before model transport (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R050.1",
-        "AU-BOUNDARY-R050.2",
-        "AU-BOUNDARY-R050.3",
-        "AU-BOUNDARY-R050.4",
-        "AU-BOUNDARY-R050.5",
-        "AU-BOUNDARY-R050.6"
+        "MERISTEM-BOUNDARY-R050.1",
+        "MERISTEM-BOUNDARY-R050.2",
+        "MERISTEM-BOUNDARY-R050.3",
+        "MERISTEM-BOUNDARY-R050.4",
+        "MERISTEM-BOUNDARY-R050.5",
+        "MERISTEM-BOUNDARY-R050.6"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R050.1",
+      "id": "MERISTEM-BOUNDARY-R050.1",
       "title": "Model",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R050.2",
+      "id": "MERISTEM-BOUNDARY-R050.2",
       "title": "Behavior",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R050.3",
+      "id": "MERISTEM-BOUNDARY-R050.3",
       "title": "Wiring",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R050.4",
+      "id": "MERISTEM-BOUNDARY-R050.4",
       "title": "Refusal",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R050.5",
+      "id": "MERISTEM-BOUNDARY-R050.5",
       "title": "Evidence",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R050.6",
+      "id": "MERISTEM-BOUNDARY-R050.6",
       "title": "Hot-path proof",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R043.12",
+      "id": "MERISTEM-BOUNDARY-R043.12",
       "title": "Emit bounded run-local model measurements",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2363,7 +2363,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.9.1",
+      "id": "MERISTEM-BOUNDARY-R043.9.1",
       "title": "Hydrate a sequential fresh turn from completed text history",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2376,7 +2376,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.9.2",
+      "id": "MERISTEM-BOUNDARY-R043.9.2",
       "title": "Complete checkpoint-backed conversation history integration",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2391,12 +2391,12 @@
         "tests/test_conversation_history.py:340"
       ],
       "rollup_of": [
-        "AU-BOUNDARY-R043.9.2.1",
-        "AU-BOUNDARY-R043.9.2.2"
+        "MERISTEM-BOUNDARY-R043.9.2.1",
+        "MERISTEM-BOUNDARY-R043.9.2.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.9.2.1",
+      "id": "MERISTEM-BOUNDARY-R043.9.2.1",
       "title": "Apply one host checkpoint selection before effects",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2411,7 +2411,7 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.9.2.2",
+      "id": "MERISTEM-BOUNDARY-R043.9.2.2",
       "title": "Qualify genuine checkpoint restoration and served continuation",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2422,18 +2422,18 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.13",
+      "id": "MERISTEM-BOUNDARY-R043.13",
       "title": "Apply a received text-only execution constraint",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "AU-BOUNDARY-R043.13.1",
-        "AU-BOUNDARY-R043.13.2"
+        "MERISTEM-BOUNDARY-R043.13.1",
+        "MERISTEM-BOUNDARY-R043.13.2"
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.13.1",
+      "id": "MERISTEM-BOUNDARY-R043.13.1",
       "title": "Enforce the constraint at the model boundary",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2445,14 +2445,14 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.13.2",
+      "id": "MERISTEM-BOUNDARY-R043.13.2",
       "title": "Qualify the installed constrained execution path",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R043.14",
+      "id": "MERISTEM-BOUNDARY-R043.14",
       "title": "Emit explicit child lineage through existing run events",
       "delivery_state": "VERIFIED",
       "landed_in": [
@@ -2466,21 +2466,21 @@
       ]
     },
     {
-      "id": "AU-BOUNDARY-R043.15",
+      "id": "MERISTEM-BOUNDARY-R043.15",
       "title": "Apply host-admitted active-child input at a safe boundary",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R043.16",
+      "id": "MERISTEM-BOUNDARY-R043.16",
       "title": "Consume selected completed-child history for a fresh turn",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
-      "id": "AU-BOUNDARY-R043.17",
+      "id": "MERISTEM-BOUNDARY-R043.17",
       "title": "Publish bounded public child records with provenance",
       "delivery_state": "SPECIFIED",
       "landed_in": [],

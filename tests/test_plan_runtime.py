@@ -29,7 +29,7 @@ def injected(messages):
     ]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.4.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.4.2")
 @pytest.mark.parametrize("mode", ["on", "off"])
 async def test_received_decision_gates_tool_and_injection(mode):
     seen = []
@@ -54,10 +54,10 @@ async def test_received_decision_gates_tool_and_injection(mode):
     )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.4.2")
-@pytest.mark.spec("AU-BOUNDARY-R043.4.3")
-@pytest.mark.spec("AU-BOUNDARY-R043.4.5")
-@pytest.mark.spec("AU-BOUNDARY-R043.4")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.4.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.4.3")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.4.5")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.4")
 async def test_two_updates_reach_each_request_but_never_stored_history(monkeypatch):
     captured = []
     histories = []
@@ -114,8 +114,8 @@ async def test_two_updates_reach_each_request_but_never_stored_history(monkeypat
     assert "second prompt" in repr(histories[-1])
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.4.1")
-@pytest.mark.spec("AU-BOUNDARY-R043.4.3")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.4.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.4.3")
 async def test_separate_executions_start_with_empty_scaffolds():
     initial = []
 
@@ -133,7 +133,7 @@ async def test_separate_executions_start_with_empty_scaffolds():
     assert initial == [["Current run plan: []"], ["Current run plan: []"]]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.4.3")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.4.3")
 async def test_budget_exit_cleans_tool_payload_without_another_request(monkeypatch):
     from agent_utilities.graph import RunBudget
     from agent_utilities.harness.plan_runtime import PlanScaffold
@@ -172,7 +172,7 @@ async def test_budget_exit_cleans_tool_payload_without_another_request(monkeypat
     assert not injected(retained[0])
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.4.4")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.4.4")
 async def test_scaffold_surface_and_imports_have_no_selection_authority():
     import ast
     import inspect
@@ -212,7 +212,7 @@ async def test_scaffold_surface_and_imports_have_no_selection_authority():
     assert set(schemas[0]["properties"]) == {"items"}
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.4.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.4.2")
 @pytest.mark.parametrize("mode", ["unknown", "", None])
 async def test_invalid_received_scaffold_decision_fails_before_model_call(mode):
     calls = []
@@ -235,7 +235,7 @@ async def test_invalid_received_scaffold_decision_fails_before_model_call(mode):
     assert calls == []
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.5.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.5.2")
 async def test_host_receives_only_actual_accepted_revisions():
     from contextlib import asynccontextmanager
 
@@ -298,7 +298,7 @@ async def test_host_receives_only_actual_accepted_revisions():
     assert lifecycle == ["bound-run", "closed"]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.5.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.5.2")
 @pytest.mark.parametrize("failure_at", ["enter", "initial", "update", "close"])
 async def test_publication_failure_stops_run_without_disclosing_payload(failure_at):
     from contextlib import asynccontextmanager
@@ -360,7 +360,7 @@ async def test_publication_failure_stops_run_without_disclosing_payload(failure_
     assert closed == ([] if failure_at == "enter" else [True])
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.5.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.5.2")
 async def test_concurrent_runs_publish_to_their_own_host_binding():
     import asyncio
     from contextlib import asynccontextmanager

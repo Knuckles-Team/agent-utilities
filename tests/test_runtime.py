@@ -194,7 +194,7 @@ RUNTIME_RUN_EXPORTS = (
 )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("name", RUNTIME_RUN_EXPORTS)
 def test_runtime_exports_the_same_public_run_objects(name):
     from agent_utilities import graph, runtime
@@ -204,7 +204,7 @@ def test_runtime_exports_the_same_public_run_objects(name):
     assert getattr(runtime, name) is getattr(graph, name)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 def test_runtime_run_exports_are_lazy_and_cycle_safe_in_a_fresh_process():
     script = """
 import os

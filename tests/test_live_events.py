@@ -31,7 +31,7 @@ class Publisher:
         self.events.append((kind, content))
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.14")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.14")
 def test_lineage_relationships_use_explicit_keys_and_fail_closed() -> None:
     root = LineageBinding("run-root", "run", "same-name", plan_id="plan")
     child = LineageBinding(
@@ -74,7 +74,7 @@ def test_lineage_relationships_use_explicit_keys_and_fail_closed() -> None:
         )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.10")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.10")
 async def test_executor_binds_one_publisher_before_exposing_model_output() -> None:
     bindings: list[str] = []
     publisher = Publisher()
@@ -104,7 +104,7 @@ async def test_executor_binds_one_publisher_before_exposing_model_output() -> No
     )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.10")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.10")
 async def test_executor_stops_before_tool_effect_on_call_publication_failure() -> None:
     effects: list[int] = []
     toolset = FunctionToolset()
@@ -142,7 +142,7 @@ async def test_executor_stops_before_tool_effect_on_call_publication_failure() -
     assert effects == []
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.10")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.10")
 async def test_executor_without_host_publisher_keeps_ordinary_path() -> None:
     calls: list[list] = []
 
@@ -160,7 +160,7 @@ async def test_executor_without_host_publisher_keeps_ordinary_path() -> None:
     assert len(calls) == 1
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.10")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.10")
 async def test_text_deltas_are_published_in_order_and_keep_model_output() -> None:
     async def stream(messages, info):
         for text in ("hello", " ", "world"):
@@ -183,7 +183,7 @@ async def test_text_deltas_are_published_in_order_and_keep_model_output() -> Non
     )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.10")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.10")
 @pytest.mark.parametrize("fail_kind", [None, "tool_call", "tool_result"])
 async def test_tool_publication_orders_effects_and_never_retries(
     fail_kind: str | None,
@@ -244,7 +244,7 @@ async def test_tool_publication_orders_effects_and_never_retries(
         assert not any(kind == "state" for kind, _ in publisher.events)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.10")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.10")
 async def test_unbound_step_keeps_ordinary_model_path() -> None:
     calls: list[list] = []
 

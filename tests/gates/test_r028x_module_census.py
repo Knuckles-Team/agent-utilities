@@ -41,28 +41,28 @@ def _check(package: str, prefix: str, tmp_path: Path) -> None:
     assert _importers(tmp_path, PREFIXES[package]) == {"caller.py"}
 
 
-@pytest.mark.spec("AU-BOUNDARY-R028.2.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R028.2.1")
 def test_r028_2_1_infra_importer_set_has_not_grown(tmp_path: Path) -> None:
     _check(
         "infra", "agent_utilities.knowledge_graph.infra.placement_optimizer", tmp_path
     )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R028.6.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R028.6.1")
 def test_r028_6_1_observability_triad_importer_set_has_not_grown(
     tmp_path: Path,
 ) -> None:
     _check("observability", "agent_utilities.observability.trace_ontology", tmp_path)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R028.7.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R028.7.1")
 def test_r028_7_1_relational_authority_importer_set_has_not_grown(
     tmp_path: Path,
 ) -> None:
     _check("governance", "agent_utilities.governance.relational_authority", tmp_path)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R028.8.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R028.8.1")
 def test_r028_8_1_placement_mining_importer_set_has_not_grown(tmp_path: Path) -> None:
     _check(
         "placement",

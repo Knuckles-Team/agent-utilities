@@ -1,4 +1,4 @@
-# Fleet census — AU-BOUNDARY-R005..R009 — 2026-10-09
+# Fleet census — MERISTEM-BOUNDARY-R005..R009 — 2026-10-09
 
 Method: for every connector under `agent-packages/agents/*` plus `repository-manager`,
 `git fetch origin main`, then `git ls-tree -r --name-only origin/main` to enumerate
@@ -34,7 +34,7 @@ reflects their intended post-merge state for those four repos.
 | ciso-assistant-api | n/a | none found |
 | clarity-api | n/a | none found |
 | container-manager-mcp | n/a | none found |
-| data-science-mcp | n/a | `data_science_mcp/mcp_server.py:38` `agent_utilities.mcp.verbose_tools.register_tool_surface` — annotated SDK gap (SDK-CONNECTOR-CONTROL-R009: SDK's `register_tool_surface` drops the per-method verbose tool surface this connector depends on) |
+| data-science-mcp | n/a | `data_science_mcp/mcp_server.py:38` `agent_utilities.mcp.verbose_tools.register_tool_surface` — annotated SDK gap (SCION-CONNECTOR-CONTROL-R009: SDK's `register_tool_surface` drops the per-method verbose tool surface this connector depends on) |
 | dockerhub-api | n/a | none found |
 | documentdb-mcp | n/a | none found |
 | egeria-mcp | n/a | none found |

@@ -50,32 +50,32 @@ def _check(root: Path, paths: tuple[str, ...], recorded: set[str]) -> None:
     assert actual == recorded
 
 
-@pytest.mark.spec("AU-BOUNDARY-R036.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R036.1")
 def test_usage_inventory_matches_tree() -> None:
     _check(PACKAGE, INVENTORY["R036"], set())
 
 
-@pytest.mark.spec("AU-BOUNDARY-R037.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R037.1")
 def test_governance_inventory_matches_tree() -> None:
     _check(PACKAGE, INVENTORY["R037"], set())
 
 
-@pytest.mark.spec("AU-BOUNDARY-R040.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R040.1")
 def test_memory_inventory_matches_tree() -> None:
     _check(PACKAGE, INVENTORY["R040"], set())
 
 
-@pytest.mark.spec("AU-BOUNDARY-R044.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R044.1")
 def test_orchestration_inventory_matches_tree() -> None:
     _check(PACKAGE, INVENTORY["R044"], set())
 
 
-@pytest.mark.spec("AU-BOUNDARY-R045.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R045.1")
 def test_knowledge_graph_inventory_matches_tree() -> None:
     _check(PACKAGE, INVENTORY["R045"], set())
 
 
-@pytest.mark.spec("AU-BOUNDARY-R047.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R047.1")
 def test_adapter_inventory_matches_tree() -> None:
     _check(PACKAGE, INVENTORY["R047"], set())
 

@@ -56,18 +56,18 @@ bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuck
 
 ## Local specifications
 
-- [`AU-CONTEXT`](agent-context-and-finance/spec.md) — agent context and finance orchestration.
-- [`AU-CONTROL`](agent-control-plane/spec.md) — agent control plane and workflows.
-- [`AU-SEC`](agent-security-policy/spec.md) — agent security and policy boundary.
-- [`AU-BOUNDARY`](au-boundary-deconstruction/spec.md) — move non-agent ownership to the right repository.
+- [`MERISTEM-CONTEXT`](agent-context-and-finance/spec.md) — agent context and finance orchestration.
+- [`MERISTEM-CONTROL`](agent-control-plane/spec.md) — agent control plane and workflows.
+- [`MERISTEM-SEC`](agent-security-policy/spec.md) — agent security and policy boundary.
+- [`MERISTEM-BOUNDARY`](au-boundary-deconstruction/spec.md) — move non-agent ownership to the right repository.
 - [`AU-QUAL`](au-boundary-quality/spec.md) — quality and acceptance of the AU boundary.
 - [`AU-DEV`](au-developer-environment/spec.md) — developer environment and release setup.
 - [`AU-INTEGRATION`](au-integration-reliability/spec.md) — reliability of live integrations.
-- [`AU-SEMANTIC`](au-semantic-client/spec.md) — semantic client behavior.
-- [`AU-HARNESS`](harness-evolution/spec.md) — harness improvement and evaluation.
-- [`AU-RETIRE`](au-engine-duplicate-retirement/spec.md) — retire duplicate graph authority after per-operation parity.
+- [`MERISTEM-SEMANTIC`](au-semantic-client/spec.md) — semantic client behavior.
+- [`MERISTEM-HARNESS`](harness-evolution/spec.md) — harness improvement and evaluation.
+- [`MERISTEM-RETIRE`](au-engine-duplicate-retirement/spec.md) — retire duplicate graph authority after per-operation parity.
 - [`AU-RETRIEVAL`](retrieval-evaluation/spec.md) — public, reproducible structure-aware retrieval evaluation.
 - [`AU-FREEZE`](release-evidence-freeze/spec.md) — exact-revision AU source and release evidence freeze.
 - [`AU-BASELINE`](baseline-ingestion/spec.md) — baseline ingestion after boot and served ontology content.
-- [`AU-HARNESS-CYCLE`](harness-cycle/spec.md) — harness evolution cycle: propose, probe, compose, persist, reflect.
-- [`AU-SCM`](au-scm/spec.md) — development loop on changesets for the in-run coding harness.
+- [`MERISTEM-HARNESS-CYCLE`](harness-cycle/spec.md) — harness evolution cycle: propose, probe, compose, persist, reflect.
+- [`MERISTEM-SCM`](au-scm/spec.md) — development loop on changesets for the in-run coding harness.
