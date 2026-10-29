@@ -15,7 +15,8 @@
     "AU-HARNESS-CYCLE-R001.8",
     "AU-HARNESS-CYCLE-R001.9",
     "AU-HARNESS-CYCLE-R001.10",
-    "AU-HARNESS-CYCLE-R001.11"
+    "AU-HARNESS-CYCLE-R001.11",
+    "AU-HARNESS-CYCLE-R001.12"
   ],
   "requirements": [
     {
@@ -35,7 +36,8 @@
         "AU-HARNESS-CYCLE-R001.8",
         "AU-HARNESS-CYCLE-R001.9",
         "AU-HARNESS-CYCLE-R001.10",
-        "AU-HARNESS-CYCLE-R001.11"
+        "AU-HARNESS-CYCLE-R001.11",
+        "AU-HARNESS-CYCLE-R001.12"
       ]
     },
     {
@@ -46,7 +48,7 @@
         "807386bf4a7e"
       ],
       "verified_by": [
-        "tests/harness/test_harness_cycle.py:43"
+        "tests/harness/test_harness_cycle.py:45"
       ]
     },
     {
@@ -57,7 +59,7 @@
         "2f5d92084425"
       ],
       "verified_by": [
-        "tests/harness/test_harness_cycle.py:696"
+        "tests/harness/test_harness_cycle.py:678"
       ]
     },
     {
@@ -69,32 +71,27 @@
         "8268ab7fabb6"
       ],
       "verified_by": [
-        "tests/harness/test_harness_cycle.py:149",
-        "tests/harness/test_harness_cycle.py:186"
+        "tests/harness/test_harness_cycle.py:151",
+        "tests/harness/test_harness_cycle.py:188"
       ]
     },
     {
       "id": "AU-HARNESS-CYCLE-R001.4",
       "title": "Compose",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "6a24f63b1216"
       ],
-      "verified_by": [
-        "tests/harness/test_harness_cycle.py:234",
-        "tests/harness/test_harness_cycle.py:286"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-HARNESS-CYCLE-R001.5",
       "title": "Persist",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "3e4ecfa7bd3e"
       ],
-      "verified_by": [
-        "tests/harness/test_harness_cycle.py:311"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-HARNESS-CYCLE-R001.6",
@@ -104,19 +101,17 @@
         "582ffc7149e2"
       ],
       "verified_by": [
-        "tests/harness/test_harness_cycle.py:408"
+        "tests/harness/test_harness_cycle.py:465"
       ]
     },
     {
       "id": "AU-HARNESS-CYCLE-R001.7",
       "title": "Refusal",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "f7c3c3e0cb61"
       ],
-      "verified_by": [
-        "tests/harness/test_harness_cycle.py:509"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-HARNESS-CYCLE-R001.8",
@@ -126,8 +121,8 @@
         "a23050a62b5f"
       ],
       "verified_by": [
-        "tests/harness/test_harness_cycle.py:635",
-        "tests/harness/test_harness_cycle.py:648"
+        "tests/harness/test_harness_cycle.py:617",
+        "tests/harness/test_harness_cycle.py:630"
       ]
     },
     {
@@ -150,6 +145,19 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
+    },
+    {
+      "id": "AU-HARNESS-CYCLE-R001.12",
+      "title": "Measurement safety refusal",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3053bf474725"
+      ],
+      "verified_by": [
+        "tests/harness/test_harness_cycle.py:252",
+        "tests/harness/test_harness_cycle.py:360",
+        "tests/harness/test_harness_cycle.py:417"
+      ]
     }
   ]
 }

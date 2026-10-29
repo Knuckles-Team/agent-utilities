@@ -21,9 +21,11 @@ from agent_utilities.harness.harness_cycle import (
     ProbeTrace,
     compose,
     conditions_digest,
+    measure_contrasts,
     persist,
     probe_candidates,
     propose,
+    reflect,
     run_cycle_tick,
 )
 
@@ -231,8 +233,53 @@ def _trace(
     )
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.4")
-async def test_compose_delegates_to_engine() -> None:
+def _fixture_contrasts(*, baseline, candidates, traces):
+    """Synthetic measurements for isolated downstream orchestration tests."""
+    return tuple(
+        ContrastDelta(
+            candidate_id=candidate.candidate_id,
+            run_a_trace_id=baseline.trace_id,
+            run_b_trace_id=traces[candidate.candidate_id].trace_id,
+            retry_delta=0,
+            tool_selection_delta=0,
+            eval_score_delta=0,
+            cost_delta=0,
+        )
+        for candidate in candidates
+    )
+
+
+@pytest.mark.spec("AU-HARNESS-CYCLE-R001.12")
+@pytest.mark.parametrize("has_baseline", [False, True])
+async def test_compose_refuses_unverified_measurements_before_decide(
+    has_baseline,
+) -> None:
+    candidates = _probe_candidates()
+    traces = {
+        candidate.candidate_id: _trace(candidate.candidate_id, tool_calls=100)
+        for candidate in candidates
+    }
+    baseline = _trace("current") if has_baseline else None
+    calls: list[ContrastRequest] = []
+    with pytest.raises(CycleRefusal, match="measurement_unavailable"):
+        measure_contrasts(baseline=baseline, candidates=candidates, traces=traces)
+    with pytest.raises(CycleRefusal, match="measurement_unavailable"):
+        await compose(
+            task_ref="task-1",
+            task_class="classification",
+            conditions_digest_value="digest-1",
+            candidates=candidates,
+            baseline=baseline,
+            traces=traces,
+            decide=calls.append,
+        )
+    assert calls == []
+
+
+async def test_compose_delegates_to_engine(monkeypatch) -> None:
+    import agent_utilities.harness.harness_cycle as cycle
+
+    monkeypatch.setattr(cycle, "measure_contrasts", _fixture_contrasts)
     candidates = _probe_candidates()
     baseline = _trace("current")
     traces = {
@@ -283,8 +330,10 @@ async def test_compose_delegates_to_engine() -> None:
     assert answer.abstain_reason is None
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.4")
-async def test_compose_abstains_when_engine_abstains() -> None:
+async def test_compose_abstains_when_engine_abstains(monkeypatch) -> None:
+    import agent_utilities.harness.harness_cycle as cycle
+
+    monkeypatch.setattr(cycle, "measure_contrasts", _fixture_contrasts)
     candidates = _probe_candidates()
     calls: list[ContrastRequest] = []
 
@@ -298,7 +347,7 @@ async def test_compose_abstains_when_engine_abstains() -> None:
             task_class="classification",
             conditions_digest_value="digest-1",
             candidates=candidates,
-            baseline=None,
+            baseline=_trace("current"),
             traces={
                 candidate.candidate_id: _trace(candidate.candidate_id)
                 for candidate in candidates
@@ -308,83 +357,43 @@ async def test_compose_abstains_when_engine_abstains() -> None:
     assert len(calls) == 1
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.5")
-def test_persist_envelopes_switch_harness(tmp_path, monkeypatch) -> None:
-    import agent_utilities.harness.harness_cycle as cycle
-
+@pytest.mark.spec("AU-HARNESS-CYCLE-R001.12")
+@pytest.mark.parametrize("baseline_trace", ["", "baseline"])
+def test_persist_refuses_unverified_contrast_before_writes_or_switch(
+    tmp_path, baseline_trace
+) -> None:
     component = tmp_path / "harness" / "system_prompt.md"
     component.parent.mkdir(parents=True)
     component.write_text("current prompt", encoding="utf-8")
-
-    envelopes: list[dict[str, object]] = []
-
-    def write_envelope(envelope: dict[str, object]) -> str:
-        envelopes.append(envelope)
-        return f"ref-{envelope['kind']}"
-
-    calls: list[tuple[list, object]] = []
-    real_apply = cycle.apply_edits
-
-    def counting_apply(edits: list, root, **kwargs) -> object:
-        calls.append((list(edits), root))
-        return real_apply(edits, root, **kwargs)
-
-    monkeypatch.setattr(cycle, "apply_edits", counting_apply)
-
-    adopted = _probe_candidates()[0]
+    writes: list[object] = []
     contrast = ContrastDelta(
         candidate_id="c-0",
-        run_a_trace_id="run-1:probe:current",
-        run_b_trace_id="run-1:probe:c-0",
-        retry_delta=0,
-        tool_selection_delta=0,
+        run_a_trace_id=baseline_trace,
+        run_b_trace_id="candidate",
+        retry_delta=-1,
+        tool_selection_delta=1,
         eval_score_delta=1,
-        cost_delta=0,
+        cost_delta=-1,
     )
     answer = ContrastAnswer(
         adopted_version_ref="v-a",
         abstain_reason=None,
         adopted_component_kind="system_prompt",
-        adopted_content="adopted prompt",
+        adopted_content="changed",
     )
-
-    version_ref, contrast_ref, lesson_ref = persist(
-        task_ref="task-1",
-        task_class="classification",
-        conditions_digest_value="digest-1",
-        adopted=adopted,
-        contrast=contrast,
-        answer=answer,
-        write_envelope=write_envelope,
-        root=tmp_path,
-    )
-
-    assert [envelope["kind"] for envelope in envelopes] == [
-        "harness_component_version",
-        "harness_contrast",
-        "harness_lesson",
-    ]
-    assert len(calls) == 1
-    assert version_ref == "v-a"
-    assert contrast_ref == "ref-harness_contrast"
-    assert lesson_ref == "ref-harness_lesson"
-    assert component.read_text(encoding="utf-8") == "adopted prompt\n"
-    assert [
-        path.relative_to(tmp_path).as_posix()
-        for path in tmp_path.rglob("*")
-        if path.is_file()
-    ] == ["harness/system_prompt.md"]
-    assert envelopes[0]["fact"] == {
-        "task_ref": "task-1",
-        "component_kind": "system_prompt",
-        "component_version_ref": "v-a",
-        "evidence_run_id": "run-1:probe:c-0",
-    }
-    assert envelopes[1]["fact"]["conditions_digest"] == "digest-1"
-    assert envelopes[2]["fact"]["evidence_run_ids"] == [
-        "run-1:probe:current",
-        "run-1:probe:c-0",
-    ]
+    with pytest.raises(CycleRefusal, match="measurement_unavailable"):
+        persist(
+            task_ref="task-1",
+            task_class="classification",
+            conditions_digest_value="digest-1",
+            adopted=_probe_candidates()[0],
+            contrast=contrast,
+            answer=answer,
+            write_envelope=writes.append,
+            root=tmp_path,
+        )
+    assert writes == []
+    assert component.read_text(encoding="utf-8") == "current prompt"
 
 
 def _library() -> list[dict[str, str]]:
@@ -405,8 +414,11 @@ def _tick_request() -> RunRequest:
     )
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.6")
-async def test_reflect_submits_lesson_on_adoption(tmp_path, events) -> None:
+@pytest.mark.spec("AU-HARNESS-CYCLE-R001.12")
+@pytest.mark.parametrize("has_baseline", [False, True])
+async def test_tick_refuses_without_owner_measurements_before_decide_or_persist(
+    tmp_path, events, has_baseline
+) -> None:
     def model(messages, info):
         return ModelResponse(parts=[TextPart("done")])
 
@@ -417,96 +429,65 @@ async def test_reflect_submits_lesson_on_adoption(tmp_path, events) -> None:
             budget=RunBudget(candidate_slots=2),
         )
     )
-
-    def decide(request: ContrastRequest):
-        return {
-            "adopted_version_ref": request.candidate_version_refs[0],
-            "abstain_reason": None,
-            "adopted_component_kind": "system_prompt",
-            "adopted_content": "adopted prompt",
-        }
-
-    written: list[str] = []
-
-    def write_envelope(envelope: dict[str, object]) -> str:
-        written.append(str(envelope["kind"]))
-        return f"ref-{envelope['kind']}"
-
+    metadata = {"harness_seed": "seed-1"}
+    if has_baseline:
+        metadata["harness_current_version_ref"] = "v-0"
+    request = RunRequest(task="classify", run_id="task-1", metadata=metadata)
+    calls: list[object] = []
+    writes: list[object] = []
     component = tmp_path / "harness" / "system_prompt.md"
     component.parent.mkdir(parents=True)
     component.write_text("current prompt", encoding="utf-8")
 
     outcome = await run_cycle_tick(
-        _tick_request(),
-        RunPlan(
-            model=FunctionModel(model),
-            budget=RunBudget(candidate_slots=2),
-        ),
+        request,
+        RunPlan(model=FunctionModel(model), budget=RunBudget(candidate_slots=2)),
         task_class="classification",
         graph=object(),
         library_query=lambda _class: _library(),
-        decide=decide,
-        write_envelope=write_envelope,
+        decide=calls.append,
+        write_envelope=writes.append,
         root=tmp_path,
     )
-
-    assert outcome.adopted_version_ref == "v-a"
-    assert outcome.abstain_reason is None
-    assert outcome.lesson_ref == "ref-harness_lesson"
-    assert outcome.contrast_ref == "ref-harness_contrast"
-    assert written == [
-        "harness_component_version",
-        "harness_contrast",
-        "harness_lesson",
-    ]
-    assert component.read_text(encoding="utf-8") == "adopted prompt\n"
-
-    cycle_events = [
-        event for event in events if event.get("type") == "harness_cycle_outcome"
-    ]
-    assert len(cycle_events) == 1
-    reported = cycle_events[0]
-    # One lesson on adoption, citing the evidence runs by trace id.
-    assert reported["lesson_ref"] == "ref-harness_lesson"
-    assert reported["evidence_run_ids"] == [
-        "task-1:probe:current",
-        "task-1:probe:task-1:candidate:0",
-    ]
-    assert reported["abstain_reason"] is None
-
-    # None on abstention.
-    def abstain(request: ContrastRequest):
-        return {"adopted_version_ref": None, "abstain_reason": "no_improvement"}
-
-    written.clear()
-    events.clear()
-    outcome = await run_cycle_tick(
-        _tick_request(),
-        RunPlan(
-            model=FunctionModel(model),
-            budget=RunBudget(candidate_slots=2),
-        ),
-        task_class="classification",
-        graph=object(),
-        library_query=lambda _class: _library(),
-        decide=abstain,
-        write_envelope=write_envelope,
-        root=tmp_path,
-    )
-    assert outcome.abstain_reason == "compose_abstention"
+    assert outcome.abstain_reason == "measurement_unavailable"
     assert outcome.adopted_version_ref is None
-    assert outcome.lesson_ref is None
-    assert written == []
-    assert component.read_text(encoding="utf-8") == "adopted prompt\n"
+    assert outcome.contrast_ref is None and outcome.lesson_ref is None
+    assert calls == [] and writes == []
+    assert component.read_text(encoding="utf-8") == "current prompt"
     cycle_events = [
         event for event in events if event.get("type") == "harness_cycle_outcome"
     ]
     assert len(cycle_events) == 1
-    assert cycle_events[0]["lesson_ref"] is None
+    assert cycle_events[0]["abstain_reason"] == "measurement_unavailable"
     assert cycle_events[0]["evidence_run_ids"] == []
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.7")
+@pytest.mark.spec("AU-HARNESS-CYCLE-R001.6")
+def test_reflect_reports_adoption_or_abstention(events) -> None:
+    adopted = CycleOutcome(
+        task_ref="task-1",
+        k=2,
+        adopted_version_ref="v-a",
+        abstain_reason=None,
+        contrast_ref="ref-contrast",
+        lesson_ref="ref-lesson",
+    )
+    reflect(adopted, evidence_run_ids=("baseline", "candidate"))
+    assert events[-1]["lesson_ref"] == "ref-lesson"
+    assert events[-1]["evidence_run_ids"] == ["baseline", "candidate"]
+    abstained = CycleOutcome(
+        task_ref="task-1",
+        k=2,
+        adopted_version_ref=None,
+        abstain_reason="measurement_unavailable",
+        contrast_ref=None,
+        lesson_ref=None,
+    )
+    reflect(abstained, evidence_run_ids=("baseline", "candidate"))
+    assert events[-1]["lesson_ref"] is None
+    assert events[-1]["evidence_run_ids"] == []
+
+
 async def test_refusals_keep_harness(tmp_path, monkeypatch) -> None:
     import agent_utilities.harness.harness_cycle as cycle
 
@@ -614,6 +595,7 @@ async def test_refusals_keep_harness(tmp_path, monkeypatch) -> None:
 
     # compose_abstention: the engine abstains, and no adoption persists.
     monkeypatch.undo()
+    monkeypatch.setattr(cycle, "measure_contrasts", _fixture_contrasts)
     outcome = await run_cycle_tick(
         _tick_request(),
         plan(2),
