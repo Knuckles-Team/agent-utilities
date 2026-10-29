@@ -88,3 +88,13 @@ def test_old_config_settings_are_ignored(monkeypatch, tmp_path):
     monkeypatch.setenv("GRAPH_OS_CONFIG_DIR", str(tmp_path / "old"))
     monkeypatch.setenv("AGENT_UTILITIES_CONFIG_DIR", str(tmp_path / "au"))
     assert paths.platform_config_dir() == tmp_path / "xdg" / "arbora"
+
+
+def test_default_state_dirs_use_the_meristem_app_name(monkeypatch, tmp_path):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    for resolved in (paths.data_dir(), paths.cache_dir(), paths.log_dir()):
+        assert "meristem" in resolved.parts
+        assert "agent-utilities" not in resolved.parts

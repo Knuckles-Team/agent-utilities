@@ -3,7 +3,7 @@
 
 CONCEPT:AU-OS.config.agent-os-infrastructure — Agent OS Infrastructure (Extension)
 
-Centralizes all file path resolution for the agent-utilities ecosystem using
+Centralizes all file path resolution for the meristem harness using
 the XDG Base Directory Specification via ``platformdirs``. This replaces 10+
 scattered hardcoded ``knowledge_graph.db`` references with a single source
 of truth for path resolution.
@@ -11,9 +11,9 @@ of truth for path resolution.
 Architecture:
     - ``config_dir()``: ``~/.config/arbora/`` — config files,
       mcp_config.json, a2a_config.json
-    - ``data_dir()``: ``~/.local/share/agent-utilities/`` — KG database,
+    - ``data_dir()``: ``~/.local/share/meristem/`` — KG database,
       ontologies, vector indexes, runtime artifacts
-    - ``cache_dir()``: ``~/.cache/agent-utilities/`` — embedding caches,
+    - ``cache_dir()``: ``~/.cache/meristem/`` — embedding caches,
       similarity indexes, skill graph cache
 
 Directory roots can be overridden via environment variables:
@@ -32,7 +32,7 @@ import platformdirs
 
 logger = logging.getLogger(__name__)
 
-APP_NAME = "agent-utilities"
+APP_NAME = "meristem"
 APP_AUTHOR = "knuckles-team"
 
 
@@ -107,9 +107,9 @@ def runtime_secrets_path() -> Path:
 
 
 def data_dir() -> Path:
-    """Return the XDG data directory for agent-utilities.
+    """Return the XDG data directory for meristem.
 
-    Default: ``~/.local/share/agent-utilities/``
+    Default: ``~/.local/share/meristem/``
 
     Override via ``AGENT_UTILITIES_DATA_DIR`` environment variable.
 
@@ -126,9 +126,9 @@ def data_dir() -> Path:
 
 
 def cache_dir() -> Path:
-    """Return the XDG cache directory for agent-utilities.
+    """Return the XDG cache directory for meristem.
 
-    Default: ``~/.cache/agent-utilities/``
+    Default: ``~/.cache/meristem/``
 
     Override via ``AGENT_UTILITIES_CACHE_DIR`` environment variable.
 
@@ -146,7 +146,7 @@ def cache_dir() -> Path:
 def skills_dir() -> Path:
     """Return the XDG data directory for custom/user-installed agent skills.
 
-    Default: ``~/.local/share/agent-utilities/skills/``
+    Default: ``~/.local/share/meristem/skills/``
 
     Override via ``AGENT_UTILITIES_SKILLS_DIR`` environment variable.
 
@@ -187,7 +187,7 @@ def prompts_dir() -> Path:
 def unified_prompts_dir() -> Path:
     """Return the XDG *data* directory for materialized prompt-provider blueprints.
 
-    Default: ``~/.local/share/agent-utilities/prompts/``
+    Default: ``~/.local/share/meristem/prompts/``
 
     CONCEPT:AU-OS.governance.concept-2 — one leg of the unified install tree. The
     ``agent-utilities install`` command materializes every ``prompt_providers``
@@ -235,7 +235,7 @@ def a2a_config_path() -> Path:
 def ontology_dir() -> Path:
     """Return the path for user-provided external ontologies.
 
-    Default: ``~/.local/share/agent-utilities/ontologies/``
+    Default: ``~/.local/share/meristem/ontologies/``
 
     Package-bundled ontologies (``ontology.ttl``, ``ontology_banking.ttl``, etc.)
     are shipped as package data. This directory is for user-provided domain
@@ -247,7 +247,7 @@ def ontology_dir() -> Path:
 def runtime_dir() -> Path:
     """Return the path for runtime artifacts (not git-tracked).
 
-    Default: ``~/.local/share/agent-utilities/runtime/``
+    Default: ``~/.local/share/meristem/runtime/``
 
     Contains:
         - ``harness_registry.json`` — Agentic harness state
@@ -259,7 +259,7 @@ def runtime_dir() -> Path:
 def research_dir() -> Path:
     """Return the path for downloaded research papers.
 
-    Default: ``~/.local/share/agent-utilities/research/``
+    Default: ``~/.local/share/meristem/research/``
     """
     return data_dir() / "research"
 
@@ -269,7 +269,7 @@ def memory_view_dir() -> Path:
 
     CONCEPT:AU-KG.memory.observational-memory-bridge — Observational Memory Bridge
 
-    Default: ``~/.local/share/agent-utilities/memory/``
+    Default: ``~/.local/share/meristem/memory/``
 
     Override via ``AGENT_UTILITIES_MEMORY_DIR`` environment variable.
 
@@ -291,7 +291,7 @@ def messaging_sessions_dir() -> Path:
 
     CONCEPT:AU-ECO.messaging.native-backend-abstraction — Native Messaging Backend Abstraction
 
-    Default: ``~/.local/share/agent-utilities/messaging/``
+    Default: ``~/.local/share/meristem/messaging/``
 
     Contains:
         - ``sessions/`` — Backend-specific session/auth state
@@ -334,7 +334,7 @@ def dashboard_layout_path() -> Path:
 
     CONCEPT:AU-OS.config.gateway-service-dashboard — Gateway Service Dashboard
 
-    Default: ``~/.local/share/agent-utilities/layout.yaml``
+    Default: ``~/.local/share/meristem/layout.yaml``
 
     Stores user customizations (column order, collapsed groups, theme).
     """
@@ -342,9 +342,9 @@ def dashboard_layout_path() -> Path:
 
 
 def log_dir() -> Path:
-    """Return the XDG log directory for agent-utilities.
+    """Return the XDG log directory for meristem.
 
-    Default: ``~/.cache/agent-utilities/log/`` or standard platform user_log_path.
+    Default: ``~/.cache/meristem/log/`` or standard platform user_log_path.
 
     Override via ``AGENT_UTILITIES_LOG_DIR`` environment variable.
     """

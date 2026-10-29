@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- The default data, cache and log directories no longer use the `agent-utilities` app name. They resolve under `meristem` (`~/.local/share/meristem`, `~/.cache/meristem`, the platformdirs log path). Existing files under the old directories are not read; move them. The `AGENT_UTILITIES_DATA_DIR`, `AGENT_UTILITIES_CACHE_DIR` and `AGENT_UTILITIES_LOG_DIR` overrides are unchanged.
+
 ## [4.0.1] - 2026-10-29
 
 ### Security
