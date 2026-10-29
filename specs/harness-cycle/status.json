@@ -161,8 +161,10 @@
     {
       "id": "AU-HARNESS-CYCLE-R001.13",
       "title": "Probe admission refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "eb03e690d277"
+      ],
       "verified_by": [
         "tests/harness/test_harness_cycle.py:762",
         "tests/harness/test_harness_cycle.py:779",
