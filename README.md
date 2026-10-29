@@ -12,7 +12,7 @@ The repository is `meristem`. Package, CLI and API identifiers remain unchanged.
 [![PyPI - Version](https://img.shields.io/pypi/v/agent-utilities)](https://pypi.org/project/agent-utilities/)
 [![Build](https://github.com/Knuckles-Team/meristem/actions/workflows/release.yml/badge.svg)](https://github.com/Knuckles-Team/meristem/actions/workflows/release.yml)
 
-*Version: 4.0.0*
+*Version: 4.0.1*
 
 ## What it contains
 
