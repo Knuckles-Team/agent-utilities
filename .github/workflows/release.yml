@@ -1,124 +1,30 @@
 name: Release
 
-# One workflow: spec gates and the harness gates (ruff, format, mypy, tests)
-# on every pull request and main push; build on every run; publish to PyPI
-# and create the GitHub release only from an exact vX.Y.Z tag push.
+# Publish only: a v* tag or a manual dispatch. CI (spec gates, harness gates, the
+# 3.12 floor and the wheel build) runs as the pre-publish guard by calling
+# ci.yml; publish and the GitHub release happen only from an exact vX.Y.Z tag
+# push. A pull request never reaches this workflow.
 
 on:
   push:
-    branches:
-      - 'main'
     tags:
       - 'v*'
-  pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: release-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  spec-gates:
-    name: spec gates
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-      - name: spec-status
-        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-status
-      - name: boundary historical evidence
-        run: python scripts/check_boundary_history.py
-      - name: spec-decomposition
-        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-decomposition
-      - name: spec-trailers
-        if: github.event_name == 'pull_request'
-        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-trailers --base-ref "origin/${{ github.base_ref }}"
-
-  gates:
-    name: gates
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          python-version: '3.14'
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-      - name: Install
-        run: uv sync --locked --group dev
-      - name: boundary owner registry
-        run: uv run --no-sync python scripts/check_boundary_owners.py
-      - name: boundary directory coverage
-        run: uv run --no-sync python scripts/check_boundary_coverage.py
-      - name: boundary file ownership
-        run: uv run --no-sync python scripts/check_boundary_file_owners.py
-      - name: ruff check
-        run: uv run --no-sync ruff check .
-      - name: ruff format
-        run: uv run --no-sync ruff format --check .
-      - name: mypy
-        run: uv run --no-sync mypy agent_utilities
-      - name: tests
-        run: uv run --no-sync pytest -q -p randomly
-
-  backward-python:
-    # The one backward-support leg (pipelines reference/gate-standard.md
-    # "Python version"): the environment is 3.14, requires-python keeps a 3.12
-    # floor, so install the lock on 3.12 and import the package.
-    name: backward-python (3.12)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          python-version: '3.12'
-      - name: Install and import on the 3.12 floor
-        run: |
-          set -euo pipefail
-          uv sync --frozen --no-dev --python 3.12
-          uv run --frozen --no-sync python -c 'import sys, agent_utilities; print(sys.version)'
-
-  build:
-    name: build
-    needs: [spec-gates, gates]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          python-version: '3.14'
-      - name: Build wheel and sdist
-        run: uv build --out-dir dist
-      - name: Import the built wheel in a clean environment
-        run: |
-          uv venv /tmp/wheel-check
-          uv pip install --python /tmp/wheel-check dist/meristem-*.whl
-          /tmp/wheel-check/bin/python -c "import agent_utilities, agent_utilities.harness, agent_utilities.runtime, agent_utilities.host_ports"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: meristem-dist
-          path: dist/
+  ci:
+    uses: ./.github/workflows/ci.yml
 
   publish-pypi:
     name: publish to PyPI
-    needs: build
+    needs: ci
     if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     runs-on: ubuntu-latest
     environment: pypi-publish

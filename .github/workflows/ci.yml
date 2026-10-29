@@ -1,0 +1,139 @@
+name: CI
+
+# The fleet fast-PR standard (pipelines reference/ci-standard.md). A pull request
+# runs spec gates and the harness gates on Python 3.14 only; the caller aggregate
+# `CI required` is the one required status check. Main, nightly and release tags
+# add the Python 3.12 floor import and the wheel build. Never publishes
+# (release.yml, v* tag only, calls this workflow as its pre-publish guard).
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('pr-{0}-{1}', github.workflow, github.event.pull_request.number) || format('main-{0}-{1}', github.workflow, github.ref) }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  spec-gates:
+    name: spec gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: spec-status
+        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-status
+      - name: boundary historical evidence
+        run: python scripts/check_boundary_history.py
+      - name: spec-decomposition
+        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-decomposition
+      - name: spec-trailers
+        if: github.event_name == 'pull_request'
+        run: uvx --from 'git+https://github.com/Knuckles-Team/pipelines@main' pipelines-hook spec-trailers --base-ref "origin/${{ github.base_ref }}"
+
+  gates:
+    name: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: '3.14'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install
+        run: uv sync --locked --group dev
+      - name: boundary owner registry
+        run: uv run --no-sync python scripts/check_boundary_owners.py
+      - name: boundary directory coverage
+        run: uv run --no-sync python scripts/check_boundary_coverage.py
+      - name: boundary file ownership
+        run: uv run --no-sync python scripts/check_boundary_file_owners.py
+      - name: ruff check
+        run: uv run --no-sync ruff check .
+      - name: ruff format
+        run: uv run --no-sync ruff format --check .
+      - name: mypy
+        run: uv run --no-sync mypy agent_utilities
+      - name: tests
+        run: uv run --no-sync pytest -q -p randomly
+
+  backward-python:
+    # The one backward-support leg (pipelines reference/gate-standard.md
+    # "Python version"): the environment is 3.14, requires-python keeps a 3.12
+    # floor, so install the lock on 3.12 and import the package.
+    name: backward-python (3.12)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: '3.12'
+      - name: Install and import on the 3.12 floor
+        run: |
+          set -euo pipefail
+          uv sync --frozen --no-dev --python 3.12
+          uv run --frozen --no-sync python -c 'import sys, agent_utilities; print(sys.version)'
+
+  build:
+    name: build
+    if: github.event_name != 'pull_request'
+    needs: [spec-gates, gates]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: '3.14'
+      - name: Build wheel and sdist
+        run: uv build --out-dir dist
+      - name: Import the built wheel in a clean environment
+        run: |
+          uv venv /tmp/wheel-check
+          uv pip install --python /tmp/wheel-check dist/meristem-*.whl
+          /tmp/wheel-check/bin/python -c "import agent_utilities, agent_utilities.harness, agent_utilities.runtime, agent_utilities.host_ports"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: meristem-dist
+          path: dist/
+
+  ci-required:
+    name: CI required
+    if: always()
+    needs: [spec-gates, gates, backward-python, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail on any failed or cancelled job (skipped is fine)
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "needed job results: $RESULTS"
+          for r in $RESULTS; do
+            case "$r" in failure|cancelled) echo "::error::a required job ended $r"; exit 1;; esac
+          done
