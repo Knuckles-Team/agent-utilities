@@ -75,6 +75,7 @@ def build_agent(
     metrics: RunMetrics | None = None,
     shared_budget: SharedBudget | None = None,
     deadline: float | None = None,
+    active_input: Any = None,
 ) -> Agent[GraphDeps, Any]:
     """One pydantic-ai agent bound to the plan's model, instructions and tools."""
     if plan.execution_constraint not in (None, "text-only"):
@@ -90,6 +91,8 @@ def build_agent(
     )
     if shared_budget is not None:
         capabilities.append(shared_budget)
+    if active_input is not None:
+        capabilities.append(active_input)
     model = (
         host_ports.resolve_model(plan.model)
         if isinstance(plan.model, str)
@@ -417,7 +420,29 @@ async def iterate_run(
                                 if restricted
                                 else host_ports.durable_run_event_scope(request)
                             ) as event_publisher,
+                            (
+                                no_host_scope()
+                                if restricted
+                                else host_ports.active_child_input_scope(request)
+                            ) as input_port,
                         ):
+                            active_input = None
+                            if input_port is not None:
+                                if checkpoint is not None:
+                                    raise ValueError(
+                                        "active child input with durable checkpoint is unavailable"
+                                    )
+                                if run_plan.dependency_plan is not None:
+                                    raise ValueError(
+                                        "active child input requires one admitted run"
+                                    )
+                                from agent_utilities.graph.active_input import (
+                                    ActiveChildInput,
+                                )
+
+                                active_input = ActiveChildInput(
+                                    input_port, state.run_id
+                                )
                             agent = build_agent(
                                 run_plan,
                                 state.run_id,
@@ -426,6 +451,7 @@ async def iterate_run(
                                 metrics=state.metrics,
                                 shared_budget=shared_budget,
                                 deadline=timeout.when(),
+                                active_input=active_input,
                             )
                             if run_plan.dependency_plan is not None:
                                 assert shared_budget is not None
