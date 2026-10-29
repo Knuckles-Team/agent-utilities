@@ -72,15 +72,21 @@ def test_toolkit_history_requires_gate_only_change_and_later_deletion(
 
 @pytest.mark.spec("AU-BOUNDARY-R005.1")
 def test_a_e_census_attribution_is_historical_and_names_exclusions(
-    tmp_path: Path,
+    fleet_history: tuple[Path, str, str, str],
 ) -> None:
+    from scripts.check_boundary_history import check_fleet_census
+
+    root, census, merge, wrong = fleet_history
+    check_fleet_census(root, census, merge, wrong, "HEAD")
+    with pytest.raises(ValueError, match="status attribution"):
+        check_fleet_census(root, census, merge, census, "HEAD")
+
+
+@pytest.fixture
+def fleet_history(tmp_path: Path) -> tuple[Path, str, str, str]:
     import json
 
-    from scripts.check_boundary_history import (
-        FLEET_ARTIFACT,
-        FLEET_STATUS,
-        check_fleet_census,
-    )
+    from scripts.check_boundary_history import FLEET_ARTIFACT, FLEET_STATUS
 
     _git(tmp_path, "init", "-q")
     _git(tmp_path, "config", "user.name", "Test Author")
@@ -94,26 +100,45 @@ def test_a_e_census_attribution_is_historical_and_names_exclusions(
     wrong = _git(tmp_path, "rev-parse", "HEAD")
     artifact = tmp_path / FLEET_ARTIFACT
     artifact.parent.mkdir(parents=True)
-    artifact.write_text("R005 (connector packages A–E)\nsanctioned SDK-gap\n")
-    status = tmp_path / FLEET_STATUS
-    status.write_text(
-        json.dumps(
-            {
-                "requirements": [
-                    {
-                        "id": "AU-BOUNDARY-R005",
-                        "delivery_state": "LANDED",
-                        "evidence": [{"commit": wrong}],
-                    }
-                ]
-            }
-        )
+    artifact.write_text(
+        "R005 (connector packages A–E)\nR007 (connector packages K–O)\nR008 (connector packages P–S)\nsanctioned SDK-gap\n"
     )
+    rows = [
+        {"id": target, "delivery_state": "LANDED", "evidence": [{"commit": wrong}]}
+        for target in ("AU-BOUNDARY-R005", "AU-BOUNDARY-R007", "AU-BOUNDARY-R008")
+    ]
+    (tmp_path / FLEET_STATUS).write_text(json.dumps({"requirements": rows}))
     _git(tmp_path, "add", FLEET_ARTIFACT, FLEET_STATUS)
     _git(tmp_path, "commit", "-qm", "record census")
     census = _git(tmp_path, "rev-parse", "HEAD")
     _git(tmp_path, "commit", "--allow-empty", "-qm", "merge census")
     merge = _git(tmp_path, "rev-parse", "HEAD")
-    check_fleet_census(tmp_path, census, merge, wrong, "HEAD")
-    with pytest.raises(ValueError, match="historical A-E status attribution"):
-        check_fleet_census(tmp_path, census, merge, census, "HEAD")
+    return tmp_path, census, merge, wrong
+
+
+@pytest.mark.spec("AU-BOUNDARY-R007.1")
+def test_k_o_census_attribution_is_historical(
+    fleet_history: tuple[Path, str, str, str],
+) -> None:
+    from scripts.check_boundary_history import check_fleet_census
+
+    root, census, merge, wrong = fleet_history
+    check_fleet_census(root, census, merge, wrong, "HEAD", target="AU-BOUNDARY-R007")
+    with pytest.raises(ValueError, match="status attribution"):
+        check_fleet_census(
+            root, census, merge, census, "HEAD", target="AU-BOUNDARY-R007"
+        )
+
+
+@pytest.mark.spec("AU-BOUNDARY-R008.1")
+def test_p_s_census_attribution_is_historical(
+    fleet_history: tuple[Path, str, str, str],
+) -> None:
+    from scripts.check_boundary_history import check_fleet_census
+
+    root, census, merge, wrong = fleet_history
+    check_fleet_census(root, census, merge, wrong, "HEAD", target="AU-BOUNDARY-R008")
+    with pytest.raises(ValueError, match="status attribution"):
+        check_fleet_census(
+            root, census, merge, census, "HEAD", target="AU-BOUNDARY-R008"
+        )
