@@ -18,8 +18,8 @@ Architecture:
 
 Directory roots can be overridden via environment variables:
     - ``ARBORA_CONFIG_DIR``
-    - ``AGENT_UTILITIES_DATA_DIR``
-    - ``AGENT_UTILITIES_CACHE_DIR``
+    - ``MERISTEM_DATA_DIR``
+    - ``MERISTEM_CACHE_DIR``
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ def data_dir() -> Path:
 
     Default: ``~/.local/share/meristem/``
 
-    Override via ``AGENT_UTILITIES_DATA_DIR`` environment variable.
+    Override via ``MERISTEM_DATA_DIR`` environment variable.
 
     Contains:
         - ``kg/knowledge_graph.db`` — Global unified Knowledge Graph
@@ -119,7 +119,7 @@ def data_dir() -> Path:
         - ``runtime/`` — Harness registry, evolution manifests
         - ``research/papers/`` — Downloaded research papers
     """
-    override = os.environ.get("AGENT_UTILITIES_DATA_DIR")
+    override = os.environ.get("MERISTEM_DATA_DIR")
     if override:
         return Path(override).expanduser()
     return Path(platformdirs.user_data_path(APP_NAME, APP_AUTHOR))
@@ -130,14 +130,14 @@ def cache_dir() -> Path:
 
     Default: ``~/.cache/meristem/``
 
-    Override via ``AGENT_UTILITIES_CACHE_DIR`` environment variable.
+    Override via ``MERISTEM_CACHE_DIR`` environment variable.
 
     Contains:
         - ``embeddings/`` — Vector embedding cache
         - ``similarity_indexes/`` — Precomputed similarity graphs
         - ``skill_graphs/`` — Cached skill graph data
     """
-    override = os.environ.get("AGENT_UTILITIES_CACHE_DIR")
+    override = os.environ.get("MERISTEM_CACHE_DIR")
     if override:
         return Path(override).expanduser()
     return Path(platformdirs.user_cache_path(APP_NAME, APP_AUTHOR))
@@ -148,7 +148,7 @@ def skills_dir() -> Path:
 
     Default: ``~/.local/share/meristem/skills/``
 
-    Override via ``AGENT_UTILITIES_SKILLS_DIR`` environment variable.
+    Override via ``MERISTEM_SKILLS_DIR`` environment variable.
 
     This is the standard drop-in location for skills the agent should have at its
     disposal beyond packaged providers. Operator-owned skills use the flat
@@ -158,7 +158,7 @@ def skills_dir() -> Path:
     agree. Set ``custom_skills_directory`` / ``CUSTOM_SKILLS_DIRECTORY`` for a
     separate operator-managed tree. Duplicate skill identities fail closed.
     """
-    override = os.environ.get("AGENT_UTILITIES_SKILLS_DIR")
+    override = os.environ.get("MERISTEM_SKILLS_DIR")
     if override:
         return Path(override).expanduser()
     return data_dir() / "skills"
@@ -169,7 +169,7 @@ def prompts_dir() -> Path:
 
     Default: ``~/.config/arbora/prompts/``
 
-    Override via ``AGENT_UTILITIES_PROMPTS_DIR`` environment variable.
+    Override via ``MERISTEM_PROMPTS_DIR`` environment variable.
 
     CONCEPT:AU-KG.compute.user-override-prompt-library — the user-override layer of the prompt library, mirroring
     :func:`skills_dir`. ``*.json`` blueprints placed here take precedence over
@@ -178,7 +178,7 @@ def prompts_dir() -> Path:
     (``ingest_prompts_to_graph``). It lives under the *config* dir (not data),
     because these are operator-authored overrides, not runtime artifacts.
     """
-    override = os.environ.get("AGENT_UTILITIES_PROMPTS_DIR")
+    override = os.environ.get("MERISTEM_PROMPTS_DIR")
     if override:
         return Path(override).expanduser()
     return config_dir() / "prompts"
@@ -271,7 +271,7 @@ def memory_view_dir() -> Path:
 
     Default: ``~/.local/share/meristem/memory/``
 
-    Override via ``AGENT_UTILITIES_MEMORY_DIR`` environment variable.
+    Override via ``MERISTEM_MEMORY_DIR`` environment variable.
 
     Contains:
         - ``observations.md`` — Recent observation notes with priorities
@@ -280,7 +280,7 @@ def memory_view_dir() -> Path:
         - ``active.md`` — Current working context
         - ``.memory_cursor.json`` — Materialization state tracking
     """
-    override = os.environ.get("AGENT_UTILITIES_MEMORY_DIR")
+    override = os.environ.get("MERISTEM_MEMORY_DIR")
     if override:
         return Path(override).expanduser()
     return data_dir() / "memory"
@@ -346,9 +346,9 @@ def log_dir() -> Path:
 
     Default: ``~/.cache/meristem/log/`` or standard platform user_log_path.
 
-    Override via ``AGENT_UTILITIES_LOG_DIR`` environment variable.
+    Override via ``MERISTEM_LOG_DIR`` environment variable.
     """
-    override = os.environ.get("AGENT_UTILITIES_LOG_DIR")
+    override = os.environ.get("MERISTEM_LOG_DIR")
     if override:
         return Path(override).expanduser()
     return Path(platformdirs.user_log_path(APP_NAME, APP_AUTHOR))
@@ -373,7 +373,7 @@ def _ensure_writable_dir(setting: str, path: Path) -> None:
     """Create ``path`` if missing, then PROVE this process can write to it.
 
     ``setting`` names the environment variable / resolver responsible for
-    ``path`` (e.g. ``"AGENT_UTILITIES_DATA_DIR (data_dir())"``) so a
+    ``path`` (e.g. ``"MERISTEM_DATA_DIR (data_dir())"``) so a
     misconfiguration is reported against the exact knob a reviewer/operator
     would change, not just an opaque filesystem path.
     """
@@ -405,24 +405,24 @@ def ensure_dirs() -> None:
     """
     named_dirs: list[tuple[str, Path]] = [
         ("ARBORA_CONFIG_DIR (config_dir())", config_dir()),
-        ("AGENT_UTILITIES_DATA_DIR (data_dir())/kg", data_dir() / "kg"),
-        ("AGENT_UTILITIES_CACHE_DIR (cache_dir())", cache_dir()),
-        ("AGENT_UTILITIES_DATA_DIR (data_dir())/ontologies", ontology_dir()),
-        ("AGENT_UTILITIES_DATA_DIR (data_dir())/runtime", runtime_dir()),
-        ("AGENT_UTILITIES_DATA_DIR (data_dir())/research", research_dir()),
-        ("AGENT_UTILITIES_MEMORY_DIR (memory_view_dir())", memory_view_dir()),
-        ("AGENT_UTILITIES_DATA_DIR (data_dir())/messaging", messaging_sessions_dir()),
+        ("MERISTEM_DATA_DIR (data_dir())/kg", data_dir() / "kg"),
+        ("MERISTEM_CACHE_DIR (cache_dir())", cache_dir()),
+        ("MERISTEM_DATA_DIR (data_dir())/ontologies", ontology_dir()),
+        ("MERISTEM_DATA_DIR (data_dir())/runtime", runtime_dir()),
+        ("MERISTEM_DATA_DIR (data_dir())/research", research_dir()),
+        ("MERISTEM_MEMORY_DIR (memory_view_dir())", memory_view_dir()),
+        ("MERISTEM_DATA_DIR (data_dir())/messaging", messaging_sessions_dir()),
         (
-            "AGENT_UTILITIES_DATA_DIR (data_dir())/messaging/sessions",
+            "MERISTEM_DATA_DIR (data_dir())/messaging/sessions",
             messaging_sessions_dir() / "sessions",
         ),
         (
-            "AGENT_UTILITIES_DATA_DIR (data_dir())/messaging/history",
+            "MERISTEM_DATA_DIR (data_dir())/messaging/history",
             messaging_sessions_dir() / "history",
         ),
-        ("AGENT_UTILITIES_SKILLS_DIR (skills_dir())", skills_dir()),
-        ("AGENT_UTILITIES_PROMPTS_DIR (prompts_dir())", prompts_dir()),
-        ("AGENT_UTILITIES_LOG_DIR (log_dir(), XDG_STATE_HOME-derived)", log_dir()),
+        ("MERISTEM_SKILLS_DIR (skills_dir())", skills_dir()),
+        ("MERISTEM_PROMPTS_DIR (prompts_dir())", prompts_dir()),
+        ("MERISTEM_LOG_DIR (log_dir(), XDG_STATE_HOME-derived)", log_dir()),
     ]
     for setting, d in named_dirs:
         _ensure_writable_dir(setting, d)
