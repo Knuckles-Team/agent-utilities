@@ -30,8 +30,17 @@ provider over the repository-manager connector tools (`source.commit`,
 `source.land`; ARBORA-OPS-R848). The conflict step reacts to
 `SOURCE_CONFLICT{paths}` (EG-SCM-R003). It re-reads the new head,
 re-applies the pending edits and resubmits. The retry bound is a
-received value with a default of 3 rebases. Exhaustion refuses with
+received value with a default and maximum of 3 rebases. Exhaustion refuses with
 `conflict_retry_exhausted`.
+
+The local draft requires a host-bound `SandboxGateRunner` before it
+materializes a workspace. The host must verify the isolated execution
+boundary and bind it to the same workspace. It applies the edit set and
+reads the resulting files through that boundary as well as running gates.
+The test double uses a local backend only to check control flow and does not
+prove isolation or race-safe file handling.
+The draft reports only `submitted` after its host port accepts a candidate.
+It does not emit a landed event or claim that the landing policy has run.
 
 ## Operator refinement (2026-10-19)
 
@@ -75,7 +84,7 @@ the server owns acceptance and the rebase judgment (EG-SCM-R003). The
 loop owns only the re-application of its own edits. The rejected
 alternative kept a local merge inside the loop. It fails the
 no-duplicate-authority check. The retry bound stops an unbounded loop.
-The bound is a received value. It defaults to 3 rebases. Exhaustion
+The bound is a received value with a default and maximum of 3 rebases. Exhaustion
 refuses with `conflict_retry_exhausted`. The loop then hands the run
 back to the caller.
 

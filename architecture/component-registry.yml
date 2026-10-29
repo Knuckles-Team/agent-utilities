@@ -21,6 +21,7 @@
         "agent_utilities/graph/state.py",
         "agent_utilities/graph/text_only.py",
         "agent_utilities/harness/__init__.py",
+        "agent_utilities/harness/changeset_loop.py",
         "agent_utilities/harness/client_capabilities.py",
         "agent_utilities/harness/constraint_engine.py",
         "agent_utilities/harness/contract_validator.py",

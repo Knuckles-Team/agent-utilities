@@ -92,6 +92,11 @@
       "owner": "meristem"
     },
     {
+      "path": "agent_utilities/harness/changeset_loop.py",
+      "disposition": "keep",
+      "owner": "meristem"
+    },
+    {
       "path": "agent_utilities/harness/client_capabilities.py",
       "disposition": "keep",
       "owner": "meristem"
