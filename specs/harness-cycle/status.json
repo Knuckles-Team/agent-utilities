@@ -149,8 +149,10 @@
     {
       "id": "AU-HARNESS-CYCLE-R001.12",
       "title": "Measurement safety refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "3053bf474725"
+      ],
       "verified_by": [
         "tests/harness/test_harness_cycle.py:252",
         "tests/harness/test_harness_cycle.py:360",
