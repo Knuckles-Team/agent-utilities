@@ -68,3 +68,18 @@ def test_toolkit_history_requires_gate_only_change_and_later_deletion(
         check_toolkit(root, original, cut, "HEAD")
     with pytest.raises(ValueError, match="toolkit history evidence"):
         check_toolkit(root, gate, gate, "HEAD")
+
+
+@pytest.mark.spec("AU-BOUNDARY-R005.1")
+def test_a_e_census_attribution_is_historical_and_names_exclusions() -> None:
+    from scripts.check_boundary_history import (
+        FLEET_CENSUS,
+        FLEET_MERGE,
+        HARNESS_MERGE,
+        check_fleet_census,
+    )
+
+    root = Path(__file__).resolve().parents[2]
+    check_fleet_census(root, FLEET_CENSUS, FLEET_MERGE, HARNESS_MERGE, "HEAD")
+    with pytest.raises(ValueError, match="historical A-E status attribution"):
+        check_fleet_census(root, FLEET_CENSUS, FLEET_MERGE, FLEET_CENSUS, "HEAD")

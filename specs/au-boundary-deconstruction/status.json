@@ -331,7 +331,9 @@
       "title": "A-E connector import census lands, naming its own blind spot",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_history.py:73"
+      ]
     },
     {
       "id": "AU-BOUNDARY-R005.2",
