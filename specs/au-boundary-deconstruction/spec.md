@@ -1,9 +1,9 @@
-# AU-BOUNDARY — AU boundary deconstruction
+# MERISTEM-BOUNDARY — AU boundary deconstruction
 
-**ID:** AU-BOUNDARY
+**ID:** MERISTEM-BOUNDARY
 **Owner:** agent-utilities
 **Delivery:** SPECIFIED; implementation and acceptance must be checked against an exact merged commit.
-**Requirements:** AU-BOUNDARY-R001–AU-BOUNDARY-R041. Every requirement ID is defined in [requirements.md](requirements.md); the delivery state and evidence of each are recorded in [status.json](status.json). AU-BOUNDARY-R038 owns the final boundary gate.
+**Requirements:** MERISTEM-BOUNDARY-R001–MERISTEM-BOUNDARY-R041. Every requirement ID is defined in [requirements.md](requirements.md); the delivery state and evidence of each are recorded in [status.json](status.json). MERISTEM-BOUNDARY-R038 owns the final boundary gate.
 
 ## Outcome
 
@@ -13,13 +13,13 @@ Agent Utilities exposes one agent execution application API. It no longer hosts 
 
 | Cut | Requirements | Remove from AU after replacement is wired | Authority and retained AU behavior |
 |---|---|---|---|
-| Served shell | AU-BOUNDARY-R002, AU-BOUNDARY-R014–AU-BOUNDARY-R017 | `deployment/`, A2A/ACP/AG-UI hosts, served messaging adapters, duplicate console scripts, non-API imports by clients | arbora hosts public REST/MCP/A2A, fleet, deployment and messaging (ARBORA-DEPLOY, ARBORA-FLEET). AU keeps the agent harness. AU reaches arbora through `agent_utilities.arbora_client`. |
-| Connector lifecycle | AU-BOUNDARY-R005–AU-BOUNDARY-R011, AU-BOUNDARY-R024–AU-BOUNDARY-R026, AU-BOUNDARY-R049 | connector toolkit, `protocols/source_connectors/`, source polling/transport, vendor extractors and sinks, certification | agent-connector-sdk owns source access, cursors, pack authoring and write-back; AU submits typed agent claims only |
-| Graph and semantic state | AU-BOUNDARY-R012, AU-BOUNDARY-R018–AU-BOUNDARY-R023, AU-BOUNDARY-R027–AU-BOUNDARY-R035, AU-BOUNDARY-R040 | second EG projection, graph engine/session facade, durable work/queue, tenancy, graph analytics, deterministic ingestion, ontology/SHACL, graph DTO copies, legacy SPARQL setup, retrieval engines, schema-drift authority and durable memory | epistemic-graph owns durable records, types, schema, reasoning, retrieval and memory; AU keeps policy/context compilation over generated client ports |
-| Cross-cutting state | AU-BOUNDARY-R036–AU-BOUNDARY-R037 | AU SQLite usage facts and `governance/` merge-queue and concept-reservation tooling | EG stores usage facts. Repository-manager owns repository and worktree governance. AU emits usage events |
-| Boundary certification | AU-BOUNDARY-R038 | undocumented or duplicated owner paths, stale scripts and callers | `architecture/component-registry.yml` and import/script gates match actual owner decisions |
+| Served shell | MERISTEM-BOUNDARY-R002, MERISTEM-BOUNDARY-R014–MERISTEM-BOUNDARY-R017 | `deployment/`, A2A/ACP/AG-UI hosts, served messaging adapters, duplicate console scripts, non-API imports by clients | arbora hosts public REST/MCP/A2A, fleet, deployment and messaging (ARBORA-DEPLOY, ARBORA-FLEET). AU keeps the agent harness. AU reaches arbora through `agent_utilities.arbora_client`. |
+| Connector lifecycle | MERISTEM-BOUNDARY-R005–MERISTEM-BOUNDARY-R011, MERISTEM-BOUNDARY-R024–MERISTEM-BOUNDARY-R026, MERISTEM-BOUNDARY-R049 | connector toolkit, `protocols/source_connectors/`, source polling/transport, vendor extractors and sinks, certification | agent-connector-sdk owns source access, cursors, pack authoring and write-back; AU submits typed agent claims only |
+| Graph and semantic state | MERISTEM-BOUNDARY-R012, MERISTEM-BOUNDARY-R018–MERISTEM-BOUNDARY-R023, MERISTEM-BOUNDARY-R027–MERISTEM-BOUNDARY-R035, MERISTEM-BOUNDARY-R040 | second EG projection, graph engine/session facade, durable work/queue, tenancy, graph analytics, deterministic ingestion, ontology/SHACL, graph DTO copies, legacy SPARQL setup, retrieval engines, schema-drift authority and durable memory | epistemic-graph owns durable records, types, schema, reasoning, retrieval and memory; AU keeps policy/context compilation over generated client ports |
+| Cross-cutting state | MERISTEM-BOUNDARY-R036–MERISTEM-BOUNDARY-R037 | AU SQLite usage facts and `governance/` merge-queue and concept-reservation tooling | EG stores usage facts. Repository-manager owns repository and worktree governance. AU emits usage events |
+| Boundary certification | MERISTEM-BOUNDARY-R038 | undocumented or duplicated owner paths, stale scripts and callers | `architecture/component-registry.yml` and import/script gates match actual owner decisions |
 
-AU-BOUNDARY-R041 removes the finance modules that produced fabricated data; the remaining finance cut, AU-CONTEXT-R007, is specified in [`agent-context-and-finance`](../agent-context-and-finance/spec.md). Cuts may be grouped in PRs only when each ownership edge has a live caller and no dual authority remains.
+MERISTEM-BOUNDARY-R041 removes the finance modules that produced fabricated data; the remaining finance cut, MERISTEM-CONTEXT-R007, is specified in [`agent-context-and-finance`](../agent-context-and-finance/spec.md). Cuts may be grouped in PRs only when each ownership edge has a live caller and no dual authority remains.
 
 The [deliverable matrix](cutover-matrix.md) defines the concrete source cut, target behavior and acceptance focus for every requirement, and the [deletion and relocation inventory](plan.md#deletion-and-relocation-inventory) maps every AU package directory to the requirement that removes, relocates or keeps it.
 
@@ -41,8 +41,8 @@ Requirement IDs are defined in [requirements.md](requirements.md); delivery stat
 
 ## Retained run scaffold
 
-AU-BOUNDARY-R043.4 and its children retain the model-edited, per-run scaffold
-from historical AU-HARNESS-R014.1–R014.5. See the dated migration in
+MERISTEM-BOUNDARY-R043.4 and its children retain the model-edited, per-run scaffold
+from historical MERISTEM-HARNESS-R014.1–R014.5. See the dated migration in
 [plan.md](plan.md#amendment-2026-10-18-retain-the-run-scaffold-after-the-boundary-cut)
 for immutable source provenance and the separate SDK, EG and Arbora read
 obligations. These are implementation requirements, not delivery claims.

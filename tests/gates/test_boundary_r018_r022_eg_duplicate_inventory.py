@@ -109,27 +109,27 @@ def _check(root: Path, patterns: tuple[str, ...], recorded: set[str]) -> None:
     assert _matches(root, patterns) == recorded
 
 
-@pytest.mark.spec("AU-BOUNDARY-R018.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R018.1")
 def test_r018_inventory_matches_tree() -> None:
     _check(PACKAGE, INVENTORY["R018"], set())
 
 
-@pytest.mark.spec("AU-BOUNDARY-R019.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R019.1")
 def test_r019_inventory_matches_tree() -> None:
     _check(PACKAGE, INVENTORY["R019"], set())
 
 
-@pytest.mark.spec("AU-BOUNDARY-R020.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R020.1")
 def test_r020_inventory_matches_tree() -> None:
     _check(PACKAGE, INVENTORY["R020"], set())
 
 
-@pytest.mark.spec("AU-BOUNDARY-R021.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R021.1")
 def test_r021_inventory_matches_tree() -> None:
     _check(PACKAGE, INVENTORY["R021"], set())
 
 
-@pytest.mark.spec("AU-BOUNDARY-R022.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R022.1")
 def test_r022_inventory_matches_tree() -> None:
     _check(PACKAGE, INVENTORY["R022"], set())
 

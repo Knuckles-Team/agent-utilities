@@ -35,7 +35,7 @@ from agent_utilities.graph import (
     run,
 )
 
-# The measured-timing snapshot (AU-BOUNDARY-R043.1) every terminal result
+# The measured-timing snapshot (MERISTEM-BOUNDARY-R043.1) every terminal result
 # carries. Only the client clock readings vary between runs.
 NO_MODEL_METRICS = {
     "source": "client_monotonic_clock",
@@ -119,7 +119,7 @@ def plan_of(model, **kw) -> RunPlan:
     return RunPlan(model=model, steps=kw.pop("steps", ("q",)), **kw)
 
 
-# spec: AU-BOUNDARY-R043.2
+# spec: MERISTEM-BOUNDARY-R043.2
 async def test_no_model_fails_closed(events):
     result = await run(RunRequest(task="hi"))
     assert result.status == "failed"
@@ -127,7 +127,7 @@ async def test_no_model_fails_closed(events):
     assert [e["type"] for e in events] == ["error"]
 
 
-# spec: AU-BOUNDARY-R043.2
+# spec: MERISTEM-BOUNDARY-R043.2
 @pytest.mark.parametrize(
     ("request_kw", "config", "check"),
     [
@@ -151,7 +151,7 @@ def test_default_plan_reads_only_request_and_config(request_kw, config, check):
     assert check(plan)
 
 
-# spec: AU-BOUNDARY-R043.1
+# spec: MERISTEM-BOUNDARY-R043.1
 @pytest.mark.parametrize("is_async", [False, True])
 async def test_host_decision_provider_supplies_the_plan(is_async):
     seen: list[RunRequest] = []
@@ -173,14 +173,14 @@ async def test_host_decision_provider_supplies_the_plan(is_async):
     assert seen[0].agent_name == "n"
 
 
-# spec: AU-BOUNDARY-R043.2
+# spec: MERISTEM-BOUNDARY-R043.2
 async def test_provider_returning_non_plan_fails():
     host_ports.register_run_decision_provider(lambda request: {"model": "x"})
     result = await run(RunRequest(task="t"))
     assert result.status == "failed" and "RunPlan" in (result.error or "")
 
 
-# spec: AU-BOUNDARY-R043.1
+# spec: MERISTEM-BOUNDARY-R043.1
 async def test_steps_share_one_history_and_emit_events(events):
     log: list[int] = []
     result = await run(
@@ -198,7 +198,7 @@ async def test_steps_share_one_history_and_emit_events(events):
     assert result.usage["requests"] == 3
 
 
-# spec: AU-BOUNDARY-R043.1
+# spec: MERISTEM-BOUNDARY-R043.1
 @pytest.mark.parametrize(
     ("stop", "budget", "status", "steps"),
     [
@@ -216,7 +216,7 @@ async def test_stop_rules_and_budgets_are_enforced(stop, budget, status, steps):
         assert (result.error or "").startswith("budget:")
 
 
-# spec: AU-BOUNDARY-R043.1
+# spec: MERISTEM-BOUNDARY-R043.1
 async def test_model_ids_resolve_through_the_host():
     asked: list[str] = []
 
@@ -229,7 +229,7 @@ async def test_model_ids_resolve_through_the_host():
     assert (result.output, asked) == ("ok", ["host:model"])
 
 
-# spec: AU-BOUNDARY-R043.1
+# spec: MERISTEM-BOUNDARY-R043.1
 async def test_granted_tools_bind_through_the_native_provider():
     toolset = FunctionToolset()
 
@@ -254,7 +254,7 @@ async def test_granted_tools_bind_through_the_native_provider():
     assert bound == [(["lookup"], "run-r1")]
 
 
-# spec: AU-BOUNDARY-R043.2
+# spec: MERISTEM-BOUNDARY-R043.2
 async def test_granted_tools_without_a_host_fail_closed():
     result = await run(
         RunRequest(task="t"), plan=plan_of(TestModel(), tool_names=("x",))
@@ -281,7 +281,7 @@ async def test_model_error_is_a_failed_terminal_event():
     assert result.status == "failed" and "model down" in (result.error or "")
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("error_type", [ValueError, asyncio.CancelledError])
 async def test_shared_budget_preserves_failed_handler_exception_and_reserves_once(
     error_type,
@@ -313,7 +313,7 @@ async def test_shared_budget_preserves_failed_handler_exception_and_reserves_onc
     assert budget.usage.requests == 1
 
 
-# spec: AU-BOUNDARY-R043.1
+# spec: MERISTEM-BOUNDARY-R043.1
 async def test_bundle_runs_through_execute_graph():
     graph, config = create_graph_agent(
         tag_prompts={"ops": "be ops"}, agent_model="m", name="Ops"
@@ -340,7 +340,7 @@ async def test_execute_graph_iter_calls_the_handler():
     assert seen == out and out[-1] == "graph_complete"
 
 
-# spec: AU-BOUNDARY-R043.2
+# spec: MERISTEM-BOUNDARY-R043.2
 def test_tool_endpoints_fail_closed_without_a_host():
     with pytest.raises(RuntimeError, match="arbora host"):
         create_graph_agent(mcp_url="http://x")
@@ -368,7 +368,7 @@ def test_workspace_prompt_becomes_instructions(tmp_path, has_file):
     assert config["system_prompt"] == ("ws prompt" if has_file else "")
 
 
-# spec: AU-BOUNDARY-R043.1
+# spec: MERISTEM-BOUNDARY-R043.1
 async def test_agent_run_executor_maps_a_host_request():
     host_ports.register_model_provider(lambda _id: echo_model())
     executor = AgentRunExecutor({"agent_model": "m"})
@@ -394,7 +394,7 @@ def test_top_level_exports_are_lazy():
         agent_utilities.not_a_name  # noqa: B018
 
 
-# spec: AU-BOUNDARY-R043.1
+# spec: MERISTEM-BOUNDARY-R043.1
 @pytest.mark.parametrize("through_port", [False, True])
 async def test_admitted_attachments_reach_only_first_model_input(through_port):
     from pydantic_ai import BinaryContent
@@ -422,7 +422,7 @@ async def test_admitted_attachments_reach_only_first_model_input(through_port):
     assert captured == [["inspect", png, "attached text"], "continue"]
 
 
-# spec: AU-BOUNDARY-R043.1
+# spec: MERISTEM-BOUNDARY-R043.1
 @pytest.mark.parametrize(
     ("parts", "media", "budget"),
     [
@@ -454,7 +454,7 @@ async def test_attachment_refusal_precedes_model_construction(
     assert [event["type"] for event in events] == ["error"]
 
 
-# spec: AU-BOUNDARY-R043.1
+# spec: MERISTEM-BOUNDARY-R043.1
 async def test_attachment_budget_is_aggregate_and_urls_are_not_fetched(events):
     from pydantic_ai import BinaryContent, ImageUrl
 
@@ -473,7 +473,7 @@ async def test_attachment_budget_is_aggregate_and_urls_are_not_fetched(events):
     assert [event["type"] for event in events] == ["error", "error"]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 async def test_zero_initial_usage_preserves_legacy_serial_step_budgets():
     plan = plan_of(
         echo_model(), steps=("a", "b", "c"), budget=RunBudget(request_limit=1)
@@ -491,7 +491,7 @@ async def test_zero_initial_usage_preserves_legacy_serial_step_budgets():
     assert plan.initial_usage == RunUsage()
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("through_port", [False, True])
 async def test_initial_usage_is_counted_once_and_reusable(through_port, events):
     async def reply(messages, info):
@@ -527,7 +527,7 @@ async def test_initial_usage_is_counted_once_and_reusable(through_port, events):
         assert plan.budget is budget and asdict(budget) == original_budget
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize(
     ("initial", "budget", "elapsed"),
     [(RunUsage(requests=amount), RunBudget(request_limit=3), 0) for amount in (3, 4)]
@@ -572,7 +572,7 @@ async def test_exhausted_initial_usage_refuses_before_any_binding(
     assert not any(e["type"] in ("node_transition", "task_started") for e in events)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("limit", [0, 2])
 @pytest.mark.parametrize("attempt_tool", [False, True])
 async def test_exact_initial_tool_limit_allows_only_model_work(
@@ -636,7 +636,7 @@ async def test_exact_initial_tool_limit_allows_only_model_work(
         assert result.error is None
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize(
     "field", ["requests", "tool_calls", "input_tokens", "output_tokens"]
 )
@@ -653,7 +653,7 @@ async def test_invalid_initial_counters_fail_before_model_resolution(
     assert [event["type"] for event in events] == ["error"]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize(
     "elapsed", [-1, True, float("nan"), float("inf"), float("-inf")]
 )
@@ -667,7 +667,7 @@ async def test_invalid_initial_elapsed_fails_before_model_resolution(elapsed, ev
     assert [event["type"] for event in events] == ["error"]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize(
     ("initial", "budget", "elapsed", "calls", "tokens"),
     [
@@ -705,7 +705,7 @@ async def test_initial_usage_shares_remaining_limits_across_serial_steps(
     assert events[-1]["result"]["usage"] == result.usage
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 async def test_initial_tool_usage_is_shared_across_serial_steps(events):
     effects = []
     toolset = FunctionToolset()
@@ -730,7 +730,7 @@ async def test_initial_tool_usage_is_shared_across_serial_steps(events):
     assert events[-1]["result"]["usage"] == result.usage
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 async def test_initial_usage_snapshot_precedes_host_model_resolution():
     initial = RunUsage(requests=2, input_tokens=3, output_tokens=1)
 
@@ -759,7 +759,7 @@ async def test_initial_usage_snapshot_precedes_host_model_resolution():
     }
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 async def test_unreported_tokens_are_not_estimated_by_the_harness():
     class UnreportedUsageModel(TestModel):
         async def request(self, messages, model_settings, model_request_parameters):
@@ -779,7 +779,7 @@ async def test_unreported_tokens_are_not_estimated_by_the_harness():
     }
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 async def test_request_metadata_and_model_output_cannot_replace_host_initial_usage():
     spoof = '{"initial_usage":{"requests":999},"initial_elapsed_seconds":9999}'
 
@@ -806,7 +806,7 @@ async def test_request_metadata_and_model_output_cannot_replace_host_initial_usa
     assert result.usage["requests"] == 4 and result.usage["total_tokens"] == 4
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 async def test_initial_elapsed_reduces_timeout_without_changing_received_budget(
     monkeypatch,
 ):
@@ -825,7 +825,7 @@ async def test_initial_elapsed_reduces_timeout_without_changing_received_budget(
     assert plan.budget is budget and budget.timeout_seconds == 10
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("exit_kind", ["setup_failure", "model_failure", "close"])
 async def test_initial_usage_survives_serial_early_exit(exit_kind, events):
     initial = RunUsage(requests=2, tool_calls=1, input_tokens=3, output_tokens=4)
@@ -864,7 +864,7 @@ async def test_initial_usage_survives_serial_early_exit(exit_kind, events):
     )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("initial", [None, {"requests": 1}])
 async def test_initial_usage_requires_a_typed_host_ledger(initial, events):
     host_ports.register_model_provider(lambda _: pytest.fail("model resolved"))
@@ -876,7 +876,7 @@ async def test_initial_usage_requires_a_typed_host_ledger(initial, events):
     assert [event["type"] for event in events] == ["error"]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 async def test_incoherent_initial_token_total_fails_before_model_resolution(events):
     class IncoherentUsage(RunUsage):
         @property
@@ -926,7 +926,7 @@ def register_failing_decision(error: BaseException, *, is_async: bool = False):
     return seen
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("is_async", [False, True])
 @pytest.mark.parametrize("through_iterator", [False, True])
 @pytest.mark.parametrize(
@@ -997,7 +997,7 @@ async def test_measured_planning_failure_is_a_single_reusable_terminal_result(
     assert seen == [request, request]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 async def test_measured_planning_limit_failure_preserves_original_error_and_usage(
     no_planning_failure_execution, events
 ):
@@ -1026,7 +1026,7 @@ async def test_measured_planning_limit_failure_preserves_original_error_and_usag
     assert events[0]["result"] == result.as_dict()
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("is_async", [False, True])
 @pytest.mark.parametrize("through_iterator", [False, True])
 @pytest.mark.parametrize("error_type", [asyncio.CancelledError, GeneratorExit])
@@ -1075,7 +1075,7 @@ async def test_measured_planning_cancellation_keeps_ledger_and_original_exceptio
     assert asdict(initial) == original
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("is_async", [False, True])
 @pytest.mark.parametrize(
     "error_type", [RuntimeError, asyncio.CancelledError, GeneratorExit]
@@ -1111,7 +1111,7 @@ async def test_raw_planning_failures_cannot_claim_unmeasured_usage(
         assert events == []
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize(
     "field", ["requests", "tool_calls", "input_tokens", "output_tokens"]
 )
@@ -1138,7 +1138,7 @@ async def test_invalid_planning_failure_counters_reject_the_whole_ledger(
     assert asdict(initial) == original
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize(
     "elapsed", [-1, True, float("nan"), float("inf"), float("-inf"), "2", None]
 )
@@ -1165,7 +1165,7 @@ async def test_invalid_planning_failure_elapsed_rejects_the_whole_ledger(
     assert initial == RunUsage(requests=2, input_tokens=9, output_tokens=3)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize(
     "initial",
     [None, {"requests": 2}, SimpleNamespace(requests=2), RequestUsage(input_tokens=2)],
@@ -1186,7 +1186,7 @@ async def test_planning_failure_requires_a_typed_host_ledger(
     assert events[0]["result"] == result.as_dict()
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 async def test_planning_failure_rejects_an_incoherent_host_token_total(
     no_planning_failure_execution, events
 ):
@@ -1211,7 +1211,7 @@ async def test_planning_failure_rejects_an_incoherent_host_token_total(
     assert events[0]["result"] == result.as_dict()
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 async def test_model_cannot_inject_a_second_planning_failure_ledger(events):
     from agent_utilities.graph import RunPlanFailure
 
@@ -1246,7 +1246,7 @@ async def test_model_cannot_inject_a_second_planning_failure_ledger(events):
     assert plan.initial_usage == RunUsage(requests=2)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("error_type", [asyncio.CancelledError, GeneratorExit])
 @pytest.mark.parametrize("invalid_part", ["counter", "elapsed"])
 async def test_invalid_planning_cancellation_ledger_fails_before_cancellation(
@@ -1271,7 +1271,7 @@ async def test_invalid_planning_cancellation_ledger_fails_before_cancellation(
     assert events[0]["result"] == result.as_dict()
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("requests", [0, 2])
 async def test_planning_failure_does_not_estimate_unreported_tokens(
     requests, no_planning_failure_execution, events
@@ -1300,7 +1300,7 @@ async def test_planning_failure_does_not_estimate_unreported_tokens(
     assert initial == RunUsage(requests=requests)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("error", [None, "not an exception", RuntimeError])
 def test_planning_failure_requires_an_exception_instance(error):
     from agent_utilities.graph import RunPlanFailure
@@ -1309,7 +1309,7 @@ def test_planning_failure_requires_an_exception_instance(error):
         RunPlanFailure(error, initial_usage=RunUsage(requests=2))
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 async def test_task_cancellation_after_planner_consumption_reports_actual_usage(
     no_planning_failure_execution, events
 ):
@@ -1386,7 +1386,7 @@ def failed_run_result():
     )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("error", ["ValueError: execution failed", "", None])
 @pytest.mark.parametrize("mode", ["direct", "graph"])
 def test_run_failed_is_public_and_preserves_runtime_error_message(
@@ -1410,7 +1410,7 @@ def test_run_failed_is_public_and_preserves_runtime_error_message(
     assert failure.usage == result.usage
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("mapping_type", [dict, UserDict, MappingProxyType])
 @pytest.mark.parametrize("empty", [False, True])
 def test_run_failed_snapshots_mapping_without_aliasing_or_estimating(
@@ -1438,7 +1438,7 @@ def test_run_failed_snapshots_mapping_without_aliasing_or_estimating(
     assert failure.result.as_dict() == expected
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("field", ["result", "run_id", "usage"])
 def test_run_failed_receipt_properties_are_read_only(field, failed_run_result):
     from agent_utilities.graph import RunFailed
@@ -1453,7 +1453,7 @@ def test_run_failed_receipt_properties_are_read_only(field, failed_run_result):
     assert failure.result.as_dict() == failed_run_result.as_dict()
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("method", ["copy", "deepcopy", "pickle"])
 @pytest.mark.parametrize("empty", [False, True])
 def test_run_failed_copy_and_pickle_preserve_receipt_and_exception_state(
@@ -1480,7 +1480,7 @@ def test_run_failed_copy_and_pickle_preserve_receipt_and_exception_state(
         restored.result.usage["requests"] = 999
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("result", [None, {}, SimpleNamespace(), RuntimeError("x")])
 def test_run_failed_rejects_non_result_receipts(result):
     from agent_utilities.graph import RunFailed
@@ -1489,7 +1489,7 @@ def test_run_failed_rejects_non_result_receipts(result):
         RunFailed(result)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -1509,7 +1509,7 @@ def test_run_failed_rejects_invalid_result_fields(field, value, failed_run_resul
         RunFailed(replace(failed_run_result, **{field: value}))
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize(
     "usage", [None, [], (), [("requests", 2)], RunUsage(requests=2), False]
 )
@@ -1520,7 +1520,7 @@ def test_run_failed_requires_a_usage_mapping(usage, failed_run_result):
         RunFailed(replace(failed_run_result, usage=usage))
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize(
     "missing",
     ["requests", "tool_calls", "input_tokens", "output_tokens", "total_tokens"],
@@ -1536,7 +1536,7 @@ def test_run_failed_rejects_partial_usage_without_filling_counters(
         RunFailed(replace(failed_run_result, usage=usage))
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("extra", ["cached_tokens", "details", 0])
 def test_run_failed_rejects_noncanonical_usage_keys(extra, failed_run_result):
     from agent_utilities.graph import RunFailed
@@ -1547,7 +1547,7 @@ def test_run_failed_rejects_noncanonical_usage_keys(extra, failed_run_result):
         )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize(
     "field", ["requests", "tool_calls", "input_tokens", "output_tokens", "total_tokens"]
 )
@@ -1561,7 +1561,7 @@ def test_run_failed_rejects_invalid_usage_counters(field, value, failed_run_resu
         )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("total", [11, 13])
 def test_run_failed_rejects_incoherent_total(total, failed_run_result):
     from agent_utilities.graph import RunFailed
@@ -1575,7 +1575,7 @@ def test_run_failed_rejects_incoherent_total(total, failed_run_result):
         )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("counter", [0, 2**65])
 def test_run_failed_preserves_exact_nonnegative_integer_counters(
     counter, failed_run_result
@@ -1648,7 +1648,7 @@ async def failed_result_from_entrypoint(entrypoint, request, events):
     return emitted[-1]["result"]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize(
     ("phase", "output", "steps", "requests", "input_tokens", "output_tokens", "error"),
     [
@@ -1704,7 +1704,7 @@ async def test_failed_run_receipt_matches_the_single_terminal_aggregate(
     assert asdict(initial) == original
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("phase", ["planner", "setup", "default"])
 async def test_executor_failure_preserves_missing_usage_as_empty(phase, events):
     from agent_utilities.graph import RunFailed
@@ -1727,7 +1727,7 @@ async def test_executor_failure_preserves_missing_usage_as_empty(phase, events):
     assert sum(event["type"] == "error" for event in events) == 1
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("phase", ["planner", "setup", "model"])
 async def test_executor_uses_its_own_aggregate_not_a_foreign_failure_receipt(
     phase, failed_run_result, events
@@ -1775,7 +1775,7 @@ async def test_executor_uses_its_own_aggregate_not_a_foreign_failure_receipt(
     )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("kind", ["completed", "stop_marker", "budget"])
 async def test_executor_keeps_successful_and_stopped_return_contract(kind, events):
     from agent_utilities.graph import RunResult
@@ -1796,7 +1796,7 @@ async def test_executor_keeps_successful_and_stopped_return_contract(kind, event
     assert sum(event["type"] == "graph_complete" for event in events) == 1
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("error_type", [asyncio.CancelledError, GeneratorExit])
 @pytest.mark.parametrize("measured", [False, True])
 @pytest.mark.parametrize("is_async", [False, True])
@@ -1840,7 +1840,7 @@ async def test_executor_preserves_raw_and_measured_planner_cancellation(
     assert initial == RunUsage(requests=2, input_tokens=3, output_tokens=4)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 async def test_executor_task_cancellation_remains_cancelled_with_measured_usage(events):
     started = asyncio.Event()
     release = asyncio.Event()
@@ -1894,7 +1894,7 @@ async def test_executor_task_cancellation_remains_cancelled_with_measured_usage(
     }
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 @pytest.mark.parametrize("through_port", [False, True])
 async def test_terminal_observer_preserves_host_mapping_tools_and_privacy(
     through_port, events
@@ -1958,7 +1958,7 @@ async def test_terminal_observer_preserves_host_mapping_tools_and_privacy(
     assert "private reasoning" not in str(events)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 @pytest.mark.parametrize("through_port", [False, True])
 @pytest.mark.parametrize("outcome", ["failure", "cancel", "budget"])
 async def test_terminal_observer_keeps_failure_cancel_and_budget(
@@ -2007,7 +2007,7 @@ async def test_terminal_observer_keeps_failure_cancel_and_budget(
     assert "secret observer detail" not in str(events)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 async def test_native_executor_observers_are_per_invocation():
     from pydantic_ai.messages import PartStartEvent
 

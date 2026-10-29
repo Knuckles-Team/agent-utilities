@@ -108,7 +108,7 @@ def _at(
     )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.10")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.10")
 async def test_dependency_events_follow_checkpoint_ack_and_carry_tool_record() -> None:
     timeline: list[tuple[str, str, str]] = []
     checkpoint = Checkpoint(timeline)
@@ -178,7 +178,7 @@ async def test_dependency_events_follow_checkpoint_ack_and_carry_tool_record() -
     assert tool_result_index < tool_terminal
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.14")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.14")
 async def test_dependency_events_keep_step_keys_and_dependency_edges_distinct() -> None:
     events: list[dict[str, Any]] = []
     host_ports.register_run_event_sink(events.append)
@@ -216,7 +216,7 @@ async def test_dependency_events_keep_step_keys_and_dependency_edges_distinct() 
     assert len({edge["edge_id"] for edge in relationships}) == 2
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.10")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.10")
 async def test_dependency_failed_result_publication_effect_runs_once_and_restart_skips() -> (
     None
 ):
@@ -258,7 +258,7 @@ async def test_dependency_failed_result_publication_effect_runs_once_and_restart
     assert [kind for kind, _ in publisher.attempts] == ["tool_call", "tool_result"]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.10")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.10")
 async def test_publisher_scope_closes_when_run_is_cancelled() -> None:
     entered = asyncio.Event()
     closed = asyncio.Event()
@@ -291,7 +291,7 @@ async def test_publisher_scope_closes_when_run_is_cancelled() -> None:
     assert publisher.events == []
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.10")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.10")
 async def test_concurrent_tool_results_follow_declaration_and_checkpoint_order() -> (
     None
 ):
@@ -382,7 +382,7 @@ async def test_concurrent_tool_results_follow_declaration_and_checkpoint_order()
     assert result_a < terminal_a < ack_b < result_b < terminal_b
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.10")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.10")
 async def test_failed_tool_call_publication_suppresses_concurrent_terminals() -> None:
     timeline: list[tuple[str, str, str]] = []
 

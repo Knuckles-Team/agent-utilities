@@ -32,7 +32,7 @@ from agent_utilities.graph.dependency import (
     validate_dependency_plan,
 )
 
-pytestmark = pytest.mark.spec("AU-BOUNDARY-R043.6")
+pytestmark = pytest.mark.spec("MERISTEM-BOUNDARY-R043.6")
 
 
 class ControlledModel:
@@ -100,7 +100,7 @@ async def reached(event):
     await asyncio.wait_for(event.wait(), timeout=0.5)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("seeded", [False, True])
 async def test_freed_slot_starts_dependent_before_slow_peer_and_join_waits(
     seeded, events
@@ -198,7 +198,7 @@ async def test_active_limit_and_ready_order(capacity):
     assert [key for key, kind in model.timeline if kind == "start"] == list(names)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("seeded", [False, True])
 @pytest.mark.parametrize("failure", ["error", "stop", "cancel"])
 async def test_failure_stop_and_cancel_drain_siblings_and_block_dependents(
@@ -353,7 +353,7 @@ async def test_shared_token_limit_stops_after_reported_usage():
     assert result.usage["total_tokens"] == 4
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("initial_tool_calls", [0, 1])
 async def test_tool_reservations_are_shared_across_parallel_children(
     initial_tool_calls,
@@ -639,7 +639,7 @@ def _tool_plan(model, tasks, *, output_task_id, capacity=1, **kwargs):
     )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.6.1")
 async def test_mixed_plan_validates():
     async def caller(server, tool, arguments, task_id):
         return ToolStepResult(result={"ok": True})
@@ -664,7 +664,7 @@ async def test_mixed_plan_validates():
     validate_dependency_plan(plan, tool_caller=caller)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.6.1")
 async def test_tool_step_without_caller_refuses_before_any_task(events):
     model_calls = 0
 
@@ -688,7 +688,7 @@ async def test_tool_step_without_caller_refuses_before_any_task(events):
     assert [event["type"] for event in events] == ["error"]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.6.2")
 async def test_bindings_resolve_from_prerequisite_outputs():
     task = RunTask(
         "tool",
@@ -733,7 +733,7 @@ async def test_bindings_resolve_from_prerequisite_outputs():
         ("plain text", "steps.prompt.output.payload.id"),
     ],
 )
-@pytest.mark.spec("AU-BOUNDARY-R043.6.3")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.6.3")
 async def test_unresolved_binding_is_a_typed_failure(prompt_output, reference, events):
     model_calls = 0
     caller_calls = 0
@@ -780,7 +780,7 @@ async def test_unresolved_binding_is_a_typed_failure(prompt_output, reference, e
     )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6.3")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.6.3")
 async def test_failed_tool_step_does_not_start_dependents_and_makes_no_model_request(
     events,
 ):
@@ -826,7 +826,7 @@ async def test_failed_tool_step_does_not_start_dependents_and_makes_no_model_req
     )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6.4")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.6.4")
 async def test_tool_step_records_resolved_arguments_and_result(events):
     async def model(messages, info):
         return ModelResponse(parts=[TextPart("finished")])
@@ -1054,7 +1054,7 @@ async def test_oversized_arguments_are_replaced_by_digest(events):
     assert len(record["digest"]) == 64
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6.4")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.6.4")
 async def test_oversized_result_is_replaced_by_digest(events):
     oversized = {"payload": "x" * (256 * 1024)}
 
@@ -1081,7 +1081,7 @@ async def test_oversized_result_is_replaced_by_digest(events):
     assert len(record["digest"]) == 64
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6.5")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.6.5")
 async def test_mixed_dag_refills_slots_in_order(events):
     started = []
     model_calls = []
@@ -1160,7 +1160,7 @@ async def test_mixed_dag_refills_slots_in_order(events):
     assert events[-1]["type"] == "graph_complete"
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6.6")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.6.6")
 async def test_execute_graph_routes_tool_steps_through_the_bound_caller():
     calls = []
 
@@ -1185,7 +1185,7 @@ async def test_execute_graph_routes_tool_steps_through_the_bound_caller():
     assert calls == [("server", "lookup", {"x": 1}, "tool")]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6.6")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.6.6")
 async def test_cancel_cancels_inflight_tool_call(events):
     started = asyncio.Event()
     cancelled = asyncio.Event()
@@ -1320,7 +1320,7 @@ async def test_repeated_cancellation_cannot_detach_tool_caller(events):
     assert events.count(events[-1]) == 1
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.6.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.6.7")
 async def test_tool_step_end_to_end_through_run_api(events):
     model_inputs = []
     calls = []
@@ -1574,7 +1574,7 @@ async def test_dependency_deadline_includes_scaffold_setup(stage, monkeypatch):
         await asyncio.gather(parent, return_exceptions=True)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize(
     ("initial", "budget", "elapsed"),
     [
@@ -1614,7 +1614,7 @@ async def test_initial_dependency_budget_refuses_before_binding_or_child_dispatc
     assert not any(event["type"].startswith("task_") for event in events)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("limit", [0, 2])
 @pytest.mark.parametrize("attempt_tool", [False, True])
 async def test_exact_initial_dependency_tool_limit_allows_only_model_work(
@@ -1689,7 +1689,7 @@ async def test_exact_initial_dependency_tool_limit_allows_only_model_work(
         }
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize(
     ("initial", "budget", "calls", "tokens"),
     [
@@ -1714,7 +1714,7 @@ async def test_initial_dependency_usage_leaves_only_the_aggregate_remainder(
     assert events[-1]["result"]["usage"] == result.usage
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.7")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 async def test_reusing_one_seeded_dependency_plan_does_not_share_mutable_usage():
     async def reply(messages, info):
         return ModelResponse(

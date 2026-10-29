@@ -1,6 +1,6 @@
-# AU-SCM — Development loop on changesets
+# MERISTEM-SCM — Development loop on changesets
 
-Owner: agent-utilities. Cross-repo IDs: EG-SCM-R002, EG-SCM-R003, ARBORA-OPS-R848, ARBORA-OPS-R849.
+Owner: agent-utilities. Cross-repo IDs: MEDULLA-SCM-R002, MEDULLA-SCM-R003, ARBORA-OPS-R848, ARBORA-OPS-R849.
 
 ## Purpose and user stories
 
@@ -22,12 +22,12 @@ gate verdicts behind the landing.
   run. It edits in a virtual workspace. It runs the fast gates in its
   sandbox. It submits through the connector tools. It rebases on
   `SOURCE_CONFLICT{paths}` and retries. The loop holds no store and
-  serves no operation. Acceptance: the loop proof of `AU-SCM-R001`.
+  serves no operation. Acceptance: the loop proof of `MERISTEM-SCM-R001`.
 
 ## Why a new spec
 
 The cross-repo contracts are prerequisites, not evidence of delivery.
-EG-SCM-R002 specifies the changeset record. EG-SCM-R003 specifies
+MEDULLA-SCM-R002 specifies the changeset record. MEDULLA-SCM-R003 specifies
 changeset acceptance and refusal with
 `SOURCE_CONFLICT{paths}`. ARBORA-OPS-R848 specifies `source.commit` and
 `source.land` through the repository-manager connector tools.
@@ -48,7 +48,7 @@ contract therefore still needs an owner-defined binding. Submission runs
 through a new `ChangesetSubmitter` host port. The port fails closed
 without a registered provider. arbora registers the provider over the
 repository-manager connector tools. The conflict code is
-`SOURCE_CONFLICT{paths}` from EG-SCM-R003. The loop re-reads the new
+`SOURCE_CONFLICT{paths}` from MEDULLA-SCM-R003. The loop re-reads the new
 head, re-applies the pending edits and resubmits. Non-goals: the blob
 store and the changeset log (epistemic-graph). The served operations
 and the landing policy (arbora). The connector tools
@@ -77,7 +77,7 @@ types, and fast-test gates on the changeset tree before landing. The eventual ho
 binding must carry the exact tree and verifiable gate evidence to that owner; a
 caller-selected command or an in-process event alone cannot satisfy that policy.
 
-At the reviewed owner revisions, [EG-SCM-R002 and R003 are specified](https://github.com/Knuckles-Team/epistemic-graph/blob/3897c07a46d2919299a7fa27fd7d2dc49f7aa8a1/specs/source-changesets/status.json)
+At the reviewed owner revisions, [MEDULLA-SCM-R002 and R003 are specified](https://github.com/Knuckles-Team/epistemic-graph/blob/3897c07a46d2919299a7fa27fd7d2dc49f7aa8a1/specs/source-changesets/status.json)
 and [ARBORA-OPS-R848.2 is pending the engine substrate](https://github.com/Knuckles-Team/arbora/blob/4aaa7bf23b1464f4fb86b9cdb7868aab6531fc4d/specs/hosted-api-operations/tasks.md).
 The repository-manager development tools are also required: its
 [RM-SCM-R003 tasks](https://github.com/Knuckles-Team/repository-manager/blob/7e3810346c8feb912bb8d82b8a9372c6b9c6deb6/specs/source-changesets/tasks.md)

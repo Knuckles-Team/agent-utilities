@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from agent_utilities.harness import PlanItem, PlanState
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.4.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.4.1")
 def test_replaces_whole_ordered_list_without_mutable_aliases():
     state = PlanState()
     assert state.items == ()
@@ -26,7 +26,7 @@ def test_replaces_whole_ordered_list_without_mutable_aliases():
     assert state.replace([]) == ()
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.4.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.4.1")
 def test_states_are_isolated_and_items_are_frozen():
     first, second = PlanState(), PlanState()
     first.replace([PlanItem(text="private", status="pending")])
@@ -36,7 +36,7 @@ def test_states_are_isolated_and_items_are_frozen():
     assert first.items[0].text == "private"
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.4.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.4.1")
 @pytest.mark.parametrize(
     "value",
     [
@@ -52,7 +52,7 @@ def test_items_reject_malformed_fields(value):
         PlanItem.model_validate(value)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.4.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.4.1")
 def test_invalid_later_item_leaves_entire_old_state_intact():
     state = PlanState()
     before = state.replace([PlanItem(text="original", status="pending")])
@@ -62,7 +62,7 @@ def test_invalid_later_item_leaves_entire_old_state_intact():
     assert state.items is before
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.5.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.5.1")
 def test_revisions_count_accepted_replacements_only():
     state = PlanState()
     assert state.read_versioned() == (0, ())
@@ -83,7 +83,7 @@ def test_revisions_count_accepted_replacements_only():
     assert PlanState().read_versioned() == (0, ())
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.5.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.5.1")
 def test_competing_updates_have_unique_revisions_and_consistent_views():
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
@@ -117,7 +117,7 @@ def test_competing_updates_have_unique_revisions_and_consistent_views():
     )
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.5.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.5.1")
 def test_interleaved_read_never_pairs_revision_with_another_update():
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier

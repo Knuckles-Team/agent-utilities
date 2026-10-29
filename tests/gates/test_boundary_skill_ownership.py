@@ -7,7 +7,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R048.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R048.11")
 def test_every_current_skill_is_recorded_and_has_a_skill_definition() -> None:
     skill_root = ROOT / "agent_utilities/skills"
     coverage = (ROOT / "specs/au-boundary-deconstruction/coverage.md").read_text()

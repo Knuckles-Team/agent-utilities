@@ -22,7 +22,7 @@ from agent_utilities.graph import (
 )
 from agent_utilities.graph.executor import iterate_run
 
-pytestmark = pytest.mark.spec("AU-BOUNDARY-R043.8")
+pytestmark = pytest.mark.spec("MERISTEM-BOUNDARY-R043.8")
 
 
 class HostCheckpoint:

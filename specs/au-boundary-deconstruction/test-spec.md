@@ -29,13 +29,13 @@ retain their parent consumer or EG CI-gate proof as separate acceptance.
 
 ## F-J and T-Z migration acceptance
 
-`AU-BOUNDARY-R006.2` and `AU-BOUNDARY-R009.2` require a complete,
+`MERISTEM-BOUNDARY-R006.2` and `MERISTEM-BOUNDARY-R009.2` require a complete,
 revision-pinned fleet inventory, a resolved census for each package, and real
 SDK/graph read and write receipts for each migrated package. R009.2 also
 requires the retargeted generated templates to satisfy the same checks. A
 fixture census or an indeterminate dynamic import is not a migration receipt.
 
-## AU-BOUNDARY-R049 governed write-back
+## MERISTEM-BOUNDARY-R049 governed write-back
 
 | Proof | Test |
 |---|---|
@@ -50,17 +50,17 @@ fixture census or an indeterminate dynamic import is not a migration receipt.
 
 All tests live in `tests/unit/knowledge_graph/enrichment/test_writeback_governed.py`. The existing write-back, approval, preflight, bitemporal and ETL suites run unchanged against the new path.
 
-## AU-BOUNDARY-R043 agent run loop
+## MERISTEM-BOUNDARY-R043 agent run loop
 
 | Row | Proof | Test |
 |---|---|---|
-| `AU-BOUNDARY-R043.1` | The host plan drives the run. Steps share one history. Budgets and stop rules stop the run. | `tests/test_run_loop.py` |
-| `AU-BOUNDARY-R043.2` | The fallback plan reads only the request and configuration. Missing providers fail closed. | `tests/test_run_loop.py` |
-| `AU-BOUNDARY-R043.3` | The recursive loop caps slices and depth. It classifies each failure. | `tests/test_rlm.py` |
+| `MERISTEM-BOUNDARY-R043.1` | The host plan drives the run. Steps share one history. Budgets and stop rules stop the run. | `tests/test_run_loop.py` |
+| `MERISTEM-BOUNDARY-R043.2` | The fallback plan reads only the request and configuration. Missing providers fail closed. | `tests/test_run_loop.py` |
+| `MERISTEM-BOUNDARY-R043.3` | The recursive loop caps slices and depth. It classifies each failure. | `tests/test_rlm.py` |
 
 The tests use fakes for the host ports and pydantic-ai function models. They run under `pytest -n auto` in random order.
 
-## AU-BOUNDARY-R043.4 scaffold migration acceptance
+## MERISTEM-BOUNDARY-R043.4 scaffold migration acceptance
 
 R043.4.1–R043.4.5 retain the historical R014.1–R014.5 acceptance. Use deterministic
 model fixtures through the existing run loop: replace ordered items twice,
@@ -88,7 +88,7 @@ per-request injection across execution steps, separate-run isolation, retained
 history inspection, budget-exit cleanup and the no-selection tool/import surface.
 This evidence covers the scaffold loop, not a snapshot reader or served inspector.
 
-## AU-BOUNDARY-R043.5.1 atomic revision acceptance
+## MERISTEM-BOUNDARY-R043.5.1 atomic revision acceptance
 
 Read revision zero with empty items. Accept identical replacements and empty
 resets with one increment each. Reject invalid items without an increment.
@@ -96,7 +96,7 @@ Preserve old immutable views. Exercise competing writers and interleaved reads
 with bounded barriers, no sleeps or network, and prove every observed revision
 corresponds to its complete item tuple. This proves no caller or lease authority.
 
-## AU-BOUNDARY-R043.5.2 publication mechanism acceptance
+## MERISTEM-BOUNDARY-R043.5.2 publication mechanism acceptance
 
 `tests/test_plan_runtime.py` drives the real model/tool loop: revision zero
 precedes the first request, two accepted updates publish in order, invalid input
@@ -109,21 +109,21 @@ These tests use a host double and establish no installed EG acceptance, verified
 lease admission, deployed decision activation or served inspector availability.
 
 
-AU-BOUNDARY-R043.5.2: Per-run declined publication leaves local state usable, closes exactly once on success or body failure, and never changes another run’s binding.
+MERISTEM-BOUNDARY-R043.5.2: Per-run declined publication leaves local state usable, closes exactly once on success or body failure, and never changes another run’s binding.
 
-## AU-BOUNDARY-R043.6 and R043.7 dependency execution
+## MERISTEM-BOUNDARY-R043.6 and R043.7 dependency execution
 
-Typed tool steps (AU-BOUNDARY-R043.6.1 to R043.6.7) use the same `tests/test_dependency.py` harness.
+Typed tool steps (MERISTEM-BOUNDARY-R043.6.1 to R043.6.7) use the same `tests/test_dependency.py` harness.
 A fake `ToolCaller` replaces any network or fleet call.
 The function model records requests. A test can therefore prove that no model ran a tool step.
 
-- `AU-BOUNDARY-R043.6.1`: `tests/test_dependency.py::test_mixed_plan_validates` accepts a mixed DAG. `test_tool_step_without_caller_refuses_before_any_task` refuses with the typed reason and starts no task. A source scan finds no MCP or HTTP client import in the dependency module.
-- `AU-BOUNDARY-R043.6.2`: `tests/test_dependency.py::test_bindings_resolve_from_prerequisite_outputs` resolves nested keys and array indexes from a tool step and a JSON prompt step. A repeat run gives byte-identical arguments. The function model records zero requests for the tool step.
-- `AU-BOUNDARY-R043.6.3`: `tests/test_dependency.py::test_unresolved_binding_is_a_typed_failure` covers each cause. `test_failed_tool_step_does_not_start_dependents_and_makes_no_model_request` proves dependents stay unstarted. It also proves the function model sees no request.
-- `AU-BOUNDARY-R043.6.4`: `tests/test_dependency.py::test_tool_step_records_resolved_arguments_and_result` checks the fields and order. `test_oversized_result_is_replaced_by_digest` checks the bound.
-- `AU-BOUNDARY-R043.6.5`: `tests/test_dependency.py::test_mixed_dag_refills_slots_in_order` runs a prompt step, a bound tool step and a prompt step that reads the result at capacity two. It checks start order, the cap and the output task.
-- `AU-BOUNDARY-R043.6.6`: `tests/test_dependency.py::test_execute_graph_routes_tool_steps_through_the_bound_caller` enters the public run API and observes the caller invoked. `test_cancel_cancels_inflight_tool_call` observes cancellation.
-- `AU-BOUNDARY-R043.6.7`: `tests/test_dependency.py::test_tool_step_end_to_end_through_run_api`.
+- `MERISTEM-BOUNDARY-R043.6.1`: `tests/test_dependency.py::test_mixed_plan_validates` accepts a mixed DAG. `test_tool_step_without_caller_refuses_before_any_task` refuses with the typed reason and starts no task. A source scan finds no MCP or HTTP client import in the dependency module.
+- `MERISTEM-BOUNDARY-R043.6.2`: `tests/test_dependency.py::test_bindings_resolve_from_prerequisite_outputs` resolves nested keys and array indexes from a tool step and a JSON prompt step. A repeat run gives byte-identical arguments. The function model records zero requests for the tool step.
+- `MERISTEM-BOUNDARY-R043.6.3`: `tests/test_dependency.py::test_unresolved_binding_is_a_typed_failure` covers each cause. `test_failed_tool_step_does_not_start_dependents_and_makes_no_model_request` proves dependents stay unstarted. It also proves the function model sees no request.
+- `MERISTEM-BOUNDARY-R043.6.4`: `tests/test_dependency.py::test_tool_step_records_resolved_arguments_and_result` checks the fields and order. `test_oversized_result_is_replaced_by_digest` checks the bound.
+- `MERISTEM-BOUNDARY-R043.6.5`: `tests/test_dependency.py::test_mixed_dag_refills_slots_in_order` runs a prompt step, a bound tool step and a prompt step that reads the result at capacity two. It checks start order, the cap and the output task.
+- `MERISTEM-BOUNDARY-R043.6.6`: `tests/test_dependency.py::test_execute_graph_routes_tool_steps_through_the_bound_caller` enters the public run API and observes the caller invoked. `test_cancel_cancels_inflight_tool_call` observes cancellation.
+- `MERISTEM-BOUNDARY-R043.6.7`: `tests/test_dependency.py::test_tool_step_end_to_end_through_run_api`.
 
 
 `tests/test_dependency.py` drives the public run API with deterministic
@@ -141,7 +141,7 @@ Assert completed asynchronous model cleanup under repeated cancellation, includi
 Refuse oversized tool batches before fan-out, including the finite parallel fallback.
 Keep root-only recursion and first-event iterator close compatible.
 
-### Initial host accounting under AU-BOUNDARY-R043.7
+### Initial host accounting under MERISTEM-BOUNDARY-R043.7
 
 Public run-loop and dependency tests provide `RunUsage` and measured elapsed
 time, with original budgets intact. They prove exact one-time aggregate
@@ -174,13 +174,13 @@ and stopped returns and original cancellation must remain unchanged.
 The runtime facade exports the identical run contract objects.
 Importing it must not load the graph runtime before a caller resolves those aliases.
 
-### Run resume, history and live events under AU-BOUNDARY-R043.8 to R043.10
+### Run resume, history and live events under MERISTEM-BOUNDARY-R043.8 to R043.10
 
-AU-BOUNDARY-R043.8 tests restart a function-model run from a completed
+MERISTEM-BOUNDARY-R043.8 tests restart a function-model run from a completed
 checkpoint and count model calls. An in-flight checkpoint, a changed plan and
-a changed admission each refuse before any effect. AU-BOUNDARY-R043.9 tests
+a changed admission each refuse before any effect. MERISTEM-BOUNDARY-R043.9 tests
 capture the earlier messages in the next run's first request and refuse
-malformed history. AU-BOUNDARY-R043.10 tests record publication order, refuse
+malformed history. MERISTEM-BOUNDARY-R043.10 tests record publication order, refuse
 a tool effect after a failed call publication, and stop after a failed result
 publication. Live qualification needs the EG checkpoint producer and the
 Arbora admission-bound adapter.
@@ -193,7 +193,7 @@ closed permission refusals, byte and wait limits, absent transport refusal and
 privacy-safe trace fields. This test does not grant permission or prove the
 Arbora gateway and native approval producers.
 
-## AU-BOUNDARY-R043.12: measured request emission
+## MERISTEM-BOUNDARY-R043.12: measured request emission
 
 Bind all six tests in `tests/test_graph_metrics.py` to this producer row. Repeated FunctionModel requests prove attribution, response counts, client-clock timing and equal terminal-event metrics; negative cases prove no fabricated failed-request usage, invalid-count omission, zero requests without a model, no zero-duration TPS and bounded partial coverage. These deterministic tests do not measure a live provider or prove streaming coverage.
 
@@ -227,16 +227,16 @@ Selection tests do not satisfy durable write ordering or no-replayed-tool proof.
 
 ## Received text-only execution
 
-`AU-BOUNDARY-R043.13.1`: `tests/test_text_only.py` exercises the real chat-completion model and run loop with simulated HTTP. It rejects tool-bearing defaults and requests, unsupported providers, SDK retries and nontext output. It checks host-hook isolation, cancellation and measured budget use.
+`MERISTEM-BOUNDARY-R043.13.1`: `tests/test_text_only.py` exercises the real chat-completion model and run loop with simulated HTTP. It rejects tool-bearing defaults and requests, unsupported providers, SDK retries and nontext output. It checks host-hook isolation, cancellation and measured budget use.
 
-`AU-BOUNDARY-R043.13.2`: Installed native ownership, durable outcomes, restart, real provider behavior and configured admission limits remain required. Source tests do not prove them.
+`MERISTEM-BOUNDARY-R043.13.2`: Installed native ownership, durable outcomes, restart, real provider behavior and configured admission limits remain required. Source tests do not prove them.
 
 ## Child explorer acceptance (pending)
 
-- `AU-BOUNDARY-R043.14`: run two steps with a join and a separately identified child/grandchild; assert distinct dependency/containment, stable replay IDs, no inferred identity and terminal drain ordering.
-- `AU-BOUNDARY-R043.15`: use controlled model gates, not sleeps, for duplicate input and completion/cancellation races; assert one boundary application, exact target and unchanged shared budgets. Failed receipt publication must not imply safe unkeyed replay.
-- `AU-BOUNDARY-R043.16`: capture the first request of a fresh child continuation; assert child-only permitted history, new input, fresh turn counters and enclosing ceilings. Mismatched/incomplete/unsupported history refuses before any effect; current checkpoint takes precedence.
-- `AU-BOUNDARY-R043.17`: assert bounded public record kind/provenance/visibility, no private reasoning, durable publisher order and before-effect/after-effect refusal behavior. Fixtures do not prove a released host's transcript support.
+- `MERISTEM-BOUNDARY-R043.14`: run two steps with a join and a separately identified child/grandchild; assert distinct dependency/containment, stable replay IDs, no inferred identity and terminal drain ordering.
+- `MERISTEM-BOUNDARY-R043.15`: use controlled model gates, not sleeps, for duplicate input and completion/cancellation races; assert one boundary application, exact target and unchanged shared budgets. Failed receipt publication must not imply safe unkeyed replay.
+- `MERISTEM-BOUNDARY-R043.16`: capture the first request of a fresh child continuation; assert child-only permitted history, new input, fresh turn counters and enclosing ceilings. Mismatched/incomplete/unsupported history refuses before any effect; current checkpoint takes precedence.
+- `MERISTEM-BOUNDARY-R043.17`: assert bounded public record kind/provenance/visibility, no private reasoning, durable publisher order and before-effect/after-effect refusal behavior. Fixtures do not prove a released host's transcript support.
 
 ### R043.11 host request and streaming seam
 

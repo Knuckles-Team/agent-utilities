@@ -53,7 +53,7 @@ def _candidate() -> HarnessCandidate:
     )
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.1")
+@pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.1")
 def test_model_round_trips() -> None:
     candidate = _candidate()
     assert HarnessCandidate(**dataclasses.asdict(candidate)) == candidate
@@ -256,7 +256,7 @@ def _fixture_contrasts(*, baseline, candidates, traces):
     )
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.12")
+@pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.12")
 @pytest.mark.parametrize("has_baseline", [False, True])
 async def test_compose_refuses_unverified_measurements_before_decide(
     has_baseline,
@@ -364,7 +364,7 @@ async def test_compose_abstains_when_engine_abstains(monkeypatch) -> None:
     assert len(calls) == 1
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.12")
+@pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.12")
 @pytest.mark.parametrize("baseline_trace", ["", "baseline"])
 def test_persist_refuses_unverified_contrast_before_writes_or_switch(
     tmp_path, baseline_trace
@@ -421,7 +421,7 @@ def _tick_request() -> RunRequest:
     )
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.12")
+@pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.12")
 @pytest.mark.parametrize("has_baseline", [False, True])
 async def test_tick_refuses_without_owner_measurements_before_decide_or_persist(
     tmp_path, events, has_baseline
@@ -469,7 +469,7 @@ async def test_tick_refuses_without_owner_measurements_before_decide_or_persist(
     assert cycle_events[0]["evidence_run_ids"] == []
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.6")
+@pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.6")
 def test_reflect_reports_adoption_or_abstention(events) -> None:
     adopted = CycleOutcome(
         task_ref="task-1",
@@ -622,7 +622,7 @@ async def test_refusals_keep_harness(tmp_path, monkeypatch) -> None:
     assert component.read_text(encoding="utf-8") == "current prompt"
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.8")
+@pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.8")
 async def test_port_fails_closed_without_provider() -> None:
     from agent_utilities.harness.harness_cycle import drive_cycle_tick
 
@@ -635,7 +635,7 @@ async def test_port_fails_closed_without_provider() -> None:
         )
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.8")
+@pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.8")
 async def test_drive_delegates_to_registered_provider() -> None:
     from agent_utilities.harness.harness_cycle import drive_cycle_tick
 
@@ -683,7 +683,7 @@ def test_cycle_refusal_rejects_open_code() -> None:
         CycleRefusal("because")
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.2")
+@pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.2")
 @pytest.mark.parametrize(
     ("returned", "k", "expected_refs"),
     [
@@ -759,7 +759,7 @@ def test_propose_queries_lesson_library(returned, k, expected_refs) -> None:
         )
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.13")
+@pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.13")
 async def test_missing_host_refuses_before_any_probe(monkeypatch):
     monkeypatch.setattr(hp, "_PROBE", None)
     with pytest.raises(CycleRefusal, match="probe_trace_missing"):
@@ -776,7 +776,7 @@ async def test_missing_host_refuses_before_any_probe(monkeypatch):
         )
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.13")
+@pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.13")
 async def test_host_gets_candidate_and_requested_conditions(monkeypatch):
     calls = []
 
@@ -806,7 +806,7 @@ async def test_host_gets_candidate_and_requested_conditions(monkeypatch):
     assert calls[0]["budget_ref"] == "budget"
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.13")
+@pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.13")
 async def test_wrong_run_identity_is_refused(monkeypatch):
     async def provider(**kwargs):
         return {"run_id": "another-run", "status": "completed"}

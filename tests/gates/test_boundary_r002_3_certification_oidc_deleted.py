@@ -8,7 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R002.3.5")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R002.3.5")
 def test_deployment_certification_oidc_deleted():
     assert not (ROOT / "agent_utilities/deployment/certification_oidc.py").exists()
     release_contract = ROOT / "tests/gates/test_exact_local_release_contract.py"

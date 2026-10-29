@@ -27,7 +27,7 @@ async def collect(request, transport):
     return [event async for event in iterate_client_run(request, transport)]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 async def test_public_hosted_run_binds_transport_without_replacing_request(events):
     transport = Transport()
     request = RunRequest(task="inspect", run_id="admitted-run", context="bound")
@@ -60,7 +60,7 @@ async def test_public_hosted_run_binds_transport_without_replacing_request(event
 
 
 @pytest.mark.parametrize("server_tools", ["names", "toolsets"])
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 async def test_public_hosted_run_rejects_server_tools(server_tools):
     transport = Transport()
     plan = RunPlan(
@@ -75,7 +75,7 @@ async def test_public_hosted_run_rejects_server_tools(server_tools):
 
 
 @pytest.mark.parametrize("invalid", ["prompt without authority", None, {}])
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 async def test_non_request_refuses_before_host_provider(invalid):
     calls = []
     host_ports.register_run_decision_provider(lambda value: calls.append(value))
@@ -84,9 +84,9 @@ async def test_non_request_refuses_before_host_provider(invalid):
     assert calls == []
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.9.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.9.1")
 @pytest.mark.parametrize("valid", [True, False])
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 async def test_original_request_reaches_history_selection(valid):
     request = RunRequest(
         task="next",
@@ -135,7 +135,7 @@ async def test_original_request_reaches_history_selection(valid):
         assert "malformed private" not in json.dumps(emitted)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 async def test_received_budget_is_not_widened():
     calls = []
 
@@ -155,7 +155,7 @@ async def test_received_budget_is_not_widened():
     assert calls == []
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 async def test_closing_consumer_closes_delegated_run_before_return(events):
     host_ports.register_run_decision_provider(lambda request: RunPlan(model="unused"))
     execution = iterate_client_run(RunRequest("inspect", run_id="closed"), Transport())
@@ -165,7 +165,7 @@ async def test_closing_consumer_closes_delegated_run_before_return(events):
     assert events[-1]["run_id"] == "closed"
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 async def test_cancellation_reaches_active_model_and_run_events(events):
     entered, cancelled = asyncio.Event(), asyncio.Event()
 
@@ -191,7 +191,7 @@ async def test_cancellation_reaches_active_model_and_run_events(events):
     assert events[-1]["type"] == "run_cancelled"
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 async def test_native_stream_text_arrives_before_run_completion(events):
     from pydantic_ai.messages import PartDeltaEvent, PartStartEvent
 
@@ -231,7 +231,7 @@ async def test_native_stream_text_arrives_before_run_completion(events):
     assert not any(event["type"] == "native" for event in events)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 async def test_native_stream_tool_calls_use_same_bound_transport():
     from pydantic_ai.messages import FunctionToolCallEvent, FunctionToolResultEvent
     from pydantic_ai.models.function import DeltaToolCall
@@ -269,7 +269,7 @@ async def test_native_stream_tool_calls_use_same_bound_transport():
 
 
 @pytest.mark.parametrize("cancel", [False, True])
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 async def test_native_observer_failure_or_cancel_never_retries(cancel, events):
     calls, received = [], []
 
@@ -313,7 +313,7 @@ async def test_native_observer_failure_or_cancel_never_retries(cancel, events):
     assert len(calls) == len(received) == 1
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 async def test_native_observer_budget_refuses_before_streaming():
     calls = []
 
@@ -343,7 +343,7 @@ async def test_native_observer_budget_refuses_before_streaming():
     assert emitted[-1]["result"]["status"] == "stopped"
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 async def test_native_observer_dependency_plan_refuses_before_model():
     from agent_utilities.graph import DependencyPlan, RunTask
 
@@ -375,7 +375,7 @@ async def test_native_observer_dependency_plan_refuses_before_model():
     assert "ordinary sequential plan" in emitted[-1]["error"]
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 async def test_private_thinking_stays_out_of_public_run_events(events):
     from pydantic_ai.messages import PartStartEvent, ThinkingPart
     from pydantic_ai.models.function import DeltaThinkingPart
@@ -411,7 +411,7 @@ async def test_private_thinking_stays_out_of_public_run_events(events):
     assert "private model reasoning" not in json.dumps(events + emitted)
 
 
-@pytest.mark.spec("AU-BOUNDARY-R043.11")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 async def test_observer_backpressure_uses_existing_deadline(events):
     entered, cancelled = asyncio.Event(), asyncio.Event()
 

@@ -117,7 +117,7 @@ def _symbol_hits(symbols: tuple[str, ...]) -> list[str]:
     return hits
 
 
-@pytest.mark.spec("AU-BOUNDARY-R028.1")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R028.1")
 def test_standardization_retirement_holds():
     """The three retired kg/standardization modules are absent and unimported.
 
@@ -141,7 +141,7 @@ def test_standardization_retirement_holds():
     assert not hits, f"importers of retired standardization modules: {hits}"
 
 
-@pytest.mark.spec("AU-BOUNDARY-R028.3")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R028.3")
 def test_quantum_retirement_holds():
     """The kg/quantum package and observability/quantum_trace.py are absent.
 
@@ -164,7 +164,7 @@ def test_quantum_retirement_holds():
     assert not symbol_hits, f"references to retired quantum symbols: {symbol_hits}"
 
 
-@pytest.mark.spec("AU-BOUNDARY-R028.4")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R028.4")
 def test_security_retirement_holds():
     """All four retired kg/security modules are absent and unimported."""
     _assert_retired_absent(
@@ -192,7 +192,7 @@ def test_security_retirement_holds():
     assert not hits, f"importers of retired security modules: {hits}"
 
 
-@pytest.mark.spec("AU-BOUNDARY-R028.5")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R028.5")
 def test_enterprise_protocols_retirement_holds():
     """The protocols/enterprise package and read_models are absent and unimported."""
     _assert_retired_absent(
