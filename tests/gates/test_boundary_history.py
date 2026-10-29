@@ -71,15 +71,49 @@ def test_toolkit_history_requires_gate_only_change_and_later_deletion(
 
 
 @pytest.mark.spec("AU-BOUNDARY-R005.1")
-def test_a_e_census_attribution_is_historical_and_names_exclusions() -> None:
+def test_a_e_census_attribution_is_historical_and_names_exclusions(
+    tmp_path: Path,
+) -> None:
+    import json
+
     from scripts.check_boundary_history import (
-        FLEET_CENSUS,
-        FLEET_MERGE,
-        HARNESS_MERGE,
+        FLEET_ARTIFACT,
+        FLEET_STATUS,
         check_fleet_census,
     )
 
-    root = Path(__file__).resolve().parents[2]
-    check_fleet_census(root, FLEET_CENSUS, FLEET_MERGE, HARNESS_MERGE, "HEAD")
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.name", "Test Author")
+    _git(tmp_path, "config", "user.email", "test@example.invalid")
+    _git(tmp_path, "commit", "--allow-empty", "-qm", "initial")
+    harness = tmp_path / "agent_utilities/harness/generative_model_policy.py"
+    harness.parent.mkdir(parents=True)
+    harness.write_text("pass\n")
+    _git(tmp_path, "add", str(harness.relative_to(tmp_path)))
+    _git(tmp_path, "commit", "-qm", "unrelated harness change")
+    wrong = _git(tmp_path, "rev-parse", "HEAD")
+    artifact = tmp_path / FLEET_ARTIFACT
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("R005 (connector packages A–E)\nsanctioned SDK-gap\n")
+    status = tmp_path / FLEET_STATUS
+    status.write_text(
+        json.dumps(
+            {
+                "requirements": [
+                    {
+                        "id": "AU-BOUNDARY-R005",
+                        "delivery_state": "LANDED",
+                        "evidence": [{"commit": wrong}],
+                    }
+                ]
+            }
+        )
+    )
+    _git(tmp_path, "add", FLEET_ARTIFACT, FLEET_STATUS)
+    _git(tmp_path, "commit", "-qm", "record census")
+    census = _git(tmp_path, "rev-parse", "HEAD")
+    _git(tmp_path, "commit", "--allow-empty", "-qm", "merge census")
+    merge = _git(tmp_path, "rev-parse", "HEAD")
+    check_fleet_census(tmp_path, census, merge, wrong, "HEAD")
     with pytest.raises(ValueError, match="historical A-E status attribution"):
-        check_fleet_census(root, FLEET_CENSUS, FLEET_MERGE, FLEET_CENSUS, "HEAD")
+        check_fleet_census(tmp_path, census, merge, census, "HEAD")
