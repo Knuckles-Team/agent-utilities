@@ -5,7 +5,7 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Rows: [requireme
 - [ ] Inventory the harness package, the run loop entry and the host ports; record the reuse map.
 - [ ] Add `HarnessCandidate` and `CycleOutcome` with the closed refusal codes.
 - [ ] Implement the propose step against the EG-ORCH-VOCAB-R802.3 query.
-- [ ] Implement the probe step through `execute_graph` with the shared conditions.
+- [ ] Implement host-admitted, materialized probes under the shared actual conditions.
 - [ ] Implement the compose step as one served `Decide` call.
 - [ ] Implement the persist step through the generated-client envelopes and `apply_edits`.
 - [ ] Implement the reflect step and the typed refusals.
@@ -17,3 +17,6 @@ Governing spec: [spec.md](spec.md). Design: [plan.md](plan.md). Rows: [requireme
 
 - [ ] AU-HARNESS-CYCLE-R001.12: Refuse unverified contrast measurements before Decide or persistence.
 - [ ] Bind owner-authenticated baseline and candidate measurements before enabling contrast decisions.
+
+- [ ] AU-HARNESS-CYCLE-R001.13: Refuse probe execution without a host admission executor.
+- [ ] Implement and verify host-owned admission and component materialization before claiming actual probe conditions.

@@ -7,7 +7,7 @@ Governing spec: [spec.md](spec.md).
 | T-001 | `AU-HARNESS-CYCLE-R001.9` | Served/integration | One served task, two candidates, k = 2 | The graph shows the adopted version, the contrast and the lesson. The next propose returns the lesson. |  |
 | T-002 | `AU-HARNESS-CYCLE-R001.1` | Unit | A candidate and an outcome fixture | A dataclass round trip keeps every field |  |
 | T-003 | `AU-HARNESS-CYCLE-R001.2` | Unit | A library answer of two versions | One candidate per version, and no write |  |
-| T-004 | `AU-HARNESS-CYCLE-R001.3` | Unit | Two candidates, one shared seed and budget | The same conditions digest, one trace per candidate |  |
+| T-004 | `AU-HARNESS-CYCLE-R001.3` | Served | Two host-admitted, owner-materialized candidates under one task, seed, model and budget | The actual conditions match and each candidate has an authenticated trace |  |
 | T-005 | `AU-HARNESS-CYCLE-R001.4` | Unit | Probe traces and the contrast | One `Decide` call per tick, and no ranking code |  |
 | T-006 | `AU-HARNESS-CYCLE-R001.5` | Unit | An adopted candidate | Three envelopes and one `apply_edits` call |  |
 | T-007 | `AU-HARNESS-CYCLE-R001.6` | Unit | An adopted outcome and a neutral outcome | One lesson on adoption, and none on abstention |  |
@@ -16,6 +16,8 @@ Governing spec: [spec.md](spec.md).
 | T-009 | `AU-HARNESS-CYCLE-R001.8` | Unit | No registered provider | The port raises the closed failure |  |
 | T-011 | `AU-HARNESS-CYCLE-R001.10` | Served | An adopted candidate on the released EG client | Three envelopes that a graph read returns |  |
 | T-012 | `AU-HARNESS-CYCLE-R001.11` | Served | A host-registered provider | One tick and one run event |  |
+
+| T-013 | `AU-HARNESS-CYCLE-R001.13` | Unit | No host executor, a host test double, or a mismatched response run ID | Refuse before execution, forward the request, or refuse the mismatched response respectively |  |
 
 ## Negative and boundary cases
 

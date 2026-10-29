@@ -164,6 +164,9 @@ DurableRunEventFactory = Callable[
 ]
 """Build one optional durable event publisher for a run request."""
 
+HarnessProbeProvider = Callable[..., Awaitable[Mapping[str, Any]]]
+"""Host admission and execution of one materialized probe; not measurement proof."""
+
 HarnessCycleProvider = Callable[..., Any]
 """``(request, plan, *, task_class, graph, config, root, mode) ->
 CycleOutcome`` (or an awaitable of it): the host drives one
@@ -183,6 +186,7 @@ _MODELS: ModelProvider | None = None
 _EVENTS: RunEventSink | None = None
 _DURABLE_RUN_EVENTS: DurableRunEventFactory | None = None
 _CYCLE: HarnessCycleProvider | None = None
+_PROBE: HarnessProbeProvider | None = None
 
 
 def register_run_decision_provider(provider: RunDecisionProvider | None) -> None:
@@ -219,6 +223,17 @@ def register_durable_run_event_factory(
     """
     global _DURABLE_RUN_EVENTS
     _DURABLE_RUN_EVENTS = factory
+
+
+def register_harness_probe_provider(provider: HarnessProbeProvider | None) -> None:
+    """Install or clear the host-owned admitted probe executor."""
+    global _PROBE
+    _PROBE = provider
+
+
+def harness_probe_provider() -> HarnessProbeProvider | None:
+    """Return the host probe executor; absence cannot authorize execution."""
+    return _PROBE
 
 
 def register_harness_cycle_provider(provider: HarnessCycleProvider | None) -> None:

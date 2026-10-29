@@ -130,3 +130,6 @@ measurements. These historical commits remain recorded as landed evidence.
 Historical evidence: commit `3e4ecfa7bd3e` landed the earlier persistence
 helper. Its fake-writer unit test was replaced by the refusal regression; it
 did not prove an owner-authenticated receipt or a released-client write.
+
+
+The probe host port is a fail-closed prerequisite. Requested component, seed, model and budget are inputs to the host, not proof of execution. An actual host provider must bind native admission and owner-resolved component materialization before R001.3 can be verified. No such provider is registered by this change. Measurement and persistence continue to refuse until separately verified evidence and an adoption receipt exist.
