@@ -164,6 +164,54 @@ DurableRunEventFactory = Callable[
 ]
 """Build one optional durable event publisher for a run request."""
 
+
+@dataclass(frozen=True, slots=True)
+class ActiveChildBinding:
+    """Identity supplied by the host after child admission."""
+
+    child_run_id: str
+    parent_run_id: str
+    admission_id: str
+    lifecycle_revision: int
+
+
+@dataclass(frozen=True, slots=True)
+class ActiveChildMessage:
+    """A bounded host-claimed message, not an AU admission decision."""
+
+    binding: ActiveChildBinding
+    message_id: str
+    event_id: str
+    content: str
+
+
+class ActiveChildInputPort(Protocol):
+    """Host-owned ordered admission, duplicate control and durable receipts.
+
+    Receipt acknowledges insertion into this live run's volatile history, not
+    model consumption. The host must retain uncertainty on a crash or failed
+    receipt, and its context manager must settle undelivered inputs on exit.
+    """
+
+    binding: ActiveChildBinding
+
+    async def take_ready(self) -> tuple[ActiveChildMessage, ...]:
+        """Claim an ordered batch after revalidating admission and lifecycle.
+
+        The host never returns a claimed message twice for this live run.
+        """
+        ...
+
+    async def report_applied(self, message: ActiveChildMessage) -> None:
+        """Durably acknowledge one message; failures leave host outcome uncertain."""
+        ...
+
+
+ActiveChildInputFactory = Callable[
+    [Any], contextlib.AbstractAsyncContextManager[ActiveChildInputPort | None]
+]
+
+
 HarnessProbeProvider = Callable[..., Awaitable[Mapping[str, Any]]]
 """Host admission and execution of one materialized probe; not measurement proof."""
 
@@ -185,6 +233,7 @@ _TOOL_CALLER: ToolCaller | None = None
 _MODELS: ModelProvider | None = None
 _EVENTS: RunEventSink | None = None
 _DURABLE_RUN_EVENTS: DurableRunEventFactory | None = None
+_ACTIVE_CHILD_INPUT: ActiveChildInputFactory | None = None
 _CYCLE: HarnessCycleProvider | None = None
 _PROBE: HarnessProbeProvider | None = None
 
@@ -270,6 +319,27 @@ def emit_run_event(event: Mapping[str, Any]) -> None:
     """Send one run event to the host sink; a no-op without a host."""
     if _EVENTS is not None:
         _EVENTS(event)
+
+
+def register_active_child_input_factory(
+    factory: ActiveChildInputFactory | None,
+) -> None:
+    """Install the host's admitted-child input binder."""
+    global _ACTIVE_CHILD_INPUT
+    _ACTIVE_CHILD_INPUT = factory
+
+
+@contextlib.asynccontextmanager
+async def active_child_input_scope(
+    request: Any,
+) -> AsyncIterator[ActiveChildInputPort | None]:
+    """Open one optional host-owned child input binding."""
+    factory = _ACTIVE_CHILD_INPUT
+    if factory is None:
+        yield None
+        return
+    async with factory(request) as port:
+        yield port
 
 
 @contextlib.asynccontextmanager

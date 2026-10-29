@@ -1074,3 +1074,21 @@ before planning or model calls. An empty selection permits a fresh recursive
 run; a bound checkpoint transaction remains unsupported and refuses.
 This is a local safety prerequisite. It does not authorize child history or
 qualify the installed owner, host, shared-budget or continuation paths.
+
+### Active child input at a model boundary
+
+An optional host-bound active-child port supplies a child/run admission identity,
+lifecycle revision and ordered claimed messages. The pydantic-ai model-request
+capability validates the complete bounded batch and adds each message to the
+next request and its live history, then awaits the host receipt before model
+dispatch. The host owns admission, duplicate control and not-applied settlement;
+AU does not create a mailbox or durable receipt. A failed receipt leaves the
+outcome uncertain and stops the run before the next model request. The host
+receipt means insertion into volatile history, not model consumption.
+
+This slice accepts only an explicitly bound sequential child run. It refuses a
+bound input port with a dependency plan or durable checkpoint: input receipt and
+checkpoint history are not yet joined atomically. A process crash after an
+acknowledgement remains uncertain. Installed host lineage, durable delivery,
+recovery and receipt evidence are still required; this change does not verify
+R043.15.
