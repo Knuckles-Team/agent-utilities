@@ -540,7 +540,7 @@
         "430612c76482"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_owner_decisions.py:35"
+        "tests/gates/test_boundary_owner_decisions.py:37"
       ]
     },
     {
