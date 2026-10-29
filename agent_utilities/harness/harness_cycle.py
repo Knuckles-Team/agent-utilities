@@ -30,7 +30,6 @@ from pathlib import Path
 from typing import Any, Final
 
 from agent_utilities import host_ports
-from agent_utilities.graph.runner import execute_graph
 from agent_utilities.graph.state import RunBudget, RunPlan, RunRequest
 
 #: The closed refusal codes of one tick. Anything else is not a refusal.
@@ -190,17 +189,18 @@ async def probe_candidates(
 ) -> tuple[ProbeTrace, ...]:
     """Probe the current harness and each candidate under one shared condition.
 
-    Every probe enters through the run loop with the same task, seed, model
-    reference and budget reference; the conditions digest binds them, and each
-    probe records one trace under its own run id. The probe writes no graph
-    state. A probe whose run produces no trace refuses the tick with
-    ``probe_trace_missing``.
+    The host must admit and materialize each probe. The requested condition
+    digest is not evidence of actual execution or a measurement receipt.
+    Without the host executor, refuse before starting any probe.
     """
     if any(
         (candidate.seed, candidate.model_ref, candidate.budget_ref)
         != (seed, model_ref, budget_ref)
         for candidate in candidates
     ):
+        raise CycleRefusal("probe_trace_missing")
+    provider = host_ports.harness_probe_provider()
+    if provider is None:
         raise CycleRefusal("probe_trace_missing")
     digest = conditions_digest(
         task=task, seed=seed, model_ref=model_ref, budget_ref=budget_ref
@@ -216,13 +216,14 @@ async def probe_candidates(
     for candidate_id, version_ref in entries:
         trace_id = f"{run_id}:probe:{candidate_id}"
         try:
-            result = await execute_graph(
-                graph,
-                config,
-                task,
+            result = await provider(
+                graph=graph,
+                config=config,
+                task=task,
                 run_id=trace_id,
                 mode=mode,
                 requested_model_id=model_ref,
+                budget_ref=budget_ref,
                 agent_name=agent_name,
                 metadata={
                     "harness_probe": {

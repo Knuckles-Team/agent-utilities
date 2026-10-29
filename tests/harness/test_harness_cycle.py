@@ -30,6 +30,17 @@ from agent_utilities.harness.harness_cycle import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _fixture_probe_executor(monkeypatch):
+    """Exercise downstream mechanics with a synthetic, unauthenticated probe."""
+    from agent_utilities.graph.runner import execute_graph
+
+    async def fake_probe(*, graph, config, task, budget_ref, **kwargs):
+        return await execute_graph(graph, config, task, **kwargs)
+
+    monkeypatch.setattr(hp, "_PROBE", fake_probe)
+
+
 def _candidate() -> HarnessCandidate:
     return HarnessCandidate(
         candidate_id="c-1",
@@ -128,9 +139,7 @@ async def test_probe_rejects_inconsistent_candidates_before_any_run(
     async def unexpected_run(*args, **kwargs):
         raise AssertionError("a mismatched candidate must not start a probe")
 
-    monkeypatch.setattr(
-        "agent_utilities.harness.harness_cycle.execute_graph", unexpected_run
-    )
+    monkeypatch.setattr(hp, "_PROBE", unexpected_run)
     candidates = _probe_candidates()
     candidates[1] = dataclasses.replace(candidates[1], **{field: "different"})
 
@@ -148,7 +157,6 @@ async def test_probe_rejects_inconsistent_candidates_before_any_run(
         )
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.3")
 async def test_probe_shares_conditions_and_records_trace() -> None:
     def model(messages, info):
         return ModelResponse(parts=[TextPart("done")])
@@ -185,7 +193,6 @@ async def test_probe_shares_conditions_and_records_trace() -> None:
         assert trace.steps == 1
 
 
-@pytest.mark.spec("AU-HARNESS-CYCLE-R001.3")
 async def test_probe_records_current_harness_baseline() -> None:
     def model(messages, info):
         return ModelResponse(parts=[TextPart("done")])
@@ -574,7 +581,8 @@ async def test_refusals_keep_harness(tmp_path, monkeypatch) -> None:
     async def lost_probe(*args, **kwargs):
         raise RuntimeError("trace lost")
 
-    monkeypatch.setattr(cycle, "execute_graph", lost_probe)
+    fixture_probe = hp.harness_probe_provider()
+    monkeypatch.setattr(hp, "_PROBE", lost_probe)
     outcome = await run_cycle_tick(
         _tick_request(),
         plan(2),
@@ -594,7 +602,7 @@ async def test_refusals_keep_harness(tmp_path, monkeypatch) -> None:
     assert written == []
 
     # compose_abstention: the engine abstains, and no adoption persists.
-    monkeypatch.undo()
+    monkeypatch.setattr(hp, "_PROBE", fixture_probe)
     monkeypatch.setattr(cycle, "measure_contrasts", _fixture_contrasts)
     outcome = await run_cycle_tick(
         _tick_request(),
@@ -748,4 +756,71 @@ def test_propose_queries_lesson_library(returned, k, expected_refs) -> None:
             model_ref="model-1",
             budget_ref="budget-1",
             k=k,
+        )
+
+
+@pytest.mark.spec("AU-HARNESS-CYCLE-R001.13")
+async def test_missing_host_refuses_before_any_probe(monkeypatch):
+    monkeypatch.setattr(hp, "_PROBE", None)
+    with pytest.raises(CycleRefusal, match="probe_trace_missing"):
+        await probe_candidates(
+            graph=object(),
+            config=None,
+            task="task",
+            seed="seed",
+            model_ref="model",
+            budget_ref="budget",
+            run_id="run",
+            current_version_ref="version",
+            candidates=[],
+        )
+
+
+@pytest.mark.spec("AU-HARNESS-CYCLE-R001.13")
+async def test_host_gets_candidate_and_requested_conditions(monkeypatch):
+    calls = []
+
+    async def provider(**kwargs):
+        calls.append(kwargs)
+        return {"run_id": kwargs["run_id"], "status": "completed"}
+
+    monkeypatch.setattr(hp, "_PROBE", provider)
+    traces = await probe_candidates(
+        graph=object(),
+        config=None,
+        task="task",
+        seed="seed",
+        model_ref="model",
+        budget_ref="budget",
+        run_id="run",
+        current_version_ref="version",
+        candidates=[],
+    )
+    assert traces[0].trace_id == "run:probe:current"
+    assert calls[0]["metadata"]["harness_probe"] == {
+        "candidate_id": "current",
+        "component_version_ref": "version",
+        "seed": "seed",
+    }
+    assert calls[0]["requested_model_id"] == "model"
+    assert calls[0]["budget_ref"] == "budget"
+
+
+@pytest.mark.spec("AU-HARNESS-CYCLE-R001.13")
+async def test_wrong_run_identity_is_refused(monkeypatch):
+    async def provider(**kwargs):
+        return {"run_id": "another-run", "status": "completed"}
+
+    monkeypatch.setattr(hp, "_PROBE", provider)
+    with pytest.raises(CycleRefusal, match="probe_trace_missing"):
+        await probe_candidates(
+            graph=object(),
+            config=None,
+            task="task",
+            seed="seed",
+            model_ref="model",
+            budget_ref="budget",
+            run_id="run",
+            current_version_ref="version",
+            candidates=[],
         )

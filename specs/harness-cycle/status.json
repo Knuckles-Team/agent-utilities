@@ -16,7 +16,8 @@
     "AU-HARNESS-CYCLE-R001.9",
     "AU-HARNESS-CYCLE-R001.10",
     "AU-HARNESS-CYCLE-R001.11",
-    "AU-HARNESS-CYCLE-R001.12"
+    "AU-HARNESS-CYCLE-R001.12",
+    "AU-HARNESS-CYCLE-R001.13"
   ],
   "requirements": [
     {
@@ -37,7 +38,8 @@
         "AU-HARNESS-CYCLE-R001.9",
         "AU-HARNESS-CYCLE-R001.10",
         "AU-HARNESS-CYCLE-R001.11",
-        "AU-HARNESS-CYCLE-R001.12"
+        "AU-HARNESS-CYCLE-R001.12",
+        "AU-HARNESS-CYCLE-R001.13"
       ]
     },
     {
@@ -48,7 +50,7 @@
         "807386bf4a7e"
       ],
       "verified_by": [
-        "tests/harness/test_harness_cycle.py:45"
+        "tests/harness/test_harness_cycle.py:56"
       ]
     },
     {
@@ -59,21 +61,18 @@
         "2f5d92084425"
       ],
       "verified_by": [
-        "tests/harness/test_harness_cycle.py:678"
+        "tests/harness/test_harness_cycle.py:686"
       ]
     },
     {
       "id": "AU-HARNESS-CYCLE-R001.3",
       "title": "Probe",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "0f73d154af55",
         "8268ab7fabb6"
       ],
-      "verified_by": [
-        "tests/harness/test_harness_cycle.py:151",
-        "tests/harness/test_harness_cycle.py:188"
-      ]
+      "verified_by": []
     },
     {
       "id": "AU-HARNESS-CYCLE-R001.4",
@@ -101,7 +100,7 @@
         "582ffc7149e2"
       ],
       "verified_by": [
-        "tests/harness/test_harness_cycle.py:465"
+        "tests/harness/test_harness_cycle.py:472"
       ]
     },
     {
@@ -121,8 +120,8 @@
         "a23050a62b5f"
       ],
       "verified_by": [
-        "tests/harness/test_harness_cycle.py:617",
-        "tests/harness/test_harness_cycle.py:630"
+        "tests/harness/test_harness_cycle.py:625",
+        "tests/harness/test_harness_cycle.py:638"
       ]
     },
     {
@@ -154,9 +153,22 @@
         "3053bf474725"
       ],
       "verified_by": [
-        "tests/harness/test_harness_cycle.py:252",
-        "tests/harness/test_harness_cycle.py:360",
-        "tests/harness/test_harness_cycle.py:417"
+        "tests/harness/test_harness_cycle.py:259",
+        "tests/harness/test_harness_cycle.py:367",
+        "tests/harness/test_harness_cycle.py:424"
+      ]
+    },
+    {
+      "id": "AU-HARNESS-CYCLE-R001.13",
+      "title": "Probe admission refusal",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "eb03e690d277"
+      ],
+      "verified_by": [
+        "tests/harness/test_harness_cycle.py:762",
+        "tests/harness/test_harness_cycle.py:779",
+        "tests/harness/test_harness_cycle.py:809"
       ]
     }
   ]
