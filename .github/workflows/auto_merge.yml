@@ -1,0 +1,20 @@
+name: Auto-merge green PRs
+
+# Copy to .github/workflows/auto_merge.yml (reference/ci-standard.md).
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, ready_for_review, synchronize]
+  check_run:
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+
+jobs:
+  auto-merge:
+    uses: Knuckles-Team/pipelines/.github/workflows/auto_merge_pipeline.yml@main
+    secrets:
+      merge-token: ${{ secrets.GIT_TOKEN }}
