@@ -20,6 +20,11 @@ FLEET_MERGE = "d4f26bc0e"
 HARNESS_MERGE = "a754f1299033"
 FLEET_ARTIFACT = "specs/au-boundary-deconstruction/fleet-census-20261009.md"
 FLEET_STATUS = "specs/au-boundary-deconstruction/status.json"
+FLEET_SECTIONS = {
+    "AU-BOUNDARY-R005": "R005 (connector packages A–E)",
+    "AU-BOUNDARY-R007": "R007 (connector packages K–O)",
+    "AU-BOUNDARY-R008": "R008 (connector packages P–S)",
+}
 
 
 def _git(root: Path, *args: str) -> str:
@@ -82,9 +87,17 @@ def check_toolkit(root: Path, original: str, cut: str, head: str) -> None:
 
 
 def check_fleet_census(
-    root: Path, census: str, merge: str, wrong: str, head: str
+    root: Path,
+    census: str,
+    merge: str,
+    wrong: str,
+    head: str,
+    *,
+    target: str = "AU-BOUNDARY-R005",
 ) -> None:
-    """Check the historical A-E census without asserting current fleet parity."""
+    """Check one historical census without asserting current fleet parity."""
+    if target not in FLEET_SECTIONS:
+        raise ValueError("unknown historical fleet census")
     for revision in (census, merge, wrong):
         _ancestor(root, revision, head)
     _ancestor(root, census, merge)
@@ -94,18 +107,16 @@ def check_fleet_census(
         raise ValueError("historical fleet census artifact is missing")
     census_text = _git(root, "show", f"{census}:{FLEET_ARTIFACT}")
     if (
-        "R005 (connector packages A–E)" not in census_text
+        FLEET_SECTIONS[target] not in census_text
         or "sanctioned SDK-gap" not in census_text
     ):
-        raise ValueError("historical A-E census or its exclusion is missing")
+        raise ValueError("historical fleet census or its exclusion is missing")
     status = json.loads(_git(root, "show", f"{census}:{FLEET_STATUS}"))
-    row = next(
-        item for item in status["requirements"] if item["id"] == "AU-BOUNDARY-R005"
-    )
+    row = next(item for item in status["requirements"] if item["id"] == target)
     if row["delivery_state"] != "LANDED" or not any(
         item.get("commit", "").startswith(wrong) for item in row.get("evidence", [])
     ):
-        raise ValueError("historical A-E status attribution differs")
+        raise ValueError("historical fleet status attribution differs")
     changed = _git(root, "diff", "--name-only", f"{wrong}^1", wrong).splitlines()
     if "agent_utilities/harness/generative_model_policy.py" not in changed or any(
         not path.startswith(("agent_utilities/harness/", "tests/harness/"))
@@ -119,7 +130,10 @@ def main() -> int:
     try:
         check_deployment(root, DEPLOYMENT, BACKENDS_DELETION, HARNESS_CUT, "HEAD")
         check_toolkit(root, TOOLKIT_GATE, HARNESS_CUT, "HEAD")
-        check_fleet_census(root, FLEET_CENSUS, FLEET_MERGE, HARNESS_MERGE, "HEAD")
+        for target in FLEET_SECTIONS:
+            check_fleet_census(
+                root, FLEET_CENSUS, FLEET_MERGE, HARNESS_MERGE, "HEAD", target=target
+            )
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"boundary history evidence invalid: {exc}", file=sys.stderr)
         return 1
