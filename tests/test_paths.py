@@ -10,16 +10,26 @@ from agent_utilities.core import paths
 
 _DIRS = {
     "ARBORA_CONFIG_DIR": "config",
-    "AGENT_UTILITIES_DATA_DIR": "data",
-    "AGENT_UTILITIES_CACHE_DIR": "cache",
-    "AGENT_UTILITIES_LOG_DIR": "log",
+    "MERISTEM_DATA_DIR": "data",
+    "MERISTEM_CACHE_DIR": "cache",
+    "MERISTEM_LOG_DIR": "log",
 }
+
+
+_OLD = (
+    "AGENT_UTILITIES_DATA_DIR",
+    "AGENT_UTILITIES_CACHE_DIR",
+    "AGENT_UTILITIES_LOG_DIR",
+    "AGENT_UTILITIES_SKILLS_DIR",
+    "AGENT_UTILITIES_PROMPTS_DIR",
+    "AGENT_UTILITIES_MEMORY_DIR",
+)
 
 
 @pytest.fixture(autouse=True)
 def _isolated(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    for name in ("GRAPH_OS_CONFIG_DIR", "AGENT_UTILITIES_CONFIG_DIR", *_DIRS):
+    for name in ("GRAPH_OS_CONFIG_DIR", "AGENT_UTILITIES_CONFIG_DIR", *_DIRS, *_OLD):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -54,7 +64,7 @@ def test_ensure_dirs_names_the_unwritable_setting(overridden):
     try:
         with pytest.raises(paths.RuntimeDirectoryNotWritableError) as exc:
             paths.ensure_dirs()
-        assert "AGENT_UTILITIES_CACHE_DIR" in str(exc.value)
+        assert "MERISTEM_CACHE_DIR" in str(exc.value)
         assert str(locked) in str(exc.value)
     finally:
         locked.chmod(0o755)
@@ -98,3 +108,24 @@ def test_default_state_dirs_use_the_meristem_app_name(monkeypatch, tmp_path):
     for resolved in (paths.data_dir(), paths.cache_dir(), paths.log_dir()):
         assert "meristem" in resolved.parts
         assert "agent-utilities" not in resolved.parts
+
+
+def test_old_agent_utilities_dir_names_are_ignored(monkeypatch, tmp_path):
+    expected = {
+        "data": paths.data_dir(),
+        "cache": paths.cache_dir(),
+        "log": paths.log_dir(),
+        "skills": paths.skills_dir(),
+        "prompts": paths.prompts_dir(),
+        "memory": paths.memory_view_dir(),
+    }
+    for name in _OLD:
+        monkeypatch.setenv(name, str(tmp_path / name))
+    assert {
+        "data": paths.data_dir(),
+        "cache": paths.cache_dir(),
+        "log": paths.log_dir(),
+        "skills": paths.skills_dir(),
+        "prompts": paths.prompts_dir(),
+        "memory": paths.memory_view_dir(),
+    } == expected

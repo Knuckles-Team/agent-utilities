@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Hard cutover: the directory overrides `AGENT_UTILITIES_DATA_DIR`, `AGENT_UTILITIES_CACHE_DIR`, `AGENT_UTILITIES_LOG_DIR`, `AGENT_UTILITIES_SKILLS_DIR`, `AGENT_UTILITIES_PROMPTS_DIR` and `AGENT_UTILITIES_MEMORY_DIR` are now `MERISTEM_DATA_DIR`, `MERISTEM_CACHE_DIR`, `MERISTEM_LOG_DIR`, `MERISTEM_SKILLS_DIR`, `MERISTEM_PROMPTS_DIR` and `MERISTEM_MEMORY_DIR`. The old names are ignored, with no fallback or warning.
+
 ### Removed
 - The default data, cache and log directories no longer use the `agent-utilities` app name. They resolve under `meristem` (`~/.local/share/meristem`, `~/.cache/meristem`, the platformdirs log path). Existing files under the old directories are not read; move them. The `AGENT_UTILITIES_DATA_DIR`, `AGENT_UTILITIES_CACHE_DIR` and `AGENT_UTILITIES_LOG_DIR` overrides are unchanged.
 
