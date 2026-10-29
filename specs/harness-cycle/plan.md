@@ -94,3 +94,39 @@ budget and candidate version before model or tool effects. A digest over
 requested inputs alone cannot establish those facts. Add an effect-counting
 regression for a substituted model, seed or budget and an installed hosted
 journey that reads the real admitted conditions and traces; otherwise abstain.
+
+## Measurement refusal (2026-10-29)
+
+The current probe traces contain usage counters and completion status, not
+owner-authenticated retry count, tool-selection quality, evaluation score or
+cost. The cycle must not convert those proxies into EG-ORCH-VOCAB-R802 Q32
+measurements or treat a missing baseline as a measured run. Until the owner
+supplies a verified measurement contract, `measure_contrasts` and the cycle
+refuse with `measurement_unavailable` before calling Decide or persisting an
+adoption. Tests that inject synthetic contrasts exercise downstream step
+mechanics only; they are not served proof or measurement authority.
+
+R001.4 is not verified because the current code refuses before a real Decide
+call. R001.5 is not verified because the public persistence step refuses
+without owner-issued evidence. R001.7 is not verified because engine
+abstention cannot currently be reached without injected test data. The
+existing probe-condition gap remains documented above. The independent
+reflect step test covers only local event mechanics, not hosted integration.
+
+The extension point is an engine/SDK-owned, verifiable measurement and
+adoption receipt bound to the graph, actor, baseline, candidate, actual
+conditions and evidence. Once that contract exists, compose and persist must
+accept and verify it before the corresponding effect. Until then no
+caller-constructed object or callback is accepted as proof.
+
+Historical evidence: commit `6a24f63b1216` landed the local compose step;
+`test_compose_delegates_to_engine` and `test_compose_abstains_when_engine_abstains`
+now inject synthetic contrasts and are retained as downstream unit checks,
+not bindings proving a real engine Decide call. Commit `f7c3c3e0cb61` landed
+the local refusal cases; `test_refusals_keep_harness` still exercises those
+mechanics, but its engine-abstention branch likewise injects synthetic
+measurements. These historical commits remain recorded as landed evidence.
+
+Historical evidence: commit `3e4ecfa7bd3e` landed the earlier persistence
+helper. Its fake-writer unit test was replaced by the refusal regression; it
+did not prove an owner-authenticated receipt or a released-client write.

@@ -2,11 +2,11 @@
 
 CONCEPT:AU-ORCH.execution.harness-evolution-cycle
 
-For one task tick the harness proposes k candidate component versions from
-the served improvement library, probes each under identical conditions
-through the run loop, composes the adopted harness through the served
-contrast decision, persists the version, the contrast and the lesson as
-graph facts, and reflects the lesson for the next task.
+The intended tick proposes and probes candidate versions, delegates the
+contrast decision, persists the adoption and reflects the lesson. The
+decision and persistence steps currently refuse until the engine supplies
+verifiable measurement and adoption evidence; requested probe conditions
+alone do not prove what the host actually admitted.
 
 The module holds no store, keeps no ranking and serves no operation. Every
 capability it reaches is a host-injected port: the improvement-library
@@ -33,14 +33,13 @@ from agent_utilities import host_ports
 from agent_utilities.graph.runner import execute_graph
 from agent_utilities.graph.state import RunBudget, RunPlan, RunRequest
 
-from .edit_engine import Edit, apply_edits
-
 #: The closed refusal codes of one tick. Anything else is not a refusal.
 ABSTAIN_REASONS: Final[tuple[str, ...]] = (
     "budget_below_contrast",
     "no_candidates",
     "probe_trace_missing",
     "compose_abstention",
+    "measurement_unavailable",
 )
 
 
@@ -304,58 +303,20 @@ class ContrastAnswer:
 ContrastDecision = Callable[[ContrastRequest], Any]
 
 
-def _usage_of(trace: ProbeTrace, key: str) -> int:
-    return int(trace.usage.get(key, 0))
-
-
-def _score_of(trace: ProbeTrace) -> int:
-    """One probe's eval score: the run completed without an error, or not."""
-    return 1 if trace.status == "completed" and trace.error is None else 0
-
-
 def measure_contrasts(
     *,
     baseline: ProbeTrace | None,
     candidates: Sequence[HarnessCandidate],
     traces: Mapping[str, ProbeTrace],
 ) -> tuple[ContrastDelta, ...]:
-    """Each candidate's measured contrast against the current harness's probe.
+    """Refuse until the owner supplies authenticated contrast measurements.
 
-    Measurement only: the deltas the engine decides on are computed here and
-    kept out of any ranking; without a current-harness probe the deltas
-    measure against the empty baseline.
+    Probe usage counts and completion status do not establish retry count,
+    tool-selection quality, evaluation score or cost. A missing baseline is
+    not a measured run. None of these inputs currently carries the required
+    engine-owned measurement evidence.
     """
-    deltas: list[ContrastDelta] = []
-    for candidate in candidates:
-        trace = traces[candidate.candidate_id]
-        if baseline is None:
-            retry_delta = _usage_of(trace, "requests")
-            tool_selection_delta = _usage_of(trace, "tool_calls")
-            eval_score_delta = _score_of(trace)
-            cost_delta = _usage_of(trace, "total_tokens")
-            run_a = ""
-        else:
-            retry_delta = _usage_of(trace, "requests") - _usage_of(baseline, "requests")
-            tool_selection_delta = _usage_of(trace, "tool_calls") - _usage_of(
-                baseline, "tool_calls"
-            )
-            eval_score_delta = _score_of(trace) - _score_of(baseline)
-            cost_delta = _usage_of(trace, "total_tokens") - _usage_of(
-                baseline, "total_tokens"
-            )
-            run_a = baseline.trace_id
-        deltas.append(
-            ContrastDelta(
-                candidate_id=candidate.candidate_id,
-                run_a_trace_id=run_a,
-                run_b_trace_id=trace.trace_id,
-                retry_delta=retry_delta,
-                tool_selection_delta=tool_selection_delta,
-                eval_score_delta=eval_score_delta,
-                cost_delta=cost_delta,
-            )
-        )
-    return tuple(deltas)
+    raise CycleRefusal("measurement_unavailable")
 
 
 def _field(value: Any, name: str) -> Any:
@@ -412,13 +373,13 @@ async def compose(
     traces: Mapping[str, ProbeTrace],
     decide: ContrastDecision,
 ) -> ContrastAnswer:
-    """One served Decide call under the contrast question kind.
+    """Delegate a measured contrast to the engine when evidence is available.
 
-    Sends the probe traces and the measured contrasts; the engine answer is
-    the adoption or the abstention. The cycle applies no local ranking: it
-    sends, and the engine's answer stands. An engine abstention refuses the
-    tick with ``compose_abstention``.
+    Until the owner supplies that evidence, refuse before calling ``decide``.
     """
+    contrasts = measure_contrasts(
+        baseline=baseline, candidates=candidates, traces=traces
+    )
     request = ContrastRequest(
         task_ref=task_ref,
         task_class=task_class,
@@ -429,9 +390,7 @@ async def compose(
         probe_trace_ids=tuple(
             traces[candidate.candidate_id].trace_id for candidate in candidates
         ),
-        contrasts=measure_contrasts(
-            baseline=baseline, candidates=candidates, traces=traces
-        ),
+        contrasts=contrasts,
     )
     answer = decide(request)
     if inspect.isawaitable(answer):
@@ -447,11 +406,6 @@ async def compose(
 EnvelopeWriter = Callable[[Mapping[str, Any]], str]
 
 
-def _component_file(component_kind: str) -> str:
-    """The in-run harness's own component file under the workspace root."""
-    return f"harness/{component_kind}.md"
-
-
 def persist(
     *,
     task_ref: str,
@@ -463,69 +417,13 @@ def persist(
     write_envelope: EnvelopeWriter,
     root: str | Path = ".",
 ) -> tuple[str, str, str]:
-    """Write the adopted version, the contrast and the lesson, then switch.
+    """Refuse until the engine supplies verifiable adoption and evidence.
 
-    Three graph-fact envelopes through the host's generated-client writer:
-    the adopted component version, the measured contrast of the adoption
-    and the lesson for the next task, which cites the evidence runs by
-    trace id. The in-run harness switch reuses :func:`apply_edits`: the
-    adopted component's content replaces the current content of the
-    harness's own component file. The step writes no other state.
+    A caller-constructed contrast and answer are not owner-issued receipts.
+    The future owner contract must provide a verifiable receipt before this
+    step can write or change the in-run harness.
     """
-    write_envelope(
-        {
-            "kind": "harness_component_version",
-            "fact": {
-                "task_ref": task_ref,
-                "component_kind": adopted.component_kind,
-                "component_version_ref": adopted.component_version_ref,
-                "evidence_run_id": contrast.run_b_trace_id,
-            },
-        }
-    )
-    contrast_ref = write_envelope(
-        {
-            "kind": "harness_contrast",
-            "fact": {
-                "task_ref": task_ref,
-                "conditions_digest": conditions_digest_value,
-                "run_a_trace_id": contrast.run_a_trace_id,
-                "run_b_trace_id": contrast.run_b_trace_id,
-                "retry_delta": contrast.retry_delta,
-                "tool_selection_delta": contrast.tool_selection_delta,
-                "eval_score_delta": contrast.eval_score_delta,
-                "cost_delta": contrast.cost_delta,
-            },
-        }
-    )
-    lesson_ref = write_envelope(
-        {
-            "kind": "harness_lesson",
-            "fact": {
-                "task_class": task_class,
-                "changed_component_kind": adopted.component_kind,
-                "what_changed": (
-                    f"{adopted.component_kind} switched to "
-                    f"{adopted.component_version_ref}"
-                ),
-                "evidence_run_ids": [contrast.run_a_trace_id, contrast.run_b_trace_id],
-            },
-        }
-    )
-    component_path = _component_file(adopted.component_kind)
-    current_path = Path(root) / component_path
-    current = current_path.read_text(encoding="utf-8") if current_path.exists() else ""
-    result = apply_edits(
-        [Edit(path=component_path, search=current, replace=answer.adopted_content)],
-        root,
-    )
-    if not result.ok:
-        raise RuntimeError(
-            f"the in-run harness switch failed: {result.failures[0].reason}"
-        )
-    if answer.adopted_version_ref is None:
-        raise ValueError("persist is called on an adoption only")
-    return answer.adopted_version_ref, contrast_ref, lesson_ref
+    raise CycleRefusal("measurement_unavailable")
 
 
 def reflect(
