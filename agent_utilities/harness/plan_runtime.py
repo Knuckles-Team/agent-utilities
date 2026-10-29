@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
 from pydantic import TypeAdapter, ValidationError
 from pydantic_ai import RunContext
@@ -30,8 +30,11 @@ _ITEMS = TypeAdapter(list[PlanItem])
 
 
 def _without_request_payload(part: ModelRequestPart) -> ModelRequestPart:
+    # Upstream split the call/return part types (tool-search, capability-load)
+    # into a union with typed payloads; ``update_plan`` is always a plain
+    # function-tool part, so replace through ``Any``.
     if isinstance(part, ToolReturnPart) and part.tool_name == "update_plan":
-        return replace(part, content={"status": "scaffold_observation"})
+        return replace(cast(Any, part), content={"status": "scaffold_observation"})
     if isinstance(part, RetryPromptPart) and part.tool_name == "update_plan":
         return replace(part, content="Invalid scaffold update.")
     return part
@@ -63,7 +66,7 @@ def _without_scaffold_payload(messages: list[ModelMessage]) -> list[ModelMessage
             )
         else:
             response_parts = [
-                replace(part, args={})
+                replace(cast(Any, part), args={})
                 if isinstance(part, ToolCallPart) and part.tool_name == "update_plan"
                 else part
                 for part in message.parts
