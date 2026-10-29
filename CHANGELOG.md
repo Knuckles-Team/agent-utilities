@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.1] - 2026-10-29
+
+### Security
+
+- Lift `pydantic-ai-harness` to `>=0.63.0,<0.64.0` (fixes CVE-2026-114386 / GHSA-3589-pxp7-3gj8); `pydantic-ai-slim` and `pydantic-graph` move to 2.63.0 with it (#392).
+
 ## [4.0.0] - 2026-10-25
 
 ### Changed
