@@ -233,6 +233,17 @@ async def run_rlm(
     :class:`SandboxFatalError` propagates so the caller fails fast.
     """
     try:
+        if lineage is not None and not isinstance(lineage, LineageBinding):
+            raise TypeError("lineage must be a LineageBinding when supplied")
+        if host_ports.run_checkpoint_factory_bound():
+            raise ValueError("recursive checkpoint restore is unavailable")
+        history_request = (
+            RunRequest(task=task, agent_name="rlm", run_id=lineage.run_id)
+            if lineage is not None
+            else None
+        )
+        if await host_ports.read_recursive_run_history(history_request) is not None:
+            raise ValueError("recursive conversation history is unavailable")
         cfg = config if config is not None and config.model else None
         cfg = cfg or await _config_from_host(task)
         for name in ("max_concurrent_requests",):
@@ -256,8 +267,6 @@ async def run_rlm(
             ),
             max_concurrent_requests=cfg.max_concurrent_requests,
         )
-        if lineage is not None and not isinstance(lineage, LineageBinding):
-            raise TypeError("lineage must be a LineageBinding when supplied")
         if child_identity_provider is not None and lineage is None:
             raise ValueError("child identity provider requires a root lineage")
         env = _Env(

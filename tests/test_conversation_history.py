@@ -539,3 +539,136 @@ async def test_oversized_child_binding_refuses_before_model(field):
     )
     assert result.status == "failed"
     assert not calls
+
+
+async def test_selected_child_history_preserves_shared_limit_and_fresh_run_usage():
+    from agent_utilities.graph import LiveSharedBudget
+
+    binding = host_ports.CompletedChildBinding("child", "conversation", "prior", "rev")
+    selected = {
+        "version": 1,
+        "phase": "completed",
+        "child_id": "child",
+        "conversation_id": "conversation",
+        "predecessor_run_id": "prior",
+        "history_revision": "rev",
+        "messages": envelope()["messages"],
+    }
+
+    async def select(request):
+        if request.run_id == "parent":
+            return host_ports.RunCheckpointSelection(request.run_id, None, None)
+        return host_ports.RunCheckpointSelection(
+            request.run_id, None, json.dumps(selected), completed_child=binding
+        )
+
+    calls = []
+
+    def respond(messages, info):
+        calls.append(messages)
+        return ModelResponse(
+            parts=[TextPart("answer")],
+            usage=RequestUsage(input_tokens=2, output_tokens=1),
+        )
+
+    host_ports.register_run_checkpoint_provider(select)
+    budget = RunBudget(request_limit=2)
+    shared = LiveSharedBudget(budget, deadline=asyncio.get_running_loop().time() + 10)
+    plan = RunPlan(model=FunctionModel(respond), steps=("new question",), budget=budget)
+    parent = await run(
+        RunRequest(task="parent", run_id="parent"), plan=plan, shared_execution=shared
+    )
+    child = await run(
+        RunRequest(task="new question", run_id="child"),
+        plan=plan,
+        shared_execution=shared,
+    )
+    refused = await run(
+        RunRequest(task="another", run_id="third"), plan=plan, shared_execution=shared
+    )
+    assert (parent.status, child.status, refused.status) == (
+        "completed",
+        "completed",
+        "stopped",
+    )
+    assert len(calls) == 2
+    assert [message.parts[0].content for message in calls[1]] == [
+        "earlier question",
+        "earlier answer",
+        "new question",
+    ]
+    assert parent.usage["requests"] == child.usage["requests"] == 1
+    assert child.usage["input_tokens"] == 2
+    assert shared.usage.requests == 2
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "foreign_child",
+        "wrong_revision",
+        "incomplete",
+        "tool_message",
+        "checkpoint",
+        "dependency",
+    ],
+)
+async def test_selected_child_refusal_does_not_spend_enclosing_budget(case):
+    from agent_utilities.graph import LiveSharedBudget
+
+    binding = host_ports.CompletedChildBinding("child", "conversation", "prior", "rev")
+    selected = {
+        "version": 1,
+        "phase": "completed",
+        "child_id": "child",
+        "conversation_id": "conversation",
+        "predecessor_run_id": "prior",
+        "history_revision": "rev",
+        "messages": envelope()["messages"],
+    }
+    if case == "foreign_child":
+        selected["child_id"] = "sibling"
+    elif case == "wrong_revision":
+        selected["history_revision"] = "other-revision"
+    elif case == "incomplete":
+        selected["phase"] = "running"
+    elif case == "tool_message":
+        selected["messages"][0]["role"] = "tool-call"
+
+    async def select(request):
+        return host_ports.RunCheckpointSelection(
+            request.run_id,
+            "current checkpoint" if case == "checkpoint" else None,
+            json.dumps(selected),
+            completed_child=binding,
+        )
+
+    calls = []
+
+    def respond(messages, info):
+        calls.append(messages)
+        return ModelResponse(parts=[TextPart("unexpected")])
+
+    host_ports.register_run_checkpoint_provider(select)
+    budget = RunBudget(request_limit=1)
+    shared = LiveSharedBudget(budget, deadline=asyncio.get_running_loop().time() + 10)
+    dependency = (
+        DependencyPlan(
+            tasks=(RunTask("one", "task"),), output_task_id="one", plan_id="plan"
+        )
+        if case == "dependency"
+        else None
+    )
+    result = await run(
+        RunRequest(task="new", run_id="child"),
+        plan=RunPlan(
+            model=FunctionModel(respond),
+            steps=("new",),
+            budget=budget,
+            dependency_plan=dependency,
+        ),
+        shared_execution=shared,
+    )
+    assert result.status == "failed"
+    assert calls == []
+    assert shared.usage.requests == 0

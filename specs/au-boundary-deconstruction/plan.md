@@ -1065,3 +1065,12 @@ commit ancestry, changes and checked-head absence using a full Git history.
 Its fixture tests reject missing original files, missing deletions and a
 non-gate-only commit. These historical facts do not establish certification
 flow parity, helper parity or completed connector migrations.
+
+### Recursive history refusal prerequisite
+
+The recursive runner reads one bound history selection only when it has an
+explicit run lineage. It refuses selected history and current checkpoints
+before planning or model calls. An empty selection permits a fresh recursive
+run; a bound checkpoint transaction remains unsupported and refuses.
+This is a local safety prerequisite. It does not authorize child history or
+qualify the installed owner, host, shared-budget or continuation paths.
