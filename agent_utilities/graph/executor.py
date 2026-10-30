@@ -443,6 +443,17 @@ async def iterate_run(
                                 active_input = ActiveChildInput(
                                     input_port, state.run_id
                                 )
+                            if run_plan.render_receipt is not None:
+                                from agent_utilities.graph.render_receipt import (
+                                    check_render_receipt,
+                                )
+
+                                # Before any model transport call: a refusal
+                                # raises with a typed code and zero requests.
+                                evidence = await check_render_receipt(
+                                    run_plan.render_receipt, run_plan.instructions
+                                )
+                                yield emit(state, "render_receipt_checked", **evidence)
                             agent = build_agent(
                                 run_plan,
                                 state.run_id,

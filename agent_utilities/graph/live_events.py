@@ -225,6 +225,7 @@ async def run_step(
     stream_observer: Any = None,
     after_result: Callable[[Any], Awaitable[None]] | None = None,
     event_fields: Mapping[str, Any] | None = None,
+    child_records: Any = None,
     **kwargs: Any,
 ) -> Any:
     """Run exactly once, awaiting durable publication of each public event.
@@ -234,18 +235,30 @@ async def run_step(
     the observer through the same async stream.  A publisher failure aborts the
     model call before a tool effect for a rejected tool-call event; a result
     publication failure aborts after that effect and never retries it.
+
+    ``child_records`` (a ``ChildPublicRecordPublisher``) replaces the raw
+    projection with bounded public child records: no raw tool arguments,
+    results or reasoning are published (MERISTEM-BOUNDARY-R043.17).
     """
-    if publisher is None and stream_observer is None:
+    if publisher is None and stream_observer is None and child_records is None:
         result = await agent.run(prompt, **kwargs)
         if after_result is not None:
             await after_result(result)
         return result
 
     fields = dict(event_fields or {})
+    counter = [0]
 
     async def receive(context: Any, events: AsyncIterable[Any]) -> None:
         async def projected_events() -> AsyncIterable[Any]:
             async for event in events:
+                if child_records is not None:
+                    counter[0] += 1
+                    await child_records.publish_native(
+                        event, source_event=f"step:{step}:event:{counter[0]}"
+                    )
+                    yield event
+                    continue
                 projected = _projection(event)
                 if publisher is not None and projected is not None:
                     kind, content = projected
