@@ -283,6 +283,7 @@ async def test_compose_refuses_unverified_measurements_before_decide(
     assert calls == []
 
 
+@pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.4")
 async def test_compose_delegates_to_engine(monkeypatch) -> None:
     import agent_utilities.harness.harness_cycle as cycle
 
@@ -421,6 +422,7 @@ def _tick_request() -> RunRequest:
     )
 
 
+@pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.7")
 @pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.12")
 @pytest.mark.parametrize("has_baseline", [False, True])
 async def test_tick_refuses_without_owner_measurements_before_decide_or_persist(
@@ -495,6 +497,7 @@ def test_reflect_reports_adoption_or_abstention(events) -> None:
     assert events[-1]["evidence_run_ids"] == []
 
 
+@pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.7")
 async def test_refusals_keep_harness(tmp_path, monkeypatch) -> None:
     import agent_utilities.harness.harness_cycle as cycle
 

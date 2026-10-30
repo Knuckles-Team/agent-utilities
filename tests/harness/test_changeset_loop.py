@@ -87,6 +87,7 @@ def symbol_change():
     )
 
 
+@pytest.mark.spec("MERISTEM-SCM-R002")
 @pytest.mark.asyncio
 async def test_symbol_stale_reads_one_current_anchor_and_retries():
     change = symbol_change()
@@ -192,6 +193,7 @@ async def test_empty_symbol_acceptance_is_not_reported_as_success():
     assert result.reason == "submit_refused"
 
 
+@pytest.mark.spec("MERISTEM-SCM-R001")
 @pytest.mark.asyncio
 async def test_rebases_on_conflict(tmp_path, monkeypatch):
     events = []
