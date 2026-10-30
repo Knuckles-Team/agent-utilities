@@ -54,7 +54,7 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **MERISTEM-BOUNDARY-R030.4:** Wire `scripts/generate_native_connector_manifest.py` off the local manifest compiler onto the SDK pack compiler.
 - [ ] **MERISTEM-BOUNDARY-R030.5:** Wire `agent_utilities/knowledge_graph/domain_packs/pack_loader.py` off the local manifest compiler onto the SDK pack compiler.
 - [ ] **MERISTEM-BOUNDARY-R030.6:** Delete `agent_utilities/knowledge_graph/ontology/manifest_compiler.py` once it has zero importers.
-- [ ] **MERISTEM-BOUNDARY-R030.7:** Add `agent_utilities/knowledge_graph/core/ontology_publisher.py`, the typed AU declaration publisher.
+- [x] **MERISTEM-BOUNDARY-R030.7:** RETIRED: superseded by SCION-CONNECTOR-CONTROL-R067 (typed pack declaration authored by the SDK).
 - [x] **MERISTEM-BOUNDARY-R030.8:** RETIRED: superseded by MERISTEM-SEMANTIC-R021.2/R021.4 (SDK ontology pack + `ontology_publisher.py`, MERISTEM-BOUNDARY-R030.7).
 - [x] **MERISTEM-BOUNDARY-R030.9:** RETIRED: superseded by MERISTEM-SEMANTIC-R021.2/R021.4 (SDK ontology pack + `ontology_publisher.py`, MERISTEM-BOUNDARY-R030.7).
   - [x] **MERISTEM-BOUNDARY-R030.9.1:** RETIRED: superseded by MERISTEM-SEMANTIC-R021.2/R021.4 (SDK ontology pack + `ontology_publisher.py`, MERISTEM-BOUNDARY-R030.7).
