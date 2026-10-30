@@ -50,4 +50,4 @@ def test_value_helper_owner_decision_names_pinned_sdk_module() -> None:
     assert "SCION-CONNECTOR-CONTROL-R780.5" in section
     for symbol in ("to_boolean", "to_integer", "to_list", "to_dict"):
         assert f"`{symbol}`" in section
-    assert "does not establish `MERISTEM-BOUNDARY-R010.4` parity" in section
+    assert "does not establish coercion parity" in section
