@@ -15,11 +15,14 @@ OWNERS = PLAN.split("\n## Removal owners", 1)[1].split("\n## ", 1)[0]
 
 
 def _owner_row(row: str) -> str:
+    """The recorded owner: a cited row, or ``needed:`` naming the owner spec."""
     match = re.search(
-        rf"^\| `{re.escape(row)}` \| (.+?) \| (https://\S+) \|$", OWNERS, re.M
+        rf"^\| `{re.escape(row)}` \| .+? \| (\[[A-Z0-9.-]+\]\(https://\S+\)|needed: \S+: .+?) \|$",
+        OWNERS,
+        re.M,
     )
     assert match is not None, f"{row} has no recorded owner"
-    return match.group(2)
+    return match.group(1)
 
 
 @pytest.mark.spec("MERISTEM-BOUNDARY-R002.3.2")
@@ -158,3 +161,61 @@ def test_domain_directory_has_one_recorded_disposition_and_is_gone(
     dispositions = re.findall(rf"^\| `{re.escape(directory)}/` \| (\w+) \|", PLAN, re.M)
     assert dispositions == ["deleted"]
     assert _owner_row(row)
+
+
+@pytest.mark.spec("MERISTEM-BOUNDARY-R002.3.4")
+def test_certification_oidc_named_only_by_the_history_gate() -> None:
+    for script in (
+        "check_http_egress_boundary.py",
+        "release/check_release_wheel.py",
+        "security/check_http_egress_boundary_gate.py",
+    ):
+        assert not (ROOT / "scripts" / script).exists()
+    naming = sorted(
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "scripts").rglob("*")
+        if path.is_file()
+        and path.suffix in {".py", ".sh", ".md", ".yml"}
+        and "certification_oidc" in path.read_text(encoding="utf-8", errors="replace")
+    )
+    assert naming == ["scripts/check_boundary_history.py"]
+
+
+@pytest.mark.spec("MERISTEM-BOUNDARY-R036.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R037.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R040.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R044.2")
+@pytest.mark.spec("MERISTEM-BOUNDARY-R047.2")
+def test_usage_governance_memory_fleet_and_adapter_packages_are_gone() -> None:
+    packages = {
+        "MERISTEM-BOUNDARY-R036.2": ("usage",),
+        "MERISTEM-BOUNDARY-R037.2": ("governance",),
+        "MERISTEM-BOUNDARY-R040.2": ("knowledge_graph/memory",),
+        "MERISTEM-BOUNDARY-R044.2": ("orchestration",),
+        "MERISTEM-BOUNDARY-R047.2": ("kvcache", "numeric", "caching", "media"),
+    }
+    for row, paths in packages.items():
+        assert_absent(*paths)
+        assert _owner_row(row)
+    dotted = tuple(
+        f"agent_utilities.{name}"
+        for name in (
+            "usage",
+            "governance",
+            "orchestration",
+            "kvcache",
+            "numeric",
+            "caching",
+            "media",
+        )
+    )
+    assert references(dotted, include_tests=True) == []
+    assert references(("knowledge_graph.memory",), include_tests=True) == []
+
+
+@pytest.mark.spec("MERISTEM-BOUNDARY-R032")
+def test_legacy_sparql_path_is_owned_by_the_engine_not_meristem() -> None:
+    assert_absent("knowledge_graph/backends/sparql", "knowledge_graph/setup")
+    assert "setup-databases" not in console_scripts()
+    assert references(("stardog_sync", "sparql_ingestor"), include_tests=True) == []
+    assert _owner_row("MERISTEM-BOUNDARY-R032")
