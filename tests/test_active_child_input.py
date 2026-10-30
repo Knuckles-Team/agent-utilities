@@ -13,6 +13,9 @@ from agent_utilities import host_ports
 from agent_utilities.graph import RunBudget, RunPlan, RunRequest, run
 
 
+pytestmark = pytest.mark.spec("MERISTEM-BOUNDARY-R043.15")
+
+
 class Port:
     def __init__(self) -> None:
         self.binding = host_ports.ActiveChildBinding("child", "parent", "admission", 1)

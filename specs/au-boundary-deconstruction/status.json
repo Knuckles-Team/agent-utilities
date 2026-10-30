@@ -2784,14 +2784,22 @@
       "title": "Apply host-admitted active-child input at a safe boundary",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_active_child_input.py:16"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R043.16",
       "title": "Consume selected completed-child history for a fresh turn",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [
+        "tests/test_conversation_history.py:418",
+        "tests/test_conversation_history.py:474",
+        "tests/test_conversation_history.py:507",
+        "tests/test_conversation_history.py:547",
+        "tests/test_conversation_history.py:609"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R043.17",
