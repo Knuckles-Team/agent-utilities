@@ -18,7 +18,7 @@ def inventory(tmp_path: Path) -> tuple[Path, Path]:
                 "schema": "au-file-owners/v1",
                 "files": [
                     {
-                        "path": "agent_utilities/core/paths.py",
+                        "path": "meristem/core/paths.py",
                         "disposition": "keep",
                         "owner": "meristem",
                     }
@@ -33,10 +33,10 @@ def test_file_inventory_detects_added_and_removed_tracked_files(
     inventory: tuple[Path, Path],
 ) -> None:
     root, _ = inventory
-    assert check(root, ["agent_utilities/core/paths.py"]) == []
-    assert check(root, ["agent_utilities/core/new.py"]) == [
-        "unowned file: agent_utilities/core/new.py",
-        "stale file: agent_utilities/core/paths.py",
+    assert check(root, ["meristem/core/paths.py"]) == []
+    assert check(root, ["meristem/core/new.py"]) == [
+        "unowned file: meristem/core/new.py",
+        "stale file: meristem/core/paths.py",
     ]
 
 
@@ -52,7 +52,7 @@ def test_file_inventory_refuses_unowned_or_undecided_entries(
     manifest["files"][0].update(owner=owner, disposition=disposition)
     path.write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match="invalid file owner"):
-        check(root, ["agent_utilities/core/paths.py"])
+        check(root, ["meristem/core/paths.py"])
 
 
 def test_file_inventory_refuses_duplicate_paths(inventory: tuple[Path, Path]) -> None:
@@ -61,4 +61,4 @@ def test_file_inventory_refuses_duplicate_paths(inventory: tuple[Path, Path]) ->
     manifest["files"].append(manifest["files"][0])
     path.write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match="duplicate file path"):
-        check(root, ["agent_utilities/core/paths.py"])
+        check(root, ["meristem/core/paths.py"])

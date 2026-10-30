@@ -1,6 +1,6 @@
 # MERISTEM-HARNESS-CYCLE — Harness evolution cycle
 
-Owner: agent-utilities. Cross-repo IDs: MEDULLA-ORCH-VOCAB-R801, MEDULLA-ORCH-VOCAB-R802, MEDULLA-DECISION-ENGINE-R803, MEDULLA-DECISION-ENGINE-R136.3, ARBORA-OPS-R068.
+Owner: meristem. Cross-repo IDs: MEDULLA-ORCH-VOCAB-R801, MEDULLA-ORCH-VOCAB-R802, MEDULLA-DECISION-ENGINE-R803, MEDULLA-DECISION-ENGINE-R136.3, ARBORA-OPS-R068.
 
 ## Purpose and user stories
 
@@ -28,16 +28,16 @@ adoption operations (ARBORA-OPS-R068). This repository keeps the
 in-run loop itself. It covers the propose, probe, compose, persist and
 reflect steps between two served operations. `MERISTEM-BOUNDARY` owns the
 boundary decision. No remaining spec owns the cycle. The
-`agent_utilities/harness/` package today holds the constraint,
+`meristem/harness/` package today holds the constraint,
 contract, edit, plan and quality-gate engines only.
 
 ## Scope and interfaces
 
 Owned: the cycle loop and its models
-(`agent_utilities/harness/harness_cycle.py`). The probe entry runs
-through `execute_graph` (`agent_utilities/graph/runner.py:80`). The
+(`meristem/harness/harness_cycle.py`). The probe entry runs
+through `execute_graph` (`meristem/graph/runner.py:80`). The
 harness switch runs through `apply_edits`
-(`agent_utilities/harness/edit_engine.py:457`). arbora drives the host
+(`meristem/harness/edit_engine.py:457`). arbora drives the host
 port. The candidate budget k comes from the stage allocation of
 MEDULLA-DECISION-ENGINE-R136.3. Non-goals: versioned component storage and
 lesson storage (epistemic-graph). The served operations (arbora). Any

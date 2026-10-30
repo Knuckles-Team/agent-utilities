@@ -34,20 +34,20 @@ name = "Repository Maintainers"
 email = "maintainers@knuckles.team"
 
 [project.scripts]
-agent-utilities = "agent_utilities.__main__:main"
+meristem = "meristem.__main__:main"
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.dynamic]
-version = {attr = "agent_utilities._version.__version__"}
+version = {attr = "meristem._version.__version__"}
 
 [tool.setuptools.package-data]
-agent_utilities = ["py.typed"]
+meristem = ["py.typed"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["agent_utilities*"]
+include = ["meristem*"]
 
 [tool.ruff]
 line-length = 88
@@ -77,9 +77,9 @@ dev = [
 ]
 
 [tool.pipelines_hooks.public_surface]
-repository = "Knuckles-Team/agent-utilities"
+repository = "Knuckles-Team/meristem"
 distribution = "meristem"
-pages_url = "https://knuckles-team.github.io/agent-utilities/"
+pages_url = "https://knuckles-team.github.io/meristem/"
 mcp_server = false
 
 [tool.pipelines_hooks.ste]

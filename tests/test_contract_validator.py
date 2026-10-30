@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from agent_utilities.harness.contract_validator import ContractValidator, ToolContract
+from meristem.harness.contract_validator import ContractValidator, ToolContract
 
 
 class _Out(BaseModel):

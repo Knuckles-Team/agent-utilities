@@ -13,8 +13,8 @@ from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.toolsets import FunctionToolset
 from pydantic_ai.usage import RequestUsage, RunUsage
 
-from agent_utilities import host_ports
-from agent_utilities.graph import (
+from meristem import host_ports
+from meristem.graph import (
     DependencyPlan,
     RunBudget,
     RunPlan,
@@ -27,7 +27,7 @@ from agent_utilities.graph import (
     iterate_run,
     run,
 )
-from agent_utilities.graph.dependency import (
+from meristem.graph.dependency import (
     resolve_tool_bindings,
     validate_dependency_plan,
 )
@@ -161,7 +161,7 @@ async def test_freed_slot_starts_dependent_before_slow_peer_and_join_waits(
             event["event_id"]
             == uuid.uuid5(
                 uuid.NAMESPACE_URL,
-                f"agent-utilities:run:{event['run_id']}:event:{event['sequence']}",
+                f"meristem:run:{event['run_id']}:event:{event['sequence']}",
             ).hex
         )
 
@@ -596,7 +596,7 @@ async def test_model_request_cap_can_be_lower_than_active_task_cap():
 async def test_output_validation_retries_share_request_reservations(
     request_limit, expected
 ):
-    from agent_utilities.graph import HarnessConfig
+    from meristem.graph import HarnessConfig
 
     calls = 0
 
@@ -761,7 +761,7 @@ async def test_unresolved_binding_is_a_typed_failure(prompt_output, reference, e
         ),
         output_task_id="dependent",
     )
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     host_ports.register_tool_caller(caller)
     result = await run(RunRequest(task="t"), plan=plan)
@@ -799,7 +799,7 @@ async def test_failed_tool_step_does_not_start_dependents_and_makes_no_model_req
             result={"reason": "denied"}, outcome="failed", error="remote failure"
         )
 
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     host_ports.register_tool_caller(caller)
     plan = _tool_plan(
@@ -835,7 +835,7 @@ async def test_tool_step_records_resolved_arguments_and_result(events):
         assert (server, tool, task_id) == ("server", "lookup", "tool")
         return ToolStepResult(result={"ticket": {"id": "INC-7"}, "closed": True})
 
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     host_ports.register_tool_caller(caller)
     plan = _tool_plan(
@@ -876,7 +876,7 @@ async def test_tool_step_refusal_and_failure_records_are_typed(
     async def caller(server, tool, arguments, task_id):
         return ToolStepResult(outcome=outcome, error=f"{outcome} by host")
 
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     host_ports.register_tool_caller(caller)
     plan = _tool_plan(
@@ -900,7 +900,7 @@ async def test_tool_step_host_exception_records_typed_failure(events):
     async def caller(server, tool, arguments, task_id):
         raise RuntimeError("host transport failed")
 
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     host_ports.register_tool_caller(caller)
     plan = _tool_plan(
@@ -927,7 +927,7 @@ async def test_tool_step_budget_zero_refuses_before_caller(events):
         caller_calls += 1
         return ToolStepResult(result={"unexpected": True})
 
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     host_ports.register_tool_caller(caller)
     plan = _tool_plan(
@@ -955,7 +955,7 @@ async def test_tool_step_budget_one_allows_one_parallel_call(events):
         calls.append(task_id)
         return ToolStepResult(result={"task": task_id})
 
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     host_ports.register_tool_caller(caller)
     plan = _tool_plan(
@@ -991,7 +991,7 @@ async def test_tool_step_terminal_records_follow_declaration_order(events):
             second_completed.set()
         return ToolStepResult(result={"task": task_id})
 
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     host_ports.register_tool_caller(caller)
     plan = _tool_plan(
@@ -1032,7 +1032,7 @@ async def test_oversized_arguments_are_replaced_by_digest(events):
         captured.append(arguments)
         return ToolStepResult(result={"ok": True})
 
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     host_ports.register_tool_caller(caller)
     plan = _tool_plan(
@@ -1064,7 +1064,7 @@ async def test_oversized_result_is_replaced_by_digest(events):
     async def caller(server, tool, arguments, task_id):
         return ToolStepResult(result=oversized)
 
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     host_ports.register_tool_caller(caller)
     plan = _tool_plan(
@@ -1123,7 +1123,7 @@ async def test_mixed_dag_refills_slots_in_order(events):
         finally:
             active -= 1
 
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     host_ports.register_tool_caller(caller)
     plan = _tool_plan(
@@ -1171,7 +1171,7 @@ async def test_execute_graph_routes_tool_steps_through_the_bound_caller():
         calls.append((server, tool, dict(arguments), task_id))
         return ToolStepResult(result={"ok": True})
 
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     plan = _tool_plan(
         FunctionModel(model),
@@ -1200,7 +1200,7 @@ async def test_cancel_cancels_inflight_tool_call(events):
         finally:
             cancelled.set()
 
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     host_ports.register_tool_caller(caller)
     plan = _tool_plan(
@@ -1336,7 +1336,7 @@ async def test_tool_step_end_to_end_through_run_api(events):
         calls.append((server, tool, dict(arguments), task_id))
         return ToolStepResult(result={"status": "closed", "incident": arguments["id"]})
 
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     host_ports.register_tool_caller(caller)
     plan = _tool_plan(
@@ -1512,7 +1512,7 @@ async def test_dependency_deadline_drains_work_while_reader_is_paused(monkeypatc
 async def test_dependency_deadline_includes_scaffold_setup(stage, monkeypatch):
     from contextlib import asynccontextmanager
 
-    from agent_utilities.graph import HarnessConfig
+    from meristem.graph import HarnessConfig
 
     entered, closed = asyncio.Event(), asyncio.Event()
     scopes = []

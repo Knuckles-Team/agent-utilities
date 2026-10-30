@@ -9,14 +9,14 @@ from scripts.check_boundary_coverage import check
 
 @pytest.fixture
 def checkout(tmp_path: Path) -> Path:
-    (tmp_path / "agent_utilities/harness").mkdir(parents=True)
-    (tmp_path / "agent_utilities/skills/development").mkdir(parents=True)
+    (tmp_path / "meristem/harness").mkdir(parents=True)
+    (tmp_path / "meristem/skills/development").mkdir(parents=True)
     coverage = tmp_path / "specs/au-boundary-deconstruction/coverage.md"
     coverage.parent.mkdir(parents=True)
     coverage.write_text(
-        "| `agent_utilities/harness` | keep | meristem |\n"
-        "| `agent_utilities/skills` | keep | meristem |\n"
-        "| `agent_utilities/skills/development` | keep | meristem |\n"
+        "| `meristem/harness` | keep | meristem |\n"
+        "| `meristem/skills` | keep | meristem |\n"
+        "| `meristem/skills/development` | keep | meristem |\n"
     )
     return tmp_path
 
@@ -24,13 +24,13 @@ def checkout(tmp_path: Path) -> Path:
 @pytest.mark.spec("MERISTEM-BOUNDARY-R042")
 def test_inventory_rejects_unlisted_and_stale_directories(checkout: Path) -> None:
     assert check(checkout) == []
-    (checkout / "agent_utilities/unlisted").mkdir()
-    (checkout / "agent_utilities/.hidden").mkdir()
-    (checkout / "agent_utilities/harness").rmdir()
+    (checkout / "meristem/unlisted").mkdir()
+    (checkout / "meristem/.hidden").mkdir()
+    (checkout / "meristem/harness").rmdir()
     assert check(checkout) == [
-        "unlisted directory: agent_utilities/.hidden",
-        "unlisted directory: agent_utilities/unlisted",
-        "stale directory: agent_utilities/harness",
+        "unlisted directory: meristem/.hidden",
+        "unlisted directory: meristem/unlisted",
+        "stale directory: meristem/harness",
     ]
 
 
@@ -38,10 +38,10 @@ def test_inventory_rejects_unlisted_and_stale_directories(checkout: Path) -> Non
 @pytest.mark.parametrize(
     "row",
     [
-        "| `agent_utilities/harness` | undecided | meristem |\n",
-        "| `agent_utilities/harness` | relocate | unknown |\n",
-        "| `agent_utilities/harness` | keep | meristem |\n"
-        "| `agent_utilities/harness` | keep | meristem |\n",
+        "| `meristem/harness` | undecided | meristem |\n",
+        "| `meristem/harness` | relocate | unknown |\n",
+        "| `meristem/harness` | keep | meristem |\n"
+        "| `meristem/harness` | keep | meristem |\n",
     ],
 )
 def test_inventory_rejects_undecided_invalid_or_duplicate_rows(

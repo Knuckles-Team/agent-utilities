@@ -8,10 +8,10 @@ import pytest
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 
-from agent_utilities import host_ports
-from agent_utilities.graph import RunPlan, RunRequest, run
-from agent_utilities.graph.state import HarnessConfig
-from agent_utilities.harness.client_capabilities import (
+from meristem import host_ports
+from meristem.graph import RunPlan, RunRequest, run
+from meristem.graph.state import HarnessConfig
+from meristem.harness.client_capabilities import (
     ClientCapabilityToolset,
     ClientToolLimits,
 )

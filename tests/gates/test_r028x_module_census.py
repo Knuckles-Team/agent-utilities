@@ -8,14 +8,14 @@ from scripts.check_connector_import_census import inspect_file
 
 ROOT = Path(__file__).resolve().parents[2]
 PREFIXES = {
-    "infra": ("agent_utilities.knowledge_graph.infra",),
+    "infra": ("meristem.knowledge_graph.infra",),
     "observability": (
-        "agent_utilities.observability.trace_ontology",
-        "agent_utilities.observability.self_ingest",
-        "agent_utilities.observability.audit_logger",
+        "meristem.observability.trace_ontology",
+        "meristem.observability.self_ingest",
+        "meristem.observability.audit_logger",
     ),
-    "governance": ("agent_utilities.governance.relational_authority",),
-    "placement": ("agent_utilities.knowledge_graph.research.placement_mining",),
+    "governance": ("meristem.governance.relational_authority",),
+    "placement": ("meristem.knowledge_graph.research.placement_mining",),
 }
 
 
@@ -23,7 +23,7 @@ def _importers(package_root: Path, prefixes: tuple[str, ...]) -> set[str]:
     found: set[str] = set()
     for source in package_root.rglob("*.py"):
         relative = source.relative_to(package_root)
-        package = ".".join(("agent_utilities", *relative.parts[:-1]))
+        package = ".".join(("meristem", *relative.parts[:-1]))
         finding = inspect_file(source, prefixes, package=package)
         if finding.unresolved:
             raise AssertionError(
@@ -35,7 +35,7 @@ def _importers(package_root: Path, prefixes: tuple[str, ...]) -> set[str]:
 
 
 def _check(package: str, prefix: str, tmp_path: Path) -> None:
-    assert _importers(ROOT / "agent_utilities", PREFIXES[package]) == set()
+    assert _importers(ROOT / "meristem", PREFIXES[package]) == set()
     source = tmp_path / "caller.py"
     source.write_text(f"import {prefix}\n")
     assert _importers(tmp_path, PREFIXES[package]) == {"caller.py"}
@@ -43,30 +43,28 @@ def _check(package: str, prefix: str, tmp_path: Path) -> None:
 
 @pytest.mark.spec("MERISTEM-BOUNDARY-R028.2.1")
 def test_r028_2_1_infra_importer_set_has_not_grown(tmp_path: Path) -> None:
-    _check(
-        "infra", "agent_utilities.knowledge_graph.infra.placement_optimizer", tmp_path
-    )
+    _check("infra", "meristem.knowledge_graph.infra.placement_optimizer", tmp_path)
 
 
 @pytest.mark.spec("MERISTEM-BOUNDARY-R028.6.1")
 def test_r028_6_1_observability_triad_importer_set_has_not_grown(
     tmp_path: Path,
 ) -> None:
-    _check("observability", "agent_utilities.observability.trace_ontology", tmp_path)
+    _check("observability", "meristem.observability.trace_ontology", tmp_path)
 
 
 @pytest.mark.spec("MERISTEM-BOUNDARY-R028.7.1")
 def test_r028_7_1_relational_authority_importer_set_has_not_grown(
     tmp_path: Path,
 ) -> None:
-    _check("governance", "agent_utilities.governance.relational_authority", tmp_path)
+    _check("governance", "meristem.governance.relational_authority", tmp_path)
 
 
 @pytest.mark.spec("MERISTEM-BOUNDARY-R028.8.1")
 def test_r028_8_1_placement_mining_importer_set_has_not_grown(tmp_path: Path) -> None:
     _check(
         "placement",
-        "agent_utilities.knowledge_graph.research.placement_mining",
+        "meristem.knowledge_graph.research.placement_mining",
         tmp_path,
     )
 

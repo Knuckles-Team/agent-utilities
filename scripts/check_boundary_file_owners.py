@@ -35,7 +35,7 @@ def check(root: Path, tracked: Iterable[str]) -> list[str]:
             raise ValueError("invalid file disposition or owner")
         if (
             not isinstance(path, str)
-            or not path.startswith("agent_utilities/")
+            or not path.startswith("meristem/")
             or ".." in PurePosixPath(path).parts
             or str(PurePosixPath(path)) != path
             or path in recorded
@@ -49,7 +49,7 @@ def check(root: Path, tracked: Iterable[str]) -> list[str]:
             raise ValueError(f"undecided or invalid file owner: {path}")
         recorded.add(path)
     actual = set(tracked)
-    if not actual or any(not path.startswith("agent_utilities/") for path in actual):
+    if not actual or any(not path.startswith("meristem/") for path in actual):
         raise ValueError("invalid tracked package files")
     return [
         *(f"unowned file: {path}" for path in sorted(actual - recorded)),
@@ -61,7 +61,7 @@ def main() -> int:
     root = Path(__file__).resolve().parents[1]
     try:
         result = subprocess.run(
-            ["git", "ls-files", "-z", "--", "agent_utilities"],
+            ["git", "ls-files", "-z", "--", "meristem"],
             cwd=root,
             check=True,
             capture_output=True,

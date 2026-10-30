@@ -10,11 +10,11 @@ from pathlib import Path
 
 import pytest
 
-from agent_utilities.runtime import DevWorkspace, LocalWorkspace, create_workspace
-from agent_utilities.runtime.bridge import ActionDispatcher
-from agent_utilities.runtime.browser_tier import NullBrowserDriver
-from agent_utilities.runtime.computer_use_tier import NullComputerUseDriver
-from agent_utilities.runtime.events import (
+from meristem.runtime import DevWorkspace, LocalWorkspace, create_workspace
+from meristem.runtime.bridge import ActionDispatcher
+from meristem.runtime.browser_tier import NullBrowserDriver
+from meristem.runtime.computer_use_tier import NullComputerUseDriver
+from meristem.runtime.events import (
     ACTION_ADAPTER,
     OBSERVATION_ADAPTER,
     WORKSPACE_MUTATING_ACTIONS,
@@ -66,9 +66,11 @@ def test_observation_roundtrip_and_mutating_set():
 
 
 async def test_shell_state_persists_and_steps_stamp(workspace):
-    workspace.state.env["AU_TEST_VAR"] = "42"
+    workspace.state.env["MERISTEM_TEST_VAR"] = "42"
     first = await workspace.act(CmdRunAction(command="mkdir -p pkg && cd pkg"))
-    second = await workspace.act(CmdRunAction(command='pwd; echo "val=$AU_TEST_VAR"'))
+    second = await workspace.act(
+        CmdRunAction(command='pwd; echo "val=$MERISTEM_TEST_VAR"')
+    )
     assert first.exit_code == 0
     assert second.cwd.endswith("/pkg") and "val=42" in second.stdout
     assert (first.step, second.step) == (1, 2) and first.run_id == "testrun"
@@ -147,7 +149,7 @@ async def test_optional_tiers_refuse_without_driver_and_route_with_one(workspace
 
 
 def test_create_workspace_falls_back_to_local(monkeypatch):
-    from agent_utilities.runtime import docker_workspace
+    from meristem.runtime import docker_workspace
 
     monkeypatch.setattr(
         docker_workspace.DockerWorkspace, "is_available", lambda self: False
@@ -156,7 +158,7 @@ def test_create_workspace_falls_back_to_local(monkeypatch):
 
 
 def test_docker_workspace_host_directory_is_owner_only():
-    from agent_utilities.runtime.docker_workspace import DockerWorkspace
+    from meristem.runtime.docker_workspace import DockerWorkspace
 
     ws = DockerWorkspace(run_id="perm")
     try:
@@ -176,7 +178,7 @@ def test_docker_workspace_host_directory_is_owner_only():
 async def test_run_shell_process_returns_exit_code_and_output(
     script, timeout, expected
 ):
-    from agent_utilities.runtime.workspace import run_shell_process
+    from meristem.runtime.workspace import run_shell_process
 
     assert await run_shell_process(["bash", "-c", script], timeout) == expected
 
@@ -197,7 +199,7 @@ RUNTIME_RUN_EXPORTS = (
 @pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("name", RUNTIME_RUN_EXPORTS)
 def test_runtime_exports_the_same_public_run_objects(name):
-    from agent_utilities import graph, runtime
+    from meristem import graph, runtime
 
     assert name in runtime.__all__
     assert name in graph.__all__
@@ -209,11 +211,11 @@ def test_runtime_run_exports_are_lazy_and_cycle_safe_in_a_fresh_process():
     script = """
 import os
 import sys
-from agent_utilities import runtime
+from meristem import runtime
 
-assert "agent_utilities.graph" not in sys.modules
+assert "meristem.graph" not in sys.modules
 resolved = {name: getattr(runtime, name) for name in sys.argv[1:]}
-from agent_utilities import graph
+from meristem import graph
 
 for name, exported in resolved.items():
     assert name in runtime.__all__

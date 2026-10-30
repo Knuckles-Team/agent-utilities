@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_utilities.harness.edit_engine import (
+from meristem.harness.edit_engine import (
     apply_edits,
     apply_with_reflection,
     parse_edits,

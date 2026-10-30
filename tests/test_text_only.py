@@ -10,9 +10,9 @@ from openai import AsyncOpenAI
 from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-from agent_utilities import host_ports
-from agent_utilities.graph.state import HarnessConfig
-from agent_utilities.runtime import (
+from meristem import host_ports
+from meristem.graph.state import HarnessConfig
+from meristem.runtime import (
     AgentRunExecutor,
     RunBudget,
     RunPlan,

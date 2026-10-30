@@ -6,27 +6,26 @@ espalier-trained growth, it provides structure for execution, not model-weight
 training. It applies the decisions it is given; it does not store, decide,
 serve or connect on its own.
 
-Meristem is distributed as `agent-utilities` and imported as `agent_utilities`.
-The repository is `meristem`. Package, CLI and API identifiers remain unchanged.
+Meristem is distributed, imported and run as `meristem` (repository `Knuckles-Team/meristem`).
 
-[![PyPI - Version](https://img.shields.io/pypi/v/agent-utilities)](https://pypi.org/project/agent-utilities/)
+[![PyPI - Version](https://img.shields.io/pypi/v/meristem)](https://pypi.org/project/meristem/)
 [![Build](https://github.com/Knuckles-Team/meristem/actions/workflows/release.yml/badge.svg)](https://github.com/Knuckles-Team/meristem/actions/workflows/release.yml)
 
-*Version: 4.1.0*
+*Version: 5.0.0*
 
 ## What it contains
 
 | Module | What it does inside one run |
 |---|---|
-| `agent_utilities.graph` | Applies a received ordered plan or dependency DAG. It enforces task slots and shared budgets, and emits ordered execution events. |
-| `agent_utilities.rlm` | Runs recursive model queries with shared request and tool limits and bounded concurrent model requests. |
-| `agent_utilities.harness.edit_engine` | Parses model-proposed edits (search/replace blocks, unified diffs), applies them with graduated matching, and re-prompts on malformed or unmatched edits. |
-| `agent_utilities.harness.contract_validator` | Checks a tool call's pre-conditions and its output's schema and verifier. |
-| `agent_utilities.harness.constraint_engine` | Enforces hierarchical constraints on tool calls (prompt, tool description, middleware, implementation) and escalates repeated violations. |
-| `agent_utilities.harness.quality_gates` | The pre-emit gate: antipattern detection, a preflight checklist and a multi-dimensional critique, in warn or block mode. |
-| `agent_utilities.runtime` | The developer workspace: typed actions and observations, a stateful shell, local and container backends, a policy gate it is given, and the browser and computer-use tier ports. |
-| `agent_utilities.host_ports` | The protocols the host fills: native and remote toolsets, tool clients, outbound credentials, delegated identity, the fleet catalog and the session keepalive. Without a host every binding port fails closed. |
-| `agent_utilities.core.paths` | Resolves the platform config, data, cache and log directories (`ARBORA_CONFIG_DIR`, XDG). |
+| `meristem.graph` | Applies a received ordered plan or dependency DAG. It enforces task slots and shared budgets, and emits ordered execution events. |
+| `meristem.rlm` | Runs recursive model queries with shared request and tool limits and bounded concurrent model requests. |
+| `meristem.harness.edit_engine` | Parses model-proposed edits (search/replace blocks, unified diffs), applies them with graduated matching, and re-prompts on malformed or unmatched edits. |
+| `meristem.harness.contract_validator` | Checks a tool call's pre-conditions and its output's schema and verifier. |
+| `meristem.harness.constraint_engine` | Enforces hierarchical constraints on tool calls (prompt, tool description, middleware, implementation) and escalates repeated violations. |
+| `meristem.harness.quality_gates` | The pre-emit gate: antipattern detection, a preflight checklist and a multi-dimensional critique, in warn or block mode. |
+| `meristem.runtime` | The developer workspace: typed actions and observations, a stateful shell, local and container backends, a policy gate it is given, and the browser and computer-use tier ports. |
+| `meristem.host_ports` | The protocols the host fills: native and remote toolsets, tool clients, outbound credentials, delegated identity, the fleet catalog and the session keepalive. Without a host every binding port fails closed. |
+| `meristem.core.paths` | Resolves the platform config, data, cache and log directories (`ARBORA_CONFIG_DIR`, XDG). |
 
 ## Where everything else lives
 
@@ -42,12 +41,12 @@ The repository is `meristem`. Package, CLI and API identifiers remain unchanged.
 ## Install and use
 
 ```bash
-pip install agent-utilities
+pip install meristem
 ```
 
 ```python
-from agent_utilities.runtime import create_workspace
-from agent_utilities.runtime.events import CmdRunAction, TestRunAction
+from meristem.runtime import create_workspace
+from meristem.runtime.events import CmdRunAction, TestRunAction
 
 async with create_workspace(run_id="r1", prefer_docker=False) as ws:
     await ws.act(CmdRunAction(command="git status"))
@@ -106,7 +105,7 @@ a reported usage ledger or add these counters again in the host.
 `run()` returns a failed `RunResult`. `AgentRunExecutor.execute_agent()` raises
 `RunFailed`, a `RuntimeError` subclass with the same error message. Its immutable
 `result` snapshot retains that aggregate receipt, with `run_id` and `usage`
-properties. The allowed host facade `agent_utilities.runtime` lazily re-exports
+properties. The allowed host facade `meristem.runtime` lazily re-exports
 the same run executor, plans, tasks, bounds, stop rule and failure types.
 Hosts must check the exception type and expected run identity
 before copying these counters. Keep the outcome failed; do not publish a
@@ -146,7 +145,7 @@ finish asynchronous cleanup before cancellation returns, including nested runs.
 ```bash
 uv sync --group dev
 uv run ruff check . && uv run ruff format --check .
-uv run mypy agent_utilities
+uv run mypy meristem
 uv run pytest -q
 ```
 

@@ -15,7 +15,7 @@ OWNERS = {"meristem", "arbora", "scion-sdk", "medulla"}
 def _paths(value: Any) -> list[str]:
     if not isinstance(value, list) or not all(
         isinstance(item, str)
-        and item.startswith("agent_utilities/")
+        and item.startswith("meristem/")
         and ".." not in PurePosixPath(item).parts
         and str(PurePosixPath(item)) == item
         for item in value
@@ -41,8 +41,7 @@ def check(root: Path) -> list[str]:
         owner: _paths(owners[owner].get("prefixes")) for owner in OWNERS - {"meristem"}
     }
     actual = {
-        path.relative_to(root).as_posix()
-        for path in (root / "agent_utilities").rglob("*.py")
+        path.relative_to(root).as_posix() for path in (root / "meristem").rglob("*.py")
     }
     findings = [
         f"unregistered module: {path}" for path in sorted(actual - set(modules))

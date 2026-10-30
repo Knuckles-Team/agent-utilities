@@ -1,4 +1,4 @@
-"""Behaviour of the agent run loop (agent_utilities.graph) over fake host ports."""
+"""Behaviour of the agent run loop (meristem.graph) over fake host ports."""
 
 from __future__ import annotations
 
@@ -17,9 +17,9 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.toolsets import FunctionToolset
 from pydantic_ai.usage import RequestUsage, RunUsage
 
-import agent_utilities
-from agent_utilities import host_ports
-from agent_utilities.graph import (
+import meristem
+from meristem import host_ports
+from meristem.graph import (
     AgentRunExecutor,
     GraphEventHandler,
     RunBudget,
@@ -263,7 +263,7 @@ async def test_granted_tools_without_a_host_fail_closed():
 
 
 async def test_json_response_format_returns_json_text():
-    from agent_utilities.graph import HarnessConfig
+    from meristem.graph import HarnessConfig
 
     plan = plan_of(
         TestModel(custom_output_args={"a": 1}),
@@ -286,7 +286,7 @@ async def test_model_error_is_a_failed_terminal_event():
 async def test_shared_budget_preserves_failed_handler_exception_and_reserves_once(
     error_type,
 ):
-    from agent_utilities.graph.budget import SharedBudget
+    from meristem.graph.budget import SharedBudget
 
     calls = []
     original = error_type("original handler failure")
@@ -389,9 +389,9 @@ async def test_agent_run_executor_maps_a_host_request():
 
 
 def test_top_level_exports_are_lazy():
-    assert agent_utilities.execute_graph is execute_graph
+    assert meristem.execute_graph is execute_graph
     with pytest.raises(AttributeError):
-        agent_utilities.not_a_name  # noqa: B018
+        meristem.not_a_name  # noqa: B018
 
 
 # spec: MERISTEM-BOUNDARY-R043.1
@@ -947,7 +947,7 @@ async def test_measured_planning_failure_is_a_single_reusable_terminal_result(
     no_planning_failure_execution,
     events,
 ):
-    from agent_utilities.graph import RunPlanFailure
+    from meristem.graph import RunPlanFailure
 
     initial = RunUsage(
         requests=7,
@@ -1003,7 +1003,7 @@ async def test_measured_planning_limit_failure_preserves_original_error_and_usag
 ):
     from pydantic_ai.exceptions import UsageLimitExceeded
 
-    from agent_utilities.graph import RunPlanFailure
+    from meristem.graph import RunPlanFailure
 
     error = UsageLimitExceeded("planner exceeded its original token allowance")
     register_failing_decision(
@@ -1033,7 +1033,7 @@ async def test_measured_planning_limit_failure_preserves_original_error_and_usag
 async def test_measured_planning_cancellation_keeps_ledger_and_original_exception(
     is_async, through_iterator, error_type, no_planning_failure_execution, events
 ):
-    from agent_utilities.graph import RunPlanFailure
+    from meristem.graph import RunPlanFailure
 
     initial = RunUsage(requests=2, tool_calls=1, input_tokens=9, output_tokens=3)
     original = asdict(initial)
@@ -1119,7 +1119,7 @@ async def test_raw_planning_failures_cannot_claim_unmeasured_usage(
 async def test_invalid_planning_failure_counters_reject_the_whole_ledger(
     field, value, no_planning_failure_execution, events
 ):
-    from agent_utilities.graph import RunPlanFailure
+    from meristem.graph import RunPlanFailure
 
     initial = RunUsage(requests=2, tool_calls=1, input_tokens=9, output_tokens=3)
     setattr(initial, field, value)
@@ -1145,7 +1145,7 @@ async def test_invalid_planning_failure_counters_reject_the_whole_ledger(
 async def test_invalid_planning_failure_elapsed_rejects_the_whole_ledger(
     elapsed, no_planning_failure_execution, events
 ):
-    from agent_utilities.graph import RunPlanFailure
+    from meristem.graph import RunPlanFailure
 
     initial = RunUsage(requests=2, input_tokens=9, output_tokens=3)
 
@@ -1173,7 +1173,7 @@ async def test_invalid_planning_failure_elapsed_rejects_the_whole_ledger(
 async def test_planning_failure_requires_a_typed_host_ledger(
     initial, no_planning_failure_execution, events
 ):
-    from agent_utilities.graph import RunPlanFailure
+    from meristem.graph import RunPlanFailure
 
     def provide(request):
         raise RunPlanFailure(RuntimeError("original failure"), initial_usage=initial)
@@ -1190,7 +1190,7 @@ async def test_planning_failure_requires_a_typed_host_ledger(
 async def test_planning_failure_rejects_an_incoherent_host_token_total(
     no_planning_failure_execution, events
 ):
-    from agent_utilities.graph import RunPlanFailure
+    from meristem.graph import RunPlanFailure
 
     class IncoherentUsage(RunUsage):
         @property
@@ -1213,7 +1213,7 @@ async def test_planning_failure_rejects_an_incoherent_host_token_total(
 
 @pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 async def test_model_cannot_inject_a_second_planning_failure_ledger(events):
-    from agent_utilities.graph import RunPlanFailure
+    from meristem.graph import RunPlanFailure
 
     async def fail(messages, info):
         raise RunPlanFailure(
@@ -1252,7 +1252,7 @@ async def test_model_cannot_inject_a_second_planning_failure_ledger(events):
 async def test_invalid_planning_cancellation_ledger_fails_before_cancellation(
     error_type, invalid_part, no_planning_failure_execution, events
 ):
-    from agent_utilities.graph import RunPlanFailure
+    from meristem.graph import RunPlanFailure
 
     initial = RunUsage(requests=2, input_tokens=9, output_tokens=3)
     if invalid_part == "counter":
@@ -1276,7 +1276,7 @@ async def test_invalid_planning_cancellation_ledger_fails_before_cancellation(
 async def test_planning_failure_does_not_estimate_unreported_tokens(
     requests, no_planning_failure_execution, events
 ):
-    from agent_utilities.graph import RunPlanFailure
+    from meristem.graph import RunPlanFailure
 
     initial = RunUsage(requests=requests)
     register_failing_decision(
@@ -1303,7 +1303,7 @@ async def test_planning_failure_does_not_estimate_unreported_tokens(
 @pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("error", [None, "not an exception", RuntimeError])
 def test_planning_failure_requires_an_exception_instance(error):
-    from agent_utilities.graph import RunPlanFailure
+    from meristem.graph import RunPlanFailure
 
     with pytest.raises(TypeError, match="error must be an exception"):
         RunPlanFailure(error, initial_usage=RunUsage(requests=2))
@@ -1313,7 +1313,7 @@ def test_planning_failure_requires_an_exception_instance(error):
 async def test_task_cancellation_after_planner_consumption_reports_actual_usage(
     no_planning_failure_execution, events
 ):
-    from agent_utilities.graph import RunPlanFailure
+    from meristem.graph import RunPlanFailure
 
     consumed = asyncio.Event()
     publication = asyncio.Event()
@@ -1368,7 +1368,7 @@ async def test_task_cancellation_after_planner_consumption_reports_actual_usage(
 
 @pytest.fixture
 def failed_run_result():
-    from agent_utilities.graph import RunResult
+    from meristem.graph import RunResult
 
     return RunResult(
         run_id="host-assigned-run-id",
@@ -1392,8 +1392,8 @@ def failed_run_result():
 def test_run_failed_is_public_and_preserves_runtime_error_message(
     error, mode, failed_run_result
 ):
-    from agent_utilities import graph
-    from agent_utilities.graph import RunFailed, RunResult
+    from meristem import graph
+    from meristem.graph import RunFailed, RunResult
 
     result = replace(failed_run_result, error=error, execution_mode=mode)
     failure = RunFailed(result)
@@ -1416,7 +1416,7 @@ def test_run_failed_is_public_and_preserves_runtime_error_message(
 def test_run_failed_snapshots_mapping_without_aliasing_or_estimating(
     mapping_type, empty, failed_run_result
 ):
-    from agent_utilities.graph import RunFailed
+    from meristem.graph import RunFailed
 
     source = {} if empty else dict(failed_run_result.usage)
     result = replace(failed_run_result, usage=mapping_type(source))
@@ -1441,7 +1441,7 @@ def test_run_failed_snapshots_mapping_without_aliasing_or_estimating(
 @pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("field", ["result", "run_id", "usage"])
 def test_run_failed_receipt_properties_are_read_only(field, failed_run_result):
-    from agent_utilities.graph import RunFailed
+    from meristem.graph import RunFailed
 
     failure = RunFailed(failed_run_result)
     with pytest.raises(AttributeError):
@@ -1459,7 +1459,7 @@ def test_run_failed_receipt_properties_are_read_only(field, failed_run_result):
 def test_run_failed_copy_and_pickle_preserve_receipt_and_exception_state(
     method, empty, failed_run_result
 ):
-    from agent_utilities.graph import RunFailed
+    from meristem.graph import RunFailed
 
     result = replace(failed_run_result, usage={}) if empty else failed_run_result
     failure = RunFailed(result)
@@ -1483,7 +1483,7 @@ def test_run_failed_copy_and_pickle_preserve_receipt_and_exception_state(
 @pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("result", [None, {}, SimpleNamespace(), RuntimeError("x")])
 def test_run_failed_rejects_non_result_receipts(result):
-    from agent_utilities.graph import RunFailed
+    from meristem.graph import RunFailed
 
     with pytest.raises((TypeError, ValueError)):
         RunFailed(result)
@@ -1503,7 +1503,7 @@ def test_run_failed_rejects_non_result_receipts(result):
     + [("execution_mode", value) for value in ("", "ask", None, 1)],
 )
 def test_run_failed_rejects_invalid_result_fields(field, value, failed_run_result):
-    from agent_utilities.graph import RunFailed
+    from meristem.graph import RunFailed
 
     with pytest.raises((TypeError, ValueError)):
         RunFailed(replace(failed_run_result, **{field: value}))
@@ -1514,7 +1514,7 @@ def test_run_failed_rejects_invalid_result_fields(field, value, failed_run_resul
     "usage", [None, [], (), [("requests", 2)], RunUsage(requests=2), False]
 )
 def test_run_failed_requires_a_usage_mapping(usage, failed_run_result):
-    from agent_utilities.graph import RunFailed
+    from meristem.graph import RunFailed
 
     with pytest.raises((TypeError, ValueError)):
         RunFailed(replace(failed_run_result, usage=usage))
@@ -1528,7 +1528,7 @@ def test_run_failed_requires_a_usage_mapping(usage, failed_run_result):
 def test_run_failed_rejects_partial_usage_without_filling_counters(
     missing, failed_run_result
 ):
-    from agent_utilities.graph import RunFailed
+    from meristem.graph import RunFailed
 
     usage = dict(failed_run_result.usage)
     del usage[missing]
@@ -1539,7 +1539,7 @@ def test_run_failed_rejects_partial_usage_without_filling_counters(
 @pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("extra", ["cached_tokens", "details", 0])
 def test_run_failed_rejects_noncanonical_usage_keys(extra, failed_run_result):
-    from agent_utilities.graph import RunFailed
+    from meristem.graph import RunFailed
 
     with pytest.raises((TypeError, ValueError)):
         RunFailed(
@@ -1553,7 +1553,7 @@ def test_run_failed_rejects_noncanonical_usage_keys(extra, failed_run_result):
 )
 @pytest.mark.parametrize("value", [-1, True, False, 1.0, "1", None])
 def test_run_failed_rejects_invalid_usage_counters(field, value, failed_run_result):
-    from agent_utilities.graph import RunFailed
+    from meristem.graph import RunFailed
 
     with pytest.raises((TypeError, ValueError)):
         RunFailed(
@@ -1564,7 +1564,7 @@ def test_run_failed_rejects_invalid_usage_counters(field, value, failed_run_resu
 @pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("total", [11, 13])
 def test_run_failed_rejects_incoherent_total(total, failed_run_result):
-    from agent_utilities.graph import RunFailed
+    from meristem.graph import RunFailed
 
     with pytest.raises((TypeError, ValueError)):
         RunFailed(
@@ -1580,7 +1580,7 @@ def test_run_failed_rejects_incoherent_total(total, failed_run_result):
 def test_run_failed_preserves_exact_nonnegative_integer_counters(
     counter, failed_run_result
 ):
-    from agent_utilities.graph import RunFailed
+    from meristem.graph import RunFailed
 
     usage = {key: counter for key in failed_run_result.usage}
     usage["total_tokens"] = counter * 2
@@ -1590,7 +1590,7 @@ def test_run_failed_preserves_exact_nonnegative_integer_counters(
 
 def register_measured_run_failure(phase, initial):
     """Bind public fake host ports for a failure at the selected execution stage."""
-    from agent_utilities.graph import DependencyPlan, RunPlanFailure, RunTask
+    from meristem.graph import DependencyPlan, RunPlanFailure, RunTask
 
     calls = []
 
@@ -1631,7 +1631,7 @@ def register_measured_run_failure(phase, initial):
 
 async def failed_result_from_entrypoint(entrypoint, request, events):
     """Observe the same failed public result through each supported entrypoint."""
-    from agent_utilities.graph import RunFailed
+    from meristem.graph import RunFailed
 
     if entrypoint == "executor":
         with pytest.raises(RunFailed) as caught:
@@ -1707,7 +1707,7 @@ async def test_failed_run_receipt_matches_the_single_terminal_aggregate(
 @pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("phase", ["planner", "setup", "default"])
 async def test_executor_failure_preserves_missing_usage_as_empty(phase, events):
-    from agent_utilities.graph import RunFailed
+    from meristem.graph import RunFailed
 
     def fail(*args):
         raise ValueError("no measured usage")
@@ -1732,7 +1732,7 @@ async def test_executor_failure_preserves_missing_usage_as_empty(phase, events):
 async def test_executor_uses_its_own_aggregate_not_a_foreign_failure_receipt(
     phase, failed_run_result, events
 ):
-    from agent_utilities.graph import RunFailed
+    from meristem.graph import RunFailed
 
     forged = RunFailed(replace(failed_run_result, run_id="foreign-run"))
 
@@ -1778,7 +1778,7 @@ async def test_executor_uses_its_own_aggregate_not_a_foreign_failure_receipt(
 @pytest.mark.spec("MERISTEM-BOUNDARY-R043.7")
 @pytest.mark.parametrize("kind", ["completed", "stop_marker", "budget"])
 async def test_executor_keeps_successful_and_stopped_return_contract(kind, events):
-    from agent_utilities.graph import RunResult
+    from meristem.graph import RunResult
 
     plan = plan_of(
         TestModel(custom_output_text="ok"),
@@ -1803,7 +1803,7 @@ async def test_executor_keeps_successful_and_stopped_return_contract(kind, event
 async def test_executor_preserves_raw_and_measured_planner_cancellation(
     error_type, measured, is_async, no_planning_failure_execution, events
 ):
-    from agent_utilities.graph import RunPlanFailure
+    from meristem.graph import RunPlanFailure
 
     error = error_type("cancel during planning")
     cause = ValueError("original cause")
@@ -1964,7 +1964,7 @@ async def test_terminal_observer_preserves_host_mapping_tools_and_privacy(
 async def test_terminal_observer_keeps_failure_cancel_and_budget(
     through_port, outcome, events
 ):
-    from agent_utilities.graph import RunFailed
+    from meristem.graph import RunFailed
 
     model_calls, observed = [], []
 
@@ -2045,7 +2045,7 @@ async def test_native_executor_observers_are_per_invocation():
 
 
 async def test_live_shared_budget_charges_parent_and_child_once():
-    from agent_utilities.graph import LiveSharedBudget
+    from meristem.graph import LiveSharedBudget
 
     calls: list[int] = []
     budget = RunBudget(request_limit=1)
@@ -2060,7 +2060,7 @@ async def test_live_shared_budget_charges_parent_and_child_once():
 
 
 async def test_live_shared_budget_refuses_changed_plan_and_closed_scope():
-    from agent_utilities.graph import LiveSharedBudget
+    from meristem.graph import LiveSharedBudget
 
     calls: list[int] = []
     budget = RunBudget(request_limit=2)
@@ -2078,7 +2078,7 @@ async def test_live_shared_budget_refuses_changed_plan_and_closed_scope():
 
 
 async def test_live_shared_budget_reserves_before_parallel_child_dispatch():
-    from agent_utilities.graph import LiveSharedBudget
+    from meristem.graph import LiveSharedBudget
 
     started = asyncio.Event()
     release = asyncio.Event()
@@ -2107,7 +2107,7 @@ async def test_live_shared_budget_reserves_before_parallel_child_dispatch():
 
 
 async def test_live_shared_budget_keeps_run_usage_separate():
-    from agent_utilities.graph import LiveSharedBudget
+    from meristem.graph import LiveSharedBudget
 
     budget = RunBudget(request_limit=2)
     shared = LiveSharedBudget(budget, deadline=asyncio.get_running_loop().time() + 10)
@@ -2119,7 +2119,7 @@ async def test_live_shared_budget_keeps_run_usage_separate():
 
 
 async def test_live_shared_budget_serializes_finite_token_allowance():
-    from agent_utilities.graph import LiveSharedBudget
+    from meristem.graph import LiveSharedBudget
 
     started, release, child_started = asyncio.Event(), asyncio.Event(), asyncio.Event()
     calls: list[str] = []
@@ -2173,7 +2173,7 @@ async def test_live_shared_budget_serializes_finite_token_allowance():
 
 
 async def test_live_shared_budget_charges_tool_effects_across_runs():
-    from agent_utilities.graph import LiveSharedBudget
+    from meristem.graph import LiveSharedBudget
 
     effects: list[str] = []
     toolset = FunctionToolset()
@@ -2199,7 +2199,7 @@ async def test_live_shared_budget_charges_tool_effects_across_runs():
 async def test_live_shared_budget_refuses_checkpoint_and_seeded_usage():
     import contextlib
 
-    from agent_utilities.graph import LiveSharedBudget
+    from meristem.graph import LiveSharedBudget
 
     calls: list[int] = []
     budget = RunBudget(request_limit=2)
@@ -2224,7 +2224,7 @@ async def test_live_shared_budget_refuses_checkpoint_and_seeded_usage():
 
 
 async def test_native_executor_consumes_the_host_shared_budget():
-    from agent_utilities.runtime import LiveSharedBudget
+    from meristem.runtime import LiveSharedBudget
 
     calls: list[int] = []
     budget = RunBudget(request_limit=1)
@@ -2243,7 +2243,7 @@ async def test_native_executor_consumes_the_host_shared_budget():
 
 
 async def test_live_shared_budget_keeps_concurrent_child_usage_local():
-    from agent_utilities.graph import LiveSharedBudget
+    from meristem.graph import LiveSharedBudget
 
     both_started, release = asyncio.Event(), asyncio.Event()
     started: list[str] = []
@@ -2277,7 +2277,7 @@ async def test_live_shared_budget_keeps_concurrent_child_usage_local():
 
 
 async def test_live_shared_budget_refuses_unaccounted_plan_provider():
-    from agent_utilities.runtime import LiveSharedBudget
+    from meristem.runtime import LiveSharedBudget
 
     provider_calls: list[str] = []
     budget = RunBudget(request_limit=2)
@@ -2295,7 +2295,7 @@ async def test_live_shared_budget_refuses_unaccounted_plan_provider():
 
 
 async def test_live_shared_budget_refuses_expired_and_foreign_loop():
-    from agent_utilities.runtime import LiveSharedBudget
+    from meristem.runtime import LiveSharedBudget
 
     calls: list[int] = []
     budget = RunBudget(request_limit=2)
@@ -2316,7 +2316,7 @@ async def test_live_shared_budget_refuses_expired_and_foreign_loop():
 
 
 async def test_live_shared_budget_revocation_blocks_a_waiting_child():
-    from agent_utilities.runtime import LiveSharedBudget
+    from meristem.runtime import LiveSharedBudget
 
     started, release, child_started = asyncio.Event(), asyncio.Event(), asyncio.Event()
     calls: list[str] = []

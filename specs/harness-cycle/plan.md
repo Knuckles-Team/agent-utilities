@@ -10,15 +10,15 @@ substrate now belongs to epistemic-graph, and the served operations
 belong to arbora. The harness package keeps the constraint engine,
 contract validator, edit engine, plan, plan runtime and quality gates.
 The run loop enters through `execute_graph` at
-`agent_utilities/graph/runner.py:80`. Host-provided ports live in
-`agent_utilities/host_ports.py`: `RunDecisionProvider` answers the run
+`meristem/graph/runner.py:80`. Host-provided ports live in
+`meristem/host_ports.py`: `RunDecisionProvider` answers the run
 plan, `RunEventSink` receives run events, and `ScaffoldPublisher`
 publishes plan revisions. The cycle reuses these ports and adds one
 cycle port beside them.
 
 ## Architecture
 
-One module owns the loop: `agent_utilities/harness/harness_cycle.py`.
+One module owns the loop: `meristem/harness/harness_cycle.py`.
 The loop is one tick: propose, probe, compose, persist, reflect. Each
 step is one function with one refusal path. The module holds no store
 and no ranking. It queries the library (MEDULLA-ORCH-VOCAB-R802.3). It
@@ -37,7 +37,7 @@ call is one served `Decide` under the `HARNESS_CONTRAST` question kind.
 The persist step writes three graph facts: the adopted component
 version (MEDULLA-ORCH-VOCAB-R801.2), the contrast and the lesson
 (MEDULLA-ORCH-VOCAB-R802.1). The in-run harness switch reuses `apply_edits`
-at `agent_utilities/harness/edit_engine.py:457`.
+at `meristem/harness/edit_engine.py:457`.
 
 ## Live integration path
 

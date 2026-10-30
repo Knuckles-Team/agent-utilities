@@ -8,9 +8,9 @@ import pytest
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 
-from agent_utilities import host_ports as hp
-from agent_utilities.graph import RunBudget, RunPlan, RunRequest
-from agent_utilities.harness.harness_cycle import (
+from meristem import host_ports as hp
+from meristem.graph import RunBudget, RunPlan, RunRequest
+from meristem.harness.harness_cycle import (
     ABSTAIN_REASONS,
     ContrastAnswer,
     ContrastDelta,
@@ -33,7 +33,7 @@ from agent_utilities.harness.harness_cycle import (
 @pytest.fixture(autouse=True)
 def _fixture_probe_executor(monkeypatch):
     """Exercise downstream mechanics with a synthetic, unauthenticated probe."""
-    from agent_utilities.graph.runner import execute_graph
+    from meristem.graph.runner import execute_graph
 
     async def fake_probe(*, graph, config, task, budget_ref, **kwargs):
         return await execute_graph(graph, config, task, **kwargs)
@@ -285,7 +285,7 @@ async def test_compose_refuses_unverified_measurements_before_decide(
 
 @pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.4")
 async def test_compose_delegates_to_engine(monkeypatch) -> None:
-    import agent_utilities.harness.harness_cycle as cycle
+    import meristem.harness.harness_cycle as cycle
 
     monkeypatch.setattr(cycle, "measure_contrasts", _fixture_contrasts)
     candidates = _probe_candidates()
@@ -339,7 +339,7 @@ async def test_compose_delegates_to_engine(monkeypatch) -> None:
 
 
 async def test_compose_abstains_when_engine_abstains(monkeypatch) -> None:
-    import agent_utilities.harness.harness_cycle as cycle
+    import meristem.harness.harness_cycle as cycle
 
     monkeypatch.setattr(cycle, "measure_contrasts", _fixture_contrasts)
     candidates = _probe_candidates()
@@ -499,7 +499,7 @@ def test_reflect_reports_adoption_or_abstention(events) -> None:
 
 @pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.7")
 async def test_refusals_keep_harness(tmp_path, monkeypatch) -> None:
-    import agent_utilities.harness.harness_cycle as cycle
+    import meristem.harness.harness_cycle as cycle
 
     def model(messages, info):
         return ModelResponse(parts=[TextPart("done")])
@@ -627,7 +627,7 @@ async def test_refusals_keep_harness(tmp_path, monkeypatch) -> None:
 
 @pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.8")
 async def test_port_fails_closed_without_provider() -> None:
-    from agent_utilities.harness.harness_cycle import drive_cycle_tick
+    from meristem.harness.harness_cycle import drive_cycle_tick
 
     with pytest.raises(RuntimeError, match="arbora"):
         await drive_cycle_tick(
@@ -640,7 +640,7 @@ async def test_port_fails_closed_without_provider() -> None:
 
 @pytest.mark.spec("MERISTEM-HARNESS-CYCLE-R001.8")
 async def test_drive_delegates_to_registered_provider() -> None:
-    from agent_utilities.harness.harness_cycle import drive_cycle_tick
+    from meristem.harness.harness_cycle import drive_cycle_tick
 
     outcome = CycleOutcome(
         task_ref="task-1",

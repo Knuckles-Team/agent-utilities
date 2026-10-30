@@ -1,6 +1,6 @@
 """Deletion censuses for retired pre-3.0.0 AU paths (boundary deconstruction).
 
-After the 3.0.0 cut agent-utilities is the in-run harness only. These tests
+After the 3.0.0 cut meristem is the in-run harness only. These tests
 prove, from any checkout of main without network or git subprocesses, that
 the retired paths are absent from the tree and that no remaining source
 imports them.
@@ -70,16 +70,12 @@ def test_deployment_package_and_backends_module_deleted() -> None:
 
     Acceptance: the file and its production imports are gone. Proves the
     path is absent from the tree and that no remaining source imports
-    ``agent_utilities.deployment``.
+    ``meristem.deployment``.
     """
-    deployment = _ROOT / "agent_utilities" / "deployment"
-    assert not deployment.exists(), (
-        "agent_utilities/deployment/ is still present on main"
-    )
-    hits = _importers_of("agent_utilities.deployment")
-    assert not hits, "importers of agent_utilities.deployment remain:\n" + "\n".join(
-        hits
-    )
+    deployment = _ROOT / "meristem" / "deployment"
+    assert not deployment.exists(), "meristem/deployment/ is still present on main"
+    hits = _importers_of("meristem.deployment")
+    assert not hits, "importers of meristem.deployment remain:\n" + "\n".join(hits)
 
 
 def test_legacy_sparql_backend_and_setup_path_deleted() -> None:
@@ -93,10 +89,10 @@ def test_legacy_sparql_backend_and_setup_path_deleted() -> None:
     this test deliberately carries no spec marker (GAP, not bound).
     """
     retired_paths = (
-        "agent_utilities/kg/backends/sparql",
-        "agent_utilities/kg/setup",
-        "agent_utilities/kg/integrations/stardog_sync.py",
-        "agent_utilities/kg/integrations/sparql_ingestor.py",
+        "meristem/kg/backends/sparql",
+        "meristem/kg/setup",
+        "meristem/kg/integrations/stardog_sync.py",
+        "meristem/kg/integrations/sparql_ingestor.py",
     )
     for rel in retired_paths:
         assert not (_ROOT / rel).exists(), f"retired path still present: {rel}"
@@ -104,10 +100,10 @@ def test_legacy_sparql_backend_and_setup_path_deleted() -> None:
         strays = [p.relative_to(_ROOT) for p in _python_files() if p.name == name]
         assert not strays, f"retired module file still present: {strays}"
     for module in (
-        "agent_utilities.kg.backends.sparql",
-        "agent_utilities.kg.setup",
-        "agent_utilities.kg.integrations.stardog_sync",
-        "agent_utilities.kg.integrations.sparql_ingestor",
+        "meristem.kg.backends.sparql",
+        "meristem.kg.setup",
+        "meristem.kg.integrations.stardog_sync",
+        "meristem.kg.integrations.sparql_ingestor",
     ):
         hits = _importers_of(module)
         assert not hits, f"importers of {module} remain:\n" + "\n".join(hits)
@@ -121,11 +117,11 @@ def test_legacy_sparql_backend_and_setup_path_deleted() -> None:
 
 @pytest.mark.spec("MERISTEM-BOUNDARY-R048.1")
 def test_images_directory_absent() -> None:
-    """MERISTEM-BOUNDARY-R048.1: ``agent_utilities/images/`` no longer exists.
+    """MERISTEM-BOUNDARY-R048.1: ``meristem/images/`` no longer exists.
 
     The directory was already deleted/relocated before this cut; the
-    acceptance is that ``agent_utilities/images`` yields no path on main.
+    acceptance is that ``meristem/images`` yields no path on main.
     """
-    assert not (_ROOT / "agent_utilities" / "images").exists(), (
-        "agent_utilities/images/ is still present on main"
+    assert not (_ROOT / "meristem" / "images").exists(), (
+        "meristem/images/ is still present on main"
     )

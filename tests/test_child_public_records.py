@@ -7,12 +7,12 @@ from pydantic_ai import Agent
 from pydantic_ai.models.function import DeltaThinkingPart, DeltaToolCall, FunctionModel
 from pydantic_ai.toolsets import FunctionToolset
 
-from agent_utilities.graph.child_public_records import (
+from meristem.graph.child_public_records import (
     ChildIdentity,
     ChildPublicationError,
     ChildPublicRecordPublisher,
 )
-from agent_utilities.graph.live_events import run_step
+from meristem.graph.live_events import run_step
 
 CHILD = ChildIdentity("child-1", "conv-1")
 
@@ -133,8 +133,8 @@ async def test_explicit_summary_and_unbound_run() -> None:
 async def test_run_loop_builds_child_publisher_from_host_child_identity() -> None:
     from contextlib import asynccontextmanager
 
-    from agent_utilities import host_ports
-    from agent_utilities.graph import RunPlan, RunRequest, run
+    from meristem import host_ports
+    from meristem.graph import RunPlan, RunRequest, run
 
     publisher = Publisher()
     effects: list[int] = []
@@ -177,8 +177,8 @@ async def test_run_loop_builds_child_publisher_from_host_child_identity() -> Non
 async def test_run_loop_without_child_identity_keeps_ordinary_projection() -> None:
     from contextlib import asynccontextmanager
 
-    from agent_utilities import host_ports
-    from agent_utilities.graph import RunPlan, RunRequest, run
+    from meristem import host_ports
+    from meristem.graph import RunPlan, RunRequest, run
 
     publisher = Publisher()
 

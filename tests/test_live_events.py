@@ -10,9 +10,9 @@ from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from pydantic_ai.toolsets import FunctionToolset
 
-from agent_utilities import host_ports
-from agent_utilities.graph import RunPlan, RunRequest, run
-from agent_utilities.graph.live_events import (
+from meristem import host_ports
+from meristem.graph import RunPlan, RunRequest, run
+from meristem.graph.live_events import (
     LineageBinding,
     LineageIdentityError,
     lineage_relationship,

@@ -6,7 +6,7 @@ import contextlib
 
 import pytest
 
-from agent_utilities import host_ports as hp
+from meristem import host_ports as hp
 
 
 @pytest.fixture(autouse=True)
@@ -98,7 +98,7 @@ def test_clean_tool_name(prefix, server, tool, expected):
 async def test_scaffold_publisher_is_inactive_before_host_close():
     from contextlib import asynccontextmanager
 
-    from agent_utilities.harness.plan import PlanState
+    from meristem.harness.plan import PlanState
 
     retained = []
     published = []
@@ -125,7 +125,7 @@ async def test_scaffold_publisher_is_inactive_before_host_close():
 @pytest.mark.spec("MERISTEM-BOUNDARY-R043.5.2")
 @pytest.mark.parametrize("bound,enabled", [(False, True), (True, False)])
 async def test_absent_or_disabled_scaffold_has_no_publication_binding(bound, enabled):
-    from agent_utilities.harness.plan import PlanState
+    from meristem.harness.plan import PlanState
 
     def factory(request):
         pytest.fail("disabled scaffold must not bind a publisher")
@@ -142,7 +142,7 @@ async def test_cancellation_during_publication_closes_host_scope():
     import asyncio
     from contextlib import asynccontextmanager
 
-    from agent_utilities.harness.plan import PlanState
+    from meristem.harness.plan import PlanState
 
     entered = asyncio.Event()
     closed = []
@@ -178,7 +178,7 @@ async def test_host_close_failure_preserves_body_failure(cancelled):
     import asyncio
     from contextlib import asynccontextmanager
 
-    from agent_utilities.harness.plan import PlanState
+    from meristem.harness.plan import PlanState
 
     class Publisher:
         async def publish(self, revision, items):
@@ -203,7 +203,7 @@ async def test_host_close_failure_preserves_body_failure(cancelled):
 async def test_failed_publication_keeps_accepted_revision():
     from contextlib import asynccontextmanager
 
-    from agent_utilities.harness.plan import PlanItem, PlanState
+    from meristem.harness.plan import PlanItem, PlanState
 
     class Publisher:
         async def publish(self, revision, items):
@@ -230,7 +230,7 @@ async def test_optional_host_binding_can_decline_one_run_and_still_close(outcome
     import asyncio
     from contextlib import asynccontextmanager, nullcontext
 
-    from agent_utilities.harness.plan import PlanItem, PlanState
+    from meristem.harness.plan import PlanItem, PlanState
 
     closed = []
 
