@@ -2622,37 +2622,57 @@
     {
       "id": "MERISTEM-BOUNDARY-R050.1",
       "title": "Model",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "88d14e34039d"
+      ],
+      "verified_by": [
+        "tests/graph/test_render_receipt_consumer.py:79"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R050.2",
       "title": "Behavior",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "88d14e34039d"
+      ],
+      "verified_by": [
+        "tests/graph/test_render_receipt_consumer.py:90"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R050.3",
       "title": "Wiring",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "88d14e34039d"
+      ],
+      "verified_by": [
+        "tests/graph/test_render_receipt_consumer.py:100"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R050.4",
       "title": "Refusal",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "88d14e34039d"
+      ],
+      "verified_by": [
+        "tests/graph/test_render_receipt_consumer.py:118"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R050.5",
       "title": "Evidence",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "88d14e34039d"
+      ],
+      "verified_by": [
+        "tests/graph/test_render_receipt_consumer.py:145"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R050.6",
@@ -2796,9 +2816,15 @@
     {
       "id": "MERISTEM-BOUNDARY-R043.17",
       "title": "Publish bounded public child records with provenance",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "88d14e34039d"
+      ],
+      "verified_by": [
+        "tests/test_child_public_records.py:119",
+        "tests/test_child_public_records.py:64",
+        "tests/test_child_public_records.py:88"
+      ]
     }
   ]
 }
