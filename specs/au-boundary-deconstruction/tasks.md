@@ -8,15 +8,13 @@
 | Connector and source cut | MERISTEM-BOUNDARY-R005, MERISTEM-BOUNDARY-R006, MERISTEM-BOUNDARY-R007, MERISTEM-BOUNDARY-R008, MERISTEM-BOUNDARY-R009, MERISTEM-BOUNDARY-R010, MERISTEM-BOUNDARY-R011, MERISTEM-BOUNDARY-R024, MERISTEM-BOUNDARY-R025, MERISTEM-BOUNDARY-R026 | TODO | SDK transport/pack certification plus all AU caller deletions |
 | Graph, schema, retrieval, memory cut | MERISTEM-BOUNDARY-R012, MERISTEM-BOUNDARY-R018, MERISTEM-BOUNDARY-R019, MERISTEM-BOUNDARY-R020, MERISTEM-BOUNDARY-R021, MERISTEM-BOUNDARY-R022, MERISTEM-BOUNDARY-R023, MERISTEM-BOUNDARY-R027, MERISTEM-BOUNDARY-R028, MERISTEM-BOUNDARY-R029, MERISTEM-BOUNDARY-R030, MERISTEM-BOUNDARY-R031, MERISTEM-BOUNDARY-R032, MERISTEM-BOUNDARY-R033, MERISTEM-BOUNDARY-R034, MERISTEM-BOUNDARY-R035, MERISTEM-BOUNDARY-R040 | TODO | generated EG method parity, trusted migration and AU adapter-only shape |
 | MERISTEM-BOUNDARY-R028 split by code root (MEDULLA-REPO-INGEST-R003) | MERISTEM-BOUNDARY-R028.1, MERISTEM-BOUNDARY-R028.2, MERISTEM-BOUNDARY-R028.3, MERISTEM-BOUNDARY-R028.4, MERISTEM-BOUNDARY-R028.5, MERISTEM-BOUNDARY-R028.6, MERISTEM-BOUNDARY-R028.7, MERISTEM-BOUNDARY-R028.8 | TODO | each child's own files deleted (or reported blocked pending an EG client) and the import census passes |
-| R028 consumer and owner proof | MERISTEM-BOUNDARY-R028.2.2, MERISTEM-BOUNDARY-R028.6.2, MERISTEM-BOUNDARY-R028.7.2, MERISTEM-BOUNDARY-R028.8.2 | TODO | real EG consumer or CI gate proof for each removed capability |
 | Usage and governance cut | MERISTEM-BOUNDARY-R036, MERISTEM-BOUNDARY-R037 | TODO | EG durable usage and repository-manager governance parity |
-| Relocation owner proof | MERISTEM-BOUNDARY-R036.2, MERISTEM-BOUNDARY-R037.2, MERISTEM-BOUNDARY-R040.2, MERISTEM-BOUNDARY-R044.2, MERISTEM-BOUNDARY-R045.2, MERISTEM-BOUNDARY-R047.2 | TODO | each parent row's real owner, recovery, parity and census evidence |
+| Relocation owner proof | MERISTEM-BOUNDARY-R036.2, MERISTEM-BOUNDARY-R037.2, MERISTEM-BOUNDARY-R040.2, MERISTEM-BOUNDARY-R044.2, MERISTEM-BOUNDARY-R047.2 | TODO | each parent row's real owner, recovery, parity and census evidence |
 | Fabricated-data finance module removal | MERISTEM-BOUNDARY-R041 | TODO | import census shows no listed module and no caller |
 | Inventory completeness check | MERISTEM-BOUNDARY-R042 | TODO | tree-versus-inventory test fails on an unlisted directory, an undecided row or a stale path |
 | Agent run loop | MERISTEM-BOUNDARY-R043 | TODO | run-loop and recursive-loop behaviour tests |
 | Fleet, scaling and deployment modules | MERISTEM-BOUNDARY-R044 | TODO | caller census and arbora consumer tests |
 | Knowledge-graph file-level owners | MERISTEM-BOUNDARY-R045 | TODO | every tracked file under `knowledge_graph/` maps to one owner; parity tests per move |
-| File-level owners for partly covered packages | MERISTEM-BOUNDARY-R046 | TODO | no tracked file without an owner; no requirement by description only |
 | Engine-facing adapters and caches | MERISTEM-BOUNDARY-R047 | TODO | differential tests against the engine; no second store or kernel |
 | Domain models, shapes, assets and skill content | MERISTEM-BOUNDARY-R048 | TODO | each directory placed; pack or skill validation in the receiving repository |
 | Governed write-back execution | MERISTEM-BOUNDARY-R049 | IN PROGRESS | `run_writeback` calls every sink through the SDK `DurableWritableConnector`. The governed and existing write-back suites pass at the merged head |
@@ -72,11 +70,11 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **MERISTEM-BOUNDARY-R048.10:** Assign and act on one disposition for `protocols/voice_supply_chain/`
 - [ ] **MERISTEM-BOUNDARY-R048.11:** Assign and act on one disposition for each skill-content directory under `skills/`
 - [ ] **MERISTEM-BOUNDARY-R005.1:** A-E connector import census (PR #150, `79dc21bab`) that moved R005 to LANDED. `status.json`'s `landed_in` SHA is wrong (points at the unrelated `MERISTEM-HARNESS-R005.1` merge, not an A-E connector change).
-- [ ] **MERISTEM-BOUNDARY-R005.2:** Migrate `ansible-tower-mcp`, `audiobookshelf-mcp`, `ciso-assistant-api`, `data-science-mcp` off the banned AU imports the census missed.
+- [x] **MERISTEM-BOUNDARY-R005.2:** RETIRED: superseded by SCION-CONNECTOR-CONTROL-R009.
 - [ ] **MERISTEM-BOUNDARY-R007.1:** K-O connector import census (PR #150, `79dc21bab`) that moved R007 to LANDED. `status.json`'s `landed_in` SHA is wrong (points at the unrelated `MERISTEM-HARNESS-R005.1` merge, not a K-O connector change).
-- [ ] **MERISTEM-BOUNDARY-R007.2:** Migrate `keycloak-agent`, `langfuse-agent`, `leanix-agent`, `microsoft-agent`, `opensearch-mcp` off the banned AU imports the census missed.
+- [x] **MERISTEM-BOUNDARY-R007.2:** RETIRED: superseded by SCION-CONNECTOR-CONTROL-R011.
 - [ ] **MERISTEM-BOUNDARY-R008.1:** P-S connector import census (PR #150, `79dc21bab`) that moved R008 to LANDED. `status.json`'s `landed_in` SHA is wrong (points at the unrelated `MERISTEM-HARNESS-R005.1` merge, not a P-S connector change).
-- [ ] **MERISTEM-BOUNDARY-R008.2:** Migrate `paperless-ngx-mcp`, `pulselink-mcp`, `repository-manager`, `rom-manager`, `systems-manager` off the banned AU imports the census missed.
+- [x] **MERISTEM-BOUNDARY-R008.2:** RETIRED: superseded by SCION-CONNECTOR-CONTROL-R012.
 - [ ] **MERISTEM-BOUNDARY-R002.1:** Record that PR #26 (`fca0c5ee42b3`) did not delete `backends.py`/`certification_oidc.py`; `status.json`'s LANDED is wrong.
 - [ ] **MERISTEM-BOUNDARY-R002.2:** Delete `agent_utilities/deployment/backends.py`.
 - [ ] **MERISTEM-BOUNDARY-R002.3:** ROLLUP: delete `agent_utilities/deployment/certification_oidc.py` via children R002.3.1 to R002.3.5.
@@ -88,15 +86,15 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **MERISTEM-BOUNDARY-R010.1:** Record that `status.json`'s `landed_in` (`2456745c1e4d`) did not delete the connector toolkit; LANDED is wrong.
 - [ ] **MERISTEM-BOUNDARY-R010.2:** RETIRED: superseded by MERISTEM-BOUNDARY-R010.3...MERISTEM-BOUNDARY-R010.25.
 - [ ] **MERISTEM-BOUNDARY-R010.3:** see requirements.md.
-- [ ] **MERISTEM-BOUNDARY-R010.4:** see requirements.md.
-- [ ] **MERISTEM-BOUNDARY-R010.5:** see requirements.md.
-- [ ] **MERISTEM-BOUNDARY-R010.6:** see requirements.md.
-- [ ] **MERISTEM-BOUNDARY-R010.7:** see requirements.md.
-- [ ] **MERISTEM-BOUNDARY-R010.8:** see requirements.md.
-- [ ] **MERISTEM-BOUNDARY-R010.9:** see requirements.md.
-- [ ] **MERISTEM-BOUNDARY-R010.10:** see requirements.md.
-- [ ] **MERISTEM-BOUNDARY-R010.11:** see requirements.md.
-- [ ] **MERISTEM-BOUNDARY-R010.12:** see requirements.md.
+- [x] **MERISTEM-BOUNDARY-R010.4:** RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.5.
+- [x] **MERISTEM-BOUNDARY-R010.5:** RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.6.
+- [x] **MERISTEM-BOUNDARY-R010.6:** RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.6.
+- [x] **MERISTEM-BOUNDARY-R010.7:** RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.6.
+- [x] **MERISTEM-BOUNDARY-R010.8:** RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.6.
+- [x] **MERISTEM-BOUNDARY-R010.9:** RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.6.
+- [x] **MERISTEM-BOUNDARY-R010.10:** RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.6.
+- [x] **MERISTEM-BOUNDARY-R010.11:** RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.6.
+- [x] **MERISTEM-BOUNDARY-R010.12:** RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.6.
 - [ ] **MERISTEM-BOUNDARY-R010.13:** see requirements.md.
 - [ ] **MERISTEM-BOUNDARY-R010.14:** see requirements.md.
 - [ ] **MERISTEM-BOUNDARY-R010.15:** see requirements.md.
@@ -112,9 +110,9 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 ## Decomposition children (tracked)
 
 - [ ] **MERISTEM-BOUNDARY-R006.1:** Ship AU's F-J connector import-census gate
-- [ ] **MERISTEM-BOUNDARY-R006.2:** Qualify each F-J migration with resolved census and real receipts
+- [x] **MERISTEM-BOUNDARY-R006.2:** RETIRED: superseded by SCION-CONNECTOR-CONTROL-R010.
 - [ ] **MERISTEM-BOUNDARY-R009.1:** Ship AU's T-Z connector import-census gate
-- [ ] **MERISTEM-BOUNDARY-R009.2:** Qualify each T-Z migration and generated template with resolved census and real receipts
+- [x] **MERISTEM-BOUNDARY-R009.2:** RETIRED: superseded by SCION-CONNECTOR-CONTROL-R013.
 - [ ] **MERISTEM-BOUNDARY-R016.1:** Gate AU's retained config.py against duplicate environment readers
 - [x] **MERISTEM-BOUNDARY-R018.1:** Ship a typed inventory of the MERISTEM-BOUNDARY-R018 facade modules
 - [ ] **MERISTEM-BOUNDARY-R018.2:** Delete the MERISTEM-BOUNDARY-R018 facade modules
@@ -128,7 +126,7 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **MERISTEM-BOUNDARY-R022.2:** Delete the MERISTEM-BOUNDARY-R022 reasoning/analytics modules
 - [ ] **MERISTEM-BOUNDARY-R011.1:** Record that R011's deletions (universal_connector, source_connectors, certification, manifest) have not started.
 - [ ] **MERISTEM-BOUNDARY-R011.2:** ROLLUP: superseded by MERISTEM-BOUNDARY-R011.2.1...MERISTEM-BOUNDARY-R011.2.5.
-- [ ] **MERISTEM-BOUNDARY-R011.2.1:** Add the read-only multi-database connector to `agent-connector-sdk` with conformance tests.
+- [x] **MERISTEM-BOUNDARY-R011.2.1:** RETIRED: superseded by SCION-SOURCE-INGEST-R900.
 - [ ] **MERISTEM-BOUNDARY-R011.2.2:** Repoint `protocols/source_connectors/connectors/database.py` to the SDK connector.
 - [ ] **MERISTEM-BOUNDARY-R011.2.3:** Repoint `tools/db_tools.py` to the SDK connector.
 - [ ] **MERISTEM-BOUNDARY-R011.2.4:** Repoint/delete the universal_connector tests and docs references.
