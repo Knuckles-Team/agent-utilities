@@ -10,9 +10,9 @@ from agent_utilities.core import paths
 
 _DIRS = {
     "ARBORA_CONFIG_DIR": "config",
-    "MERISTEM_DATA_DIR": "data",
-    "MERISTEM_CACHE_DIR": "cache",
-    "MERISTEM_LOG_DIR": "log",
+    "ARBORA_DATA_DIR": "data",
+    "ARBORA_CACHE_DIR": "cache",
+    "ARBORA_LOG_DIR": "log",
 }
 
 
@@ -23,6 +23,10 @@ _OLD = (
     "AGENT_UTILITIES_SKILLS_DIR",
     "AGENT_UTILITIES_PROMPTS_DIR",
     "AGENT_UTILITIES_MEMORY_DIR",
+    *(
+        f"MERISTEM_{k}_DIR"
+        for k in ("DATA", "CACHE", "LOG", "SKILLS", "PROMPTS", "MEMORY")
+    ),
 )
 
 
@@ -64,7 +68,7 @@ def test_ensure_dirs_names_the_unwritable_setting(overridden):
     try:
         with pytest.raises(paths.RuntimeDirectoryNotWritableError) as exc:
             paths.ensure_dirs()
-        assert "MERISTEM_CACHE_DIR" in str(exc.value)
+        assert "ARBORA_CACHE_DIR" in str(exc.value)
         assert str(locked) in str(exc.value)
     finally:
         locked.chmod(0o755)
@@ -100,17 +104,18 @@ def test_old_config_settings_are_ignored(monkeypatch, tmp_path):
     assert paths.platform_config_dir() == tmp_path / "xdg" / "arbora"
 
 
-def test_default_state_dirs_use_the_meristem_app_name(monkeypatch, tmp_path):
+def test_default_state_dirs_use_the_arbora_app_name(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
     monkeypatch.delenv("XDG_STATE_HOME", raising=False)
     for resolved in (paths.data_dir(), paths.cache_dir(), paths.log_dir()):
-        assert "meristem" in resolved.parts
+        assert "arbora" in resolved.parts
+        assert "meristem" not in resolved.parts
         assert "agent-utilities" not in resolved.parts
 
 
-def test_old_agent_utilities_dir_names_are_ignored(monkeypatch, tmp_path):
+def test_old_agent_utilities_and_meristem_dir_names_are_ignored(monkeypatch, tmp_path):
     expected = {
         "data": paths.data_dir(),
         "cache": paths.cache_dir(),

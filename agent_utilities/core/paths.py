@@ -11,15 +11,15 @@ of truth for path resolution.
 Architecture:
     - ``config_dir()``: ``~/.config/arbora/`` — config files,
       mcp_config.json, a2a_config.json
-    - ``data_dir()``: ``~/.local/share/meristem/`` — KG database,
+    - ``data_dir()``: ``~/.local/share/arbora/`` — KG database,
       ontologies, vector indexes, runtime artifacts
-    - ``cache_dir()``: ``~/.cache/meristem/`` — embedding caches,
+    - ``cache_dir()``: ``~/.cache/arbora/`` — embedding caches,
       similarity indexes, skill graph cache
 
 Directory roots can be overridden via environment variables:
     - ``ARBORA_CONFIG_DIR``
-    - ``MERISTEM_DATA_DIR``
-    - ``MERISTEM_CACHE_DIR``
+    - ``ARBORA_DATA_DIR``
+    - ``ARBORA_CACHE_DIR``
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ import platformdirs
 
 logger = logging.getLogger(__name__)
 
-APP_NAME = "meristem"
+APP_NAME = "arbora"
 APP_AUTHOR = "knuckles-team"
 
 
@@ -107,11 +107,11 @@ def runtime_secrets_path() -> Path:
 
 
 def data_dir() -> Path:
-    """Return the XDG data directory for meristem.
+    """Return the XDG data directory for arbora.
 
-    Default: ``~/.local/share/meristem/``
+    Default: ``~/.local/share/arbora/``
 
-    Override via ``MERISTEM_DATA_DIR`` environment variable.
+    Override via ``ARBORA_DATA_DIR`` environment variable.
 
     Contains:
         - ``kg/knowledge_graph.db`` — Global unified Knowledge Graph
@@ -119,25 +119,25 @@ def data_dir() -> Path:
         - ``runtime/`` — Harness registry, evolution manifests
         - ``research/papers/`` — Downloaded research papers
     """
-    override = os.environ.get("MERISTEM_DATA_DIR")
+    override = os.environ.get("ARBORA_DATA_DIR")
     if override:
         return Path(override).expanduser()
     return Path(platformdirs.user_data_path(APP_NAME, APP_AUTHOR))
 
 
 def cache_dir() -> Path:
-    """Return the XDG cache directory for meristem.
+    """Return the XDG cache directory for arbora.
 
-    Default: ``~/.cache/meristem/``
+    Default: ``~/.cache/arbora/``
 
-    Override via ``MERISTEM_CACHE_DIR`` environment variable.
+    Override via ``ARBORA_CACHE_DIR`` environment variable.
 
     Contains:
         - ``embeddings/`` — Vector embedding cache
         - ``similarity_indexes/`` — Precomputed similarity graphs
         - ``skill_graphs/`` — Cached skill graph data
     """
-    override = os.environ.get("MERISTEM_CACHE_DIR")
+    override = os.environ.get("ARBORA_CACHE_DIR")
     if override:
         return Path(override).expanduser()
     return Path(platformdirs.user_cache_path(APP_NAME, APP_AUTHOR))
@@ -146,9 +146,9 @@ def cache_dir() -> Path:
 def skills_dir() -> Path:
     """Return the XDG data directory for custom/user-installed agent skills.
 
-    Default: ``~/.local/share/meristem/skills/``
+    Default: ``~/.local/share/arbora/skills/``
 
-    Override via ``MERISTEM_SKILLS_DIR`` environment variable.
+    Override via ``ARBORA_SKILLS_DIR`` environment variable.
 
     This is the standard drop-in location for skills the agent should have at its
     disposal beyond packaged providers. Operator-owned skills use the flat
@@ -158,7 +158,7 @@ def skills_dir() -> Path:
     agree. Set ``custom_skills_directory`` / ``CUSTOM_SKILLS_DIRECTORY`` for a
     separate operator-managed tree. Duplicate skill identities fail closed.
     """
-    override = os.environ.get("MERISTEM_SKILLS_DIR")
+    override = os.environ.get("ARBORA_SKILLS_DIR")
     if override:
         return Path(override).expanduser()
     return data_dir() / "skills"
@@ -169,7 +169,7 @@ def prompts_dir() -> Path:
 
     Default: ``~/.config/arbora/prompts/``
 
-    Override via ``MERISTEM_PROMPTS_DIR`` environment variable.
+    Override via ``ARBORA_PROMPTS_DIR`` environment variable.
 
     CONCEPT:AU-KG.compute.user-override-prompt-library — the user-override layer of the prompt library, mirroring
     :func:`skills_dir`. ``*.json`` blueprints placed here take precedence over
@@ -178,7 +178,7 @@ def prompts_dir() -> Path:
     (``ingest_prompts_to_graph``). It lives under the *config* dir (not data),
     because these are operator-authored overrides, not runtime artifacts.
     """
-    override = os.environ.get("MERISTEM_PROMPTS_DIR")
+    override = os.environ.get("ARBORA_PROMPTS_DIR")
     if override:
         return Path(override).expanduser()
     return config_dir() / "prompts"
@@ -187,7 +187,7 @@ def prompts_dir() -> Path:
 def unified_prompts_dir() -> Path:
     """Return the XDG *data* directory for materialized prompt-provider blueprints.
 
-    Default: ``~/.local/share/meristem/prompts/``
+    Default: ``~/.local/share/arbora/prompts/``
 
     CONCEPT:AU-OS.governance.concept-2 — one leg of the unified install tree. The
     ``agent-utilities install`` command materializes every ``prompt_providers``
@@ -235,7 +235,7 @@ def a2a_config_path() -> Path:
 def ontology_dir() -> Path:
     """Return the path for user-provided external ontologies.
 
-    Default: ``~/.local/share/meristem/ontologies/``
+    Default: ``~/.local/share/arbora/ontologies/``
 
     Package-bundled ontologies (``ontology.ttl``, ``ontology_banking.ttl``, etc.)
     are shipped as package data. This directory is for user-provided domain
@@ -247,7 +247,7 @@ def ontology_dir() -> Path:
 def runtime_dir() -> Path:
     """Return the path for runtime artifacts (not git-tracked).
 
-    Default: ``~/.local/share/meristem/runtime/``
+    Default: ``~/.local/share/arbora/runtime/``
 
     Contains:
         - ``harness_registry.json`` — Agentic harness state
@@ -259,7 +259,7 @@ def runtime_dir() -> Path:
 def research_dir() -> Path:
     """Return the path for downloaded research papers.
 
-    Default: ``~/.local/share/meristem/research/``
+    Default: ``~/.local/share/arbora/research/``
     """
     return data_dir() / "research"
 
@@ -269,9 +269,9 @@ def memory_view_dir() -> Path:
 
     CONCEPT:AU-KG.memory.observational-memory-bridge — Observational Memory Bridge
 
-    Default: ``~/.local/share/meristem/memory/``
+    Default: ``~/.local/share/arbora/memory/``
 
-    Override via ``MERISTEM_MEMORY_DIR`` environment variable.
+    Override via ``ARBORA_MEMORY_DIR`` environment variable.
 
     Contains:
         - ``observations.md`` — Recent observation notes with priorities
@@ -280,7 +280,7 @@ def memory_view_dir() -> Path:
         - ``active.md`` — Current working context
         - ``.memory_cursor.json`` — Materialization state tracking
     """
-    override = os.environ.get("MERISTEM_MEMORY_DIR")
+    override = os.environ.get("ARBORA_MEMORY_DIR")
     if override:
         return Path(override).expanduser()
     return data_dir() / "memory"
@@ -291,7 +291,7 @@ def messaging_sessions_dir() -> Path:
 
     CONCEPT:AU-ECO.messaging.native-backend-abstraction — Native Messaging Backend Abstraction
 
-    Default: ``~/.local/share/meristem/messaging/``
+    Default: ``~/.local/share/arbora/messaging/``
 
     Contains:
         - ``sessions/`` — Backend-specific session/auth state
@@ -334,7 +334,7 @@ def dashboard_layout_path() -> Path:
 
     CONCEPT:AU-OS.config.gateway-service-dashboard — Gateway Service Dashboard
 
-    Default: ``~/.local/share/meristem/layout.yaml``
+    Default: ``~/.local/share/arbora/layout.yaml``
 
     Stores user customizations (column order, collapsed groups, theme).
     """
@@ -342,13 +342,13 @@ def dashboard_layout_path() -> Path:
 
 
 def log_dir() -> Path:
-    """Return the XDG log directory for meristem.
+    """Return the XDG log directory for arbora.
 
-    Default: ``~/.cache/meristem/log/`` or standard platform user_log_path.
+    Default: ``~/.cache/arbora/log/`` or standard platform user_log_path.
 
-    Override via ``MERISTEM_LOG_DIR`` environment variable.
+    Override via ``ARBORA_LOG_DIR`` environment variable.
     """
-    override = os.environ.get("MERISTEM_LOG_DIR")
+    override = os.environ.get("ARBORA_LOG_DIR")
     if override:
         return Path(override).expanduser()
     return Path(platformdirs.user_log_path(APP_NAME, APP_AUTHOR))
@@ -373,7 +373,7 @@ def _ensure_writable_dir(setting: str, path: Path) -> None:
     """Create ``path`` if missing, then PROVE this process can write to it.
 
     ``setting`` names the environment variable / resolver responsible for
-    ``path`` (e.g. ``"MERISTEM_DATA_DIR (data_dir())"``) so a
+    ``path`` (e.g. ``"ARBORA_DATA_DIR (data_dir())"``) so a
     misconfiguration is reported against the exact knob a reviewer/operator
     would change, not just an opaque filesystem path.
     """
@@ -405,24 +405,24 @@ def ensure_dirs() -> None:
     """
     named_dirs: list[tuple[str, Path]] = [
         ("ARBORA_CONFIG_DIR (config_dir())", config_dir()),
-        ("MERISTEM_DATA_DIR (data_dir())/kg", data_dir() / "kg"),
-        ("MERISTEM_CACHE_DIR (cache_dir())", cache_dir()),
-        ("MERISTEM_DATA_DIR (data_dir())/ontologies", ontology_dir()),
-        ("MERISTEM_DATA_DIR (data_dir())/runtime", runtime_dir()),
-        ("MERISTEM_DATA_DIR (data_dir())/research", research_dir()),
-        ("MERISTEM_MEMORY_DIR (memory_view_dir())", memory_view_dir()),
-        ("MERISTEM_DATA_DIR (data_dir())/messaging", messaging_sessions_dir()),
+        ("ARBORA_DATA_DIR (data_dir())/kg", data_dir() / "kg"),
+        ("ARBORA_CACHE_DIR (cache_dir())", cache_dir()),
+        ("ARBORA_DATA_DIR (data_dir())/ontologies", ontology_dir()),
+        ("ARBORA_DATA_DIR (data_dir())/runtime", runtime_dir()),
+        ("ARBORA_DATA_DIR (data_dir())/research", research_dir()),
+        ("ARBORA_MEMORY_DIR (memory_view_dir())", memory_view_dir()),
+        ("ARBORA_DATA_DIR (data_dir())/messaging", messaging_sessions_dir()),
         (
-            "MERISTEM_DATA_DIR (data_dir())/messaging/sessions",
+            "ARBORA_DATA_DIR (data_dir())/messaging/sessions",
             messaging_sessions_dir() / "sessions",
         ),
         (
-            "MERISTEM_DATA_DIR (data_dir())/messaging/history",
+            "ARBORA_DATA_DIR (data_dir())/messaging/history",
             messaging_sessions_dir() / "history",
         ),
-        ("MERISTEM_SKILLS_DIR (skills_dir())", skills_dir()),
-        ("MERISTEM_PROMPTS_DIR (prompts_dir())", prompts_dir()),
-        ("MERISTEM_LOG_DIR (log_dir(), XDG_STATE_HOME-derived)", log_dir()),
+        ("ARBORA_SKILLS_DIR (skills_dir())", skills_dir()),
+        ("ARBORA_PROMPTS_DIR (prompts_dir())", prompts_dir()),
+        ("ARBORA_LOG_DIR (log_dir(), XDG_STATE_HOME-derived)", log_dir()),
     ]
     for setting, d in named_dirs:
         _ensure_writable_dir(setting, d)

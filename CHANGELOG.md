@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-10-29
+
+### Changed
+- Hard cutover: arbora is the one ecosystem directory. The directory overrides `MERISTEM_DATA_DIR`, `MERISTEM_CACHE_DIR`, `MERISTEM_LOG_DIR`, `MERISTEM_SKILLS_DIR`, `MERISTEM_PROMPTS_DIR` and `MERISTEM_MEMORY_DIR` are now `ARBORA_DATA_DIR`, `ARBORA_CACHE_DIR`, `ARBORA_LOG_DIR`, `ARBORA_SKILLS_DIR`, `ARBORA_PROMPTS_DIR` and `ARBORA_MEMORY_DIR`. The `MERISTEM_*` and `AGENT_UTILITIES_*` names are ignored, with no fallback or warning.
+- The default data, cache and log directories use the `arbora` app name (`~/.local/share/arbora`, `~/.cache/arbora`, the platformdirs log path). Skills and memory live under the arbora data directory; prompts stay under the arbora config directory. Existing files under `~/.local/share/meristem` are not read; move them.
+
 ## [4.1.0] - 2026-10-29
 
 ### Changed
