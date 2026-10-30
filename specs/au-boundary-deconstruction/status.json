@@ -343,12 +343,15 @@
     {
       "id": "MERISTEM-BOUNDARY-R005",
       "title": "Migrate connector packages A-E onto the SDK",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "a0f50de5bd59",
         "a754f1299033",
         "f0f5e51f6b47"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_history.py:73"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R005.1",
         "MERISTEM-BOUNDARY-R005.2"
@@ -367,22 +370,25 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R005.2",
-      "title": "Fix the A-E census blind spot and finish the migration",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by SCION-CONNECTOR-CONTROL-R009",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by SCION-CONNECTOR-CONTROL-R009"
     },
     {
       "id": "MERISTEM-BOUNDARY-R006",
       "title": "Migrate connector packages F-J onto the SDK",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "105559f760c3",
         "5a00da215c55",
         "f4706f7dc30d",
         "fe5ca4e239ec"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_connector_import_census.py:18"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R006.1",
         "MERISTEM-BOUNDARY-R006.2"
@@ -404,20 +410,24 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R006.2",
-      "title": "Complete and qualify F-J connector migration",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by SCION-CONNECTOR-CONTROL-R010",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by SCION-CONNECTOR-CONTROL-R010"
     },
     {
       "id": "MERISTEM-BOUNDARY-R007",
       "title": "Migrate connector packages K-O onto the SDK",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "058226114f34",
         "a754f1299033",
         "f0f5e51f6b47"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_history.py:119"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R007.1",
         "MERISTEM-BOUNDARY-R007.2"
@@ -436,20 +446,24 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R007.2",
-      "title": "Fix the K-O census blind spot and finish the migration",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by SCION-CONNECTOR-CONTROL-R011",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by SCION-CONNECTOR-CONTROL-R011"
     },
     {
       "id": "MERISTEM-BOUNDARY-R008",
       "title": "Migrate connector packages P-S onto the SDK",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "058226114f34",
         "a754f1299033",
         "f0f5e51f6b47"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_history.py:133"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R008.1",
         "MERISTEM-BOUNDARY-R008.2"
@@ -468,20 +482,23 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R008.2",
-      "title": "Fix the P-S census blind spot and finish the migration",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by SCION-CONNECTOR-CONTROL-R012",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by SCION-CONNECTOR-CONTROL-R012"
     },
     {
       "id": "MERISTEM-BOUNDARY-R009",
       "title": "Migrate connector packages T-Z onto the SDK",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5a00da215c55",
         "f4706f7dc30d"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_connector_import_census.py:32"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R009.1",
         "MERISTEM-BOUNDARY-R009.2"
@@ -501,19 +518,30 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R009.2",
-      "title": "Complete and qualify T-Z connector migration and templates",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by SCION-CONNECTOR-CONTROL-R013",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by SCION-CONNECTOR-CONTROL-R013"
     },
     {
       "id": "MERISTEM-BOUNDARY-R010",
       "title": "Delete AU's SDK-duplicated connector toolkit",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "2456745c1e4d"
+        "2456745c1e4d",
+        "430612c76482",
+        "635f38f64aca",
+        "9ddf47adc3ba",
+        "bb80147da337"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_history.py:61",
+        "tests/gates/test_boundary_owner_decisions.py:37",
+        "tests/gates/test_boundary_r001_r010_deletion_census.py:13",
+        "tests/gates/test_boundary_r001_r010_deletion_census.py:14",
+        "tests/gates/test_boundary_r001_r010_deletion_census.py:15"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R010.1",
         "MERISTEM-BOUNDARY-R010.2",
@@ -573,66 +601,75 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.4",
-      "title": "Add type coercion helpers (to_boolean, to_integer, to_list, and to_dict) to the module decided in MERISTEM-BOUNDARY-R010.3",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.5",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by SCION-CONNECTOR-CONTROL-R780.5"
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.5",
-      "title": "Decide target module for env/host helpers (expand_env_vars, is_loopback_url, retrieve_package_name, advertised_self_hosts, and get_library_file_path) currently in `base_utilities.py`",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.6",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by SCION-CONNECTOR-CONTROL-R780.6"
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.6",
-      "title": "Add env/host helpers (expand_env_vars, is_loopback_url, retrieve_package_name, advertised_self_hosts, and get_library_file_path) to the module decided in MERISTEM-BOUNDARY-R010.5",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.6",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by SCION-CONNECTOR-CONTROL-R780.6"
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.7",
-      "title": "Decide target module for model persistence helpers (safe_save_model and safe_load_model) currently in `base_utilities.py`",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.6",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by SCION-CONNECTOR-CONTROL-R780.6"
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.8",
-      "title": "Add model persistence helpers (safe_save_model and safe_load_model) to the module decided in MERISTEM-BOUNDARY-R010.7",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.6",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by SCION-CONNECTOR-CONTROL-R780.6"
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.9",
-      "title": "Decide target module for patch helpers (the Patch* family) currently in `base_utilities.py`",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.6",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by SCION-CONNECTOR-CONTROL-R780.6"
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.10",
-      "title": "Add patch helpers (the Patch* family) to the module decided in MERISTEM-BOUNDARY-R010.9",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.6",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by SCION-CONNECTOR-CONTROL-R780.6"
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.11",
-      "title": "Decide target module for core runtime helpers (Result, ModuleInfo, get_missing_imports, require_optional_import, get_logger, and ensure_package_installed) currently in `base_utilities.py`",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.6",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by SCION-CONNECTOR-CONTROL-R780.6"
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.12",
-      "title": "Add core runtime helpers (Result, ModuleInfo, get_missing_imports, require_optional_import, get_logger, and ensure_package_installed) to the module decided in MERISTEM-BOUNDARY-R010.11",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by SCION-CONNECTOR-CONTROL-R780.6",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by SCION-CONNECTOR-CONTROL-R780.6"
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.13",
@@ -1324,7 +1361,7 @@
     {
       "id": "MERISTEM-BOUNDARY-R028",
       "title": "Move remaining graph standardization and security modules to EG (rollup)",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "21bf66b122de",
         "26b087dd3b2f",
@@ -1332,7 +1369,13 @@
         "37ea38e83a0b",
         "4980aef8be2f"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:101",
+        "tests/gates/test_r028x_module_census.py:44",
+        "tests/gates/test_r028x_module_census.py:51",
+        "tests/gates/test_r028x_module_census.py:58",
+        "tests/gates/test_r028x_module_census.py:65"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R028.1",
         "MERISTEM-BOUNDARY-R028.2",
@@ -1359,14 +1402,16 @@
     {
       "id": "MERISTEM-BOUNDARY-R028.2",
       "title": "Retire `kg/infra/{placement_optimizer,inventory_collector}.py`",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "32bdd70f5ea4",
         "4a5540dd2e3d",
-        "58f9bdabb7b7"
+        "58f9bdabb7b7",
+        "f1330cb52a4d"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:101"
+        "tests/gates/test_boundary_removal_census.py:101",
+        "tests/gates/test_r028x_module_census.py:44"
       ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R028.2.1",
@@ -1388,10 +1433,11 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R028.2.2",
-      "title": "Qualify the infra cutover",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by EG-PLACEMENT-R001",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by EG-PLACEMENT-R001"
     },
     {
       "id": "MERISTEM-BOUNDARY-R028.3",
@@ -1435,13 +1481,16 @@
     {
       "id": "MERISTEM-BOUNDARY-R028.6",
       "title": "Retire `observability/{trace_ontology,self_ingest,audit_logger}.py`",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4",
-        "4a5540dd2e3d"
+        "4a5540dd2e3d",
+        "f1330cb52a4d"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_r028x_module_census.py:51"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R028.6.1",
         "MERISTEM-BOUNDARY-R028.6.2"
@@ -1463,21 +1512,25 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R028.6.2",
-      "title": "Qualify observability consumer cutover",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by EG-CONTRACT-R051",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by EG-CONTRACT-R051"
     },
     {
       "id": "MERISTEM-BOUNDARY-R028.7",
       "title": "Retire `governance/relational_authority.py` and `.json`",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4",
-        "4a5540dd2e3d"
+        "4a5540dd2e3d",
+        "f1330cb52a4d"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_r028x_module_census.py:58"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R028.7.1",
         "MERISTEM-BOUNDARY-R028.7.2"
@@ -1499,21 +1552,25 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R028.7.2",
-      "title": "Qualify the relational-authority replacement",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by EG-SRC-AUTH-R800",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by EG-SRC-AUTH-R800"
     },
     {
       "id": "MERISTEM-BOUNDARY-R028.8",
       "title": "Retire `kg/research/placement_mining.py`",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "26b087dd3b2f",
         "32bdd70f5ea4",
-        "4a5540dd2e3d"
+        "4a5540dd2e3d",
+        "f1330cb52a4d"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_r028x_module_census.py:65"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R028.8.1",
         "MERISTEM-BOUNDARY-R028.8.2"
@@ -1535,10 +1592,11 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R028.8.2",
-      "title": "Qualify placement-mining consumer cutover",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: superseded by EG-PLACEMENT-R001",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by EG-PLACEMENT-R001"
     },
     {
       "id": "MERISTEM-BOUNDARY-R029",
@@ -2356,11 +2414,14 @@
     {
       "id": "MERISTEM-BOUNDARY-R045",
       "title": "Unplaced knowledge-graph packages receive file-level owners",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
         "795afc53f54d"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_r036_r047_relocation_census.py:73"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R045.1",
         "MERISTEM-BOUNDARY-R045.2"
@@ -2380,19 +2441,21 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R045.2",
-      "title": "Qualify knowledge-graph file ownership",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the file-owner inventory covers packages that no longer live in this repository",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the file-owner inventory covers packages that no longer live in this repository"
     },
     {
       "id": "MERISTEM-BOUNDARY-R046",
-      "title": "Partly covered packages list every file with its owner",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: the file-owner inventory covers packages that no longer live in this repository",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "795afc53f54d"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the file-owner inventory covers packages that no longer live in this repository"
     },
     {
       "id": "MERISTEM-BOUNDARY-R047",
