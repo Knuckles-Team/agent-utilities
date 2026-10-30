@@ -14,7 +14,7 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.function import FunctionModel
 
-from agent_utilities.graph import HarnessConfig, RunPlan, RunRequest, run
+from meristem.graph import HarnessConfig, RunPlan, RunRequest, run
 
 
 def injected(messages):
@@ -135,8 +135,8 @@ async def test_separate_executions_start_with_empty_scaffolds():
 
 @pytest.mark.spec("MERISTEM-BOUNDARY-R043.4.3")
 async def test_budget_exit_cleans_tool_payload_without_another_request(monkeypatch):
-    from agent_utilities.graph import RunBudget
-    from agent_utilities.harness.plan_runtime import PlanScaffold
+    from meristem.graph import RunBudget
+    from meristem.harness.plan_runtime import PlanScaffold
 
     retained = []
     original = PlanScaffold.before_model_request
@@ -177,7 +177,7 @@ async def test_scaffold_surface_and_imports_have_no_selection_authority():
     import ast
     import inspect
 
-    from agent_utilities.harness import plan, plan_runtime
+    from meristem.harness import plan, plan_runtime
 
     for module in (plan, plan_runtime):
         tree = ast.parse(inspect.getsource(module))
@@ -192,7 +192,7 @@ async def test_scaffold_surface_and_imports_have_no_selection_authority():
             if isinstance(node, ast.Import)
             for alias in node.names
         )
-        assert not any(name.startswith("agent_utilities.decide") for name in imports)
+        assert not any(name.startswith("meristem.decide") for name in imports)
 
     schemas: list[dict[str, Any]] = []
 
@@ -239,7 +239,7 @@ async def test_invalid_received_scaffold_decision_fails_before_model_call(mode):
 async def test_host_receives_only_actual_accepted_revisions():
     from contextlib import asynccontextmanager
 
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     published = []
     lifecycle = []
@@ -303,7 +303,7 @@ async def test_host_receives_only_actual_accepted_revisions():
 async def test_publication_failure_stops_run_without_disclosing_payload(failure_at):
     from contextlib import asynccontextmanager
 
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     calls = []
     closed = []
@@ -365,7 +365,7 @@ async def test_concurrent_runs_publish_to_their_own_host_binding():
     import asyncio
     from contextlib import asynccontextmanager
 
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     observed = {}
     ready = asyncio.Event()

@@ -1,19 +1,19 @@
 # MERISTEM-BOUNDARY — AU boundary deconstruction
 
 **ID:** MERISTEM-BOUNDARY
-**Owner:** agent-utilities
+**Owner:** meristem
 **Delivery:** SPECIFIED; implementation and acceptance must be checked against an exact merged commit.
 **Requirements:** MERISTEM-BOUNDARY-R001–MERISTEM-BOUNDARY-R041. Every requirement ID is defined in [requirements.md](requirements.md); the delivery state and evidence of each are recorded in [status.json](status.json). MERISTEM-BOUNDARY-R038 owns the final boundary gate.
 
 ## Outcome
 
-Agent Utilities exposes one agent execution application API. It no longer hosts a second graph engine, public gateway, connector transport, durable data store, or development governance service. A contributor can implement any cut using only this spec and the checked-in source tree.
+Meristem exposes one agent execution application API. It no longer hosts a second graph engine, public gateway, connector transport, durable data store, or development governance service. A contributor can implement any cut using only this spec and the checked-in source tree.
 
 ## Ownership and scope
 
 | Cut | Requirements | Remove from AU after replacement is wired | Authority and retained AU behavior |
 |---|---|---|---|
-| Served shell | MERISTEM-BOUNDARY-R002, MERISTEM-BOUNDARY-R014–MERISTEM-BOUNDARY-R017 | `deployment/`, A2A/ACP/AG-UI hosts, served messaging adapters, duplicate console scripts, non-API imports by clients | arbora hosts public REST/MCP/A2A, fleet, deployment and messaging (ARBORA-DEPLOY, ARBORA-FLEET). AU keeps the agent harness. AU reaches arbora through `agent_utilities.arbora_client`. |
+| Served shell | MERISTEM-BOUNDARY-R002, MERISTEM-BOUNDARY-R014–MERISTEM-BOUNDARY-R017 | `deployment/`, A2A/ACP/AG-UI hosts, served messaging adapters, duplicate console scripts, non-API imports by clients | arbora hosts public REST/MCP/A2A, fleet, deployment and messaging (ARBORA-DEPLOY, ARBORA-FLEET). AU keeps the agent harness. AU reaches arbora through `meristem.arbora_client`. |
 | Connector lifecycle | MERISTEM-BOUNDARY-R005–MERISTEM-BOUNDARY-R011, MERISTEM-BOUNDARY-R024–MERISTEM-BOUNDARY-R026, MERISTEM-BOUNDARY-R049 | connector toolkit, `protocols/source_connectors/`, source polling/transport, vendor extractors and sinks, certification | agent-connector-sdk owns source access, cursors, pack authoring and write-back; AU submits typed agent claims only |
 | Graph and semantic state | MERISTEM-BOUNDARY-R012, MERISTEM-BOUNDARY-R018–MERISTEM-BOUNDARY-R023, MERISTEM-BOUNDARY-R027–MERISTEM-BOUNDARY-R035, MERISTEM-BOUNDARY-R040 | second EG projection, graph engine/session facade, durable work/queue, tenancy, graph analytics, deterministic ingestion, ontology/SHACL, graph DTO copies, legacy SPARQL setup, retrieval engines, schema-drift authority and durable memory | epistemic-graph owns durable records, types, schema, reasoning, retrieval and memory; AU keeps policy/context compilation over generated client ports |
 | Cross-cutting state | MERISTEM-BOUNDARY-R036–MERISTEM-BOUNDARY-R037 | AU SQLite usage facts and `governance/` merge-queue and concept-reservation tooling | EG stores usage facts. Repository-manager owns repository and worktree governance. AU emits usage events |
@@ -26,7 +26,7 @@ The [deliverable matrix](cutover-matrix.md) defines the concrete source cut, tar
 ## Requirements
 
 1. Preserve observable behavior through the new owner and retire each replaced AU entry point in the same coherent change. Do not leave a forwarding alias or dual write as a permanent compatibility layer.
-2. `arbora` and frontends call AU only through `agent_utilities.api` for agent execution. AU application code never imports public transport, source vendor SDK, or persistence implementation.
+2. `arbora` and frontends call AU only through `meristem.api` for agent execution. AU application code never imports public transport, source vendor SDK, or persistence implementation.
 3. A migration includes an explicit old-operation → new-operation inventory. Each old operation has a tested new owner or a reviewed deletion reason. Authorization, tenant scope, idempotency, error code and receipt parity are checked on the real entry point.
 4. Replace AU graph DTOs with generated EG types from one pinned contract digest. Reject incompatible generations before side effects; do not hand-copy a wire model or digest algorithm.
 5. Migrate durable usage and memory through tenant-scoped EG methods; no local SQLite fallback. Old untrusted records are quarantined until an authorized migration can attest source and tenant.

@@ -25,7 +25,7 @@ def check(root: Path) -> list[str]:
         parts = PurePosixPath(path).parts
         if (
             not 2 <= len(parts) <= 3
-            or parts[0] != "agent_utilities"
+            or parts[0] != "meristem"
             or ".." in parts
             or str(PurePosixPath(path)) != path
             or path in rows
@@ -45,7 +45,7 @@ def check(root: Path) -> list[str]:
             raise ValueError(f"invalid destination: {path}")
         rows[path] = (disposition, destination)
 
-    package = root / "agent_utilities"
+    package = root / "meristem"
     if not package.is_dir():
         raise ValueError("package directory is missing")
     directories: set[str] = set()

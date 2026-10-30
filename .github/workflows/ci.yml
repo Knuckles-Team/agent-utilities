@@ -70,7 +70,7 @@ jobs:
       - name: ruff format
         run: uv run --no-sync ruff format --check .
       - name: mypy
-        run: uv run --no-sync mypy agent_utilities
+        run: uv run --no-sync mypy meristem
       - name: tests
         run: uv run --no-sync pytest -q -p randomly
 
@@ -95,7 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           uv sync --frozen --no-dev --python 3.12
-          uv run --frozen --no-sync python -c 'import sys, agent_utilities; print(sys.version)'
+          uv run --frozen --no-sync python -c 'import sys, meristem; print(sys.version)'
 
   build:
     name: build
@@ -116,7 +116,7 @@ jobs:
         run: |
           uv venv /tmp/wheel-check
           uv pip install --python /tmp/wheel-check dist/meristem-*.whl
-          /tmp/wheel-check/bin/python -c "import agent_utilities, agent_utilities.harness, agent_utilities.runtime, agent_utilities.host_ports"
+          /tmp/wheel-check/bin/python -c "import meristem, meristem.harness, meristem.runtime, meristem.host_ports"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: meristem-dist

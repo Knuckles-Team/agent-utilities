@@ -8,10 +8,10 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.toolsets import FunctionToolset
 
-from agent_utilities import host_ports
-from agent_utilities.graph import RunBudget, RunPlan, RunRequest
-from agent_utilities.graph.state import HarnessConfig
-from agent_utilities.harness.hosted_run import iterate_client_run
+from meristem import host_ports
+from meristem.graph import RunBudget, RunPlan, RunRequest
+from meristem.graph.state import HarnessConfig
+from meristem.harness.hosted_run import iterate_client_run
 
 
 class Transport:
@@ -345,7 +345,7 @@ async def test_native_observer_budget_refuses_before_streaming():
 
 @pytest.mark.spec("MERISTEM-BOUNDARY-R043.11")
 async def test_native_observer_dependency_plan_refuses_before_model():
-    from agent_utilities.graph import DependencyPlan, RunTask
+    from meristem.graph import DependencyPlan, RunTask
 
     calls = []
 

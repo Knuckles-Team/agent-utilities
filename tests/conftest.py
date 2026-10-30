@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from agent_utilities.runtime import DevWorkspace, LocalWorkspace
+from meristem.runtime import DevWorkspace, LocalWorkspace
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ async def workspace(tmp_path) -> AsyncIterator[DevWorkspace]:
 @pytest.fixture(autouse=True)
 def _clear_host_ports():
     """Every test starts and ends with no host provider registered."""
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     registrars = (
         host_ports.register_run_decision_provider,
@@ -46,7 +46,7 @@ def _clear_host_ports():
 @pytest.fixture
 def events() -> list[dict]:
     """Run events captured through a fake host run event sink."""
-    from agent_utilities import host_ports
+    from meristem import host_ports
 
     captured: list[dict] = []
     host_ports.register_run_event_sink(lambda event: captured.append(dict(event)))

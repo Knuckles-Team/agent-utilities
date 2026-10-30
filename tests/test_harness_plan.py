@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from agent_utilities.harness import PlanItem, PlanState
+from meristem.harness import PlanItem, PlanState
 
 
 @pytest.mark.spec("MERISTEM-BOUNDARY-R043.4.1")

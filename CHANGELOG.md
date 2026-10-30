@@ -1,11 +1,20 @@
 # Changelog
 
-All notable changes to agent-utilities will be documented in this file.
+All notable changes to meristem will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [5.0.0] - 2026-10-30
+
+### Changed
+- Hard cutover: the import package `agent_utilities` is now `meristem`. Every module moves with it (`meristem.runtime`, `meristem.host_ports`, `meristem.harness`, `meristem.graph`, `meristem.rlm`, `meristem.core.paths`). There is no `agent_utilities` alias or shim; update imports.
+- The console script `agent-utilities` is now `meristem` (`python -m meristem`).
+- The bundled skill `agent-utilities-development` is now `meristem-development`.
+- Run-event and lineage idempotency keys use the `meristem:` prefix instead of `agent-utilities:`. Keys written by earlier releases do not deduplicate against new ones.
+- Code concept tags and gate spec markers use the `MERISTEM-` prefix; `.config/spec-aliases.toml` keeps old `AU-` trailers resolving.
 
 ## [4.2.0] - 2026-10-29
 

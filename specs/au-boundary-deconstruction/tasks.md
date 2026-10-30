@@ -27,7 +27,7 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 
 ## Progress notes
 
-- `MERISTEM-BOUNDARY-R030`: the SDK half landed as `agent_connector_sdk.manifest.ontology_pack.compile_manifest_ontology` (Knuckles-Team/agent-connector-sdk#36). AU's compile-before-sync gate (`connector_manifest_gate._compiled_manifest_graph`) now calls it instead of rendering Turtle locally. `agent_utilities/knowledge_graph/ontology/manifest_compiler.py` is not yet deleted: `scripts/generate_connector_manifests.py`, `scripts/update_ontology_lock.py`, `scripts/generate_native_connector_manifest.py`, and `agent_utilities/knowledge_graph/domain_packs/pack_loader.py` still import it directly and need their own migration before the local copy is removed.
+- `MERISTEM-BOUNDARY-R030`: the SDK half landed as `agent_connector_sdk.manifest.ontology_pack.compile_manifest_ontology` (Knuckles-Team/agent-connector-sdk#36). AU's compile-before-sync gate (`connector_manifest_gate._compiled_manifest_graph`) now calls it instead of rendering Turtle locally. `meristem/knowledge_graph/ontology/manifest_compiler.py` is not yet deleted: `scripts/generate_connector_manifests.py`, `scripts/update_ontology_lock.py`, `scripts/generate_native_connector_manifest.py`, and `meristem/knowledge_graph/domain_packs/pack_loader.py` still import it directly and need their own migration before the local copy is removed.
 - `MERISTEM-BOUNDARY-R035`: the SHACL-removal half (candidate.py sends EG a typed `RecordContract`, never Turtle) landed at main commit `9cc9e08c1a0e0c273223b5cc84ebe9e2fcb2f946` under `MERISTEM-SEC-R005`, ahead of this spec recording it. The remaining half, moving `contract_store` and `activation` into the epistemic graph and the SDK connector-sync runner's gate/shape/classify/report steps, is open.
 
 ## Decomposition children (tracked)
@@ -52,14 +52,14 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **MERISTEM-BOUNDARY-R030.2:** Wire `scripts/generate_connector_manifests.py` off the local manifest compiler onto the SDK pack compiler.
 - [ ] **MERISTEM-BOUNDARY-R030.3:** Wire `scripts/update_ontology_lock.py` off the local manifest compiler onto the SDK pack compiler.
 - [ ] **MERISTEM-BOUNDARY-R030.4:** Wire `scripts/generate_native_connector_manifest.py` off the local manifest compiler onto the SDK pack compiler.
-- [ ] **MERISTEM-BOUNDARY-R030.5:** Wire `agent_utilities/knowledge_graph/domain_packs/pack_loader.py` off the local manifest compiler onto the SDK pack compiler.
-- [ ] **MERISTEM-BOUNDARY-R030.6:** Delete `agent_utilities/knowledge_graph/ontology/manifest_compiler.py` once it has zero importers.
+- [ ] **MERISTEM-BOUNDARY-R030.5:** Wire `meristem/knowledge_graph/domain_packs/pack_loader.py` off the local manifest compiler onto the SDK pack compiler.
+- [ ] **MERISTEM-BOUNDARY-R030.6:** Delete `meristem/knowledge_graph/ontology/manifest_compiler.py` once it has zero importers.
 - [x] **MERISTEM-BOUNDARY-R030.7:** RETIRED: superseded by SCION-CONNECTOR-CONTROL-R067 (typed pack declaration authored by the SDK).
 - [x] **MERISTEM-BOUNDARY-R030.8:** RETIRED: superseded by MERISTEM-SEMANTIC-R021.2/R021.4 (SDK ontology pack + `ontology_publisher.py`, MERISTEM-BOUNDARY-R030.7).
 - [x] **MERISTEM-BOUNDARY-R030.9:** RETIRED: superseded by MERISTEM-SEMANTIC-R021.2/R021.4 (SDK ontology pack + `ontology_publisher.py`, MERISTEM-BOUNDARY-R030.7).
   - [x] **MERISTEM-BOUNDARY-R030.9.1:** RETIRED: superseded by MERISTEM-SEMANTIC-R021.2/R021.4 (SDK ontology pack + `ontology_publisher.py`, MERISTEM-BOUNDARY-R030.7).
   - [x] **MERISTEM-BOUNDARY-R030.9.2:** RETIRED: superseded by MERISTEM-SEMANTIC-R021.2/R021.4 (SDK ontology pack + `ontology_publisher.py`, MERISTEM-BOUNDARY-R030.7).
-- [x] **MERISTEM-BOUNDARY-R048.1:** `agent_utilities/images/` already deleted/relocated; no remaining work on that directory
+- [x] **MERISTEM-BOUNDARY-R048.1:** `meristem/images/` already deleted/relocated; no remaining work on that directory
 - [ ] **MERISTEM-BOUNDARY-R048.2:** Relocate `domains/government/` to its epistemic-graph domain pack and delete from AU
 - [ ] **MERISTEM-BOUNDARY-R048.3:** Relocate `domains/hr/` to its epistemic-graph domain pack and delete from AU
 - [ ] **MERISTEM-BOUNDARY-R048.4:** Relocate `domains/law/` to its epistemic-graph domain pack and delete from AU
@@ -76,13 +76,13 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
 - [ ] **MERISTEM-BOUNDARY-R008.1:** P-S connector import census (PR #150, `79dc21bab`) that moved R008 to LANDED. `status.json`'s `landed_in` SHA is wrong (points at the unrelated `MERISTEM-HARNESS-R005.1` merge, not a P-S connector change).
 - [x] **MERISTEM-BOUNDARY-R008.2:** RETIRED: superseded by SCION-CONNECTOR-CONTROL-R012.
 - [ ] **MERISTEM-BOUNDARY-R002.1:** Record that PR #26 (`fca0c5ee42b3`) did not delete `backends.py`/`certification_oidc.py`; `status.json`'s LANDED is wrong.
-- [ ] **MERISTEM-BOUNDARY-R002.2:** Delete `agent_utilities/deployment/backends.py`.
-- [ ] **MERISTEM-BOUNDARY-R002.3:** ROLLUP: delete `agent_utilities/deployment/certification_oidc.py` via children R002.3.1 to R002.3.5.
+- [ ] **MERISTEM-BOUNDARY-R002.2:** Delete `meristem/deployment/backends.py`.
+- [ ] **MERISTEM-BOUNDARY-R002.3:** ROLLUP: delete `meristem/deployment/certification_oidc.py` via children R002.3.1 to R002.3.5.
 - [ ] **MERISTEM-BOUNDARY-R002.3.1:** Record the arbora owner of the ephemeral loopback OIDC certification authority.
 - [ ] **MERISTEM-BOUNDARY-R002.3.2:** Repoint or remove the `certification_oidc` import in `skill_validation.py` and `skill_validation_assets.py`.
 - [ ] **MERISTEM-BOUNDARY-R002.3.3:** Delete `scripts/certification/loopback_oidc.py` and `tests/unit/scripts/test_loopback_oidc.py`.
 - [ ] **MERISTEM-BOUNDARY-R002.3.4:** Remove `certification_oidc.py` from the egress-boundary and release-wheel script path lists.
-- [ ] **MERISTEM-BOUNDARY-R002.3.5:** Delete `agent_utilities/deployment/certification_oidc.py`.
+- [ ] **MERISTEM-BOUNDARY-R002.3.5:** Delete `meristem/deployment/certification_oidc.py`.
 - [ ] **MERISTEM-BOUNDARY-R010.1:** Record that `status.json`'s `landed_in` (`2456745c1e4d`) did not delete the connector toolkit; LANDED is wrong.
 - [ ] **MERISTEM-BOUNDARY-R010.2:** RETIRED: superseded by MERISTEM-BOUNDARY-R010.3...MERISTEM-BOUNDARY-R010.25.
 - [ ] **MERISTEM-BOUNDARY-R010.3:** see requirements.md.

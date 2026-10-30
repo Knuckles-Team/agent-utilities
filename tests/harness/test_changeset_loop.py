@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_utilities.harness.changeset_loop import (
+from meristem.harness.changeset_loop import (
     SourceConflict,
     Submitted,
     SymbolAccepted,
@@ -14,10 +14,10 @@ from agent_utilities.harness.changeset_loop import (
     run_changeset_cycle,
     run_symbol_edit,
 )
-from agent_utilities.harness.edit_engine import Edit, apply_edits
-from agent_utilities.runtime.events import CmdRunAction
-from agent_utilities.runtime.local_workspace import LocalWorkspace
-from agent_utilities.runtime.workspace import DevWorkspace
+from meristem.harness.edit_engine import Edit, apply_edits
+from meristem.runtime.events import CmdRunAction
+from meristem.runtime.local_workspace import LocalWorkspace
+from meristem.runtime.workspace import DevWorkspace
 
 
 class Source:
@@ -198,7 +198,7 @@ async def test_empty_symbol_acceptance_is_not_reported_as_success():
 async def test_rebases_on_conflict(tmp_path, monkeypatch):
     events = []
     monkeypatch.setattr(
-        "agent_utilities.harness.changeset_loop.host_ports.emit_run_event",
+        "meristem.harness.changeset_loop.host_ports.emit_run_event",
         events.append,
     )
     source = Source([SourceConflict(("a.txt",)), Submitted("change")])
@@ -235,7 +235,7 @@ async def test_rebases_on_conflict(tmp_path, monkeypatch):
 async def test_failed_gate_does_not_submit(tmp_path, monkeypatch):
     events = []
     monkeypatch.setattr(
-        "agent_utilities.harness.changeset_loop.host_ports.emit_run_event",
+        "meristem.harness.changeset_loop.host_ports.emit_run_event",
         events.append,
     )
     source = Source([])

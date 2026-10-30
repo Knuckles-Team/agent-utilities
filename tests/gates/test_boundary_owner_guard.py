@@ -13,23 +13,21 @@ from scripts.check_boundary_owners import check
 @pytest.fixture
 def checkout(tmp_path: Path) -> Path:
     (tmp_path / "architecture").mkdir()
-    (tmp_path / "agent_utilities").mkdir()
-    (tmp_path / "agent_utilities/__init__.py").write_text("")
-    (tmp_path / "agent_utilities/main.py").write_text("")
+    (tmp_path / "meristem").mkdir()
+    (tmp_path / "meristem/__init__.py").write_text("")
+    (tmp_path / "meristem/main.py").write_text("")
     registry = {
         "schema": "au-boundary-owners/v1",
         "owners": {
-            "meristem": {
-                "modules": ["agent_utilities/__init__.py", "agent_utilities/main.py"]
-            },
-            "arbora": {"prefixes": ["agent_utilities/deployment"]},
-            "scion-sdk": {"prefixes": ["agent_utilities/protocols/source_connectors"]},
-            "medulla": {"prefixes": ["agent_utilities/knowledge_graph"]},
+            "meristem": {"modules": ["meristem/__init__.py", "meristem/main.py"]},
+            "arbora": {"prefixes": ["meristem/deployment"]},
+            "scion-sdk": {"prefixes": ["meristem/protocols/source_connectors"]},
+            "medulla": {"prefixes": ["meristem/knowledge_graph"]},
         },
     }
     (tmp_path / "architecture/component-registry.yml").write_text(json.dumps(registry))
     (tmp_path / "pyproject.toml").write_text(
-        '[project.scripts]\nagent = "agent_utilities.main:main"\n'
+        '[project.scripts]\nagent = "meristem.main:main"\n'
     )
     return tmp_path
 
@@ -42,9 +40,9 @@ def test_owner_guard_accepts_registered_harness(checkout: Path) -> None:
 @pytest.mark.parametrize(
     ("path", "owner"),
     [
-        ("agent_utilities/deployment/server.py", "arbora"),
-        ("agent_utilities/protocols/source_connectors/source.py", "scion-sdk"),
-        ("agent_utilities/knowledge_graph/store.py", "medulla"),
+        ("meristem/deployment/server.py", "arbora"),
+        ("meristem/protocols/source_connectors/source.py", "scion-sdk"),
+        ("meristem/knowledge_graph/store.py", "medulla"),
     ],
 )
 def test_owner_guard_rejects_foreign_module_even_if_registered(
@@ -65,17 +63,17 @@ def test_owner_guard_rejects_foreign_module_even_if_registered(
 def test_owner_guard_rejects_wrong_owner_script_and_unregistered_module(
     checkout: Path,
 ) -> None:
-    (checkout / "agent_utilities/unregistered.py").write_text("")
+    (checkout / "meristem/unregistered.py").write_text("")
     (checkout / "pyproject.toml").write_text(
-        '[project.scripts]\nserver = "agent_utilities.deployment.server:main"\n'
+        '[project.scripts]\nserver = "meristem.deployment.server:main"\n'
     )
 
     assert check(checkout) == [
-        "unregistered module: agent_utilities/unregistered.py",
+        "unregistered module: meristem/unregistered.py",
         "unowned console script target: server",
     ]
 
 
 def test_owner_guard_rejects_stale_manifest(checkout: Path) -> None:
-    (checkout / "agent_utilities/main.py").unlink()
-    assert "missing registered module: agent_utilities/main.py" in check(checkout)
+    (checkout / "meristem/main.py").unlink()
+    assert "missing registered module: meristem/main.py" in check(checkout)

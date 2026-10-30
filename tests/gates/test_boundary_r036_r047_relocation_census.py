@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-PACKAGE = Path(__file__).resolve().parents[2] / "agent_utilities"
+PACKAGE = Path(__file__).resolve().parents[2] / "meristem"
 INVENTORY: dict[str, tuple[str, ...]] = {
     "R036": ("usage/backend.py", "usage/authorization.py", "usage/backends"),
     "R037": (

@@ -1,6 +1,6 @@
 # MERISTEM-SCM — Development loop on changesets
 
-Owner: agent-utilities. Cross-repo IDs: MEDULLA-SCM-R002, MEDULLA-SCM-R003, ARBORA-OPS-R848, ARBORA-OPS-R849.
+Owner: meristem. Cross-repo IDs: MEDULLA-SCM-R002, MEDULLA-SCM-R003, ARBORA-OPS-R848, ARBORA-OPS-R849.
 
 ## Purpose and user stories
 
@@ -32,17 +32,17 @@ changeset acceptance and refusal with
 `SOURCE_CONFLICT{paths}`. ARBORA-OPS-R848 specifies `source.commit` and
 `source.land` through the repository-manager connector tools.
 ARBORA-OPS-R849 specifies the landing policy. No spec owns the in-run loop that drives those operations. This
-spec owns that loop. The `agent_utilities/harness/` package today holds
+spec owns that loop. The `meristem/harness/` package today holds
 the edit engine and the quality gates only.
 
 ## Scope and interfaces
 
 Owned: the changeset development loop and its models
-(`agent_utilities/harness/changeset_loop.py`). Edits apply through
-`apply_edits` (`agent_utilities/harness/edit_engine.py:457`). The fast
+(`meristem/harness/changeset_loop.py`). Edits apply through
+`apply_edits` (`meristem/harness/edit_engine.py:457`). The fast
 gates must execute in the `DevWorkspace` sandbox
-(`agent_utilities/runtime/workspace.py:103`). The existing
-`PreflightGate` (`agent_utilities/harness/quality_gates.py:107`) evaluates
+(`meristem/runtime/workspace.py:103`). The existing
+`PreflightGate` (`meristem/harness/quality_gates.py:107`) evaluates
 output against a checklist and is not a sandbox command runner. The fast-gate
 contract therefore still needs an owner-defined binding. Submission runs
 through a new `ChangesetSubmitter` host port. The port fails closed

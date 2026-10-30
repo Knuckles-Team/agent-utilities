@@ -2,13 +2,13 @@
 fabricated-data finance modules.
 
 Both retirements are already achieved on ``origin/main`` (post-3.0.0 cut):
-``agent_utilities/knowledge_graph/ontology/manifest_compiler.py`` is gone,
+``meristem/knowledge_graph/ontology/manifest_compiler.py`` is gone,
 and the finance modules that produced fabricated data are gone with it.
 These tests bind that state:
 
 * the retired path is absent relative to the repo root (and no same-named
   file reappeared anywhere in the package), and
-* an import census over ``agent_utilities/`` and ``tests/`` finds zero
+* an import census over ``meristem/`` and ``tests/`` finds zero
   callers: an AST scan of ``import``/``from`` statements plus a line scan
   for dynamic (string-literal) references to the full dotted paths.
 
@@ -29,10 +29,10 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Top-level Python package directories present on origin/main.
-PACKAGE_DIRS = ("agent_utilities", "tests")
+PACKAGE_DIRS = ("meristem", "tests")
 
 MANIFEST_COMPILER = "manifest_compiler"
-MANIFEST_COMPILER_DOTTED = "agent_utilities.knowledge_graph.ontology.manifest_compiler"
+MANIFEST_COMPILER_DOTTED = "meristem.knowledge_graph.ontology.manifest_compiler"
 
 # The exact module names the MERISTEM-BOUNDARY-R041 row in requirements.md names.
 R041_NAMED_MODULES = (
@@ -55,14 +55,8 @@ def _r041_canonical_path(module_name: str) -> Path:
     """Pre-cut location: 11 modules under domains/finance/, quant_tasks under
     knowledge_graph/core/ (plan.md inventory)."""
     if module_name == "quant_tasks":
-        return (
-            REPO_ROOT
-            / "agent_utilities"
-            / "knowledge_graph"
-            / "core"
-            / "quant_tasks.py"
-        )
-    return REPO_ROOT / "agent_utilities" / "domains" / "finance" / f"{module_name}.py"
+        return REPO_ROOT / "meristem" / "knowledge_graph" / "core" / "quant_tasks.py"
+    return REPO_ROOT / "meristem" / "domains" / "finance" / f"{module_name}.py"
 
 
 def _python_files() -> list[Path]:
@@ -120,19 +114,13 @@ def _import_census(
 def test_manifest_compiler_deleted_without_importers():
     """The retired manifest compiler is absent and no caller remains."""
     retired = (
-        REPO_ROOT
-        / "agent_utilities"
-        / "knowledge_graph"
-        / "ontology"
-        / "manifest_compiler.py"
+        REPO_ROOT / "meristem" / "knowledge_graph" / "ontology" / "manifest_compiler.py"
     )
     assert not retired.exists(), (
         f"retired path still present: {retired.relative_to(REPO_ROOT)}"
     )
     strays = [
-        p
-        for p in (REPO_ROOT / "agent_utilities").rglob("*.py")
-        if p.stem == MANIFEST_COMPILER
+        p for p in (REPO_ROOT / "meristem").rglob("*.py") if p.stem == MANIFEST_COMPILER
     ]
     assert strays == [], (
         f"manifest_compiler.py reappeared: {[str(p.relative_to(REPO_ROOT)) for p in strays]}"
@@ -152,17 +140,15 @@ def test_retired_finance_module_absent_without_importers(module_name):
         f"retired path still present: {canonical.relative_to(REPO_ROOT)}"
     )
     strays = [
-        p
-        for p in (REPO_ROOT / "agent_utilities").rglob("*.py")
-        if p.stem == module_name
+        p for p in (REPO_ROOT / "meristem").rglob("*.py") if p.stem == module_name
     ]
     assert strays == [], (
         f"{module_name}.py reappeared: {[str(p.relative_to(REPO_ROOT)) for p in strays]}"
     )
     if module_name == "quant_tasks":
-        dotted = ("agent_utilities.knowledge_graph.core.quant_tasks",)
+        dotted = ("meristem.knowledge_graph.core.quant_tasks",)
     else:
-        dotted = (f"agent_utilities.domains.finance.{module_name}",)
+        dotted = (f"meristem.domains.finance.{module_name}",)
     hits = _import_census((module_name,), dotted)
     assert hits == [], f"import census found callers of {module_name}:\n" + "\n".join(
         hits

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_utilities.harness.quality_gates import (
+from meristem.harness.quality_gates import (
     AntipatternRegistry,
     MultiDimensionalCritique,
     PreEmitGate,

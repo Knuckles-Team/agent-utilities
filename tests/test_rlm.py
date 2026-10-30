@@ -1,4 +1,4 @@
-"""Behaviour of the recursive run loop (agent_utilities.rlm)."""
+"""Behaviour of the recursive run loop (meristem.rlm)."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.test import TestModel
 
-from agent_utilities import host_ports
-from agent_utilities.graph import RunPlan
-from agent_utilities.graph.live_events import LineageBinding
-from agent_utilities.rlm import RLMConfig, SandboxFatalError, classify_failure, run_rlm
-from agent_utilities.rlm.telemetry import dominant_failure
+from meristem import host_ports
+from meristem.graph import RunPlan
+from meristem.graph.live_events import LineageBinding
+from meristem.rlm import RLMConfig, SandboxFatalError, classify_failure, run_rlm
+from meristem.rlm.telemetry import dominant_failure
 
 
 class SandboxRejected(Exception):
@@ -370,7 +370,7 @@ async def test_recursive_shared_budget_and_batch_refusal(
 
 # spec: MERISTEM-BOUNDARY-R043.7
 async def test_host_zero_request_limit_is_not_widened_to_fallback():
-    from agent_utilities.graph import RunBudget
+    from meristem.graph import RunBudget
 
     host_ports.register_run_decision_provider(
         lambda req: RunPlan(

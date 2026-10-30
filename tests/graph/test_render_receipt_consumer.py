@@ -6,9 +6,9 @@ import pytest
 from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 
-from agent_utilities import host_ports
-from agent_utilities.graph import RunPlan, RunRequest, run
-from agent_utilities.graph.render_receipt import (
+from meristem import host_ports
+from meristem.graph import RunPlan, RunRequest, run
+from meristem.graph.render_receipt import (
     CALL_SITE,
     CurrentRevisions,
     RenderReceipt,
@@ -151,7 +151,7 @@ async def test_location_evidence() -> None:
         "source_snapshot": "snap-1",
     }
     events = []
-    from agent_utilities.graph import iterate_run
+    from meristem.graph import iterate_run
 
     async for event in iterate_run(
         RunRequest(task="hello", run_id="e"), plan=_plan(Transport(), _check())

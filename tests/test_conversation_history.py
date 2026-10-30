@@ -8,8 +8,8 @@ from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage, RunUsage
 
-from agent_utilities import host_ports
-from agent_utilities.graph import (
+from meristem import host_ports
+from meristem.graph import (
     DependencyPlan,
     RunBudget,
     RunPlan,
@@ -17,7 +17,7 @@ from agent_utilities.graph import (
     RunTask,
     run,
 )
-from agent_utilities.harness.conversation_history import decode_completed_history
+from meristem.harness.conversation_history import decode_completed_history
 
 pytestmark = pytest.mark.spec("MERISTEM-BOUNDARY-R043.9.1")
 
@@ -546,7 +546,7 @@ async def test_oversized_child_binding_refuses_before_model(field):
 
 @pytest.mark.spec("MERISTEM-BOUNDARY-R043.16")
 async def test_selected_child_history_preserves_shared_limit_and_fresh_run_usage():
-    from agent_utilities.graph import LiveSharedBudget
+    from meristem.graph import LiveSharedBudget
 
     binding = host_ports.CompletedChildBinding("child", "conversation", "prior", "rev")
     selected = {
@@ -619,7 +619,7 @@ async def test_selected_child_history_preserves_shared_limit_and_fresh_run_usage
     ],
 )
 async def test_selected_child_refusal_does_not_spend_enclosing_budget(case):
-    from agent_utilities.graph import LiveSharedBudget
+    from meristem.graph import LiveSharedBudget
 
     binding = host_ports.CompletedChildBinding("child", "conversation", "prior", "rev")
     selected = {

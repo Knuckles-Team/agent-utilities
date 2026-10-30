@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_utilities.harness.constraint_engine import (
+from meristem.harness.constraint_engine import (
     ConstraintEngine,
     ConstraintLevel,
     HierarchicalConstraint,

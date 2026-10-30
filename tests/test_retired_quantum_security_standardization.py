@@ -8,7 +8,7 @@ retired module names.  For the quantum row the row's named symbols must
 additionally be unreferenced anywhere in the source tree.
 
 The importer census scans every top-level package directory present in the
-checkout (the ``agent_utilities`` package today; any sibling package dir that
+checkout (the ``meristem`` package today; any sibling package dir that
 appears later is picked up automatically). Tests and generated build output are
 excluded.
 """

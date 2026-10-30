@@ -38,7 +38,7 @@ States are `SPECIFIED`, `LANDED`, and `VERIFIED`. The generator sets them. See t
 |---|---|---|
 | `EG` | [epistemic-graph](https://github.com/Knuckles-Team/epistemic-graph/tree/main/specs) | Rust database, graph compute, ontology, governed ingestion, durable records and clients |
 | `SDK` | [agent-connector-sdk](https://github.com/Knuckles-Team/agent-connector-sdk/tree/main/specs) | connector control, transport, manifests, certification, governed effects |
-| `AU` | [Meristem](https://github.com/Knuckles-Team/agent-utilities/tree/main/specs) | agent orchestration and control workflows |
+| `MERISTEM` | [Meristem](https://github.com/Knuckles-Team/meristem/tree/main/specs) | agent orchestration and control workflows |
 | `ARBORA` | [arbora](https://github.com/Knuckles-Team/arbora/tree/main/specs) | serving composition, fleet, gateway, A2A, deployment operations |
 | `WEBUI` | [agent-webui](https://github.com/Knuckles-Team/agent-webui/tree/main/specs) | browser presentation and interaction |
 | `RM` | [repository-manager](https://github.com/Knuckles-Team/repository-manager/tree/main/specs) | repository discovery, worktrees, source control and execution |
@@ -60,14 +60,14 @@ bootstrap skill, together with the [SDD full lifecycle](https://github.com/Knuck
 - [`MERISTEM-CONTROL`](agent-control-plane/spec.md) — agent control plane and workflows.
 - [`MERISTEM-SEC`](agent-security-policy/spec.md) — agent security and policy boundary.
 - [`MERISTEM-BOUNDARY`](au-boundary-deconstruction/spec.md) — move non-agent ownership to the right repository.
-- [`AU-QUAL`](au-boundary-quality/spec.md) — quality and acceptance of the AU boundary.
-- [`AU-DEV`](au-developer-environment/spec.md) — developer environment and release setup.
-- [`AU-INTEGRATION`](au-integration-reliability/spec.md) — reliability of live integrations.
+- [`MERISTEM-QUAL`](au-boundary-quality/spec.md) — quality and acceptance of the AU boundary.
+- [`MERISTEM-DEV`](au-developer-environment/spec.md) — developer environment and release setup.
+- [`MERISTEM-INTEGRATION`](au-integration-reliability/spec.md) — reliability of live integrations.
 - [`MERISTEM-SEMANTIC`](au-semantic-client/spec.md) — semantic client behavior.
 - [`MERISTEM-HARNESS`](harness-evolution/spec.md) — harness improvement and evaluation.
 - [`MERISTEM-RETIRE`](au-engine-duplicate-retirement/spec.md) — retire duplicate graph authority after per-operation parity.
-- [`AU-RETRIEVAL`](retrieval-evaluation/spec.md) — public, reproducible structure-aware retrieval evaluation.
-- [`AU-FREEZE`](release-evidence-freeze/spec.md) — exact-revision AU source and release evidence freeze.
-- [`AU-BASELINE`](baseline-ingestion/spec.md) — baseline ingestion after boot and served ontology content.
+- [`MERISTEM-RETRIEVAL`](retrieval-evaluation/spec.md) — public, reproducible structure-aware retrieval evaluation.
+- [`MERISTEM-FREEZE`](release-evidence-freeze/spec.md) — exact-revision AU source and release evidence freeze.
+- [`MERISTEM-BASELINE`](baseline-ingestion/spec.md) — baseline ingestion after boot and served ontology content.
 - [`MERISTEM-HARNESS-CYCLE`](harness-cycle/spec.md) — harness evolution cycle: propose, probe, compose, persist, reflect.
 - [`MERISTEM-SCM`](au-scm/spec.md) — development loop on changesets for the in-run coding harness.

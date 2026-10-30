@@ -9,8 +9,8 @@ from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage
 
-from agent_utilities.graph import RunPlan, RunRequest, run
-from agent_utilities.graph.metrics import MAX_REQUEST_SAMPLES, RunMetrics
+from meristem.graph import RunPlan, RunRequest, run
+from meristem.graph.metrics import MAX_REQUEST_SAMPLES, RunMetrics
 
 
 # spec: MERISTEM-BOUNDARY-R043.12
@@ -101,7 +101,7 @@ async def test_missing_model_has_zero_observed_requests():
 
 # spec: MERISTEM-BOUNDARY-R043.12
 async def test_zero_elapsed_is_not_used_as_a_generation_denominator(monkeypatch):
-    import agent_utilities.graph.metrics as metrics
+    import meristem.graph.metrics as metrics
 
     monkeypatch.setattr(metrics, "perf_counter_ns", lambda: 0)
     result = await run(

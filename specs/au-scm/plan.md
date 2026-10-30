@@ -5,21 +5,21 @@ Governing spec: [spec.md](spec.md).
 ## Existing system and reuse
 
 The harness package keeps the in-run mechanism. `apply_edits` at
-`agent_utilities/harness/edit_engine.py:457` applies search/replace and
+`meristem/harness/edit_engine.py:457` applies search/replace and
 unified-diff edits to file text. `PreflightGate` at
-`agent_utilities/harness/quality_gates.py:107` runs the pre-emit
+`meristem/harness/quality_gates.py:107` runs the pre-emit
 checklist against output text. `DevWorkspace` at
-`agent_utilities/runtime/workspace.py:103` drives a sandbox backend
+`meristem/runtime/workspace.py:103` drives a sandbox backend
 with typed actions. The backends are `local_workspace.py` and
 `docker_workspace.py`. The run loop enters through `execute_graph` at
-`agent_utilities/graph/runner.py:80`. The host ports live in
-`agent_utilities/host_ports.py`. Every port fails closed without a
+`meristem/graph/runner.py:80`. The host ports live in
+`meristem/host_ports.py`. Every port fails closed without a
 registered provider. The loop reuses these pieces and adds one submit
 port beside them.
 
 ## Architecture
 
-One module owns the loop: `agent_utilities/harness/changeset_loop.py`.
+One module owns the loop: `meristem/harness/changeset_loop.py`.
 The loop is one cycle: edit, gate, submit, conflict. Each step is one
 function with one refusal path. The module holds no store and serves no
 operation. The edit step applies edits through `apply_edits` in the

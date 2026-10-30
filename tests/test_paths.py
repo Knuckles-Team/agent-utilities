@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-from agent_utilities.core import paths
+from meristem.core import paths
 
 _DIRS = {
     "ARBORA_CONFIG_DIR": "config",

@@ -55,7 +55,7 @@ def test_engine_bound_knowledge_graph_tree_is_deleted() -> None:
         "MERISTEM-BOUNDARY-R034",
     ):
         assert _owner_row(row)
-    assert references(("agent_utilities.knowledge_graph",), include_tests=True) == []
+    assert references(("meristem.knowledge_graph",), include_tests=True) == []
 
 
 @pytest.mark.spec("MERISTEM-BOUNDARY-R025")
@@ -95,7 +95,7 @@ def test_engine_duplicate_modules_and_worker_scripts_absent() -> None:
     for row in ("R018", "R019", "R020", "R021", "R022"):
         assert _matches(PACKAGE, INVENTORY[row]) == set()
         assert _owner_row(f"MERISTEM-BOUNDARY-{row}.2")
-    assert set(console_scripts()) == {"agent-utilities"}
+    assert set(console_scripts()) == {"meristem"}
 
 
 @pytest.mark.spec("MERISTEM-BOUNDARY-R028.2")
@@ -157,7 +157,7 @@ def test_domain_directory_has_one_recorded_disposition_and_is_gone(
     row: str, directory: str
 ) -> None:
     assert_absent(directory)
-    assert references((f"agent_utilities.{directory.replace('/', '.')}",)) == []
+    assert references((f"meristem.{directory.replace('/', '.')}",)) == []
     dispositions = re.findall(rf"^\| `{re.escape(directory)}/` \| (\w+) \|", PLAN, re.M)
     assert dispositions == ["deleted"]
     assert _owner_row(row)
@@ -198,7 +198,7 @@ def test_usage_governance_memory_fleet_and_adapter_packages_are_gone() -> None:
         assert_absent(*paths)
         assert _owner_row(row)
     dotted = tuple(
-        f"agent_utilities.{name}"
+        f"meristem.{name}"
         for name in (
             "usage",
             "governance",

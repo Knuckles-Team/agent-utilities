@@ -44,7 +44,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not an exact vX.Y.Z tag: $TAG_NAME"; exit 1; }
-          source_version="$(python3 -c "import ast,pathlib;m=ast.parse(pathlib.Path('agent_utilities/_version.py').read_text());print(next(n.value.value for n in m.body if isinstance(n,ast.Assign)))")"
+          source_version="$(python3 -c "import ast,pathlib;m=ast.parse(pathlib.Path('meristem/_version.py').read_text());print(next(n.value.value for n in m.body if isinstance(n,ast.Assign)))")"
           ls "dist/meristem-${TAG_NAME#v}-"*.whl >/dev/null
           [[ "${TAG_NAME#v}" == "$source_version" ]] || { echo "::error::tag $TAG_NAME != source $source_version"; exit 1; }
       - name: Publish

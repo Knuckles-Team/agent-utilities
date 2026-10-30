@@ -12,8 +12,8 @@ from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage
 
-from agent_utilities import host_ports
-from agent_utilities.graph import (
+from meristem import host_ports
+from meristem.graph import (
     DependencyPlan,
     RunBudget,
     RunPlan,
