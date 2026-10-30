@@ -278,6 +278,9 @@ class RunPlan:
     dependency_plan: DependencyPlan | None = None
     initial_usage: RunUsage = field(default_factory=RunUsage)
     initial_elapsed_seconds: float = 0.0
+    render_receipt: Any = field(default=None, repr=False, compare=False)
+    """Optional ``RenderReceiptCheck`` the host supplies for an engine-rendered
+    prompt; the loop validates it before the first model request."""
 
 
 @dataclass
