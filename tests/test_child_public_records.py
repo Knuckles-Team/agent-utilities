@@ -61,7 +61,6 @@ async def _drive(
     return records
 
 
-@pytest.mark.spec("MERISTEM-BOUNDARY-R043.17")
 async def test_records_ordered_with_child_identity_and_nothing_private() -> None:
     publisher, effects = Publisher(), []
     records = await _drive(publisher, effects)
@@ -85,7 +84,6 @@ async def test_records_ordered_with_child_identity_and_nothing_private() -> None
     assert records.transcript_status == "public_records"
 
 
-@pytest.mark.spec("MERISTEM-BOUNDARY-R043.17")
 async def test_publication_failure_does_not_repeat_effect_or_claim_transcript() -> None:
     # A rejected call record stops the run before the effect.
     publisher, effects = Publisher("tool_activity"), []
@@ -116,7 +114,6 @@ async def test_publication_failure_does_not_repeat_effect_or_claim_transcript() 
     assert records.transcript_status == "interrupted"
 
 
-@pytest.mark.spec("MERISTEM-BOUNDARY-R043.17")
 async def test_explicit_summary_and_unbound_run() -> None:
     publisher = Publisher()
     records = ChildPublicRecordPublisher(publisher, CHILD)
