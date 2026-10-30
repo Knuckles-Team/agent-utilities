@@ -1092,3 +1092,70 @@ checkpoint history are not yet joined atomically. A process crash after an
 acknowledgement remains uncertain. Installed host lineage, durable delivery,
 recovery and receipt evidence are still required; this change does not verify
 R043.15.
+
+## Removal owners
+
+Each row below is delivered by removing the code from Meristem. Meristem claims only
+that the code is gone and unreferenced; the owner row delivers the behaviour and its
+parity tests. An owner cell that reads `needed:` names the owner repository and spec
+where a row does not exist yet. `tests/gates/test_boundary_removal_census.py` proves
+the removal and reads this table.
+
+| Row | Moved behavior | Owner row |
+|---|---|---|
+| `MERISTEM-BOUNDARY-R002.3.2` | certification authority | [ARBORA-HOST-R027.1](https://github.com/Knuckles-Team/arbora/tree/main/specs/host-composition-boundary) |
+| `MERISTEM-BOUNDARY-R012` | generated engine client is the sole projection | [EG-DECISION-ENGINE-R116](https://github.com/Knuckles-Team/medulla/tree/main/specs/decision-engine) |
+| `MERISTEM-BOUNDARY-R018.2` | graph engine facade | [EG-DECISION-ENGINE-R116](https://github.com/Knuckles-Team/medulla/tree/main/specs/decision-engine) |
+| `MERISTEM-BOUNDARY-R019.2` | graph compute and state facades | [EG-DECISION-ENGINE-R116](https://github.com/Knuckles-Team/medulla/tree/main/specs/decision-engine) |
+| `MERISTEM-BOUNDARY-R031` | graph-schema DTOs | [EG-DECISION-ENGINE-R116](https://github.com/Knuckles-Team/medulla/tree/main/specs/decision-engine) |
+| `MERISTEM-BOUNDARY-R020.2` | durable work, queues and leases | [EG-INGEST-WORKER-R001](https://github.com/Knuckles-Team/medulla/tree/main/specs/ingest-worker) |
+| `MERISTEM-BOUNDARY-R021.2` | tenancy, topology and admission | [EG-IDENTITY-R002](https://github.com/Knuckles-Team/medulla/tree/main/specs/engine-identity-and-scope) |
+| `MERISTEM-BOUNDARY-R022.2` | reasoning and analytics | needed: medulla/federated-query-and-reasoning: reasoning and graph-analytics row |
+| `MERISTEM-BOUNDARY-R023` | ingestion commit and derivation | [EG-REPO-INGEST-R002](https://github.com/Knuckles-Team/medulla/tree/main/specs/repository-index-and-ingestion) |
+| `MERISTEM-BOUNDARY-R027` | deterministic enrichment and derivation | [EG-REPO-INGEST-R002](https://github.com/Knuckles-Team/medulla/tree/main/specs/repository-index-and-ingestion) |
+| `MERISTEM-BOUNDARY-R025` | document, conversation and feed sources | needed: scion-sdk/SCION-SOURCE-INGEST: document, conversation and feed source row |
+| `MERISTEM-BOUNDARY-R026` | vendor enrichment and write-back | [SCION-GOVERNED-WRITEBACK-R001](https://github.com/Knuckles-Team/scion-sdk/tree/main/specs/SCION-GOVERNED-WRITEBACK) |
+| `MERISTEM-BOUNDARY-R028.2` | placement and inventory infra | needed: medulla/unified-data-plane: placement optimizer and inventory collector row |
+| `MERISTEM-BOUNDARY-R029` | ontology object model | needed: medulla/typed-packs-and-catalog: ontology object model row |
+| `MERISTEM-BOUNDARY-R030.2` | manifest compilation | needed: scion-sdk/SCION-CONNECTOR-CONTROL: manifest ontology compilation row |
+| `MERISTEM-BOUNDARY-R033` | external graph and database federation | needed: medulla/federated-query-and-reasoning: external backend federation row |
+| `MERISTEM-BOUNDARY-R034` | retrieval engines | needed: medulla/unified-data-plane: retrieval engine row |
+| `MERISTEM-BOUNDARY-R036.2` | usage fact store | needed: medulla/unified-data-plane: agent usage fact row |
+| `MERISTEM-BOUNDARY-R037.2` | development-governance tooling | needed: repository-manager/specs: merge-queue and concept-reservation row |
+| `MERISTEM-BOUNDARY-R040.2` | agent memory and learning engine | needed: medulla/unified-data-plane: agent memory and learning row |
+| `MERISTEM-BOUNDARY-R044.2` | fleet, scaling and deploy-watch | needed: arbora/fleet-catalog-and-tools: fleet reconciler, autoscaler and deploy-watch row |
+| `MERISTEM-BOUNDARY-R047.2` | engine-facing adapters and caches | [EG-DURABLE-KERNEL-R083](https://github.com/Knuckles-Team/medulla/tree/main/specs/durable-graph-kernel) |
+| `MERISTEM-BOUNDARY-R048.2` | government domain content | needed: medulla/typed-packs-and-catalog: domain pack row |
+| `MERISTEM-BOUNDARY-R048.3` | hr domain content | needed: medulla/typed-packs-and-catalog: domain pack row |
+| `MERISTEM-BOUNDARY-R048.4` | law domain content | needed: medulla/typed-packs-and-catalog: domain pack row |
+| `MERISTEM-BOUNDARY-R048.5` | medical domain content | needed: medulla/typed-packs-and-catalog: domain pack row |
+| `MERISTEM-BOUNDARY-R048.6` | models/domains domain content | needed: medulla/typed-packs-and-catalog: domain pack row |
+| `MERISTEM-BOUNDARY-R048.8` | ontology/shapes domain content | needed: medulla/typed-packs-and-catalog: domain pack row |
+| `MERISTEM-BOUNDARY-R048.9` | data domain content | needed: medulla/typed-packs-and-catalog: domain pack row |
+| `MERISTEM-BOUNDARY-R048.10` | voice_supply_chain domain content | needed: medulla/typed-packs-and-catalog: domain pack row |
+| `MERISTEM-BOUNDARY-R032` | legacy SPARQL backend and setup path | needed: medulla/federated-query-and-reasoning: typed unavailable response for removed SPARQL path |
+| `MERISTEM-BOUNDARY-R018` | graph engine facade (rollup) | [EG-DECISION-ENGINE-R116](https://github.com/Knuckles-Team/medulla/tree/main/specs/decision-engine) |
+| `MERISTEM-BOUNDARY-R019` | graph compute and state facades (rollup) | [EG-DECISION-ENGINE-R116](https://github.com/Knuckles-Team/medulla/tree/main/specs/decision-engine) |
+| `MERISTEM-BOUNDARY-R020` | durable work, queues and leases (rollup) | [EG-INGEST-WORKER-R001](https://github.com/Knuckles-Team/medulla/tree/main/specs/ingest-worker) |
+| `MERISTEM-BOUNDARY-R021` | tenancy, topology and admission (rollup) | [EG-IDENTITY-R002](https://github.com/Knuckles-Team/medulla/tree/main/specs/engine-identity-and-scope) |
+| `MERISTEM-BOUNDARY-R022` | reasoning and analytics (rollup) | needed: medulla/federated-query-and-reasoning: reasoning and graph-analytics row |
+| `MERISTEM-BOUNDARY-R036` | usage fact store (rollup) | needed: medulla/unified-data-plane: agent usage fact row |
+| `MERISTEM-BOUNDARY-R037` | development-governance tooling (rollup) | needed: repository-manager/specs: merge-queue and concept-reservation row |
+| `MERISTEM-BOUNDARY-R040` | agent memory and learning engine (rollup) | needed: medulla/unified-data-plane: agent memory and learning row |
+| `MERISTEM-BOUNDARY-R044` | fleet, scaling and deploy-watch (rollup) | needed: arbora/fleet-catalog-and-tools: fleet reconciler, autoscaler and deploy-watch row |
+| `MERISTEM-BOUNDARY-R047` | engine-facing adapters and caches (rollup) | [EG-DURABLE-KERNEL-R083](https://github.com/Knuckles-Team/medulla/tree/main/specs/durable-graph-kernel) |
+
+### Domain content dispositions
+
+One disposition per directory, checked by `test_domain_directory_has_one_recorded_disposition_and_is_gone`.
+
+| Directory | Disposition |
+|---|---|
+| `domains/government/` | deleted |
+| `domains/hr/` | deleted |
+| `domains/law/` | deleted |
+| `domains/medical/` | deleted |
+| `models/domains/` | deleted |
+| `ontology/shapes/` | deleted |
+| `data/` | deleted |
+| `protocols/voice_supply_chain/` | deleted |
