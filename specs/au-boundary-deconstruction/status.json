@@ -1034,13 +1034,14 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R017",
-      "title": "Split messaging behavior and authority across AU, arbora, and EG",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: superseded by ARBORA-HOST-R011",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "4a5540dd2e3d",
         "5b4e8d0a31d0"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by ARBORA-HOST-R011"
     },
     {
       "id": "MERISTEM-BOUNDARY-R018",
@@ -1614,7 +1615,7 @@
     {
       "id": "MERISTEM-BOUNDARY-R030",
       "title": "Move hand-written ontology emitters behind EG pack compilation",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "1446fc4c3db5",
         "5430b7149a81",
@@ -1622,7 +1623,13 @@
         "5e15da9f9e40",
         "62e0b302ed8e"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:111",
+        "tests/gates/test_boundary_removal_census.py:112",
+        "tests/gates/test_boundary_removal_census.py:113",
+        "tests/gates/test_boundary_removal_census.py:114",
+        "tests/gates/test_boundary_removal_census.py:115"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R030.1",
         "MERISTEM-BOUNDARY-R030.2",
@@ -1708,12 +1715,13 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R030.7",
-      "title": "Add `agent_utilities/knowledge_graph/core/ontology_publisher.py`",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: superseded by SCION-CONNECTOR-CONTROL-R067",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "c0dc104b77a9"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by SCION-CONNECTOR-CONTROL-R067"
     },
     {
       "id": "MERISTEM-BOUNDARY-R030.8",
@@ -1803,14 +1811,15 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R035",
-      "title": "Re-home the schema-drift package before it lands",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: superseded by SCION-SOURCE-INGEST-R007",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "5e15da9f9e40",
         "bcfbc23cd1e6",
         "c7fc09d3d2f6"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by SCION-SOURCE-INGEST-R007"
     },
     {
       "id": "MERISTEM-BOUNDARY-R036",
@@ -2643,13 +2652,14 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R049",
-      "title": "Every AU write-back sink runs through the SDK governed write-back contract",
-      "delivery_state": "LANDED",
+      "title": "RETIRED: superseded by SCION-SOURCE-INGEST-R600",
+      "delivery_state": "RETIRED",
       "landed_in": [
         "00234474001c",
         "0e44186eac39"
       ],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "superseded by SCION-SOURCE-INGEST-R600"
     },
     {
       "id": "MERISTEM-BOUNDARY-R043.11",
