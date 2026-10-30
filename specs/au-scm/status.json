@@ -2,7 +2,7 @@
   "schema_version": 2,
   "spec_id": "MERISTEM-SCM",
   "owner_repo": "meristem",
-  "delivery_state": "SPECIFIED",
+  "delivery_state": "VERIFIED",
   "requirement_ids": [
     "MERISTEM-SCM-R001",
     "MERISTEM-SCM-R002"
@@ -11,16 +11,24 @@
     {
       "id": "MERISTEM-SCM-R001",
       "title": "Development loop on changesets",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/harness/test_changeset_loop.py:196"
+      ]
     },
     {
       "id": "MERISTEM-SCM-R002",
       "title": "Symbol-level edits in the run loop",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/harness/test_changeset_loop.py:90"
+      ]
     }
   ]
 }

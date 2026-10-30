@@ -609,79 +609,123 @@
     {
       "id": "MERISTEM-BOUNDARY-R010.13",
       "title": "Repoint agent_utilities/core/config.py and agent_utilities/core/_env.py off `base_utilities.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r001_r010_deletion_census.py:13"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.14",
       "title": "Repoint agent_utilities/knowledge_graph/core/chunked_drain.py and agent_utilities/knowledge_graph/core/source_sync.py off `base_utilities.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r001_r010_deletion_census.py:14"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.15",
       "title": "Repoint agent_utilities/observability/custom_observability.py and agent_utilities/observability/__init__.py off `base_utilities.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r001_r010_deletion_census.py:15"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.17",
       "title": "Repoint agent_utilities/agent/factory.py off `base_utilities.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r001_r010_deletion_census.py:16"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.18",
       "title": "Repoint agent_utilities/graph/builder.py off `base_utilities.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r001_r010_deletion_census.py:17"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.19",
       "title": "Repoint agent_utilities/httpsupport/client.py off `base_utilities.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r001_r010_deletion_census.py:18"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.20",
       "title": "Repoint agent_utilities/__init__.py off `base_utilities.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r001_r010_deletion_census.py:19"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.21",
       "title": "Repoint agent_utilities/protocols/source_connectors/registry.py off `base_utilities.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r001_r010_deletion_census.py:20"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.22",
       "title": "Repoint agent_utilities/rlm/config.py off `base_utilities.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r001_r010_deletion_census.py:21"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.24",
       "title": "Repoint agent_utilities/tools/tool_registry.py off `base_utilities.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r001_r010_deletion_census.py:22"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.25",
       "title": "Delete `agent_utilities/base_utilities.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r001_r010_deletion_census.py:7"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R011",
@@ -731,51 +775,79 @@
     {
       "id": "MERISTEM-BOUNDARY-R011.2.2",
       "title": "Repoint `protocols/source_connectors/connectors/database.py` to the SDK database connector",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r011_universal_connector_deleted.py:13"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R011.2.3",
       "title": "Repoint `tools/db_tools.py` to the SDK database connector",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r011_universal_connector_deleted.py:14"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R011.2.4",
       "title": "Repoint `tests/unit/protocols/test_database_connector_connection_profile.py` and `tests/unit/test_db_tools.py` to the SDK connector, and delete `tests/unit/protocols/test_universal_connector.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r011_universal_connector_deleted.py:22"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R011.2.5",
       "title": "Delete `protocols/universal_connector.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r011_universal_connector_deleted.py:7"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R011.3",
       "title": "Delete the `protocols/source_connectors/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r011_source_connectors_deleted.py:7"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R011.4",
       "title": "Delete `knowledge_graph/integrations/connector_certification.py`, `connector_certification_cli.py`, and `connector_source_attestation.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r011_certification_deleted.py:7"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R011.5",
       "title": "Delete `knowledge_graph/ontology/connector_manifest.py`, `connector_manifest_gate.py`, and `connector_manifests/",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r011_manifest_deleted.py:7"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R012",
@@ -790,15 +862,17 @@
     {
       "id": "MERISTEM-BOUNDARY-R014",
       "title": "Move arbora boundary modules out of AU",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "3254358d61d6",
         "63731a44a881",
         "6ffbecc433c4",
         "8b3510fcb2eb",
-        "d09cad07e875"
+        "bb80147da337"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_r014_readiness_moved.py:7"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R014.1",
         "MERISTEM-BOUNDARY-R014.2"
@@ -815,18 +889,25 @@
     {
       "id": "MERISTEM-BOUNDARY-R014.2",
       "title": "Move `knowledge_graph/readiness.py` to arbora",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r014_readiness_moved.py:7"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R015",
       "title": "Move the agent HTTP and A2A/ACP host out of AU",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "2456745c1e4d"
+        "2456745c1e4d",
+        "bb80147da337"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_r015_a2a_epistemic_deleted.py:7"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R015.1",
         "MERISTEM-BOUNDARY-R015.2"
@@ -843,20 +924,28 @@
     {
       "id": "MERISTEM-BOUNDARY-R015.2",
       "title": "Delete `protocols/a2a_epistemic.py` and drop the `agent-utilities-acp` script",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r015_a2a_epistemic_deleted.py:7"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R016",
       "title": "Split AU's monolithic configuration module",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "13655b508554",
         "5a00da215c55",
+        "bb80147da337",
         "fe5ca4e239ec"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_env_reader_gate.py:38",
+        "tests/gates/test_boundary_env_reader_gate.py:43"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R016.1"
       ]
@@ -864,12 +953,16 @@
     {
       "id": "MERISTEM-BOUNDARY-R016.1",
       "title": "Gate AU's retained config.py against duplicate environment readers",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "5a00da215c55",
+        "bb80147da337",
         "fe5ca4e239ec"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_env_reader_gate.py:38",
+        "tests/gates/test_boundary_env_reader_gate.py:43"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R017",
@@ -1062,12 +1155,16 @@
     {
       "id": "MERISTEM-BOUNDARY-R024",
       "title": "Move enterprise source synchronization to the SDK",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4a5540dd2e3d",
-        "743e98cda405"
+        "743e98cda405",
+        "bb80147da337"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_r024_governance_import_moved.py:7",
+        "tests/gates/test_boundary_r024_source_sync_moved.py:7"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R024.1",
         "MERISTEM-BOUNDARY-R024.2",
@@ -1085,16 +1182,24 @@
     {
       "id": "MERISTEM-BOUNDARY-R024.2",
       "title": "Move `knowledge_graph/core/source_sync.py` to the agent connector SDK as a runner",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r024_source_sync_moved.py:7"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R024.3",
       "title": "Move `knowledge_graph/governance_import.py` to the SDK",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "bb80147da337"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_r024_governance_import_moved.py:7"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R025",

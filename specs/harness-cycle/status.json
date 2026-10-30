@@ -61,7 +61,7 @@
         "2f5d92084425"
       ],
       "verified_by": [
-        "tests/harness/test_harness_cycle.py:686"
+        "tests/harness/test_harness_cycle.py:689"
       ]
     },
     {
@@ -77,11 +77,14 @@
     {
       "id": "MERISTEM-HARNESS-CYCLE-R001.4",
       "title": "Compose",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "6a24f63b1216"
+        "6a24f63b1216",
+        "bb80147da337"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/harness/test_harness_cycle.py:286"
+      ]
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R001.5",
@@ -100,17 +103,21 @@
         "582ffc7149e2"
       ],
       "verified_by": [
-        "tests/harness/test_harness_cycle.py:472"
+        "tests/harness/test_harness_cycle.py:474"
       ]
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R001.7",
       "title": "Refusal",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "bb80147da337",
         "f7c3c3e0cb61"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/harness/test_harness_cycle.py:425",
+        "tests/harness/test_harness_cycle.py:500"
+      ]
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R001.8",
@@ -120,8 +127,8 @@
         "a23050a62b5f"
       ],
       "verified_by": [
-        "tests/harness/test_harness_cycle.py:625",
-        "tests/harness/test_harness_cycle.py:638"
+        "tests/harness/test_harness_cycle.py:628",
+        "tests/harness/test_harness_cycle.py:641"
       ]
     },
     {
@@ -154,8 +161,8 @@
       ],
       "verified_by": [
         "tests/harness/test_harness_cycle.py:259",
-        "tests/harness/test_harness_cycle.py:367",
-        "tests/harness/test_harness_cycle.py:424"
+        "tests/harness/test_harness_cycle.py:368",
+        "tests/harness/test_harness_cycle.py:426"
       ]
     },
     {
@@ -166,9 +173,9 @@
         "eb03e690d277"
       ],
       "verified_by": [
-        "tests/harness/test_harness_cycle.py:762",
-        "tests/harness/test_harness_cycle.py:779",
-        "tests/harness/test_harness_cycle.py:809"
+        "tests/harness/test_harness_cycle.py:765",
+        "tests/harness/test_harness_cycle.py:782",
+        "tests/harness/test_harness_cycle.py:812"
       ]
     }
   ]
