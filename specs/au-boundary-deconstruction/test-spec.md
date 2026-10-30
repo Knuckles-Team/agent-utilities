@@ -24,16 +24,8 @@ receipt.
 
 The four R028 importer-set tests fail when a new current-harness importer is
 added and refuse unresolved dynamic imports. They do not establish the
-replacement capabilities. R028.2.2, R028.6.2, R028.7.2 and R028.8.2 each
-retain their parent consumer or EG CI-gate proof as separate acceptance.
-
-## F-J and T-Z migration acceptance
-
-`MERISTEM-BOUNDARY-R006.2` and `MERISTEM-BOUNDARY-R009.2` require a complete,
-revision-pinned fleet inventory, a resolved census for each package, and real
-SDK/graph read and write receipts for each migrated package. R009.2 also
-requires the retargeted generated templates to satisfy the same checks. A
-fixture census or an indeterminate dynamic import is not a migration receipt.
+replacement capabilities. the engine rows `EG-PLACEMENT-R001`, `EG-CONTRACT-R051` and `EG-SRC-AUTH-R800`
+own the consumer or CI-gate proof.
 
 ## MERISTEM-BOUNDARY-R049 governed write-back
 

@@ -12,6 +12,8 @@ from pydantic_ai.models.function import FunctionModel
 from agent_utilities import host_ports
 from agent_utilities.graph import RunBudget, RunPlan, RunRequest, run
 
+pytestmark = pytest.mark.spec("MERISTEM-BOUNDARY-R043.15")
+
 
 class Port:
     def __init__(self) -> None:
