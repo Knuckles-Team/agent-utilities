@@ -279,9 +279,13 @@
     {
       "id": "MERISTEM-BOUNDARY-R002.3.2",
       "title": "Repoint or remove the `certification_oidc` import in `agent_utilities/deployment/skill_validation.py` and `agent_utilities/deployment/skill_validation_assets.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "58f9bdabb7b7"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:25"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R002.3.3",
@@ -780,12 +784,15 @@
     {
       "id": "MERISTEM-BOUNDARY-R012",
       "title": "Delete the second EG projection and leftover shims",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "34a849a78973",
+        "58f9bdabb7b7",
         "7b653dd102b9"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:32"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R014",
@@ -884,12 +891,17 @@
     {
       "id": "MERISTEM-BOUNDARY-R018",
       "title": "Replace the AU graph engine facade with the EG client",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "58f9bdabb7b7",
+        "7cd36e18e97d",
         "8b325ddf1818",
         "8c6fb318c5d3"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:112",
+        "tests/gates/test_boundary_removal_census.py:81"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R018.1",
         "MERISTEM-BOUNDARY-R018.2"
@@ -910,19 +922,29 @@
     {
       "id": "MERISTEM-BOUNDARY-R018.2",
       "title": "Delete the MERISTEM-BOUNDARY-R018 facade modules",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "58f9bdabb7b7"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:81"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R019",
       "title": "Replace AU's graph-compute and state facades with the EG client",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "0fbe4bf46720",
+        "58f9bdabb7b7",
+        "7cd36e18e97d",
         "8b325ddf1818",
         "8c6fb318c5d3"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:117",
+        "tests/gates/test_boundary_removal_census.py:82"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R019.1",
         "MERISTEM-BOUNDARY-R019.2"
@@ -944,20 +966,29 @@
     {
       "id": "MERISTEM-BOUNDARY-R019.2",
       "title": "Delete the MERISTEM-BOUNDARY-R019 facade modules",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "58f9bdabb7b7"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:82"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R020",
       "title": "Move durable work, queues, and state to EG",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "58f9bdabb7b7",
+        "7cd36e18e97d",
         "8b325ddf1818",
         "8c6fb318c5d3",
         "92974bae8c3e"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:122",
+        "tests/gates/test_boundary_removal_census.py:83"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R020.1",
         "MERISTEM-BOUNDARY-R020.2"
@@ -978,20 +1009,29 @@
     {
       "id": "MERISTEM-BOUNDARY-R020.2",
       "title": "Move the MERISTEM-BOUNDARY-R020 durable-work modules and drop their scripts",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "58f9bdabb7b7"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:83"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R021",
       "title": "Move graph tenancy, topology, and admission to EG",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "58f9bdabb7b7",
+        "7cd36e18e97d",
         "8b325ddf1818",
         "8c6fb318c5d3",
         "d330871d37af"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:127",
+        "tests/gates/test_boundary_removal_census.py:84"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R021.1",
         "MERISTEM-BOUNDARY-R021.2"
@@ -1012,19 +1052,28 @@
     {
       "id": "MERISTEM-BOUNDARY-R021.2",
       "title": "Delete the MERISTEM-BOUNDARY-R021 tenancy/admission modules",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "58f9bdabb7b7"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:84"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R022",
       "title": "Retire AU's reasoning and graph-analytics duplicates",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "58f9bdabb7b7",
+        "7cd36e18e97d",
         "8b325ddf1818",
         "8c6fb318c5d3"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:132",
+        "tests/gates/test_boundary_removal_census.py:85"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R022.1",
         "MERISTEM-BOUNDARY-R022.2"
@@ -1045,19 +1094,26 @@
     {
       "id": "MERISTEM-BOUNDARY-R022.2",
       "title": "Delete the MERISTEM-BOUNDARY-R022 reasoning/analytics modules",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "58f9bdabb7b7"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:85"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R023",
       "title": "Split ingestion commit and derivation into EG",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4a5540dd2e3d",
+        "58f9bdabb7b7",
         "743e98cda405"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:39"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R024",
@@ -1099,33 +1155,42 @@
     {
       "id": "MERISTEM-BOUNDARY-R025",
       "title": "Move document, conversation, and feed sources to the SDK",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4a5540dd2e3d",
+        "58f9bdabb7b7",
         "743e98cda405"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:58"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R026",
       "title": "Move vendor enrichment extractors and write-back to the SDK",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "00234474001c",
         "0e44186eac39",
+        "58f9bdabb7b7",
         "743e98cda405"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:59"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R027",
       "title": "Move deterministic enrichment and derivation to EG",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4a5540dd2e3d",
+        "58f9bdabb7b7",
         "743e98cda405"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:40"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R028",
@@ -1168,9 +1233,12 @@
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "32bdd70f5ea4",
-        "4a5540dd2e3d"
+        "4a5540dd2e3d",
+        "58f9bdabb7b7"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:98"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R028.2.1",
         "MERISTEM-BOUNDARY-R028.2.2"
@@ -1346,23 +1414,26 @@
     {
       "id": "MERISTEM-BOUNDARY-R029",
       "title": "Move the ontology object model to EG",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4a5540dd2e3d",
+        "58f9bdabb7b7",
         "743e98cda405"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:41"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R030",
       "title": "Move hand-written ontology emitters behind EG pack compilation",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "LANDED",
       "landed_in": [
         "1446fc4c3db5",
+        "5430b7149a81",
+        "58f9bdabb7b7",
         "5e15da9f9e40",
-        "743e98cda405",
-        "bcdde1ec1a57",
-        "c7fc09d3d2f6"
+        "62e0b302ed8e"
       ],
       "verified_by": [],
       "rollup_of": [
@@ -1380,45 +1451,61 @@
     {
       "id": "MERISTEM-BOUNDARY-R030.1",
       "title": "Record what has already landed for the emitter cutover",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "58f9bdabb7b7"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:108"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R030.2",
       "title": "Wire `scripts/generate_connector_manifests.py` off the local manifest compiler",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "58f9bdabb7b7",
         "6825115f4ac3"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:109"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R030.3",
       "title": "Wire `scripts/update_ontology_lock.py` off the local manifest compiler",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "58f9bdabb7b7",
         "62e0b302ed8e"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:110"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R030.4",
       "title": "Wire `scripts/generate_native_connector_manifest.py` off the local manifest compiler",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "58f9bdabb7b7",
         "c5d1bf3f8286"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:111"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R030.5",
       "title": "Wire `agent_utilities/knowledge_graph/domain_packs/pack_loader.py` off the local manifest compiler",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "58f9bdabb7b7",
         "d93381eba0db"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:112"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R030.6",
@@ -1478,12 +1565,15 @@
     {
       "id": "MERISTEM-BOUNDARY-R031",
       "title": "Replace AU's graph-schema DTOs with EG-generated types",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4a5540dd2e3d",
+        "58f9bdabb7b7",
         "743e98cda405"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:75"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R032",
@@ -1498,22 +1588,28 @@
     {
       "id": "MERISTEM-BOUNDARY-R033",
       "title": "Move external graph and database federation to EG",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4a5540dd2e3d",
+        "58f9bdabb7b7",
         "743e98cda405"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:42"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R034",
       "title": "Move retrieval engines to EG",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "4a5540dd2e3d",
+        "58f9bdabb7b7",
         "743e98cda405"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:43"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R035",
@@ -2166,12 +2262,21 @@
     {
       "id": "MERISTEM-BOUNDARY-R048",
       "title": "Domain models, shapes, assets and skill content are placed",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
         "49b087cb97e4",
-        "fca0c5ee42b3"
+        "58f9bdabb7b7",
+        "635f38f64aca",
+        "b5bd89149551",
+        "e217f6629296"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:141",
+        "tests/gates/test_boundary_removal_census.py:142",
+        "tests/gates/test_boundary_removal_census.py:143",
+        "tests/gates/test_boundary_removal_census.py:144",
+        "tests/gates/test_boundary_removal_census.py:145"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R048.1",
         "MERISTEM-BOUNDARY-R048.2",
@@ -2200,58 +2305,90 @@
     {
       "id": "MERISTEM-BOUNDARY-R048.2",
       "title": "Relocate `domains/government/`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "58f9bdabb7b7"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:141"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R048.3",
       "title": "Relocate `domains/hr/`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "58f9bdabb7b7"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:142"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R048.4",
       "title": "Relocate `domains/law/`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "58f9bdabb7b7"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:143"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R048.5",
       "title": "Relocate `domains/medical/`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "58f9bdabb7b7"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:144"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R048.6",
       "title": "Relocate `models/domains/`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "58f9bdabb7b7"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:145"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R048.8",
       "title": "Assign an owner to `ontology/shapes/`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "58f9bdabb7b7"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:146"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R048.9",
       "title": "Assign an owner to `data/`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "58f9bdabb7b7"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:147"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R048.10",
       "title": "Assign an owner to `protocols/voice_supply_chain/`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "58f9bdabb7b7"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:148"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R048.11",
