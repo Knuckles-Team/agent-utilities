@@ -127,3 +127,74 @@ async def test_explicit_summary_and_unbound_run() -> None:
     await run_step(_agent(effects), "go", publisher=None, step=1, child_records=unbound)
     assert effects == [7]
     assert unbound.transcript_status == "unavailable"
+
+
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.17")
+async def test_run_loop_builds_child_publisher_from_host_child_identity() -> None:
+    from contextlib import asynccontextmanager
+
+    from agent_utilities import host_ports
+    from agent_utilities.graph import RunPlan, RunRequest, run
+
+    publisher = Publisher()
+    effects: list[int] = []
+
+    @asynccontextmanager
+    async def scope(request):
+        yield publisher
+
+    host_ports.register_durable_run_event_factory(scope)
+    try:
+        agent = _agent(effects)
+        result = await run(
+            RunRequest(
+                task="go",
+                run_id="run",
+                metadata={"child_id": "child-1", "conversation_id": "conv-1"},
+            ),
+            plan=RunPlan(
+                model=agent.model,
+                steps=("go",),
+                toolsets=tuple(agent.toolsets[1:]),
+            ),
+        )
+    finally:
+        host_ports.register_durable_run_event_factory(None)
+
+    assert result.status == "completed"
+    assert effects == [7]
+    kinds = {kind for kind, _ in publisher.records}
+    assert kinds <= {"public_text", "tool_activity", "state"}
+    assert "tool_activity" in kinds
+    child = [c for k, c in publisher.records if k != "state"]
+    assert child and all(c["child_id"] == "child-1" for c in child)
+    assert all(c["visibility"] == "public" for c in child)
+    dump = repr(publisher.records)
+    assert "PRIVATE-REASONING" not in dump and "RAW-RESULT-SECRET" not in dump
+
+
+@pytest.mark.spec("MERISTEM-BOUNDARY-R043.17")
+async def test_run_loop_without_child_identity_keeps_ordinary_projection() -> None:
+    from contextlib import asynccontextmanager
+
+    from agent_utilities import host_ports
+    from agent_utilities.graph import RunPlan, RunRequest, run
+
+    publisher = Publisher()
+
+    @asynccontextmanager
+    async def scope(request):
+        yield publisher
+
+    async def stream(messages, info):
+        yield "answer"
+
+    host_ports.register_durable_run_event_factory(scope)
+    try:
+        await run(
+            RunRequest(task="go", run_id="run"),
+            plan=RunPlan(model=FunctionModel(stream_function=stream), steps=("go",)),
+        )
+    finally:
+        host_ports.register_durable_run_event_factory(None)
+    assert [k for k, _ in publisher.records] == ["text_delta", "state"]

@@ -30,6 +30,7 @@ from agent_utilities.harness.plan_runtime import PlanScaffold
 
 from .budget import LiveSharedBudget, SharedBudget, initial_run_usage
 from .checkpoint import RunCheckpoint
+from .child_public_records import child_records_for
 from .dependency import iterate_dependency_plan, validate_dependency_plan
 from .live_events import run_step
 from .metrics import MeasuredModel, RunMetrics
@@ -426,6 +427,7 @@ async def iterate_run(
                                 else host_ports.active_child_input_scope(request)
                             ) as input_port,
                         ):
+                            child_records = child_records_for(request, event_publisher)
                             active_input = None
                             if input_port is not None:
                                 if checkpoint is not None:
@@ -484,6 +486,7 @@ async def iterate_run(
                                         tool_caller=tool_caller,
                                         checkpoint=checkpoint,
                                         event_publisher=event_publisher,
+                                        child_records=child_records,
                                     )
                                 ) as execution:
                                     async for event in execution:
@@ -531,6 +534,7 @@ async def iterate_run(
                                         if stream_observer is not None
                                         else None,
                                         after_result=after_result,
+                                        child_records=child_records,
                                         deps=deps,
                                         message_history=history,
                                         usage_limits=limits,
