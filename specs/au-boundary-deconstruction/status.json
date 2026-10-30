@@ -250,7 +250,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R002.2",
-      "title": "Delete `agent_utilities/deployment/backends.py`",
+      "title": "Delete `meristem/deployment/backends.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "db29b2da626e",
@@ -262,7 +262,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R002.3",
-      "title": "ROLLUP: delete `agent_utilities/deployment/certification_oidc.py`",
+      "title": "ROLLUP: delete `meristem/deployment/certification_oidc.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0cea617db628",
@@ -298,7 +298,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R002.3.2",
-      "title": "Repoint or remove the `certification_oidc` import in `agent_utilities/deployment/skill_validation.py` and `agent_utilities/deployment/skill_validation_assets.py`",
+      "title": "Repoint or remove the `certification_oidc` import in `meristem/deployment/skill_validation.py` and `meristem/deployment/skill_validation_assets.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "58f9bdabb7b7"
@@ -331,7 +331,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R002.3.5",
-      "title": "Delete `agent_utilities/deployment/certification_oidc.py`",
+      "title": "Delete `meristem/deployment/certification_oidc.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "0cea617db628"
@@ -673,7 +673,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.13",
-      "title": "Repoint agent_utilities/core/config.py and agent_utilities/core/_env.py off `base_utilities.py`",
+      "title": "Repoint meristem/core/config.py and meristem/core/_env.py off `base_utilities.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "bb80147da337"
@@ -684,7 +684,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.14",
-      "title": "Repoint agent_utilities/knowledge_graph/core/chunked_drain.py and agent_utilities/knowledge_graph/core/source_sync.py off `base_utilities.py`",
+      "title": "Repoint meristem/knowledge_graph/core/chunked_drain.py and meristem/knowledge_graph/core/source_sync.py off `base_utilities.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "bb80147da337"
@@ -695,7 +695,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.15",
-      "title": "Repoint agent_utilities/observability/custom_observability.py and agent_utilities/observability/__init__.py off `base_utilities.py`",
+      "title": "Repoint meristem/observability/custom_observability.py and meristem/observability/__init__.py off `base_utilities.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "bb80147da337"
@@ -706,7 +706,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.17",
-      "title": "Repoint agent_utilities/agent/factory.py off `base_utilities.py`",
+      "title": "Repoint meristem/agent/factory.py off `base_utilities.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "bb80147da337"
@@ -717,7 +717,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.18",
-      "title": "Repoint agent_utilities/graph/builder.py off `base_utilities.py`",
+      "title": "Repoint meristem/graph/builder.py off `base_utilities.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "bb80147da337"
@@ -728,7 +728,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.19",
-      "title": "Repoint agent_utilities/httpsupport/client.py off `base_utilities.py`",
+      "title": "Repoint meristem/httpsupport/client.py off `base_utilities.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "bb80147da337"
@@ -739,7 +739,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.20",
-      "title": "Repoint agent_utilities/__init__.py off `base_utilities.py`",
+      "title": "Repoint meristem/__init__.py off `base_utilities.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "bb80147da337"
@@ -750,7 +750,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.21",
-      "title": "Repoint agent_utilities/protocols/source_connectors/registry.py off `base_utilities.py`",
+      "title": "Repoint meristem/protocols/source_connectors/registry.py off `base_utilities.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "bb80147da337"
@@ -761,7 +761,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.22",
-      "title": "Repoint agent_utilities/rlm/config.py off `base_utilities.py`",
+      "title": "Repoint meristem/rlm/config.py off `base_utilities.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "bb80147da337"
@@ -772,7 +772,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.24",
-      "title": "Repoint agent_utilities/tools/tool_registry.py off `base_utilities.py`",
+      "title": "Repoint meristem/tools/tool_registry.py off `base_utilities.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "bb80147da337"
@@ -783,7 +783,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R010.25",
-      "title": "Delete `agent_utilities/base_utilities.py`",
+      "title": "Delete `meristem/base_utilities.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "bb80147da337"
@@ -1373,9 +1373,9 @@
       "verified_by": [
         "tests/gates/test_boundary_removal_census.py:101",
         "tests/gates/test_r028x_module_census.py:44",
-        "tests/gates/test_r028x_module_census.py:51",
-        "tests/gates/test_r028x_module_census.py:58",
-        "tests/gates/test_r028x_module_census.py:65"
+        "tests/gates/test_r028x_module_census.py:49",
+        "tests/gates/test_r028x_module_census.py:56",
+        "tests/gates/test_r028x_module_census.py:63"
       ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R028.1",
@@ -1490,7 +1490,7 @@
         "f1330cb52a4d"
       ],
       "verified_by": [
-        "tests/gates/test_r028x_module_census.py:51"
+        "tests/gates/test_r028x_module_census.py:49"
       ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R028.6.1",
@@ -1508,7 +1508,7 @@
         "f1330cb52a4d"
       ],
       "verified_by": [
-        "tests/gates/test_r028x_module_census.py:51"
+        "tests/gates/test_r028x_module_census.py:49"
       ]
     },
     {
@@ -1530,7 +1530,7 @@
         "f1330cb52a4d"
       ],
       "verified_by": [
-        "tests/gates/test_r028x_module_census.py:58"
+        "tests/gates/test_r028x_module_census.py:56"
       ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R028.7.1",
@@ -1548,7 +1548,7 @@
         "f1330cb52a4d"
       ],
       "verified_by": [
-        "tests/gates/test_r028x_module_census.py:58"
+        "tests/gates/test_r028x_module_census.py:56"
       ]
     },
     {
@@ -1570,7 +1570,7 @@
         "f1330cb52a4d"
       ],
       "verified_by": [
-        "tests/gates/test_r028x_module_census.py:65"
+        "tests/gates/test_r028x_module_census.py:63"
       ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R028.8.1",
@@ -1588,7 +1588,7 @@
         "f1330cb52a4d"
       ],
       "verified_by": [
-        "tests/gates/test_r028x_module_census.py:65"
+        "tests/gates/test_r028x_module_census.py:63"
       ]
     },
     {
@@ -1691,7 +1691,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R030.5",
-      "title": "Wire `agent_utilities/knowledge_graph/domain_packs/pack_loader.py` off the local manifest compiler",
+      "title": "Wire `meristem/knowledge_graph/domain_packs/pack_loader.py` off the local manifest compiler",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "58f9bdabb7b7",
@@ -1703,14 +1703,14 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R030.6",
-      "title": "Delete `agent_utilities/knowledge_graph/ontology/manifest_compiler.py`",
+      "title": "Delete `meristem/knowledge_graph/ontology/manifest_compiler.py`",
       "delivery_state": "VERIFIED",
       "landed_in": [
         "5430b7149a81",
         "c4c654815738"
       ],
       "verified_by": [
-        "tests/test_retired_manifest_compiler_finance.py:119"
+        "tests/test_retired_manifest_compiler_finance.py:113"
       ]
     },
     {
@@ -1914,8 +1914,8 @@
         "ea6e360274ec"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_owner_guard.py:41",
-        "tests/gates/test_boundary_owner_guard.py:64"
+        "tests/gates/test_boundary_owner_guard.py:39",
+        "tests/gates/test_boundary_owner_guard.py:62"
       ]
     },
     {
@@ -1968,7 +1968,7 @@
         "dbe24ea1b0d3"
       ],
       "verified_by": [
-        "tests/test_retired_manifest_compiler_finance.py:146"
+        "tests/test_retired_manifest_compiler_finance.py:134"
       ]
     },
     {
@@ -1989,7 +1989,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R043",
-      "title": "The agent run loop stays in Agent Utilities",
+      "title": "The agent run loop stays in Meristem",
       "delivery_state": "SPECIFIED",
       "landed_in": [
         "8a45ab8013ad",
@@ -2548,7 +2548,7 @@
         "b5bd89149551"
       ],
       "verified_by": [
-        "tests/test_retired_deployment_sparql_images.py:122"
+        "tests/test_retired_deployment_sparql_images.py:118"
       ]
     },
     {
