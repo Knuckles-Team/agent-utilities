@@ -2697,7 +2697,7 @@
       "title": "Model",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "88d14e34039d"
+        "5f3c8e68e712"
       ],
       "verified_by": [
         "tests/graph/test_render_receipt_consumer.py:79"
@@ -2708,7 +2708,7 @@
       "title": "Behavior",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "88d14e34039d"
+        "5f3c8e68e712"
       ],
       "verified_by": [
         "tests/graph/test_render_receipt_consumer.py:90"
@@ -2719,7 +2719,7 @@
       "title": "Wiring",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "88d14e34039d"
+        "5f3c8e68e712"
       ],
       "verified_by": [
         "tests/graph/test_render_receipt_consumer.py:100"
@@ -2730,7 +2730,7 @@
       "title": "Refusal",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "88d14e34039d"
+        "5f3c8e68e712"
       ],
       "verified_by": [
         "tests/graph/test_render_receipt_consumer.py:118"
@@ -2741,7 +2741,7 @@
       "title": "Evidence",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "88d14e34039d"
+        "5f3c8e68e712"
       ],
       "verified_by": [
         "tests/graph/test_render_receipt_consumer.py:145"
@@ -2877,7 +2877,7 @@
       "title": "Apply host-admitted active-child input at a safe boundary",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "bcfd55688577"
+        "6c826a78bc5e"
       ],
       "verified_by": [
         "tests/test_active_child_input.py:15"
@@ -2888,7 +2888,7 @@
       "title": "Consume selected completed-child history for a fresh turn",
       "delivery_state": "VERIFIED",
       "landed_in": [
-        "bcfd55688577"
+        "6c826a78bc5e"
       ],
       "verified_by": [
         "tests/test_conversation_history.py:418",
@@ -2901,15 +2901,9 @@
     {
       "id": "MERISTEM-BOUNDARY-R043.17",
       "title": "Publish bounded public child records with provenance",
-      "delivery_state": "VERIFIED",
-      "landed_in": [
-        "88d14e34039d"
-      ],
-      "verified_by": [
-        "tests/test_child_public_records.py:119",
-        "tests/test_child_public_records.py:64",
-        "tests/test_child_public_records.py:88"
-      ]
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }
