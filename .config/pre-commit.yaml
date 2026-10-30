@@ -60,6 +60,6 @@ repos:
 - repo: https://github.com/Knuckles-Team/pipelines
   rev: main
   hooks:
-  - id: spec-trailers
-    stages: [pre-push]
-    args: [--base-ref, origin/main]
+  - id: secrets
+  - id: spec
+    stages: [pre-commit, pre-push, manual]
