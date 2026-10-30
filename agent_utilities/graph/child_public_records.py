@@ -142,8 +142,28 @@ class ChildPublicRecordPublisher:
             )
 
 
+def child_records_for(
+    request: Any, publisher: DurableRunEventPublisher | None
+) -> ChildPublicRecordPublisher | None:
+    """Build the run's child publisher when the host marked it a child run.
+
+    The host supplies ``child_id`` and ``conversation_id`` in the request
+    metadata after admission.  A run without both is not a child run and keeps
+    the ordinary durable event projection.
+    """
+    metadata = getattr(request, "metadata", None) or {}
+    child_id = metadata.get("child_id")
+    conversation_id = metadata.get("conversation_id")
+    if not isinstance(child_id, str) or not isinstance(conversation_id, str):
+        return None
+    return ChildPublicRecordPublisher(
+        publisher, ChildIdentity(child_id, conversation_id)
+    )
+
+
 __all__ = [
     "PUBLIC_KINDS",
+    "child_records_for",
     "ChildIdentity",
     "ChildPublicRecordPublisher",
     "ChildPublicationError",

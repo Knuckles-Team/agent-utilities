@@ -451,6 +451,7 @@ async def _execute_dependency_plan(
     tool_caller: ToolCaller | None = None,
     checkpoint: RunCheckpoint | None = None,
     event_publisher: DurableRunEventPublisher | None = None,
+    child_records: Any = None,
 ) -> None:
     """Refill a free slot after any successful prerequisite, not a whole wave.
 
@@ -851,6 +852,7 @@ async def _execute_dependency_plan(
             agent,
             model_input,
             publisher=event_publisher,
+            child_records=child_records,
             step=task_step,
             event_fields={"task_id": task.task_id},
             after_result=after_prompt,
@@ -1048,6 +1050,7 @@ async def iterate_dependency_plan(
     tool_caller: ToolCaller | None = None,
     checkpoint: RunCheckpoint | None = None,
     event_publisher: DurableRunEventPublisher | None = None,
+    child_records: Any = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Stream public events without making child dispatch wait for a viewer.
 
@@ -1082,6 +1085,7 @@ async def iterate_dependency_plan(
                     tool_caller,
                     checkpoint,
                     event_publisher,
+                    child_records,
                 )
         finally:
             events.put_nowait(None)
