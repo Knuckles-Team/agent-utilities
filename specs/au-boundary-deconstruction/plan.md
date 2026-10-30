@@ -1092,3 +1092,53 @@ checkpoint history are not yet joined atomically. A process crash after an
 acknowledgement remains uncertain. Installed host lineage, durable delivery,
 recovery and receipt evidence are still required; this change does not verify
 R043.15.
+
+## Removal owners
+
+Each row below is delivered by removing the code from Meristem. The named owner
+spec directory is where the behavior lives; the row's parity tests belong to that
+owner and are not claimed here. `tests/gates/test_boundary_removal_census.py`
+proves the removal and reads this table.
+
+| Row | Moved behavior | Owner spec |
+|---|---|---|
+| `MERISTEM-BOUNDARY-R002.3.2` | certification authority | https://github.com/Knuckles-Team/arbora/tree/main/specs/host-composition-boundary |
+| `MERISTEM-BOUNDARY-R012` | generated engine client is the sole projection | https://github.com/Knuckles-Team/medulla/tree/main/specs/public-engine-contract-and-release |
+| `MERISTEM-BOUNDARY-R018.2` | graph engine facade | https://github.com/Knuckles-Team/medulla/tree/main/specs/public-engine-contract-and-release |
+| `MERISTEM-BOUNDARY-R019.2` | graph compute and state facades | https://github.com/Knuckles-Team/medulla/tree/main/specs/public-engine-contract-and-release |
+| `MERISTEM-BOUNDARY-R020.2` | durable work, queues and leases | https://github.com/Knuckles-Team/medulla/tree/main/specs/placement-and-worker-policy |
+| `MERISTEM-BOUNDARY-R021.2` | tenancy, topology and admission | https://github.com/Knuckles-Team/medulla/tree/main/specs/engine-identity-and-scope |
+| `MERISTEM-BOUNDARY-R022.2` | reasoning and analytics | https://github.com/Knuckles-Team/medulla/tree/main/specs/federated-query-and-reasoning |
+| `MERISTEM-BOUNDARY-R023` | ingestion commit and derivation | https://github.com/Knuckles-Team/medulla/tree/main/specs/ingest-worker |
+| `MERISTEM-BOUNDARY-R025` | document, conversation and feed sources | https://github.com/Knuckles-Team/scion-sdk/tree/main/specs/SCION-SOURCE-INGEST |
+| `MERISTEM-BOUNDARY-R026` | vendor enrichment and write-back | https://github.com/Knuckles-Team/scion-sdk/tree/main/specs/SCION-GOVERNED-WRITEBACK |
+| `MERISTEM-BOUNDARY-R027` | deterministic enrichment and derivation | https://github.com/Knuckles-Team/medulla/tree/main/specs/repository-index-and-ingestion |
+| `MERISTEM-BOUNDARY-R028.2` | placement and inventory infra | https://github.com/Knuckles-Team/medulla/tree/main/specs/unified-data-plane |
+| `MERISTEM-BOUNDARY-R029` | ontology object model | https://github.com/Knuckles-Team/medulla/tree/main/specs/typed-packs-and-catalog |
+| `MERISTEM-BOUNDARY-R030.2` | manifest compilation | https://github.com/Knuckles-Team/scion-sdk/tree/main/specs/SCION-CONNECTOR-CONTROL |
+| `MERISTEM-BOUNDARY-R031` | graph-schema DTOs | https://github.com/Knuckles-Team/medulla/tree/main/specs/public-engine-contract-and-release |
+| `MERISTEM-BOUNDARY-R033` | external graph and database federation | https://github.com/Knuckles-Team/medulla/tree/main/specs/federated-query-and-reasoning |
+| `MERISTEM-BOUNDARY-R034` | retrieval engines | https://github.com/Knuckles-Team/medulla/tree/main/specs/unified-data-plane |
+| `MERISTEM-BOUNDARY-R048.2` | government domain content | https://github.com/Knuckles-Team/medulla/tree/main/specs/typed-packs-and-catalog |
+| `MERISTEM-BOUNDARY-R048.3` | hr domain content | https://github.com/Knuckles-Team/medulla/tree/main/specs/typed-packs-and-catalog |
+| `MERISTEM-BOUNDARY-R048.4` | law domain content | https://github.com/Knuckles-Team/medulla/tree/main/specs/typed-packs-and-catalog |
+| `MERISTEM-BOUNDARY-R048.5` | medical domain content | https://github.com/Knuckles-Team/medulla/tree/main/specs/typed-packs-and-catalog |
+| `MERISTEM-BOUNDARY-R048.6` | models/domains domain content | https://github.com/Knuckles-Team/medulla/tree/main/specs/typed-packs-and-catalog |
+| `MERISTEM-BOUNDARY-R048.8` | ontology/shapes domain content | https://github.com/Knuckles-Team/medulla/tree/main/specs/typed-packs-and-catalog |
+| `MERISTEM-BOUNDARY-R048.9` | data domain content | https://github.com/Knuckles-Team/medulla/tree/main/specs/typed-packs-and-catalog |
+| `MERISTEM-BOUNDARY-R048.10` | voice_supply_chain domain content | https://github.com/Knuckles-Team/medulla/tree/main/specs/typed-packs-and-catalog |
+
+### Domain content dispositions
+
+One disposition per directory, checked by `test_domain_directory_has_one_recorded_disposition_and_is_gone`.
+
+| Directory | Disposition |
+|---|---|
+| `domains/government/` | deleted |
+| `domains/hr/` | deleted |
+| `domains/law/` | deleted |
+| `domains/medical/` | deleted |
+| `models/domains/` | deleted |
+| `ontology/shapes/` | deleted |
+| `data/` | deleted |
+| `protocols/voice_supply_chain/` | deleted |
