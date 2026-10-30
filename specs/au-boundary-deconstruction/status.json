@@ -215,12 +215,21 @@
     {
       "id": "MERISTEM-BOUNDARY-R002",
       "title": "Retire AU's deployment and skill-certification tooling",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "db29b2da626e",
-        "fca0c5ee42b3"
+        "0cea617db628",
+        "430612c76482",
+        "58f9bdabb7b7",
+        "62087846b368",
+        "9ddf47adc3ba"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_history.py:49",
+        "tests/gates/test_boundary_owner_decisions.py:11",
+        "tests/gates/test_boundary_r002_3_certification_oidc_deleted.py:11",
+        "tests/gates/test_boundary_removal_census.py:166",
+        "tests/gates/test_boundary_removal_census.py:28"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R002.1",
         "MERISTEM-BOUNDARY-R002.2",
@@ -254,9 +263,20 @@
     {
       "id": "MERISTEM-BOUNDARY-R002.3",
       "title": "ROLLUP: delete `agent_utilities/deployment/certification_oidc.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": [],
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "0cea617db628",
+        "430612c76482",
+        "58f9bdabb7b7",
+        "62087846b368"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_owner_decisions.py:11",
+        "tests/gates/test_boundary_r002_3_certification_oidc_deleted.py:11",
+        "tests/gates/test_boundary_removal_census.py:166",
+        "tests/gates/test_boundary_removal_census.py:28",
+        "tests/test_retired_loopback_oidc.py:11"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R002.3.1",
         "MERISTEM-BOUNDARY-R002.3.2",
@@ -284,7 +304,7 @@
         "58f9bdabb7b7"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:25"
+        "tests/gates/test_boundary_removal_census.py:28"
       ]
     },
     {
@@ -300,10 +320,14 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R002.3.4",
-      "title": "Remove `agent_utilities/deployment/certification_oidc.py` from the path lists in `scripts/check_http_egress_boundary.py` and `scripts/release/check_release_wheel.py`, and its docstring mention in `scripts/security/check_http_egress_boundary_gate.py`",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "title": "Keep `certification_oidc.py` out of the scripts",
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "62087846b368"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:166"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R002.3.5",
@@ -791,7 +815,7 @@
         "7b653dd102b9"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:32"
+        "tests/gates/test_boundary_removal_census.py:35"
       ]
     },
     {
@@ -900,7 +924,7 @@
       ],
       "verified_by": [
         "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:112",
-        "tests/gates/test_boundary_removal_census.py:81"
+        "tests/gates/test_boundary_removal_census.py:84"
       ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R018.1",
@@ -927,7 +951,7 @@
         "58f9bdabb7b7"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:81"
+        "tests/gates/test_boundary_removal_census.py:84"
       ]
     },
     {
@@ -943,7 +967,7 @@
       ],
       "verified_by": [
         "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:117",
-        "tests/gates/test_boundary_removal_census.py:82"
+        "tests/gates/test_boundary_removal_census.py:85"
       ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R019.1",
@@ -971,7 +995,7 @@
         "58f9bdabb7b7"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:82"
+        "tests/gates/test_boundary_removal_census.py:85"
       ]
     },
     {
@@ -987,7 +1011,7 @@
       ],
       "verified_by": [
         "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:122",
-        "tests/gates/test_boundary_removal_census.py:83"
+        "tests/gates/test_boundary_removal_census.py:86"
       ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R020.1",
@@ -1014,7 +1038,7 @@
         "58f9bdabb7b7"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:83"
+        "tests/gates/test_boundary_removal_census.py:86"
       ]
     },
     {
@@ -1030,7 +1054,7 @@
       ],
       "verified_by": [
         "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:127",
-        "tests/gates/test_boundary_removal_census.py:84"
+        "tests/gates/test_boundary_removal_census.py:87"
       ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R021.1",
@@ -1057,7 +1081,7 @@
         "58f9bdabb7b7"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:84"
+        "tests/gates/test_boundary_removal_census.py:87"
       ]
     },
     {
@@ -1072,7 +1096,7 @@
       ],
       "verified_by": [
         "tests/gates/test_boundary_r018_r022_eg_duplicate_inventory.py:132",
-        "tests/gates/test_boundary_removal_census.py:85"
+        "tests/gates/test_boundary_removal_census.py:88"
       ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R022.1",
@@ -1099,7 +1123,7 @@
         "58f9bdabb7b7"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:85"
+        "tests/gates/test_boundary_removal_census.py:88"
       ]
     },
     {
@@ -1112,7 +1136,7 @@
         "743e98cda405"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:39"
+        "tests/gates/test_boundary_removal_census.py:42"
       ]
     },
     {
@@ -1162,7 +1186,7 @@
         "743e98cda405"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:58"
+        "tests/gates/test_boundary_removal_census.py:61"
       ]
     },
     {
@@ -1176,7 +1200,7 @@
         "743e98cda405"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:59"
+        "tests/gates/test_boundary_removal_census.py:62"
       ]
     },
     {
@@ -1189,7 +1213,7 @@
         "743e98cda405"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:40"
+        "tests/gates/test_boundary_removal_census.py:43"
       ]
     },
     {
@@ -1237,7 +1261,7 @@
         "58f9bdabb7b7"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:98"
+        "tests/gates/test_boundary_removal_census.py:101"
       ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R028.2.1",
@@ -1421,7 +1445,7 @@
         "743e98cda405"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:41"
+        "tests/gates/test_boundary_removal_census.py:44"
       ]
     },
     {
@@ -1456,7 +1480,7 @@
         "58f9bdabb7b7"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:108"
+        "tests/gates/test_boundary_removal_census.py:111"
       ]
     },
     {
@@ -1468,7 +1492,7 @@
         "6825115f4ac3"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:109"
+        "tests/gates/test_boundary_removal_census.py:112"
       ]
     },
     {
@@ -1480,7 +1504,7 @@
         "62e0b302ed8e"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:110"
+        "tests/gates/test_boundary_removal_census.py:113"
       ]
     },
     {
@@ -1492,7 +1516,7 @@
         "c5d1bf3f8286"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:111"
+        "tests/gates/test_boundary_removal_census.py:114"
       ]
     },
     {
@@ -1504,7 +1528,7 @@
         "d93381eba0db"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:112"
+        "tests/gates/test_boundary_removal_census.py:115"
       ]
     },
     {
@@ -1572,18 +1596,21 @@
         "743e98cda405"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:75"
+        "tests/gates/test_boundary_removal_census.py:78"
       ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R032",
       "title": "Delete AU's legacy SPARQL backend and setup path",
-      "delivery_state": "LANDED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "62087846b368",
         "743e98cda405",
         "a05257fb6541"
       ],
-      "verified_by": []
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:216"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R033",
@@ -1595,7 +1622,7 @@
         "743e98cda405"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:42"
+        "tests/gates/test_boundary_removal_census.py:45"
       ]
     },
     {
@@ -1608,7 +1635,7 @@
         "743e98cda405"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:43"
+        "tests/gates/test_boundary_removal_census.py:46"
       ]
     },
     {
@@ -1625,12 +1652,17 @@
     {
       "id": "MERISTEM-BOUNDARY-R036",
       "title": "Move the usage fact store to EG",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
+        "62087846b368",
         "795afc53f54d",
         "8ea6bd529b0f"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_r036_r047_relocation_census.py:53",
+        "tests/gates/test_boundary_removal_census.py:184"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R036.1",
         "MERISTEM-BOUNDARY-R036.2"
@@ -1651,18 +1683,27 @@
     {
       "id": "MERISTEM-BOUNDARY-R036.2",
       "title": "Qualify durable usage facts",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "62087846b368"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:184"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R037",
       "title": "Move development-governance tooling to repository-manager",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
+        "62087846b368",
         "795afc53f54d"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_r036_r047_relocation_census.py:58",
+        "tests/gates/test_boundary_removal_census.py:185"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R037.1",
         "MERISTEM-BOUNDARY-R037.2"
@@ -1683,9 +1724,13 @@
     {
       "id": "MERISTEM-BOUNDARY-R037.2",
       "title": "Qualify governance recovery",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "62087846b368"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:185"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R038",
@@ -1704,11 +1749,16 @@
     {
       "id": "MERISTEM-BOUNDARY-R040",
       "title": "Move agent memory and the learning engine to EG",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
+        "62087846b368",
         "795afc53f54d"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_r036_r047_relocation_census.py:63",
+        "tests/gates/test_boundary_removal_census.py:186"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R040.1",
         "MERISTEM-BOUNDARY-R040.2"
@@ -1729,9 +1779,13 @@
     {
       "id": "MERISTEM-BOUNDARY-R040.2",
       "title": "Qualify memory migration",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "62087846b368"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:186"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R041",
@@ -2156,11 +2210,16 @@
     {
       "id": "MERISTEM-BOUNDARY-R044",
       "title": "Fleet, scaling and deployment modules leave orchestration",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
+        "62087846b368",
         "795afc53f54d"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_r036_r047_relocation_census.py:68",
+        "tests/gates/test_boundary_removal_census.py:187"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R044.1",
         "MERISTEM-BOUNDARY-R044.2"
@@ -2181,9 +2240,13 @@
     {
       "id": "MERISTEM-BOUNDARY-R044.2",
       "title": "Qualify orchestration cutover",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "62087846b368"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:187"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R045",
@@ -2229,12 +2292,17 @@
     {
       "id": "MERISTEM-BOUNDARY-R047",
       "title": "Engine-facing adapters and caches are thin clients or removed",
-      "delivery_state": "SPECIFIED",
+      "delivery_state": "VERIFIED",
       "landed_in": [
+        "12377a267f55",
+        "62087846b368",
         "795afc53f54d",
         "fed30c0982ae"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_r036_r047_relocation_census.py:78",
+        "tests/gates/test_boundary_removal_census.py:188"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R047.1",
         "MERISTEM-BOUNDARY-R047.2"
@@ -2255,9 +2323,13 @@
     {
       "id": "MERISTEM-BOUNDARY-R047.2",
       "title": "Qualify adapter cutover",
-      "delivery_state": "SPECIFIED",
-      "landed_in": [],
-      "verified_by": []
+      "delivery_state": "VERIFIED",
+      "landed_in": [
+        "62087846b368"
+      ],
+      "verified_by": [
+        "tests/gates/test_boundary_removal_census.py:188"
+      ]
     },
     {
       "id": "MERISTEM-BOUNDARY-R048",
@@ -2271,11 +2343,11 @@
         "e217f6629296"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:141",
-        "tests/gates/test_boundary_removal_census.py:142",
-        "tests/gates/test_boundary_removal_census.py:143",
         "tests/gates/test_boundary_removal_census.py:144",
-        "tests/gates/test_boundary_removal_census.py:145"
+        "tests/gates/test_boundary_removal_census.py:145",
+        "tests/gates/test_boundary_removal_census.py:146",
+        "tests/gates/test_boundary_removal_census.py:147",
+        "tests/gates/test_boundary_removal_census.py:148"
       ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R048.1",
@@ -2310,7 +2382,7 @@
         "58f9bdabb7b7"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:141"
+        "tests/gates/test_boundary_removal_census.py:144"
       ]
     },
     {
@@ -2321,7 +2393,7 @@
         "58f9bdabb7b7"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:142"
+        "tests/gates/test_boundary_removal_census.py:145"
       ]
     },
     {
@@ -2332,7 +2404,7 @@
         "58f9bdabb7b7"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:143"
+        "tests/gates/test_boundary_removal_census.py:146"
       ]
     },
     {
@@ -2343,7 +2415,7 @@
         "58f9bdabb7b7"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:144"
+        "tests/gates/test_boundary_removal_census.py:147"
       ]
     },
     {
@@ -2354,7 +2426,7 @@
         "58f9bdabb7b7"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:145"
+        "tests/gates/test_boundary_removal_census.py:148"
       ]
     },
     {
@@ -2365,7 +2437,7 @@
         "58f9bdabb7b7"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:146"
+        "tests/gates/test_boundary_removal_census.py:149"
       ]
     },
     {
@@ -2376,7 +2448,7 @@
         "58f9bdabb7b7"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:147"
+        "tests/gates/test_boundary_removal_census.py:150"
       ]
     },
     {
@@ -2387,7 +2459,7 @@
         "58f9bdabb7b7"
       ],
       "verified_by": [
-        "tests/gates/test_boundary_removal_census.py:148"
+        "tests/gates/test_boundary_removal_census.py:151"
       ]
     },
     {
