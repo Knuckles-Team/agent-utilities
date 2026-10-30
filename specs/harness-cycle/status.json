@@ -17,7 +17,8 @@
     "MERISTEM-HARNESS-CYCLE-R001.10",
     "MERISTEM-HARNESS-CYCLE-R001.11",
     "MERISTEM-HARNESS-CYCLE-R001.12",
-    "MERISTEM-HARNESS-CYCLE-R001.13"
+    "MERISTEM-HARNESS-CYCLE-R001.13",
+    "MERISTEM-HARNESS-CYCLE-R002"
   ],
   "requirements": [
     {
@@ -177,6 +178,13 @@
         "tests/harness/test_harness_cycle.py:782",
         "tests/harness/test_harness_cycle.py:812"
       ]
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R002",
+      "title": "A run consumes and retrieves graph episodes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }
