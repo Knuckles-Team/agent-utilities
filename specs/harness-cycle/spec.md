@@ -34,7 +34,8 @@ contract, edit, plan and quality-gate engines only.
 ## Scope and interfaces
 
 Owned: the cycle loop and its models
-(`meristem/harness/harness_cycle.py`). The probe entry runs
+(`meristem/harness/harness_cycle.py`). Also owned: the consumer rows
+R003 onward, where the in-run harness applies received medulla decisions. The probe entry runs
 through `execute_graph` (`meristem/graph/runner.py:80`). The
 harness switch runs through `apply_edits`
 (`meristem/harness/edit_engine.py:457`). arbora drives the host
