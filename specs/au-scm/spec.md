@@ -1,98 +1,81 @@
 # MERISTEM-SCM — Development loop on changesets
 
-Owner: meristem. Cross-repo IDs: MEDULLA-SCM-R002, MEDULLA-SCM-R003, ARBORA-OPS-R848, ARBORA-OPS-R849.
+Owner: meristem. Cross-repo IDs: MEDULLA-SCM-R002, MEDULLA-SCM-R003, MEDULLA-SDLC-R015, ARBORA-OPS-R848, ARBORA-OPS-R849, ARBORA-OPS-R896.
+Public provenance: the rows of this spec and the linked owner specs hold all required detail.
 
-## Purpose and user stories
+## Delivery mapping
 
-The coding harness develops a repository on changesets. The harness
-edits files in a virtual workspace. It binds the pending edits to a
-changeset base. It runs the fast gates in its sandbox. It submits
-through the repository-manager connector tools `source.commit` and
-`source.land`. On `SOURCE_CONFLICT{paths}` it rebases on the new head
-and retries. Local git is not required.
+Component: Coding harness
+Depends-on: MEDULLA-SCM-R002, MEDULLA-SCM-R003, ARBORA-OPS-R848, ARBORA-OPS-R849
+References: [MEDULLA-SDLC](https://github.com/Knuckles-Team/medulla/blob/main/specs/development-lifecycle/spec.md), [ARBORA-OPS](https://github.com/Knuckles-Team/arbora/blob/main/specs/hosted-api-operations/spec.md)
+Code: ../../meristem/harness/changeset_loop.py ../../meristem/harness/edit_engine.py ../../meristem/host_ports.py
 
-A developer runs a coding task through arbora. The developer reads the
-landed changeset from the graph. The operator sees which changeset
-landed. The operator sees why a conflict retried. The operator sees the
-gate verdicts behind the landing.
+## User Scenarios & Testing
 
-## Requirements and acceptance
+### User Story 1 - Develop a repository on changesets (Priority: P1)
 
-- R001: The harness runs the edit, gate, submit and rebase loop per
-  run. It edits in a virtual workspace. It runs the fast gates in its
-  sandbox. It submits through the connector tools. It rebases on
-  `SOURCE_CONFLICT{paths}` and retries. The loop holds no store and
-  serves no operation. Acceptance: the loop proof of `MERISTEM-SCM-R001`.
+A developer runs a coding task through arbora. The harness edits in a virtual workspace and submits changesets without local git. The operator sees which changeset landed and why a conflict retried.
+
+**Acceptance Scenarios**:
+
+1. **Given** one edit to one file, **When** the run submits, **Then** one changeset lands and the run reports its id.
+2. **Given** an overlapping second writer, **When** the submit returns `SOURCE_CONFLICT{paths}`, **Then** the loop rebases on the new head and retries.
+3. **Given** a failed fast gate, **When** the run reaches the submit step, **Then** the loop refuses with zero effects.
+
+### User Story 2 - Apply received decisions (Priority: P2)
+
+The harness applies decisions it receives from the engine and decides nothing itself.
+
+**Acceptance Scenarios**:
+
+1. **Given** a received agent plan, **When** the coding step starts, **Then** the harness applies the plan and holds no default beyond the absence of a decision.
+
+### User Story 3 - Execute one task run (Priority: P3)
+
+An orchestrated implementation run hands the harness one task with its context. The harness returns the result and the evidence.
+
+**Acceptance Scenarios**:
+
+1. **Given** a task context with row text and a base digest, **When** the run starts, **Then** the harness runs one cycle and returns the changeset id.
+2. **Given** a failing gate, **When** the task run ends, **Then** the harness returns a typed failure with code, stage and evidence.
+
+### Edge Cases
+
+- A conflict that keeps overlapping past 3 rebases refuses with `conflict_retry_exhausted`.
+- No registered `ChangesetSubmitter` provider makes the port fail closed before the first edit.
+- A task context without row text or base digest refuses with `task_context_incomplete` and causes zero edits.
+
+## Requirements
+
+- **FR-001**: The harness must run the edit, gate, submit and rebase loop for each run. Rows: `MERISTEM-SCM-R001`, `MERISTEM-SCM-R002`, `MERISTEM-SCM-R010`.
+- **FR-002**: The harness must apply received medulla decisions and decide nothing. Rows: `MERISTEM-SCM-R003`, `MERISTEM-SCM-R004`, `MERISTEM-SCM-R005`, `MERISTEM-SCM-R006`, `MERISTEM-SCM-R007`, `MERISTEM-SCM-R008`.
+- **FR-003**: The harness must execute one task run with the received context and return result and evidence. Rows: `MERISTEM-SCM-R011`, `MERISTEM-SCM-R011.1`, `MERISTEM-SCM-R011.2`, `MERISTEM-SCM-R011.3`, `MERISTEM-SCM-R011.4`, `MERISTEM-SCM-R011.5`.
+
+## Success Criteria
+
+- **SC-001**: A served coding run lands one changeset and reports its id. Rows: `MERISTEM-SCM-R001`.
+- **SC-002**: A served task run returns the changeset id and evidence, or a typed failure. Rows: `MERISTEM-SCM-R011.5`.
+
+## Assumptions
+
+- The head-read and workspace interfaces follow the owner specs `MEDULLA-SCM-R003` and `ARBORA-OPS-R848`.
+- The host must bind and verify an isolated workspace before the loop runs its fast gates. A local backend proves control flow only.
+- `ARBORA-OPS-R849` requires the server to run its gates on the changeset tree before landing. A caller-selected command cannot satisfy it.
 
 ## Why a new spec
 
-The cross-repo contracts are prerequisites, not evidence of delivery.
-MEDULLA-SCM-R002 specifies the changeset record. MEDULLA-SCM-R003 specifies
-changeset acceptance and refusal with
-`SOURCE_CONFLICT{paths}`. ARBORA-OPS-R848 specifies `source.commit` and
-`source.land` through the repository-manager connector tools.
-ARBORA-OPS-R849 specifies the landing policy. No spec owns the in-run loop that drives those operations. This
-spec owns that loop. The `meristem/harness/` package today holds
-the edit engine and the quality gates only.
+The cross-repo contracts are prerequisites, not evidence of delivery. `MEDULLA-SCM-R002` specifies the changeset record. `MEDULLA-SCM-R003` specifies acceptance and refusal. `ARBORA-OPS-R848` and `ARBORA-OPS-R849` specify the operations and the landing policy. No spec owns the in-run loop that drives them. The spec `MERISTEM-HARNESS-CYCLE` owns the evolution cycle, not this loop.
 
 ## Scope and interfaces
 
-Owned: the changeset development loop and its models
-(`meristem/harness/changeset_loop.py`). Also owned: the consumer rows
-R003 onward, where in-run coding applies received medulla decisions. Edits apply through
-`apply_edits` (`meristem/harness/edit_engine.py:457`). The fast
-gates must execute in the `DevWorkspace` sandbox
-(`meristem/runtime/workspace.py:103`). The existing
-`PreflightGate` (`meristem/harness/quality_gates.py:107`) evaluates
-output against a checklist and is not a sandbox command runner. The fast-gate
-contract therefore still needs an owner-defined binding. Submission runs
-through a new `ChangesetSubmitter` host port. The port fails closed
-without a registered provider. arbora registers the provider over the
-repository-manager connector tools. The conflict code is
-`SOURCE_CONFLICT{paths}` from MEDULLA-SCM-R003. The loop re-reads the new
-head, re-applies the pending edits and resubmits. Non-goals: the blob
-store and the changeset log (medulla). The served operations
-and the landing policy (arbora). The connector tools
-(repository-manager). Any local git repository, packfile or remote.
+Owned: the changeset development loop (`meristem/harness/changeset_loop.py`), the consumer rows for received decisions and the task run. Edits apply through `apply_edits` (`meristem/harness/edit_engine.py:457`). The fast gates run in the `DevWorkspace` sandbox (`meristem/runtime/workspace.py:103`). Submission runs through the `ChangesetSubmitter` host port. The port fails closed without a provider. Non-goals: the blob store and changeset log (medulla). Also out of scope: the served operations and landing policy (arbora), the connector tools and any local git repository.
 
 ## Traceability
 
-| Requirement | Design section | Test ID | Evidence |
-|---|---|---|---|
-| R001 | plan.md#architecture | T-001 |  |
-
-## Open questions
-
-The head-read and virtual-workspace materialization interfaces, sandbox fast-gate
-execution contract, submission outcome mapping, and run-loop trigger need to be
-defined against the owner interfaces before the implementation can be verified.
-The served proof also depends on the engine changeset substrate and arbora source
-write operations being available.
-
-The local draft's command exit codes are run observations, not authority to land.
-Its local-workspace tests run host subprocesses and do not prove sandbox
-isolation. The host must bind and verify an isolated workspace before the
-served loop executes its fast gates.
-`ARBORA-OPS-R849` requires the server to run its defined format, hygiene, secrets,
-types, and fast-test gates on the changeset tree before landing. The eventual host
-binding must carry the exact tree and verifiable gate evidence to that owner; a
-caller-selected command or an in-process event alone cannot satisfy that policy.
-
-At the reviewed owner revisions, [MEDULLA-SCM-R002 and R003 are specified](https://github.com/Knuckles-Team/medulla/blob/3897c07a46d2919299a7fa27fd7d2dc49f7aa8a1/specs/source-changesets/status.json)
-and [ARBORA-OPS-R848.2 is pending the engine substrate](https://github.com/Knuckles-Team/arbora/blob/4aaa7bf23b1464f4fb86b9cdb7868aab6531fc4d/specs/hosted-api-operations/tasks.md).
-The repository-manager development tools are also required: its
-[RM-SCM-R003 tasks](https://github.com/Knuckles-Team/repository-manager/blob/7e3810346c8feb912bb8d82b8a9372c6b9c6deb6/specs/source-changesets/tasks.md)
-remain open. That contract names the served tools `rm_source_commit` and
-`rm_source_land`, and describes a `CONFLICT` refusal with paths. The mapping
-between that refusal and the engine's `SOURCE_CONFLICT` must be established
-through the real SDK and served tools; the local draft's `SourceConflict` type
-does not establish the mapping.
-The Scion SDK's [SDK-SCM source client and virtual-workspace tasks](https://github.com/Knuckles-Team/scion-sdk/blob/0f7c71778e3d5fd3d30ee9faa2da7a7e1b5279fa/specs/SDK-SCM/tasks.md)
-are also open. They own the typed client, bounded digest-verified cache, sparse
-mount, conflict preservation, and served receipts needed by this path.
-
-The local symbol-edit draft carries an engine request, reads one fresh anchor
-after a stale-base refusal, and returns the round-trip refusal. It does not
-apply an engine response to the workspace, register a host port, or establish
-that a submitted change was landed. The served symbol operation and its
-authenticated response remain prerequisites for R002.
+| Label | Rows | Design section | Test ID | Evidence |
+|---|---|---|---|---|
+| FR-001 | `MERISTEM-SCM-R001` | plan.md#architecture | T-001 |  |
+| FR-002 | `MERISTEM-SCM-R003` | plan.md#consumer-rows-for-medulla-decisions | T-005 |  |
+| FR-003 | `MERISTEM-SCM-R011` | plan.md#task-run | T-017 |  |
+| SC-001 | `MERISTEM-SCM-R001` | plan.md#live-integration-path | T-001 |  |
+| SC-002 | `MERISTEM-SCM-R011.5` | plan.md#task-run | T-021 |  |
