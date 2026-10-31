@@ -343,3 +343,6 @@ node_modules/
 # commit and broke the anti-sprawl gate for every subsequent commit.
 .kiss/*
 !.kiss/kiss.toml
+
+# Spec status is computed at read time (pipelines-hook spec-status --write), never committed.
+specs/*/status.json
