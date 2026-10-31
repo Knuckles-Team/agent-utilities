@@ -209,7 +209,17 @@
     "MERISTEM-BOUNDARY-R043.14",
     "MERISTEM-BOUNDARY-R043.15",
     "MERISTEM-BOUNDARY-R043.16",
-    "MERISTEM-BOUNDARY-R043.17"
+    "MERISTEM-BOUNDARY-R043.17",
+    "MERISTEM-BOUNDARY-R051",
+    "MERISTEM-BOUNDARY-R051.1",
+    "MERISTEM-BOUNDARY-R052",
+    "MERISTEM-BOUNDARY-R052.1",
+    "MERISTEM-BOUNDARY-R053",
+    "MERISTEM-BOUNDARY-R053.1",
+    "MERISTEM-BOUNDARY-R054",
+    "MERISTEM-BOUNDARY-R054.1",
+    "MERISTEM-BOUNDARY-R055",
+    "MERISTEM-BOUNDARY-R055.1"
   ],
   "requirements": [
     {
@@ -2909,6 +2919,91 @@
         "tests/test_child_public_records.py:132",
         "tests/test_child_public_records.py:176"
       ]
+    },
+    {
+      "id": "MERISTEM-BOUNDARY-R051",
+      "title": "Consumer of MEDULLA-DECISION-ENGINE-R139 (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "MERISTEM-BOUNDARY-R051.1"
+      ]
+    },
+    {
+      "id": "MERISTEM-BOUNDARY-R051.1",
+      "title": "Accept graph-referenced study sources",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-BOUNDARY-R052",
+      "title": "Consumer of MEDULLA-DECISION-ENGINE-R162 (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "MERISTEM-BOUNDARY-R052.1"
+      ]
+    },
+    {
+      "id": "MERISTEM-BOUNDARY-R052.1",
+      "title": "Apply the projection and reject withheld paths",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-BOUNDARY-R053",
+      "title": "Consumer of MEDULLA-DECISION-ENGINE-R163 (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "MERISTEM-BOUNDARY-R053.1"
+      ]
+    },
+    {
+      "id": "MERISTEM-BOUNDARY-R053.1",
+      "title": "Accept graph-ingested study sources",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-BOUNDARY-R054",
+      "title": "Consumer of MEDULLA-DECISION-ENGINE-R166 (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "MERISTEM-BOUNDARY-R054.1"
+      ]
+    },
+    {
+      "id": "MERISTEM-BOUNDARY-R054.1",
+      "title": "Resolve each workflow through the registry",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-BOUNDARY-R055",
+      "title": "Consumer of MEDULLA-DECISION-ENGINE-R088 (rollup)",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "MERISTEM-BOUNDARY-R055.1"
+      ]
+    },
+    {
+      "id": "MERISTEM-BOUNDARY-R055.1",
+      "title": "Treat the replay event source as external",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     }
   ]
 }

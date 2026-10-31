@@ -38,7 +38,8 @@ the edit engine and the quality gates only.
 ## Scope and interfaces
 
 Owned: the changeset development loop and its models
-(`meristem/harness/changeset_loop.py`). Edits apply through
+(`meristem/harness/changeset_loop.py`). Also owned: the consumer rows
+R003 onward, where in-run coding applies received medulla decisions. Edits apply through
 `apply_edits` (`meristem/harness/edit_engine.py:457`). The fast
 gates must execute in the `DevWorkspace` sandbox
 (`meristem/runtime/workspace.py:103`). The existing

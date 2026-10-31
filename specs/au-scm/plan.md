@@ -93,3 +93,7 @@ back to the caller.
 The harness sends a symbol edit instead of a file write when the file has a parser. The engine
 projects the edit to bytes and confirms it by a re-parse (MEDULLA-SCM-R013). The harness only applies
 the answer: it retries a stale base once and returns a round-trip refusal to the model.
+
+## Consumer rows for medulla decisions (2026-10-30)
+
+Rows MERISTEM-SCM-R003 to MERISTEM-SCM-R007 file the in-run harness obligations of the medulla decision engine. The rows cover in-run coding over changesets. Each rollup row names one medulla row. Each child row names the meristem file, the planned test and the received decision. The harness decides nothing in these rows. Any threshold is a received value with a fallback default. Medulla issue 1029 tracks the source decisions.
