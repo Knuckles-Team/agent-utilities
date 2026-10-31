@@ -1214,7 +1214,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R046.1",
-      "title": "Execute the loop step a lease hands out",
+      "title": "Run the loop step a lease hands out",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
