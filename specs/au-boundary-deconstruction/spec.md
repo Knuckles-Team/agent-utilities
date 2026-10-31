@@ -23,6 +23,8 @@ MERISTEM-BOUNDARY-R041 removes the finance modules that produced fabricated data
 
 The [deliverable matrix](cutover-matrix.md) defines the concrete source cut, target behavior and acceptance focus for every requirement, and the [deletion and relocation inventory](plan.md#deletion-and-relocation-inventory) maps every AU package directory to the requirement that removes, relocates or keeps it.
 
+Rows MERISTEM-BOUNDARY-R051 onward record the cut contracts that the harness holds as consumer of medulla decisions.
+
 ## Requirements
 
 1. Preserve observable behavior through the new owner and retire each replaced AU entry point in the same coherent change. Do not leave a forwarding alias or dual write as a permanent compatibility layer.
