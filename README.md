@@ -32,9 +32,9 @@ Meristem is distributed, imported and run as `meristem` (repository `Knuckles-Te
 - **[Medulla](https://github.com/Knuckles-Team/medulla)**: facts, records,
   vocabulary, storage and queries, ingest, retrieval, reasoning, memory, decisions, and
   learning (evaluation, harness evolution, reward and trace records).
-- **[arbora](https://github.com/Knuckles-Team/arbora)**: admission, auth, served
+- **[Arbora](https://github.com/Knuckles-Team/arbora)**: admission, auth, served
   operations (MCP, REST, A2A), messaging front-ends, the registry and the multiplexer.
-  arbora hosts this harness and registers the `host_ports` providers.
+  Arbora hosts this harness and registers the `host_ports` providers.
 - **[Scion SDK](https://github.com/Knuckles-Team/scion-sdk)**:
   connector contracts, transports, the A2A protocol library and connector helpers.
 
@@ -61,7 +61,7 @@ client clock: `run_elapsed_ms` and ordered `model_requests` with
 per-response token counts. The sample list is bounded; `coverage: "partial"`
 means some observed requests were omitted. Failed requests have no invented
 token counts. These measurements are emitted through the host event sink for
-shared backend consumption; AU stores no session totals.
+shared backend consumption; Meristem stores no session totals.
 
 Run time includes planning, tools and retries. Client request time includes
 transport and provider waiting. Neither is provider generation time, and neither
@@ -74,7 +74,7 @@ A host can pass `RunPlan(dependency_plan=DependencyPlan(...))` to the same
 `run` or `iterate_run` entry point. Do not also set serial `steps`.
 `DependencyPlan` contains ordered `RunTask(task_id, prompt, depends_on)` values,
 an `output_task_id`, a `max_concurrency` task cap and an optional `plan_id`.
-The host gets the plan from EG and admits it through Arbora. AU does not turn
+The host gets the plan from Medulla and admits it through Arbora. Meristem does not turn
 free text into a plan or authorize a task.
 
 A completed task frees a slot at once. A dependent task can start while an
@@ -86,7 +86,7 @@ as a completed parent result.
 The trusted host can pass prior measured consumption as `RunPlan.initial_usage`
 (a `pydantic_ai.usage.RunUsage`) and `initial_elapsed_seconds`. Both default to
 zero. Keep `RunBudget` at its original bounds; do not subtract this usage in
-the host or add it to AU's result again. AU snapshots the reported request,
+the host or add it to the Meristem result again. Meristem snapshots the reported request,
 tool and token counters. It includes them once in terminal aggregate usage.
 It subtracts the elapsed time once from the execution deadline. Exhausted initial
 model bounds stop before model binding or child dispatch. Prior tool usage above
@@ -97,7 +97,7 @@ set this host-only input. Unreported token usage remains zero, not an estimate.
 
 If measured host work fails before a plan can return, the decision provider can
 raise `RunPlanFailure(error, initial_usage=usage, initial_elapsed_seconds=elapsed)`.
-AU validates the same inputs and includes the counters once in the terminal
+Meristem validates the same inputs and includes the counters once in the terminal
 event and result. It preserves the original failure or cancellation, without
 dispatching work or replacing a budget. Do not wrap a provider failure without
 a reported usage ledger or add these counters again in the host.
@@ -117,7 +117,7 @@ An unspecified parallel tool limit uses a finite fallback of fifty calls.
 Token limits use reported usage, including fallback attempts. In-flight token
 use is not known in advance. `RunBudget.max_concurrent_requests` also caps
 model requests (fallback: four); the task cap can be lower. On cancellation,
-AU drains child coroutines before invoking host-scope exit. Hosts own the
+Meristem drains child coroutines before invoking host-scope exit. Hosts own the
 cancellation safety of their asynchronous scope exits; repeated cancellation
 can interrupt that host cleanup. Host tools also own external work that cannot
 stop with their coroutine. No elapsed cleanup bound is promised for handlers
