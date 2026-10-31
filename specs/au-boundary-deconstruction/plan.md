@@ -1127,3 +1127,7 @@ One disposition per directory, checked by `test_domain_directory_has_one_recorde
 | `ontology/shapes/` | deleted |
 | `data/` | deleted |
 | `protocols/voice_supply_chain/` | deleted |
+
+## Consumer rows for medulla decisions (2026-10-30)
+
+Rows MERISTEM-BOUNDARY-R051 to MERISTEM-BOUNDARY-R055 file the in-run harness obligations of the medulla decision engine. The rows cover cut and ownership contracts for replay sources, study sources and withheld paths. Each rollup row names one medulla row. Each child row names the meristem file, the planned test and the received decision. The harness decides nothing in these rows. Any threshold is a received value with a fallback default. Medulla issue 1029 tracks the source decisions.

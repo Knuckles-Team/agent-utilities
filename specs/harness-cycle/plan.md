@@ -133,3 +133,7 @@ did not prove an owner-authenticated receipt or a released-client write.
 
 
 The probe host port is a fail-closed prerequisite. Requested component, seed, model and budget are inputs to the host, not proof of execution. An actual host provider must bind native admission and owner-resolved component materialization before R001.3 can be verified. No such provider is registered by this change. Measurement and persistence continue to refuse until separately verified evidence and an adoption receipt exist.
+
+## Consumer rows for medulla decisions (2026-10-30)
+
+Rows MERISTEM-HARNESS-CYCLE-R003 to MERISTEM-HARNESS-CYCLE-R053 file the in-run harness obligations of the medulla decision engine. The rows cover run loop behavior, context assembly, fan-out, sandbox limits and trace emission. Each rollup row names one medulla row. Each child row names the meristem file, the planned test and the received decision. The harness decides nothing in these rows. Any threshold is a received value with a fallback default. Medulla issue 1029 tracks the source decisions.
