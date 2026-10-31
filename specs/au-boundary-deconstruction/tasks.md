@@ -60,11 +60,11 @@ Each row expands into a PR checklist with changed paths, owner operation, positi
   - [x] **MERISTEM-BOUNDARY-R030.9.1:** RETIRED: superseded by MERISTEM-SEMANTIC-R021.2/R021.4 (SDK ontology pack + `ontology_publisher.py`, MERISTEM-BOUNDARY-R030.7).
   - [x] **MERISTEM-BOUNDARY-R030.9.2:** RETIRED: superseded by MERISTEM-SEMANTIC-R021.2/R021.4 (SDK ontology pack + `ontology_publisher.py`, MERISTEM-BOUNDARY-R030.7).
 - [x] **MERISTEM-BOUNDARY-R048.1:** `meristem/images/` already deleted/relocated; no remaining work on that directory
-- [ ] **MERISTEM-BOUNDARY-R048.2:** Relocate `domains/government/` to its epistemic-graph domain pack and delete from AU
-- [ ] **MERISTEM-BOUNDARY-R048.3:** Relocate `domains/hr/` to its epistemic-graph domain pack and delete from AU
-- [ ] **MERISTEM-BOUNDARY-R048.4:** Relocate `domains/law/` to its epistemic-graph domain pack and delete from AU
-- [ ] **MERISTEM-BOUNDARY-R048.5:** Relocate `domains/medical/` to its epistemic-graph domain pack and delete from AU
-- [ ] **MERISTEM-BOUNDARY-R048.6:** Relocate `models/domains/` to its epistemic-graph domain pack and delete from AU
+- [ ] **MERISTEM-BOUNDARY-R048.2:** Relocate `domains/government/` to its medulla domain pack and delete from AU
+- [ ] **MERISTEM-BOUNDARY-R048.3:** Relocate `domains/hr/` to its medulla domain pack and delete from AU
+- [ ] **MERISTEM-BOUNDARY-R048.4:** Relocate `domains/law/` to its medulla domain pack and delete from AU
+- [ ] **MERISTEM-BOUNDARY-R048.5:** Relocate `domains/medical/` to its medulla domain pack and delete from AU
+- [ ] **MERISTEM-BOUNDARY-R048.6:** Relocate `models/domains/` to its medulla domain pack and delete from AU
 - [ ] **MERISTEM-BOUNDARY-R048.8:** Assign and act on one disposition for `ontology/shapes/`
 - [ ] **MERISTEM-BOUNDARY-R048.9:** Assign and act on one disposition for `data/`
 - [ ] **MERISTEM-BOUNDARY-R048.10:** Assign and act on one disposition for `protocols/voice_supply_chain/`

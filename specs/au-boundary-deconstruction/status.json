@@ -1449,11 +1449,11 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R028.2.2",
-      "title": "RETIRED: superseded by EG-PLACEMENT-R001",
+      "title": "RETIRED: superseded by MEDULLA-PLACEMENT-R001",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "superseded by EG-PLACEMENT-R001"
+      "retired_reason": "superseded by MEDULLA-PLACEMENT-R001"
     },
     {
       "id": "MERISTEM-BOUNDARY-R028.3",
@@ -1528,11 +1528,11 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R028.6.2",
-      "title": "RETIRED: superseded by EG-CONTRACT-R051",
+      "title": "RETIRED: superseded by MEDULLA-CONTRACT-R051",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "superseded by EG-CONTRACT-R051"
+      "retired_reason": "superseded by MEDULLA-CONTRACT-R051"
     },
     {
       "id": "MERISTEM-BOUNDARY-R028.7",
@@ -1568,11 +1568,11 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R028.7.2",
-      "title": "RETIRED: superseded by EG-SRC-AUTH-R800",
+      "title": "RETIRED: superseded by MEDULLA-SRC-AUTH-R800",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "superseded by EG-SRC-AUTH-R800"
+      "retired_reason": "superseded by MEDULLA-SRC-AUTH-R800"
     },
     {
       "id": "MERISTEM-BOUNDARY-R028.8",
@@ -1608,11 +1608,11 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R028.8.2",
-      "title": "RETIRED: superseded by EG-PLACEMENT-R001",
+      "title": "RETIRED: superseded by MEDULLA-PLACEMENT-R001",
       "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "retired_reason": "superseded by EG-PLACEMENT-R001"
+      "retired_reason": "superseded by MEDULLA-PLACEMENT-R001"
     },
     {
       "id": "MERISTEM-BOUNDARY-R029",

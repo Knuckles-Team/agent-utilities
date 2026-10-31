@@ -6,7 +6,7 @@ Governing spec: [spec.md](spec.md).
 
 Commit c45f277c0 re-homed the AHE pillar out of agent-utilities. The
 program optimization, ablation, evaluation-loop and parallel-engine
-substrate now belongs to epistemic-graph, and the served operations
+substrate now belongs to medulla, and the served operations
 belong to arbora. The harness package keeps the constraint engine,
 contract validator, edit engine, plan, plan runtime and quality gates.
 The run loop enters through `execute_graph` at
@@ -45,7 +45,7 @@ arbora registers `HarnessCycleProvider` at startup and drives one tick
 per task. The tick reads the candidate budget k from the stage
 allocation in the run decision (MEDULLA-DECISION-ENGINE-R136.3). The
 reflect step reports the outcome through the existing `RunEventSink`,
-and arbora writes the trace into epistemic-graph.
+and arbora writes the trace into medulla.
 
 ## Quality and release gates
 

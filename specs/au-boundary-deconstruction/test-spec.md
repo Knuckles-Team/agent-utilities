@@ -24,7 +24,7 @@ receipt.
 
 The four R028 importer-set tests fail when a new current-harness importer is
 added and refuse unresolved dynamic imports. They do not establish the
-replacement capabilities. the engine rows `EG-PLACEMENT-R001`, `EG-CONTRACT-R051` and `EG-SRC-AUTH-R800`
+replacement capabilities. the engine rows `MEDULLA-PLACEMENT-R001`, `MEDULLA-CONTRACT-R051` and `MEDULLA-SRC-AUTH-R800`
 own the consumer or CI-gate proof.
 
 ## MERISTEM-BOUNDARY-R049 governed write-back

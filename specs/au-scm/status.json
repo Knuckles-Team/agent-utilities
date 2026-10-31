@@ -45,7 +45,7 @@
     },
     {
       "id": "MERISTEM-SCM-R003",
-      "title": "Consumer of EG-DECISION-ENGINE-R036 (rollup)",
+      "title": "Consumer of MEDULLA-DECISION-ENGINE-R036 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -62,7 +62,7 @@
     },
     {
       "id": "MERISTEM-SCM-R004",
-      "title": "Consumer of EG-DECISION-ENGINE-R135 (rollup)",
+      "title": "Consumer of MEDULLA-DECISION-ENGINE-R135 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -79,7 +79,7 @@
     },
     {
       "id": "MERISTEM-SCM-R005",
-      "title": "Consumer of EG-DECISION-ENGINE-R136 (rollup)",
+      "title": "Consumer of MEDULLA-DECISION-ENGINE-R136 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -96,7 +96,7 @@
     },
     {
       "id": "MERISTEM-SCM-R006",
-      "title": "Consumer of EG-DECISION-ENGINE-R138 (rollup)",
+      "title": "Consumer of MEDULLA-DECISION-ENGINE-R138 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -113,7 +113,7 @@
     },
     {
       "id": "MERISTEM-SCM-R007",
-      "title": "Consumer of EG-DECISION-ENGINE-R161 (rollup)",
+      "title": "Consumer of MEDULLA-DECISION-ENGINE-R161 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
