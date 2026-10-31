@@ -84,4 +84,4 @@ mcp_server = false
 
 [tool.pipelines_hooks.ste]
 paths = ["README.md", "AGENTS.md", "CLAUDE.md", "CHANGELOG.md", "specs"]
-exempt = ["specs/_template/*"]
+exempt = []
