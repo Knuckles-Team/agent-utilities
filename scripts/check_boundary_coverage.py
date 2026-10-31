@@ -10,8 +10,8 @@ from pathlib import Path, PurePosixPath
 def check(root: Path) -> list[str]:
     """Compare the first two package-directory levels with the inventory."""
     rows: dict[str, tuple[str, str]] = {}
-    coverage = root / "specs/au-boundary-deconstruction/coverage.md"
-    for line in coverage.read_text().splitlines():
+    coverage = root / "specs/au-boundary-deconstruction/plan.md"
+    for line in coverage.read_text().split("### Current package-directory ownership", 1)[-1].split("\n## ", 1)[0].splitlines():
         if not line.startswith("| `"):
             continue
         cells = [cell.strip() for cell in line.strip("|").split("|")]

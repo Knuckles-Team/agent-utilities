@@ -110,7 +110,7 @@ How to read it:
 | `meristem/claude_harness/` | 930 | keep in AU | MERISTEM-BOUNDARY-R043 | Coding-harness guard modules: a fence, a pre-tool-use check and an unattended runner. Retained runtime and developer tooling. |
 | `meristem/cli/` | 1,190 | keep in AU | MERISTEM-BOUNDARY-R043 | The unified `agent-utilities` command line entry point; retained runtime and developer tooling. It imports `governance/`, which R037 relocates, so that import must be removed or repointed. |
 | `meristem/core/` | 36,947 | split: relocate to agent-connector-sdk (6 modules); relocate to arbora (9 modules); relocate to epistemic-graph (3 modules); `config.py` split three ways; keep in AU (35 modules) | MERISTEM-BOUNDARY-R010, MERISTEM-BOUNDARY-R014, MERISTEM-BOUNDARY-R016, MERISTEM-BOUNDARY-R020 | Count includes the three child rows. 54 files sit directly here. The 35 modules that stay (15,441 lines) are model factory and providers, model routing and concurrency, schedulers, sessions, embedding utilities and resource budgeting, matching the agent/model third of the `config.py` split. |
-| `meristem/core/checkpoint/` | 769 | keep in AU | MERISTEM-BOUNDARY-R043 | One checkpoint manager module; retained agent-execution surface. It uses a SQL store and imports `knowledge_graph`, which must become a thin client over the engine rather than a second durable store. |
+| `meristem/core/checkpoint/` | 769 | keep in AU | MERISTEM-BOUNDARY-R043 | One checkpoint manager module; retained agent-execution surface. It uses a SQL store and imports `knowledge_graph`. That import must become a thin client over the engine, not a second durable store. |
 | `meristem/core/execution/` | 984 | keep in AU | MERISTEM-BOUNDARY-R043 | Unified execution contract package: protocol, adapters, provider proxy, stream handlers; retained agent-execution surface. |
 | `meristem/core/registry/` | 3,118 | split: delete as duplicate of engine (`kg_adapter.py`); keep in AU (`package_adapter.py`, `package_types.py`, `plugin_adapter.py`, `service_adapter.py`) | MERISTEM-BOUNDARY-R019 | `kg_adapter.py` (1,802 lines) is replaced by the engine composition in `api/`. The service, package and plugin adapters (4 files, 1,316 lines) are non-graph registry plumbing and stay. |
 | `meristem/data/` | 16 | relocate to arbora, together with its consumers | MERISTEM-BOUNDARY-R048 | One 16-line MCP configuration JSON file, read by `server/routers/interop.py` and `mcp/check_env_var_drift.py`. Operator ruling 2026-10-03: moves with those consumers in a later wave; not moved now. |
@@ -138,7 +138,7 @@ How to read it:
 | `meristem/integrations/` | 257 | keep in AU | MERISTEM-BOUNDARY-R043 | One git issue and pull-request resolver module; retained runtime and developer tooling. |
 | `meristem/knowledge_graph/` | 347,980 | split by child row. Direct files: delete as duplicate of engine (`facade.py`). Relocate to epistemic-graph (2 worker modules). Relocate to arbora (`readiness.py`). Relocate to agent-connector-sdk (`governance_import.py`). Keep in AU (`__main__.py`). Remainder undecided | MERISTEM-BOUNDARY-R014, MERISTEM-BOUNDARY-R018, MERISTEM-BOUNDARY-R020, MERISTEM-BOUNDARY-R024, MERISTEM-BOUNDARY-R045, MERISTEM-RETIRE-R001 | Count is the whole subtree. 17 files sit directly here. 11 (about 3,650 lines) are still not named: the workflow store and compilers, the process-plan compiler, migrations, `_engine_protocol.py`, `durable_execution_kg.py` and `ontology.lock`. |
 | `meristem/knowledge_graph/actions/` | 1,837 | delete as duplicate of engine | MERISTEM-BOUNDARY-R022 | Deleted once native engine coverage is proven. |
-| `meristem/knowledge_graph/adaptation/` | 5,281 | keep in AU | MERISTEM-BOUNDARY-R045 | Failure analysis, feedback, belief revision, contradiction detection, skill evolution and remediation playbooks; retained as policy/proposal orchestration. `belief_revision.py`'s deterministic confidence-propagation math is flagged for a later review of whether that specific calculation belongs in the epistemic graph instead. |
+| `meristem/knowledge_graph/adaptation/` | 5,281 | keep in AU | MERISTEM-BOUNDARY-R045 | Failure analysis, feedback, belief revision, contradiction detection, skill evolution and remediation playbooks; retained as policy/proposal orchestration. A later review decides if the deterministic confidence-propagation math of `belief_revision.py` belongs in the epistemic graph. |
 | `meristem/knowledge_graph/argumentation/` | 871 | delete as duplicate of engine | MERISTEM-BOUNDARY-R022 | Deleted once native engine coverage is proven. |
 | `meristem/knowledge_graph/assimilation/` | 4,807 | relocate to epistemic-graph | MERISTEM-BOUNDARY-R027 | Named wholesale. |
 | `meristem/knowledge_graph/backends/` | 12,810 | split: delete as duplicate of engine (`sparql/`); relocate to epistemic-graph (10 federation backends); keep in AU (`epistemic_graph_backend.py`, `base.py`, `__init__.py`) | MERISTEM-BOUNDARY-R032, MERISTEM-BOUNDARY-R033, MERISTEM-BOUNDARY-R045, MERISTEM-RETIRE-R001 | `epistemic_graph_backend.py` was previously kept only by design.md with no requirement ID; R045 is now its formal inventory owner. `base.py` defines the `GraphBackend` ABC that `epistemic_graph_backend.py` implements, and the 1,065-line `__init__.py` is the `create_backend()` factory that constructs it; both stay in AU as the retained backend's own infrastructure under R045, and may shrink further once R032/R033 finish moving every other backend out. MERISTEM-RETIRE-R001 also names `backends/owl/`, which does not exist. |
@@ -304,6 +304,20 @@ Two further inconsistencies, where the paths exist:
 - MERISTEM-BOUNDARY-R030 writes `core/ontology_publisher.py` and `extraction/schema_discovery.py`, MERISTEM-BOUNDARY-R026 writes `enrichment/git_history` and `enrichment/source_adapters`, and the MERISTEM-RETIRE requirements write `core/…`, `enrichment/…` and `ingestion/…`; all of these exist only under `meristem/knowledge_graph/`.
 
 Every console script and packaging extra named by a requirement (`arbora`, `arbora-daemon`, `agent-utilities-acp`, `agent-utilities-messaging`, `kg-ingest-worker`, `arbora-analytics-worker`, `setup-databases`, `arbora-certify-connector`, `gateway-widgets`) is declared in `pyproject.toml`. All other paths named by the two specs resolve to tracked files.
+
+### Current package-directory ownership
+
+Meristem retains the first two directory levels of its current package. A directory move changes this inventory and its owner decision in the same change. The owner guard checks Python modules on its own.
+
+| Directory | Disposition | Destination |
+|---|---|---|
+| `meristem/core` | keep | meristem |
+| `meristem/graph` | keep | meristem |
+| `meristem/harness` | keep | meristem |
+| `meristem/rlm` | keep | meristem |
+| `meristem/runtime` | keep | meristem |
+| `meristem/skills` | keep | meristem |
+| `meristem/skills/meristem-development` | keep | meristem |
 
 ## Amendment 2026-10-18: retain the run scaffold after the boundary cut
 
@@ -951,7 +965,7 @@ parity for the separate relocation requirements.
 
 ### R042 current directory coverage
 
-`coverage.md` lists each present directory at the first two package levels,
+The coverage inventory in this plan lists each present directory at the first two package levels,
 its disposition and its owner. The local and hosted coverage guard checks
 that inventory against the tree, rejects duplicate or undecided rows and
 requires an appropriate destination. Hermetic fixtures demonstrate unlisted
@@ -963,7 +977,7 @@ prove behavioral parity for earlier moves to other repositories.
 The current tree contains one skill-content directory,
 `meristem/skills/agent-utilities-development/`. It is the repository's
 development and release procedure, and remains in Meristem as recorded in
-`coverage.md`. No current skill-content directory is being relocated. The
+the coverage inventory of this plan. No current skill-content directory is being relocated. The
 skill ownership test enumerates the current directories and checks each kept
 skill has its own named definition; the coverage guard rejects unrecorded or
 stale directories.

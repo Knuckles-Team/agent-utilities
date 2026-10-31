@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.mark.spec("MERISTEM-BOUNDARY-R048.11")
 def test_every_current_skill_is_recorded_and_has_a_skill_definition() -> None:
     skill_root = ROOT / "meristem/skills"
-    coverage = (ROOT / "specs/au-boundary-deconstruction/coverage.md").read_text()
+    coverage = (ROOT / "specs/au-boundary-deconstruction/plan.md").read_text()
     directories = sorted(
         path
         for path in skill_root.iterdir()

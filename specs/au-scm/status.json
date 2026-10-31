@@ -15,7 +15,10 @@
     "MERISTEM-SCM-R006",
     "MERISTEM-SCM-R006.1",
     "MERISTEM-SCM-R007",
-    "MERISTEM-SCM-R007.1"
+    "MERISTEM-SCM-R007.1",
+    "MERISTEM-SCM-R008",
+    "MERISTEM-SCM-R009",
+    "MERISTEM-SCM-R010"
   ],
   "requirements": [
     {
@@ -42,7 +45,7 @@
     },
     {
       "id": "MERISTEM-SCM-R003",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R036 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R036 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -52,14 +55,14 @@
     },
     {
       "id": "MERISTEM-SCM-R003.1",
-      "title": "Emit verified coding-agent facts",
+      "title": "Emit verified agent facts and apply the plan",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MERISTEM-SCM-R004",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R135 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R135 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -69,14 +72,14 @@
     },
     {
       "id": "MERISTEM-SCM-R004.1",
-      "title": "Submit pre-plan test receipts",
+      "title": "Run pre-plan tests and attach their receipt to the program commit",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MERISTEM-SCM-R005",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R136 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R136 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -86,14 +89,14 @@
     },
     {
       "id": "MERISTEM-SCM-R005.1",
-      "title": "Declare a prediction before each edit",
+      "title": "Declare a prediction per edit",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MERISTEM-SCM-R006",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R138 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R138 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -103,14 +106,14 @@
     },
     {
       "id": "MERISTEM-SCM-R006.1",
-      "title": "Produce adversarial verifier receipts",
+      "title": "Adversarial verifier receipts",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MERISTEM-SCM-R007",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R161 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R161 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -120,7 +123,29 @@
     },
     {
       "id": "MERISTEM-SCM-R007.1",
-      "title": "Run the regression test on both revisions",
+      "title": "Regression test on both revisions",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-SCM-R008",
+      "title": "Engine decision port for the coding loop",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-SCM-R009",
+      "title": "RETIRED: duplicate of MERISTEM-SCM-R008",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "duplicate of MERISTEM-SCM-R008"
+    },
+    {
+      "id": "MERISTEM-SCM-R010",
+      "title": "Coding toolset is the caller of the changeset cycle",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

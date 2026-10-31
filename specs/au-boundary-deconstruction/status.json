@@ -130,6 +130,8 @@
     "MERISTEM-BOUNDARY-R032",
     "MERISTEM-BOUNDARY-R033",
     "MERISTEM-BOUNDARY-R034",
+    "MERISTEM-BOUNDARY-R034.1",
+    "MERISTEM-BOUNDARY-R034.2",
     "MERISTEM-BOUNDARY-R035",
     "MERISTEM-BOUNDARY-R036",
     "MERISTEM-BOUNDARY-R036.1",
@@ -219,7 +221,10 @@
     "MERISTEM-BOUNDARY-R054",
     "MERISTEM-BOUNDARY-R054.1",
     "MERISTEM-BOUNDARY-R055",
-    "MERISTEM-BOUNDARY-R055.1"
+    "MERISTEM-BOUNDARY-R055.1",
+    "MERISTEM-BOUNDARY-R056",
+    "MERISTEM-BOUNDARY-R057",
+    "MERISTEM-BOUNDARY-R058"
   ],
   "requirements": [
     {
@@ -804,12 +809,17 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R011",
-      "title": "Delete AU's source lifecycle and certification code",
-      "delivery_state": "SPECIFIED",
+      "title": "Meristem holds no source lifecycle, certification or manifest code",
+      "delivery_state": "VERIFIED",
       "landed_in": [
-        "2456745c1e4d"
+        "2456745c1e4d",
+        "bb80147da337"
       ],
-      "verified_by": [],
+      "verified_by": [
+        "tests/gates/test_boundary_r011_certification_deleted.py:7",
+        "tests/gates/test_boundary_r011_manifest_deleted.py:7",
+        "tests/gates/test_boundary_r011_source_connectors_deleted.py:7"
+      ],
       "rollup_of": [
         "MERISTEM-BOUNDARY-R011.1",
         "MERISTEM-BOUNDARY-R011.2",
@@ -828,24 +838,19 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R011.2",
-      "title": "ROLLUP: superseded by MERISTEM-BOUNDARY-R011.2.1...MERISTEM-BOUNDARY-R011.2.5",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the rollup is superseded; `tests/gates/test_boundary_r011_universal_connector_deleted.py` proves the module is gone",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "MERISTEM-BOUNDARY-R011.2.1",
-        "MERISTEM-BOUNDARY-R011.2.2",
-        "MERISTEM-BOUNDARY-R011.2.3",
-        "MERISTEM-BOUNDARY-R011.2.4",
-        "MERISTEM-BOUNDARY-R011.2.5"
-      ]
+      "retired_reason": "the rollup is superseded; `tests/gates/test_boundary_r011_universal_connector_deleted.py` proves the module is gone"
     },
     {
       "id": "MERISTEM-BOUNDARY-R011.2.1",
-      "title": "Add the read-only multi-database connector (SQL and MongoDB: `read`, `health_check`, `introspect`) to `agent-connector-sdk`",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the connectors `sql-mcp` and `documentdb-mcp` already serve database access",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "the connectors `sql-mcp` and `documentdb-mcp` already serve database access"
     },
     {
       "id": "MERISTEM-BOUNDARY-R011.2.2",
@@ -1809,7 +1814,7 @@
     {
       "id": "MERISTEM-BOUNDARY-R034",
       "title": "Move retrieval engines to EG",
-      "delivery_state": "VERIFIED",
+      "delivery_state": "SPECIFIED",
       "landed_in": [
         "4a5540dd2e3d",
         "58f9bdabb7b7",
@@ -1817,7 +1822,25 @@
       ],
       "verified_by": [
         "tests/gates/test_boundary_removal_census.py:46"
+      ],
+      "rollup_of": [
+        "MERISTEM-BOUNDARY-R034.1",
+        "MERISTEM-BOUNDARY-R034.2"
       ]
+    },
+    {
+      "id": "MERISTEM-BOUNDARY-R034.1",
+      "title": "The answer step calls the retrieval round and applies its verdicts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-BOUNDARY-R034.2",
+      "title": "The retrieval step applies the Discover quality verdict",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
     },
     {
       "id": "MERISTEM-BOUNDARY-R035",
@@ -2689,7 +2712,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R050",
-      "title": "The run loop checks the engine render receipt before model transport (rollup)",
+      "title": "The run loop checks the engine render receipt before model transport",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2759,7 +2782,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R050.6",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof of the render-receipt consumer",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -2922,7 +2945,7 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R051",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R139 (rollup)",
+      "title": "Consumer of the graph-backed study sources decision",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2932,14 +2955,14 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R051.1",
-      "title": "Accept graph-referenced study sources",
+      "title": "Accept graph-referenced and graph-ingested study sources",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MERISTEM-BOUNDARY-R052",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R162 (rollup)",
+      "title": "Consumer of the field shielding decision",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2956,24 +2979,23 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R053",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R163 (rollup)",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: the graph-ingested source decision uses the same admission path as the graph reference decision",
+      "delivery_state": "RETIRED",
       "landed_in": [],
       "verified_by": [],
-      "rollup_of": [
-        "MERISTEM-BOUNDARY-R053.1"
-      ]
+      "retired_reason": "the graph-ingested source decision uses the same admission path as the graph reference decision"
     },
     {
       "id": "MERISTEM-BOUNDARY-R053.1",
-      "title": "Accept graph-ingested study sources",
-      "delivery_state": "SPECIFIED",
+      "title": "RETIRED: graph-ingested sources arrive as `GraphRefSource` values, so one admit function serves both decisions",
+      "delivery_state": "RETIRED",
       "landed_in": [],
-      "verified_by": []
+      "verified_by": [],
+      "retired_reason": "graph-ingested sources arrive as `GraphRefSource` values, so one admit function serves both decisions"
     },
     {
       "id": "MERISTEM-BOUNDARY-R054",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R166 (rollup)",
+      "title": "Consumer of the workflow registry decision",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -2983,14 +3005,14 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R054.1",
-      "title": "Resolve each workflow through the registry",
+      "title": "Resolve each workflow through the registry before execution",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MERISTEM-BOUNDARY-R055",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R088 (rollup)",
+      "title": "Consumer of the replay decision",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -3000,7 +3022,28 @@
     },
     {
       "id": "MERISTEM-BOUNDARY-R055.1",
-      "title": "Treat the replay event source as external",
+      "title": "Treat the replay event source as an external producer",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-BOUNDARY-R056",
+      "title": "Resume consumes the arbora host checkpoint port",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-BOUNDARY-R057",
+      "title": "Declare the host-facing public module set",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-BOUNDARY-R058",
+      "title": "Deliver an admitted child message at the step boundary",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []

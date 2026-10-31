@@ -18,6 +18,8 @@
     "MERISTEM-HARNESS-CYCLE-R001.11",
     "MERISTEM-HARNESS-CYCLE-R001.12",
     "MERISTEM-HARNESS-CYCLE-R001.13",
+    "MERISTEM-HARNESS-CYCLE-R001.14",
+    "MERISTEM-HARNESS-CYCLE-R001.15",
     "MERISTEM-HARNESS-CYCLE-R002",
     "MERISTEM-HARNESS-CYCLE-R003",
     "MERISTEM-HARNESS-CYCLE-R003.1",
@@ -43,12 +45,16 @@
     "MERISTEM-HARNESS-CYCLE-R012.1",
     "MERISTEM-HARNESS-CYCLE-R013",
     "MERISTEM-HARNESS-CYCLE-R013.1",
+    "MERISTEM-HARNESS-CYCLE-R013.2",
     "MERISTEM-HARNESS-CYCLE-R014",
     "MERISTEM-HARNESS-CYCLE-R014.1",
     "MERISTEM-HARNESS-CYCLE-R015",
     "MERISTEM-HARNESS-CYCLE-R015.1",
+    "MERISTEM-HARNESS-CYCLE-R015.1.1",
     "MERISTEM-HARNESS-CYCLE-R016",
     "MERISTEM-HARNESS-CYCLE-R016.1",
+    "MERISTEM-HARNESS-CYCLE-R016.2",
+    "MERISTEM-HARNESS-CYCLE-R016.3",
     "MERISTEM-HARNESS-CYCLE-R017",
     "MERISTEM-HARNESS-CYCLE-R017.1",
     "MERISTEM-HARNESS-CYCLE-R017.2",
@@ -143,7 +149,37 @@
     "MERISTEM-HARNESS-CYCLE-R052",
     "MERISTEM-HARNESS-CYCLE-R052.1",
     "MERISTEM-HARNESS-CYCLE-R053",
-    "MERISTEM-HARNESS-CYCLE-R053.1"
+    "MERISTEM-HARNESS-CYCLE-R053.1",
+    "MERISTEM-HARNESS-CYCLE-R054",
+    "MERISTEM-HARNESS-CYCLE-R055",
+    "MERISTEM-HARNESS-CYCLE-R056",
+    "MERISTEM-HARNESS-CYCLE-R057",
+    "MERISTEM-HARNESS-CYCLE-R058",
+    "MERISTEM-HARNESS-CYCLE-R059",
+    "MERISTEM-HARNESS-CYCLE-R060",
+    "MERISTEM-HARNESS-CYCLE-R061",
+    "MERISTEM-HARNESS-CYCLE-R062",
+    "MERISTEM-HARNESS-CYCLE-R063",
+    "MERISTEM-HARNESS-CYCLE-R064",
+    "MERISTEM-HARNESS-CYCLE-R065",
+    "MERISTEM-HARNESS-CYCLE-R066",
+    "MERISTEM-HARNESS-CYCLE-R067",
+    "MERISTEM-HARNESS-CYCLE-R068",
+    "MERISTEM-HARNESS-CYCLE-R069",
+    "MERISTEM-HARNESS-CYCLE-R070",
+    "MERISTEM-HARNESS-CYCLE-R071",
+    "MERISTEM-HARNESS-CYCLE-R072",
+    "MERISTEM-HARNESS-CYCLE-R073",
+    "MERISTEM-HARNESS-CYCLE-R074",
+    "MERISTEM-HARNESS-CYCLE-R075",
+    "MERISTEM-HARNESS-CYCLE-R076",
+    "MERISTEM-HARNESS-CYCLE-R077",
+    "MERISTEM-HARNESS-CYCLE-R078",
+    "MERISTEM-HARNESS-CYCLE-R079",
+    "MERISTEM-HARNESS-CYCLE-R080",
+    "MERISTEM-HARNESS-CYCLE-R081",
+    "MERISTEM-HARNESS-CYCLE-R082",
+    "MERISTEM-HARNESS-CYCLE-R083"
   ],
   "requirements": [
     {
@@ -165,7 +201,9 @@
         "MERISTEM-HARNESS-CYCLE-R001.10",
         "MERISTEM-HARNESS-CYCLE-R001.11",
         "MERISTEM-HARNESS-CYCLE-R001.12",
-        "MERISTEM-HARNESS-CYCLE-R001.13"
+        "MERISTEM-HARNESS-CYCLE-R001.13",
+        "MERISTEM-HARNESS-CYCLE-R001.14",
+        "MERISTEM-HARNESS-CYCLE-R001.15"
       ]
     },
     {
@@ -259,21 +297,21 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R001.9",
-      "title": "Hot-path proof",
+      "title": "Hot-path proof: served cycle journey",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R001.10",
-      "title": "Persist through the released client",
+      "title": "Persist through the engine decision port",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R001.11",
-      "title": "Host registration",
+      "title": "Host registration and tick trigger",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
@@ -305,15 +343,30 @@
       ]
     },
     {
-      "id": "MERISTEM-HARNESS-CYCLE-R002",
-      "title": "A run consumes and retrieves graph episodes",
+      "id": "MERISTEM-HARNESS-CYCLE-R001.14",
+      "title": "Contrast request carries trace references; the engine measures",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
+      "id": "MERISTEM-HARNESS-CYCLE-R001.15",
+      "title": "Candidate bounds are received values",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R002",
+      "title": "RETIRED: duplicate of the episode consumer row",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "duplicate of the episode consumer row"
+    },
+    {
       "id": "MERISTEM-HARNESS-CYCLE-R003",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R014 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R014 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -323,14 +376,14 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R003.1",
-      "title": "Record execution cost in the usage ledger",
+      "title": "Report each model step's cost as a usage event",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R004",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R020 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R020 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -340,14 +393,14 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R004.1",
-      "title": "Record run outcomes through DecisionLog Evaluate",
+      "title": "Record run outcomes through `DecisionLog` `Evaluate`",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R005",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R029 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R029 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -365,14 +418,14 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R005.2",
-      "title": "Load the immutable command file",
+      "title": "Verify the immutable command file against the record",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R006",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R035 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R035 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -390,14 +443,14 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R006.2",
-      "title": "Submit a TaskPlan on ROUTE_NO_STAGE",
+      "title": "Submit a task plan when no route stage matches",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R007",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R121 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R121 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -414,7 +467,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R008",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R129 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R129 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -431,7 +484,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R009",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R036 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R036 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -448,7 +501,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R010",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R046 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R046 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -465,7 +518,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R011",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R106 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R106 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -482,7 +535,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R012",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R111 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R111 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -499,12 +552,13 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R013",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R172 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R172 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "MERISTEM-HARNESS-CYCLE-R013.1"
+        "MERISTEM-HARNESS-CYCLE-R013.1",
+        "MERISTEM-HARNESS-CYCLE-R013.2"
       ]
     },
     {
@@ -515,8 +569,15 @@
       "verified_by": []
     },
     {
+      "id": "MERISTEM-HARNESS-CYCLE-R013.2",
+      "title": "Report capability outcomes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "MERISTEM-HARNESS-CYCLE-R014",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R814 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R814 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -533,7 +594,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R015",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R128 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R128 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -546,16 +607,28 @@
       "title": "Apply the sealed harness configuration",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
+      "verified_by": [],
+      "rollup_of": [
+        "MERISTEM-HARNESS-CYCLE-R015.1.1"
+      ]
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R015.1.1",
+      "title": "The run loop enforces the signed allowed tool subset",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R016",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R133 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R133 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
       "rollup_of": [
-        "MERISTEM-HARNESS-CYCLE-R016.1"
+        "MERISTEM-HARNESS-CYCLE-R016.1",
+        "MERISTEM-HARNESS-CYCLE-R016.2",
+        "MERISTEM-HARNESS-CYCLE-R016.3"
       ]
     },
     {
@@ -566,8 +639,22 @@
       "verified_by": []
     },
     {
+      "id": "MERISTEM-HARNESS-CYCLE-R016.2",
+      "title": "Attach run trace receipt nodes to the terminal result",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R016.3",
+      "title": "Read trace critique pages",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
       "id": "MERISTEM-HARNESS-CYCLE-R017",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R137 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R137 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -624,7 +711,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R018",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R148 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R148 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -641,7 +728,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R019",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R158 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R158 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -658,7 +745,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R020",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R165 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R165 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -668,14 +755,14 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R020.1",
-      "title": "Ask tool necessity before each tool decision",
+      "title": "Compare each tool decision with the engine measure",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R021",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R134 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R134 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -756,7 +843,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R022",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R135 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R135 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -789,7 +876,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R023",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R139 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R139 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -806,7 +893,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R024",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R156 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R156 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -823,7 +910,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R025",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R159 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R159 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -840,7 +927,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R026",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R171 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R171 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -857,7 +944,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R027",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R750 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R750 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -874,7 +961,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R028",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R751 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R751 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -891,7 +978,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R029",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R752 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R752 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -908,7 +995,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R030",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R753 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R753 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -925,7 +1012,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R031",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R144 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R144 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -942,7 +1029,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R032",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R146 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R146 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -959,7 +1046,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R033",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R147 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R147 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -969,14 +1056,14 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R033.1",
-      "title": "Accept the no-model-call contract",
+      "title": "Accept the no-model-call rank result",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R034",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R149 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R149 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1001,7 +1088,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R035",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R150 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R150 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1018,7 +1105,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R036",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R152 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R152 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1043,7 +1130,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R037",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R153 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R153 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1060,7 +1147,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R038",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R155 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R155 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1077,7 +1164,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R039",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R164 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R164 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1094,7 +1181,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R040",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R651 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R651 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1111,7 +1198,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R041",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R059 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R059 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1136,7 +1223,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R042",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R136 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R136 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1153,7 +1240,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R043",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R654 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R654 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1170,7 +1257,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R044",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R805 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R805 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1187,7 +1274,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R045",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R143 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R143 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1204,7 +1291,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R046",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R653 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R653 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1221,7 +1308,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R047",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R705 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R705 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1238,7 +1325,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R048",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R140 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R140 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1279,7 +1366,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R049",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R142 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R142 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1296,7 +1383,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R050",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R157 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R157 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1313,7 +1400,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R051",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R160 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R160 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1330,7 +1417,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R052",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R168 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R168 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1347,7 +1434,7 @@
     },
     {
       "id": "MERISTEM-HARNESS-CYCLE-R053",
-      "title": "Consumer of MEDULLA-DECISION-ENGINE-R169 (rollup)",
+      "title": "Consumer of EG-DECISION-ENGINE-R169 (rollup)",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": [],
@@ -1358,6 +1445,218 @@
     {
       "id": "MERISTEM-HARNESS-CYCLE-R053.1",
       "title": "Grade every output and loop on continue or stop",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R054",
+      "title": "Run loop refuses tool calls outside the carried subset",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R055",
+      "title": "The tool guard asks `arbora.plan/confirm` for an action admission and treats every refusal as deny",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R056",
+      "title": "The run loop applies a held item only after an admitted verdict",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R057",
+      "title": "Submit the local-model certification receipt to the engine",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R058",
+      "title": "Export the harness environment declarations",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R059",
+      "title": "Apply a received skill transformation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R060",
+      "title": "Declare child-run lineage in run events",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R061",
+      "title": "Record client-monotonic elapsed time per turn",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R062",
+      "title": "Emit serving technique benchmark receipts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R063",
+      "title": "Emit liveness evidence and stop a bound process",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R064",
+      "title": "Record evolution proposal progress facts",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R065",
+      "title": "Run loop requests and applies historical impact risk",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R066",
+      "title": "The harness consumes n-ary hypotheses as proposals only",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R067",
+      "title": "Run retrieval step submits ContextCompile and renders the bundle",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R068",
+      "title": "Invoke the admitted summary provider and mint the receipt",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R069",
+      "title": "Apply the received nested input projection before dispatch",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R070",
+      "title": "Export parent and child spans with run correlation",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R071",
+      "title": "Record and send the run observation window",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R072",
+      "title": "Compare replayed step digests with the stored digests",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R073",
+      "title": "Produce the code walkthrough manifest for a run",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R074",
+      "title": "Ask recruit and allocate and advance instance state",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R075",
+      "title": "Report run success only after a matched readback",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R076",
+      "title": "Verify the prompt render receipt before model dispatch",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R077",
+      "title": "Replay recorded engine answers for consumer run tests",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R078",
+      "title": "Run lifecycle hooks called from the run loop",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R079",
+      "title": "Extend the engine decision port with served reads and writes",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R080",
+      "title": "RETIRED: duplicate of MERISTEM-HARNESS-CYCLE-R077",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "duplicate of MERISTEM-HARNESS-CYCLE-R077"
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R081",
+      "title": "RETIRED: duplicate of MERISTEM-HARNESS-CYCLE-R078",
+      "delivery_state": "RETIRED",
+      "landed_in": [],
+      "verified_by": [],
+      "retired_reason": "duplicate of MERISTEM-HARNESS-CYCLE-R078"
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R082",
+      "title": "Condition the next step on a committed observation reference",
+      "delivery_state": "SPECIFIED",
+      "landed_in": [],
+      "verified_by": []
+    },
+    {
+      "id": "MERISTEM-HARNESS-CYCLE-R083",
+      "title": "Export meristem environment declarations",
       "delivery_state": "SPECIFIED",
       "landed_in": [],
       "verified_by": []
