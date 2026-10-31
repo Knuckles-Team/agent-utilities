@@ -21,7 +21,7 @@ why, and the evidence run behind it.
 
 Commit c45f277c0 re-homed the `harness-evolution` spec (MERISTEM-HARNESS,
 snapshot 5eb8d85a3) out of agent-utilities. The substrate moved to
-epistemic-graph: the versioned components and the improvement library
+medulla: the versioned components and the improvement library
 (MEDULLA-ORCH-VOCAB-R801/R802) and the contrastive composition decision
 (MEDULLA-DECISION-ENGINE-R803). It moved to arbora: the served read and
 adoption operations (ARBORA-OPS-R068). This repository keeps the
@@ -41,7 +41,7 @@ harness switch runs through `apply_edits`
 (`meristem/harness/edit_engine.py:457`). arbora drives the host
 port. The candidate budget k comes from the stage allocation of
 MEDULLA-DECISION-ENGINE-R136.3. Non-goals: versioned component storage and
-lesson storage (epistemic-graph). The served operations (arbora). Any
+lesson storage (medulla). The served operations (arbora). Any
 local ranking of candidates. The measured contrast is the authority.
 
 ## Traceability
