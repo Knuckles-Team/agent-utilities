@@ -17,7 +17,7 @@ integration, quality and release proof), `tasks.md` (ordered implementation and 
 and `status.json` (machine-readable delivery, acceptance, and public receipts, including a
 `requirements` array with one entry per requirement ID carrying its own `delivery_state` and
 evidence).
-Start from [`_template/`](_template/). Keep status and evidence explicit; a planned or tested item
+Start from the templates in `.specify/templates/`. Keep status and evidence explicit; a planned or tested item
 is not a landed item. Put durable evidence links in the spec directory, never local scratch output.
 This follows a specify/plan/tasks flow with an explicit test contract.
 
